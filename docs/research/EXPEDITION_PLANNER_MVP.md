@@ -1,4 +1,4 @@
-# Offline Expedition Planner MVP
+# Expedition Planning and Action Safety MVP
 
 Date: 2026-10-21
 Status: IMPLEMENTED_ON_BRANCH; CI_STATUS_MUST_MATCH_LATEST_HEAD
@@ -7,7 +7,7 @@ Implementation: Python standard library only
 
 ## Scope
 
-This increment adds deterministic, side-effect-free readiness evaluation and fleet rotation selection. It is a planning primitive, not a POI integration and not a live expedition executor.
+This increment adds deterministic, side-effect-free fleet readiness evaluation, fleet rotation selection, and a preflight gate for future action adapters. It is not a POI integration and does not execute game actions.
 
 ## Readiness decisions
 
@@ -23,20 +23,25 @@ This increment adds deterministic, side-effect-free readiness evaluation and fle
 
 `select_next_expedition_fleet` evaluates all supplied snapshots and selects only from ready fleets. Optional preferred fleet IDs provide deterministic priority; otherwise the lowest ready fleet ID wins. Duplicate fleet IDs and duplicate preferences are rejected. When no fleet is ready, the selection is `None`.
 
+## Action preflight
+
+`authorize_planned_action` validates a non-empty action name, requires fresh timezone-aware observed state, and then checks the explicit `SafetyPolicy`. The default policy blocks live actions. If live actions are enabled, explicit confirmation is still required by default. A successful preflight returns evidence metadata only; it does not call POI or execute the action.
+
 ## Safety properties
 
-- The planner performs no I/O, network access, POI calls, or game actions.
+- Planning and preflight perform no I/O, network access, POI calls, or game actions.
 - An elapsed timer does not imply the server/client state has updated.
 - Unknown mission return time blocks progression.
-- All supplied timestamps must be timezone-aware.
-- `READY_TO_DISPATCH` and the selected fleet are recommendations only; a future executor must apply the separate safety policy and verify fresh state immediately before any action.
-- The planner does not infer repair, resupply, or mission-selection policy.
+- Stale and future-dated observations are rejected.
+- Fleet readiness and selected fleet are recommendations only.
 - Fleet rotation does not mutate snapshots or persist scheduling history.
+- A future executor must re-check state at the point of action and provide audit logging and a reliable stop mechanism.
 
 ## Tests
 
-- `tests/test_expedition_planner.py` covers readiness decisions and invalid snapshot combinations.
-- `tests/test_expedition_rotation.py` covers deterministic selection, preference handling, blocked fleets, duplicate input rejection, and empty input.
+- `tests/test_expedition_planner.py`: readiness decisions and invalid snapshot combinations.
+- `tests/test_expedition_rotation.py`: deterministic selection, preference handling, blocked fleets, duplicate input rejection, and empty input.
+- `tests/test_action_preflight.py`: default-deny policy, explicit confirmation, stale/future observations, and preflight evidence.
 - Tests use Python's standard-library `unittest`.
 
 ## Evidence classification
