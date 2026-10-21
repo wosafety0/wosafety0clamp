@@ -137,3 +137,62 @@ Timing variation may be used as conservative interaction pacing and to avoid bri
 - CDP screenshot behavior when Poi is minimized: not verified on target machine.
 - Cached-state/login distinction: accepted as a safety requirement; exact runtime signal remains to be identified.
 - Windows Poi 12.0.1 runtime, actual fleet payload, CDP screenshot freshness, and end-to-end expedition cycle: still pending local validation.
+
+
+## Independent fact-check of supplemental claims (2026-10-22)
+
+This section separates source-confirmed facts from claims that still require a target-machine experiment. The original supplemental summary is not treated as an authoritative source.
+
+### Claim: "Poi always stops rendering when minimized"
+
+**Verdict: plausible risk, but the absolute wording is not verified.**
+
+- Electron's official BrowserWindow documentation says the Page Visibility API reports a window as hidden when minimized, and `backgroundThrottling` defaults to true; this option affects animation/timer throttling and frame drawing. Source: https://www.electronjs.org/docs/latest/api/browser-window
+- This supports treating minimized rendering as a risk, but it does not establish that Poi 12.0.1 always freezes every renderer or that CDP screenshots must be stale.
+- Design decision: require the initial local test to compare repeated CDP captures before/during/after minimization and correlate them with an observable game/UI state change. Until then, do not promise reliable minimized operation. A separate Windows virtual desktop is only a possible workaround, not a verified requirement or solution.
+
+### Claim: "Always use CDP screenshots; never use desktop-wide capture"
+
+**Verdict: good privacy and targeting policy for this project; the claimed 'official Poi Agent Skill' provenance is unverified.**
+
+- The search performed for this review did not find an official Poi-owned Agent Skill containing the quoted rule. Do not cite that attribution unless a precise official URL/repository path is supplied and checked.
+- CDP's `Page.captureScreenshot` is a renderer-target capture mechanism, but success alone proves only that a screenshot response was returned. It does not prove that the frame is fresh, that the game is logged in, or that the correct Poi target was selected.
+- Project policy remains: use CDP renderer capture for visual evidence and avoid `CopyFromScreen` / full-desktop screenshots to reduce unrelated-window privacy exposure. Validate target selection against the actual Poi 12.0.1 `/json/list` output.
+
+### Claim: "Node 22+ has built-in WebSocket"
+
+**Verdict: verified with version nuance.**
+
+Node's official global API history says WebSocket was added in Node 21.0.0 and 20.10.0, ceased to be experimental in 22.4.0, and is stable in 22.4.0 onward. Source: https://nodejs.org/api/globals.html
+Therefore "Node 22+" is a safe practical baseline, but it is not the earliest version with the API.
+
+### Claim: Poi Redux state may be cached and may be nearly empty before login
+
+**Verdict: verified by official Poi developer documentation.**
+
+Poi's Redux documentation explicitly states that store data is synced in localStorage, distinguishes master data from player-specific data, and warns that the store may be nearly empty when Poi is fresh or not logged in. It documents `store.info.fleets` as a zero-based array of length four and `store.info.ships`, `store.info.resources`, and `store.info.quests`. Source: https://dev.poi.moe/docs/api/redux
+This supports a hard safety rule: a non-empty cached fleet/ship payload alone is not proof of an active game session. The exact live-session signal still needs to be selected and tested.
+
+### Claim: `minagi/poi-plugin-mcp` offers HTTP read endpoints and port discovery
+
+**Verdict: verified in that repository's README; Poi 12.0.1 compatibility is unverified.**
+
+The public README currently documents fork tag `v0.2.30-minagi.1`, loopback listener default `127.0.0.1:17777`, `GET /health`, a port file at `%USERPROFILE%\\.poi-mcp\\port`, and read endpoints including `/fleets`, `/ships`, `/resources`, and `/quests`. Source: https://github.com/minagi/poi-plugin-mcp/blob/main/README.md
+The README also documents optional WebView input and debug-evaluation features; those are outside KancolleBot's read-only prototype and must not be enabled or called. The verifier only probes documented read endpoints, but actual installation/runtime compatibility is not established. The repo is a fork of npm `poi-plugin-mcp` 0.2.29 and has a different install procedure from the upstream npm package; do not treat those as interchangeable.
+
+### Additional candidate discovered during review
+
+The Poi organization has a public repository, `poooi/plugin-server`, describing a versioned, authenticated, read-only JSON/WebSocket/MCP projection with default loopback port 8765. Source: https://github.com/poooi/plugin-server
+This repository is a separate candidate—not the same project as `minagi/poi-plugin-mcp` or `momocow/poi-plugin-nanodesu-mcp`. It should be evaluated from its own README, security model, package requirements, and Poi-version compatibility before any selection. It is not being adopted automatically.
+
+### Claim: "Randomized human-like actions reduce automation detection"
+
+**Verdict: unsupported as a safety guarantee.**
+
+No evidence has been established here that timing jitter or curved cursor paths make this game automation safe or undetectable. They must not be presented as anti-detection guarantees. Engineering priority remains correct state, bounded actions, idempotency/duplicate prevention, stop conditions, and verifiable post-action outcomes.
+
+### Fact-check outcome
+
+- Confirmed from primary documentation: Poi Redux data paths and localStorage persistence; Electron minimized/visibility and background-throttling behavior; Node built-in WebSocket version history; alternative bridge README's documented endpoints and port file.
+- Not established: exact Poi 12.0.1 minimization freeze; stale/fresh CDP frame behavior in this app; the claimed official Poi visual-verification skill; successful runtime compatibility of either bridge; active-login signal; any anti-detection benefit from randomized input.
+- No plugin installation or live game action was performed as part of this review.
