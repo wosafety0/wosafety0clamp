@@ -1,6 +1,8 @@
 import unittest
+from datetime import datetime, timedelta, timezone
 
 from kancollebot.core.models import FleetState, ShipState
+from kancollebot.core.observed_state import ObservedState
 from kancollebot.safety.policy import SafetyPolicy
 
 
@@ -26,6 +28,48 @@ class FleetStateTests(unittest.TestCase):
     def test_rejects_more_than_six_ships(self):
         with self.assertRaises(ValueError):
             FleetState(fleet_id=1, ship_ids=(1, 2, 3, 4, 5, 6, 7))
+
+
+class ObservedStateTests(unittest.TestCase):
+    def setUp(self):
+        self.now = datetime(2026, 10, 21, 14, 0, tzinfo=timezone.utc)
+        self.max_age = timedelta(seconds=30)
+
+    def test_accepts_fresh_timezone_aware_state(self):
+        state = ObservedState(
+            payload={"fleet_id": 1},
+            observed_at=self.now - timedelta(seconds=20),
+            source="test-fixture",
+        )
+        self.assertTrue(state.is_fresh(now=self.now, max_age=self.max_age))
+        state.require_fresh(now=self.now, max_age=self.max_age)
+
+    def test_rejects_stale_state(self):
+        state = ObservedState(
+            payload={},
+            observed_at=self.now - timedelta(seconds=31),
+            source="test-fixture",
+        )
+        self.assertFalse(state.is_fresh(now=self.now, max_age=self.max_age))
+        with self.assertRaisesRegex(ValueError, "stale"):
+            state.require_fresh(now=self.now, max_age=self.max_age)
+
+    def test_rejects_future_dated_state(self):
+        state = ObservedState(
+            payload={},
+            observed_at=self.now + timedelta(seconds=1),
+            source="test-fixture",
+        )
+        self.assertFalse(state.is_fresh(now=self.now, max_age=self.max_age))
+
+    def test_rejects_naive_observation_time(self):
+        with self.assertRaisesRegex(ValueError, "timezone-aware"):
+            ObservedState(payload={}, observed_at=datetime(2026, 10, 21), source="test")
+
+    def test_rejects_negative_max_age(self):
+        state = ObservedState(payload={}, observed_at=self.now, source="test")
+        with self.assertRaisesRegex(ValueError, "negative"):
+            state.is_fresh(now=self.now, max_age=timedelta(seconds=-1))
 
 
 class SafetyPolicyTests(unittest.TestCase):
