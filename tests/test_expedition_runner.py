@@ -1,0 +1,109 @@
+"""Offline tests for the expedition cycle coordinator."""
+
+import unittest
+from datetime import datetime, timedelta, timezone
+
+from kancollebot.core.observed_state import ObservedState
+from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
+from kancollebot.expeditions.runner import ExpeditionRunner
+from kancollebot.safety.policy import SafetyPolicy
+
+
+NOW = datetime(2026, 10, 21, 12, 0, tzinfo=timezone.utc)
+
+
+def fleet(fleet_id: int = 2) -> ExpeditionFleetSnapshot:
+    return ExpeditionFleetSnapshot(
+        fleet_id=fleet_id,
+        ship_ids=(1, 2, 3, 4, 5, 6),
+        fuel_ready=True,
+        ammo_ready=True,
+    )
+
+
+class FakeAdapter:
+    def __init__(self, *, observed_at=NOW, snapshots=(fleet(),), fail_dispatch=False):
+        self.state = ObservedState(tuple(snapshots), observed_at, "fake-poi")
+        self.dispatches = []
+        self.fail_dispatch = fail_dispatch
+
+    def read_fleets(self):
+        return self.state
+
+    def dispatch_expedition(self, *, fleet_id, mission_id):
+        self.dispatches.append((fleet_id, mission_id))
+        if self.fail_dispatch:
+            raise TimeoutError("simulated ambiguous timeout")
+
+
+class ExpeditionRunnerTests(unittest.TestCase):
+    def policy(self):
+        return SafetyPolicy(allow_live_actions=True, require_explicit_confirmation=True)
+
+    def test_default_policy_blocks_dispatch(self):
+        adapter = FakeAdapter()
+        result = ExpeditionRunner(adapter).run_once(
+            mission_id=1, now=NOW, max_state_age=timedelta(seconds=30),
+            policy=SafetyPolicy(),
+        )
+        self.assertEqual(result.status, "blocked_by_preflight")
+        self.assertEqual(adapter.dispatches, [])
+
+    def test_confirmed_fresh_state_dispatches_once(self):
+        adapter = FakeAdapter()
+        runner = ExpeditionRunner(adapter)
+        kwargs = dict(
+            mission_id=1, now=NOW, max_state_age=timedelta(seconds=30),
+            policy=self.policy(), confirmed=True,
+        )
+        first = runner.run_once(**kwargs)
+        second = runner.run_once(**kwargs)
+        self.assertEqual(first.status, "dispatch_requested")
+        self.assertEqual(second.status, "duplicate_blocked")
+        self.assertEqual(adapter.dispatches, [(2, 1)])
+
+    def test_stale_state_blocks(self):
+        adapter = FakeAdapter(observed_at=NOW - timedelta(minutes=2))
+        result = ExpeditionRunner(adapter).run_once(
+            mission_id=1, now=NOW, max_state_age=timedelta(seconds=30),
+            policy=self.policy(), confirmed=True,
+        )
+        self.assertEqual(result.status, "blocked_by_preflight")
+        self.assertEqual(adapter.dispatches, [])
+
+    def test_stop_blocks_without_reading_or_dispatching(self):
+        adapter = FakeAdapter()
+        runner = ExpeditionRunner(adapter)
+        runner.stop()
+        result = runner.run_once(
+            mission_id=1, now=NOW, max_state_age=timedelta(seconds=30),
+            policy=self.policy(), confirmed=True,
+        )
+        self.assertEqual(result.status, "stopped")
+        self.assertEqual(adapter.dispatches, [])
+
+    def test_no_ready_fleet_does_not_dispatch(self):
+        adapter = FakeAdapter(snapshots=())
+        result = ExpeditionRunner(adapter).run_once(
+            mission_id=1, now=NOW, max_state_age=timedelta(seconds=30),
+            policy=self.policy(), confirmed=True,
+        )
+        self.assertEqual(result.status, "no_ready_fleet")
+        self.assertEqual(adapter.dispatches, [])
+
+    def test_ambiguous_adapter_failure_blocks_same_observation_retry(self):
+        adapter = FakeAdapter(fail_dispatch=True)
+        runner = ExpeditionRunner(adapter)
+        kwargs = dict(
+            mission_id=1, now=NOW, max_state_age=timedelta(seconds=30),
+            policy=self.policy(), confirmed=True,
+        )
+        first = runner.run_once(**kwargs)
+        second = runner.run_once(**kwargs)
+        self.assertEqual(first.status, "dispatch_outcome_unknown")
+        self.assertEqual(second.status, "duplicate_blocked")
+        self.assertEqual(len(adapter.dispatches), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
