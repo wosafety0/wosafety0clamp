@@ -12,12 +12,22 @@ Secondary reference: KCA / kcauto_custom
 The user explicitly defines **KCV as 非提助手**, with official site:
 https://kancolleassistant.mechland.cn/
 
-Do not confuse this with the separate public repository `Grabacr07/KanColleViewer`, which is a C#/WPF browser/viewer. The latter is not the primary automation project requested by the user.
+Do not confuse this with the separate public `Grabacr07/KanColleViewer` project. That Viewer is not the primary automation project requested by the user.
 
 KCA refers to `kcauto_custom`:
 https://github.com/XVs32/kcauto_custom
 
-Use KCA as a supplementary implementation and cross-check when KCV behavior is hard to understand or evidence is missing. Do not replace KCV-first research with KCA-first implementation.
+Use KCA as a supplementary implementation and cross-check when KCV behavior is hard to understand or evidence is missing. Do not replace KCV-first research with KCA-first implementation, and do not attribute KCA-only behavior to KCV.
+
+## Existing local research material and boundaries
+
+The user previously identified the historical KCV source root as `D:\\KancolleBot\\Source\\KCV` and the deobfuscation report directory as `D:\\KancolleBot\\Reports\\KCV_Deobfuscation`. These are in the old project tree. Per user instruction, do not automatically scan, read, or modify the old `D:\\KancolleBot\\Source` tree. Continue from material already present in the current project, supplied files, and existing research records.
+
+The user specifically confirmed these current-project files as KCV-related Assistant automation research material:
+- `02_ReverseEngineering/KCA/OriginalReferences_Deobfuscation_Test/Grabacr07.KanColleViewer.Models/Assistant.cs`
+- `02_ReverseEngineering/KCA/OriginalReferences_Deobfuscation_Test/Grabacr07.KanColleViewer.Views.Assistant/AutoSortie.xaml.cs`
+
+Despite the historical directory name containing `KCA`, do not classify those files as kcauto_custom source. Preserve them as local research references; do not upload third-party source files to GitHub until license and necessity are reviewed. Upload our own analysis and minimal evidence instead.
 
 ## Research goals
 
@@ -56,13 +66,13 @@ Consult `kcauto_custom` when:
 - a specific expedition/combat behavior needs an independent comparison;
 - KCV evidence is missing and KCA offers a concrete, testable alternative.
 
-For every borrowed design, label whether it is KCV-confirmed, KCA-only, or our own policy. Do not silently attribute KCA behavior to KCV.
+For every borrowed design, label whether it is KCV-confirmed, KCA-only, or our own policy.
 
 ## Immediate next steps
 
 1. Inspect the official 非提助手 site and identify the official source/download/documentation links it provides.
-2. Match the user's local Assistant-related source files to the actual KCV project and version before analyzing symbols.
-3. Trace the automation entry point and a complete expedition cycle from scheduling through completion.
+2. Start with the Assistant-related files already present in the current project; identify their version and trace the automation entry point.
+3. Trace one complete expedition cycle from scheduling through completion.
 4. Use KCA expedition code only as a comparison for missing or unclear details.
 5. Verify POI state access independently; do not infer an action API from either reference project.
 
