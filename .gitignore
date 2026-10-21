@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Test and tooling output
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local-only configuration and secrets
+.env
+.env.*
+!.env.example
+*.token
+*.cookie
+secrets/
+local_config.json
+
+# Local game/client data and logs
+logs/
+*.log
+poi-profile/
