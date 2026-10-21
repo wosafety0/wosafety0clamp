@@ -22,3 +22,15 @@ A locally running KanColle automation framework hosted and tested through GitHub
 ## Status
 
 The repository bootstrap is in progress. No real gameplay automation is enabled by the initial scaffold.
+
+
+## Local web console (early scaffold)
+
+The minimal dark console uses only the Python standard library and binds to loopback by default:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m kancollebot.web_ui
+```
+
+Open `http://127.0.0.1:8765/`. The first slice provides sanitized Poi MCP health diagnostics only. Start/pause/stop controls are intentionally disabled until they are connected to a verified runner lifecycle API; this console does not perform gameplay actions and does not duplicate fleet status, expedition target, or remaining time already displayed by Poi.
