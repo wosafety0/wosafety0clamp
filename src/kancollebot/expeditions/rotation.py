@@ -1,6 +1,7 @@
 """Deterministic fleet rotation selection built on the offline readiness planner."""
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from .planner import (
     ExpeditionDecision,
@@ -22,7 +23,7 @@ class FleetRotationPlan:
 def select_next_expedition_fleet(
     snapshots: tuple[ExpeditionFleetSnapshot, ...],
     *,
-    now,
+    now: datetime,
     preferred_fleet_ids: tuple[int, ...] = (),
 ) -> FleetRotationPlan:
     """Select a ready fleet without dispatching it or changing any state.
