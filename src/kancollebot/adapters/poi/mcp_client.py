@@ -141,8 +141,9 @@ class PoiMcpClient:
         negotiated = result.get("protocolVersion")
         if isinstance(negotiated, str):
             self._protocol_version = negotiated
-        self._post({"jsonrpc": "2.0", "method": "notifications/initialized"}, notification=True)
+        # The negotiated protocol version applies to the initialized notification too.
         self._initialized = True
+        self._post({"jsonrpc": "2.0", "method": "notifications/initialized"}, notification=True)
         return server_info if isinstance(server_info, dict) else {}
 
     def list_tools(self) -> tuple[McpTool, ...]:
