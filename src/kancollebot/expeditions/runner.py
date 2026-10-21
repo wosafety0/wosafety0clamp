@@ -1,0 +1,135 @@
+"""Single-cycle expedition coordinator behind an injected POI adapter.
+
+The module is testable offline. It never implements POI transport itself, and
+live dispatch remains disabled unless an explicit SafetyPolicy permits it.
+"""
+
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Protocol
+
+from kancollebot.core.observed_state import ObservedState
+from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
+from kancollebot.expeditions.rotation import FleetRotationPlan, select_next_expedition_fleet
+from kancollebot.safety.action_preflight import authorize_planned_action
+from kancollebot.safety.policy import SafetyPolicy
+
+
+class ExpeditionAdapter(Protocol):
+    """Minimal adapter contract; a concrete POI implementation is still required."""
+
+    def read_fleets(self) -> ObservedState[tuple[ExpeditionFleetSnapshot, ...]]:
+        """Return a timestamped observation from the game client."""
+        ...
+
+    def dispatch_expedition(self, *, fleet_id: int, mission_id: int) -> None:
+        """Submit one expedition dispatch to the game client."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class ExpeditionCycleResult:
+    """Outcome of one coordinator tick, not a claim about server acceptance."""
+
+    status: str
+    rotation: FleetRotationPlan | None
+    selected_fleet_id: int | None
+    detail: str
+
+
+class ExpeditionRunner:
+    """Coordinate one dispatch attempt per observed state, with fail-closed gates.
+
+    A runner instance is intentionally single-process. Its in-memory duplicate
+    guard is not a durable transaction log and must not be treated as one.
+    """
+
+    def __init__(self, adapter: ExpeditionAdapter) -> None:
+        self._adapter = adapter
+        self._attempted_keys: set[tuple[int, int, datetime]] = set()
+        self._stopped = False
+
+    def stop(self) -> None:
+        """Prevent subsequent dispatch attempts through this runner instance."""
+        self._stopped = True
+
+    def run_once(
+        self,
+        *,
+        mission_id: int,
+        now: datetime,
+        max_state_age: timedelta,
+        policy: SafetyPolicy,
+        confirmed: bool = False,
+        preferred_fleet_ids: tuple[int, ...] = (),
+    ) -> ExpeditionCycleResult:
+        """Read state, choose a fleet, and optionally request one dispatch.
+
+        The safety policy is checked immediately before the adapter call. A
+        duplicate key is recorded before dispatch to prefer at-most-once
+        behavior if the adapter times out after the server accepted the action.
+        """
+        if mission_id < 1:
+            raise ValueError("mission_id must be positive")
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("now must be timezone-aware")
+        if max_state_age < timedelta(0):
+            raise ValueError("max_state_age must not be negative")
+        if self._stopped:
+            return ExpeditionCycleResult("stopped", None, None, "Runner is stopped.")
+
+        state = self._adapter.read_fleets()
+        rotation = select_next_expedition_fleet(
+            state.payload,
+            now=now,
+            preferred_fleet_ids=preferred_fleet_ids,
+        )
+        fleet_id = rotation.selected_fleet_id
+        if fleet_id is None:
+            return ExpeditionCycleResult(
+                "no_ready_fleet", rotation, None, rotation.reason
+            )
+
+        key = (fleet_id, mission_id, state.observed_at)
+        if key in self._attempted_keys:
+            return ExpeditionCycleResult(
+                "duplicate_blocked",
+                rotation,
+                fleet_id,
+                "A dispatch attempt already exists for this fleet, mission, and observation.",
+            )
+
+        try:
+            authorize_planned_action(
+                "dispatch_expedition",
+                state,
+                now=now,
+                max_state_age=max_state_age,
+                policy=policy,
+                confirmed=confirmed,
+            )
+        except (ValueError, PermissionError) as exc:
+            return ExpeditionCycleResult(
+                "blocked_by_preflight", rotation, fleet_id, str(exc)
+            )
+
+        # Mark before crossing the adapter boundary: timeout ambiguity must not
+        # cause an automatic second dispatch against the same observation.
+        self._attempted_keys.add(key)
+        try:
+            self._adapter.dispatch_expedition(fleet_id=fleet_id, mission_id=mission_id)
+        except Exception as exc:
+            return ExpeditionCycleResult(
+                "dispatch_outcome_unknown",
+                rotation,
+                fleet_id,
+                "Adapter raised after dispatch began; refresh game state before retrying: "
+                + type(exc).__name__,
+            )
+
+        return ExpeditionCycleResult(
+            "dispatch_requested",
+            rotation,
+            fleet_id,
+            "Dispatch request returned; refresh observed game state to verify acceptance.",
+        )
