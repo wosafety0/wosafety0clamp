@@ -57,14 +57,26 @@ class PoiExpeditionReader:
 
     def _ensure_ready(self) -> None:
         health = self._client.health()
-        if health.get("state") != "listening":
-            raise PoiMcpError("Poi bridge health state is not listening")
+        if health.get("status") != "ok" or health.get("storeReady") is not True:
+            raise PoiMcpError("Poi bridge is unhealthy or its Redux store is not ready")
         if not self._initialized:
             self._client.initialize()
             tools = {tool.name for tool in self._client.list_tools()}
             if not {"poi_describe", "poi_get"}.issubset(tools):
                 raise PoiMcpError("Poi bridge is missing required read-only tools")
             self._initialized = True
+
+    @staticmethod
+    def _collection_items(value: Any, path: str, *, expected_kind: str) -> Any:
+        if not isinstance(value, dict) or value.get("kind") != expected_kind:
+            raise PoiMcpError(f"Poi {path} did not return {expected_kind} data")
+        if value.get("truncated") is True:
+            raise PoiMcpError(f"Poi {path} response was truncated")
+        items = value.get("items")
+        expected_type = list if expected_kind == "array" else dict
+        if not isinstance(items, expected_type):
+            raise PoiMcpError(f"Poi {path} result has an invalid items field")
+        return items
 
     def read_fleets(self) -> ObservedState[tuple[ExpeditionFleetSnapshot, ...]]:
         """Read two state branches and normalize them with a local timestamp."""
@@ -78,14 +90,16 @@ class PoiExpeditionReader:
         if describe.get("kind") not in {"array", "collection", "object-map"}:
             raise PoiMcpError("Poi info.fleets has an unknown collection kind")
 
-        fleets = _tool_value(
+        fleets_result = _tool_value(
             self._client.call_read_tool("poi_get", {"path": "info.fleets"}),
             "poi_get(info.fleets)",
         )
-        ships = _tool_value(
+        ships_result = _tool_value(
             self._client.call_read_tool("poi_get", {"path": "info.ships"}),
             "poi_get(info.ships)",
         )
+        fleets = self._collection_items(fleets_result, "info.fleets", expected_kind="array")
+        ships = self._collection_items(ships_result, "info.ships", expected_kind="object-map")
         observed_at = self._clock()
         try:
             return normalize_poi_fleets(fleets, ships, observed_at=observed_at)
