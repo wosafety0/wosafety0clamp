@@ -4,6 +4,7 @@ The module is testable offline. It never implements POI transport itself, and
 live dispatch remains disabled unless an explicit SafetyPolicy permits it.
 """
 
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Protocol
@@ -124,7 +125,7 @@ class ExpeditionRunner:
                         "duplicate_blocked", rotation, fleet_id,
                         "Durable journal already contains this observation.",
                     )
-            except (OSError, JournalError) as exc:
+            except (OSError, sqlite3.Error, JournalError) as exc:
                 return ExpeditionCycleResult(
                     "journal_unavailable", rotation, fleet_id, type(exc).__name__,
                 )
@@ -138,7 +139,7 @@ class ExpeditionRunner:
                         fleet_id, mission_id, state.observed_at,
                         state="unknown", detail="Adapter raised during dispatch",
                     )
-                except (OSError, JournalError):
+                except (OSError, sqlite3.Error, JournalError):
                     pass
             return ExpeditionCycleResult(
                 "dispatch_outcome_unknown", rotation, fleet_id,
@@ -152,7 +153,7 @@ class ExpeditionRunner:
                     fleet_id, mission_id, state.observed_at,
                     state="submitted", detail="Dispatch call returned; acceptance unverified",
                 )
-            except (OSError, JournalError):
+            except (OSError, sqlite3.Error, JournalError):
                 return ExpeditionCycleResult(
                     "journal_unavailable", rotation, fleet_id,
                     "Dispatch returned but journal update failed; do not retry.",
@@ -179,7 +180,7 @@ class ExpeditionRunner:
                         fleet_id, mission_id, state.observed_at,
                         state="unknown", detail="Post-dispatch observation did not confirm mission",
                     )
-                except (OSError, JournalError):
+                except (OSError, sqlite3.Error, JournalError):
                     pass
             return ExpeditionCycleResult(
                 "dispatch_outcome_unknown", rotation, fleet_id,
@@ -192,7 +193,7 @@ class ExpeditionRunner:
                     fleet_id, mission_id, state.observed_at,
                     state="confirmed", detail="Fresh game state reports requested mission",
                 )
-            except (OSError, JournalError):
+            except (OSError, sqlite3.Error, JournalError):
                 return ExpeditionCycleResult(
                     "journal_unavailable", rotation, fleet_id,
                     "Mission observed but durable confirmation could not be saved.",
