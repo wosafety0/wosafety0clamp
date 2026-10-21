@@ -1,5 +1,6 @@
 """Offline tests for the expedition cycle coordinator."""
 
+import sqlite3
 import unittest
 from datetime import datetime, timedelta, timezone
 
@@ -74,6 +75,19 @@ class ExpeditionRunnerTests(unittest.TestCase):
         self.assertEqual(first.status, "dispatch_confirmed")
         self.assertEqual(second.status, "no_ready_fleet")
         self.assertEqual(adapter.dispatches, [(2, 1)])
+
+    def test_sqlite_reservation_error_blocks_dispatch(self):
+        class BrokenJournal:
+            def reserve(self, fleet_id, mission_id, observed_at):
+                raise sqlite3.OperationalError("database is locked")
+
+        adapter = FakeAdapter()
+        result = ExpeditionRunner(adapter, journal=BrokenJournal()).run_once(
+            mission_id=1, now=NOW, max_state_age=timedelta(seconds=30),
+            policy=self.policy(), confirmed=True,
+        )
+        self.assertEqual(result.status, "journal_unavailable")
+        self.assertEqual(adapter.dispatches, [])
 
     def test_stale_state_blocks(self):
         adapter = FakeAdapter(observed_at=NOW - timedelta(minutes=2))
