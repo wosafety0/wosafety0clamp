@@ -64,3 +64,76 @@ Local runtime, not yet performed:
 - Real fleet payload normalized: pending.
 - Live dispatch: not implemented and remains disabled.
 - End-to-end expedition cycle: not verified.
+
+
+## Additional runtime constraints and alternative bridge (2026-10-22)
+
+### Window/rendering and visual verification
+
+Treat minimized-window rendering behavior as a high-priority runtime assumption to test, not as a universal fact until reproduced on the target Windows/Poi build. The bot must not depend on screenshots changing while Poi is minimized.
+
+Visual verification should use the Poi renderer's Chrome DevTools Protocol (CDP), not whole-desktop capture:
+1. Launch the existing Poi instance with remote debugging enabled only when needed; do not launch a second instance blindly because Poi enforces a single-instance lock.
+2. Discover the intended renderer target from `http://127.0.0.1:9222/json/list`; select the Poi main renderer deliberately and reject unrelated targets.
+3. Capture using `Page.captureScreenshot`.
+4. Verify freshness across repeated captures (image hash or decoded image comparison) and correlate with a state change; a successful screenshot response alone does not prove the game is rendering or that the frame is current.
+5. Never use desktop-wide `CopyFromScreen` for bot verification.
+
+CDP is a visual evidence channel, not a replacement for structured state. Prefer the data bridge for fleet/ship/resource state and use CDP for session/UI evidence and post-action visual confirmation.
+
+### Alternative: minagi/poi-plugin-mcp
+
+Repository: https://github.com/minagi/poi-plugin-mcp
+
+Public README inspected on 2026-10-22. This is a Minagi-maintained fork based on upstream `poi-plugin-mcp` 0.2.29; its README documents version `v0.2.30-minagi.1`, a loopback HTTP service defaulting to `127.0.0.1:17777`, a `GET /health` endpoint, `%USERPROFILE%\\.poi-mcp\\port` port file, REST-style read endpoints such as `/fleets`, `/ships`, `/resources`, `/quests`, and MCP at `/mcp`.
+
+Sources:
+- https://github.com/minagi/poi-plugin-mcp
+- https://github.com/minagi/poi-plugin-mcp/blob/main/README.md
+
+Advantages for an initial prototype:
+- Plain HTTP GET endpoints can be queried with Python standard-library `urllib`; no `requests` or MCP SDK installation is required.
+- The README documents a fleet endpoint and other structured endpoints, reducing initial tool-discovery friction.
+- Port discovery can use the documented port file, with the default port only as fallback.
+
+Security and compatibility caveats:
+- This is a fork and not proof of compatibility with the user's Poi 12.0.1 installation; verify the exact release and plugin loading before relying on it.
+- The README also documents optional WebView input and debug JavaScript evaluation. KancolleBot must not enable or call those features in the read-only prototype.
+- Use only loopback addresses; reject unexpected hosts and ports read from the port file. Treat all returned data as untrusted input and cap response sizes/timeouts.
+- The bridge's `/health` response proves service health only, not active game login or fresh game state.
+- Do not install it automatically. Compare it with nanodesu-mcp and choose after local compatibility and data-shape checks.
+
+### Session validity and stale cache
+
+Poi can restore persisted Redux data at startup. A non-empty fleet/ship payload is therefore insufficient evidence that the game is currently logged in or at the home port. The adapter must represent these as separate signals:
+- bridge/store readiness;
+- game-session or home-port evidence, if exposed by a documented field or UI;
+- observation timestamp/freshness;
+- fleet/ship payload shape and completeness.
+
+If session evidence is absent or contradictory, return an unavailable/unknown state and prohibit dispatch. Never infer successful login from cached ship counts alone.
+
+### Window lifecycle and single-instance behavior
+
+Before attempting any debug launch, inspect whether Poi is already running. Avoid starting a second instance with a new CDP port and assuming it became the active instance. The runtime verifier should report the existing process and whether CDP is actually reachable, without killing processes or changing global settings.
+
+### Human-like timing
+
+Timing variation may be used as conservative interaction pacing and to avoid brittle fixed delays, but it is not a guarantee against detection and must not be framed as such. Safety should come from state checks, bounded actions, explicit stop conditions, and post-action verification—not from randomized cursor paths or click points. Keep live actions disabled until the complete read/plan/act/confirm chain has been tested.
+
+## Revised implementation order
+
+1. Finish the standard-library read-only bridge verifier and offline tests.
+2. Add a small read-only HTTP probe for `poi-plugin-mcp` (`/health`, `/fleets`, `/ships`, `/resources`) with loopback/port validation; do not install the plugin automatically.
+3. Add a CDP screenshot freshness probe using Node's built-in WebSocket where supported; target discovery and repeated-frame comparison must be explicit.
+4. Run local compatibility checks in the user's existing Poi 12.0.1 environment and capture sanitized fixture data.
+5. Implement state normalization only after the fixture and session-validity evidence are available.
+6. Keep live dispatch disabled until UI interaction and post-action confirmation are validated.
+
+## Evidence status update
+
+- GitHub Actions run for MCP client fix `e5ba78e26ec3f26f5ce23e5c9df0a037437c1e2c`: passed (run 39632888334).
+- Alternative bridge public README: inspected; runtime compatibility not verified.
+- CDP screenshot behavior when Poi is minimized: not verified on target machine.
+- Cached-state/login distinction: accepted as a safety requirement; exact runtime signal remains to be identified.
+- Windows Poi 12.0.1 runtime, actual fleet payload, CDP screenshot freshness, and end-to-end expedition cycle: still pending local validation.
