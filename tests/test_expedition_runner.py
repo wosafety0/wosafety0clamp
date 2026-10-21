@@ -22,10 +22,11 @@ def fleet(fleet_id: int = 2) -> ExpeditionFleetSnapshot:
 
 
 class FakeAdapter:
-    def __init__(self, *, observed_at=NOW, snapshots=(fleet(),), fail_dispatch=False):
+    def __init__(self, *, observed_at=NOW, snapshots=(fleet(),), fail_dispatch=False, confirm_dispatch=False):
         self.state = ObservedState(tuple(snapshots), observed_at, "fake-poi")
         self.dispatches = []
         self.fail_dispatch = fail_dispatch
+        self.confirm_dispatch = confirm_dispatch
 
     def read_fleets(self):
         return self.state
@@ -34,6 +35,18 @@ class FakeAdapter:
         self.dispatches.append((fleet_id, mission_id))
         if self.fail_dispatch:
             raise TimeoutError("simulated ambiguous timeout")
+        if self.confirm_dispatch:
+            updated = tuple(
+                ExpeditionFleetSnapshot(
+                    fleet_id=item.fleet_id, ship_ids=item.ship_ids,
+                    mission_id=mission_id, fuel_ready=item.fuel_ready,
+                    ammo_ready=item.ammo_ready,
+                ) if item.fleet_id == fleet_id else item
+                for item in self.state.payload
+            )
+            self.state = ObservedState(
+                updated, self.state.observed_at + timedelta(seconds=1), "fake-poi"
+            )
 
 
 class ExpeditionRunnerTests(unittest.TestCase):
@@ -50,7 +63,7 @@ class ExpeditionRunnerTests(unittest.TestCase):
         self.assertEqual(adapter.dispatches, [])
 
     def test_confirmed_fresh_state_dispatches_once(self):
-        adapter = FakeAdapter()
+        adapter = FakeAdapter(confirm_dispatch=True)
         runner = ExpeditionRunner(adapter)
         kwargs = dict(
             mission_id=1, now=NOW, max_state_age=timedelta(seconds=30),
@@ -58,7 +71,7 @@ class ExpeditionRunnerTests(unittest.TestCase):
         )
         first = runner.run_once(**kwargs)
         second = runner.run_once(**kwargs)
-        self.assertEqual(first.status, "dispatch_requested")
+        self.assertEqual(first.status, "dispatch_confirmed")
         self.assertEqual(second.status, "duplicate_blocked")
         self.assertEqual(adapter.dispatches, [(2, 1)])
 
