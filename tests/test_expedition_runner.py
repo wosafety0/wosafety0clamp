@@ -72,7 +72,7 @@ class ExpeditionRunnerTests(unittest.TestCase):
         first = runner.run_once(**kwargs)
         second = runner.run_once(**kwargs)
         self.assertEqual(first.status, "dispatch_confirmed")
-        self.assertEqual(second.status, "duplicate_blocked")
+        self.assertEqual(second.status, "no_ready_fleet")
         self.assertEqual(adapter.dispatches, [(2, 1)])
 
     def test_stale_state_blocks(self):
