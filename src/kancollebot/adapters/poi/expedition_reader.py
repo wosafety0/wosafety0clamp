@@ -10,7 +10,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from kancollebot.adapters.poi.expedition_state import (
+from kancollebot.adapters.poi.expedition_state_v2 import (
     PoiStateError,
     normalize_poi_fleets,
 )
@@ -79,7 +79,7 @@ class PoiExpeditionReader:
         return items
 
     def read_fleets(self) -> ObservedState[tuple[ExpeditionFleetSnapshot, ...]]:
-        """Read two state branches and normalize them with a local timestamp."""
+        """Read fleets, ships and master records; reject incomplete observations."""
         self._ensure_ready()
         describe = _tool_value(
             self._client.call_read_tool("poi_describe", {"path": "info.fleets"}),
@@ -100,8 +100,13 @@ class PoiExpeditionReader:
         )
         fleets = self._collection_items(fleets_result, "info.fleets", expected_kind="array")
         ships = self._collection_items(ships_result, "info.ships", expected_kind="object-map")
+        masters_result = _tool_value(
+            self._client.call_read_tool("poi_get", {"path": "const.$ships"}),
+            "poi_get(const.$ships)",
+        )
+        masters = self._collection_items(masters_result, "const.$ships", expected_kind="object-map")
         observed_at = self._clock()
         try:
-            return normalize_poi_fleets(fleets, ships, observed_at=observed_at)
+            return normalize_poi_fleets(fleets, ships, masters, observed_at=observed_at)
         except (PoiStateError, ValueError, TypeError, OverflowError) as exc:
             raise PoiMcpError(f"Poi state normalization failed closed: {exc}") from exc
