@@ -42,8 +42,12 @@ class PoiWebhookReceiverTests(unittest.TestCase):
         self.assertEqual(response["status"], "ACCEPTED & QUEUED")
         event = self.receiver.get_event(timeout=1)
         self.assertEqual(event["path"], payload["path"])
-        self.assertEqual(event["request"], payload["request"])
-        self.assertEqual(event["response"], payload["response"])
+        self.assertEqual(event["request"], {"api_token": "[REDACTED]"})
+        self.assertEqual(
+            event["response"],
+            {"api_result": 1, "api_data": {"api_material": []}},
+        )
+        self.assertNotIn("fixture-token", json.dumps(event))
         self.assertEqual(event["stage"], "response")
         self.assertEqual(event["timestamp"], payload["timestamp"])
 
