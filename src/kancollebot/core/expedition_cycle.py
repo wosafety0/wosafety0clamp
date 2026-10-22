@@ -55,7 +55,13 @@ def stage_expedition_decision(
         return ExpeditionCycle("stopped", None, "Planning observation is invalid; intent not staged.")
     if before.observed_at.tzinfo is None or before.observed_at.utcoffset() is None or not before.source.strip():
         return ExpeditionCycle("stopped", None, "Planning observation metadata is invalid; intent not staged.")
-    matches = [item for item in before.payload if isinstance(item, FleetObservation) and item.fleet_id == decision.fleet_id]
+    if (
+        not isinstance(before.payload, Sequence)
+        or isinstance(before.payload, (str, bytes, bytearray))
+        or any(not isinstance(item, FleetObservation) for item in before.payload)
+    ):
+        return ExpeditionCycle("stopped", None, "Planning observation payload is malformed; intent not staged.")
+    matches = [item for item in before.payload if item.fleet_id == decision.fleet_id]
     if len(matches) != 1:
         return ExpeditionCycle("stopped", None, "Target fleet missing or duplicated in planning observation.")
     expected_state = 2 if decision.action == "collect" else 0
