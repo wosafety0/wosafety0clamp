@@ -16,6 +16,28 @@ from typing import Any
 DEFAULT_MAX_BODY_BYTES = 2 * 1024 * 1024
 DEFAULT_QUEUE_SIZE = 1000
 WEBHOOK_PATH = "/webhook/kancolle"
+SENSITIVE_KEY_NAMES = frozenset({
+    "api_token",
+    "token",
+    "access_token",
+    "refresh_token",
+    "authorization",
+    "cookie",
+    "set_cookie",
+})
+
+
+def _redact_sensitive_fields(value: Any) -> Any:
+    """Return a recursively copied payload with credential-like fields redacted."""
+    if isinstance(value, dict):
+        return {
+            key: ("[REDACTED]" if isinstance(key, str) and key.lower() in SENSITIVE_KEY_NAMES
+                  else _redact_sensitive_fields(item))
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_sensitive_fields(item) for item in value]
+    return value
 
 
 class PoiWebhookError(RuntimeError):
@@ -132,8 +154,8 @@ class PoiWebhookReceiver:
                     else:
                         event = {
                             "path": raw_path,
-                            "response": payload.get("response"),
-                            "request": payload.get("request"),
+                            "response": _redact_sensitive_fields(payload.get("response")),
+                            "request": _redact_sensitive_fields(payload.get("request")),
                             "stage": payload.get("stage"),
                             "timestamp": payload.get("timestamp"),
                         }
