@@ -45,3 +45,18 @@ field names/types, and whether the known `api_name`/`api_nowhp`/`api_maxhp`
 mapping is consistent across every live ship record. It does not auto-enable
 that mapping or authorize actions. A successful report proves read-only state
 retrieval only; collection, dispatch, and battle actions remain disabled.
+
+
+## POI observations to expedition planner
+
+- `get_observed_states(fields)` reads both endpoints, parses fleet and ship
+  state, validates fleet-to-ship references, and returns timestamped observations
+  with a common source label. The timestamp is captured before network I/O so
+  endpoint latency makes the observations conservatively older.
+- `read_and_plan(fields, mission_by_fleet=...)` feeds those observations into
+  the existing freshness and expedition safety layers. A completed expedition
+  can be recommended for collection. Dispatch remains blocked until supply,
+  repair/docking, mission-composition, and fleet-rotation checks are backed by
+  actual observations.
+- These methods only read and plan. They do not click, collect, dispatch, or
+  execute battles.
