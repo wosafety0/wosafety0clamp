@@ -12,12 +12,12 @@
 - `src/kancollebot/adapters/poi/http_read_only.py`: loopback-only HTTP adapter restricted to GET `/fleets` and `/ships`, strict UTF-8/JSON, bounded response size, no redirects, and fleet/ship ID cross-checking. `get_ship_states(fields)` requires an explicit field map.
 - `src/kancollebot/safety/fleet.py`: pure HP gate; empty fleets, missing ship states, ID mismatches, zero HP, and HP at/below the critical ratio block the check.
 - `src/kancollebot/safety/dispatch.py`: fail-closed dispatch readiness gate combining HP safety with explicit supply, repair/docking, mission-composition, and fleet-rotation verification flags. All non-HP gates default to unverified.
-- `src/kancollebot/core/expedition_safety.py` applies the readiness gate to planner recommendations: dispatch becomes `wait` unless the planned fleet exists in current observations and all readiness checks pass. This is still a pure decision layer, not live-action authorization.
+- `src/kancollebot/core/expedition_safety.py` applies the readiness gate to planner recommendations and exposes `plan_safe_expedition()` as a combined planning-and-gating entry point. Dispatch becomes `wait` unless the planned fleet exists in current observations and all readiness checks pass; completed collection keeps priority. This is a pure decision layer, not live-action authorization.
 - Offline tests cover parsing, adapter restrictions, Japanese name preservation, malformed payloads, HP safety, fail-closed readiness, and planner-level dispatch gating.
 
 ## Evidence and limitations
 - GitHub Actions CI passed for commit `2fdf715fe697b08bd9609002f852631d554ccd46` (run 39788837921): https://github.com/wosafety0/KancolleBot/actions/runs/39788837921
-- CI passed for the latest verified parent commit `6dc50b1d2bd806d9064f1a88864c29ecdb42dcc9` (run 39789699491). The planner-level safety integration is being added after that commit and requires its own CI verification.
+- CI passed for parent commit `c24b46e3c0e28fe9c1c0a1aa131f189f1ea37851` (run 39790340470). The combined planner/gate entry point in the current commit requires its own CI verification.
 - CI success is not runtime verification against the user's local POI instance.
 - A previous user-provided local diagnostic confirmed `/fleets` and `/ships` returned HTTP 200, with a top-level fleet array and a ship object keyed by IDs. The repository does not yet contain an authoritative redacted raw `/ships` sample confirming name/current-HP/max-HP keys.
 - An uploaded snippet mentions `api_name`, `api_nowhp`, and `api_maxhp`, but this is not proof of the current runtime schema. These names appear only in synthetic tests until verified.

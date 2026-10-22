@@ -14,13 +14,14 @@
 - Adapter only issues GET requests to `/fleets` and `/ships`, disables redirects, bounds response size, uses strict UTF-8, and cross-checks fleet ship IDs.
 - Added `get_ship_states(fields)`; field mapping must be explicit and is not guessed.
 - Added pure fleet HP safety checks and a fail-closed dispatch readiness gate. The gate blocks missing/invalid ship state, empty fleets, zero HP, critical HP, and all unchecked supply, repair/docking, mission-composition, and fleet-rotation gates.
-- Added `core/expedition_safety.py` to apply the readiness gate to planner recommendations: dispatch recommendations become `wait` unless the planned fleet is present and every gate passes. Collection/wait recommendations remain unchanged. This is decision gating only, not live-action authorization.
+- Added `core/expedition_safety.py` to apply the readiness gate to planner recommendations, plus `plan_safe_expedition()` as a combined planning-and-gating entry point. Dispatch recommendations become `wait` unless the planned fleet is present and every gate passes. Completed-expedition collection retains priority. This is decision gating only, not live-action authorization.
 - Added offline tests for default blocking, all-gates-passed behavior, absent planned fleet, critical HP, and preservation of non-dispatch decisions.
 - CI passed for commit `6dc50b1d2bd806d9064f1a88864c29ecdb42dcc9` (run 39789699491): https://github.com/wosafety0/KancolleBot/actions/runs/39789699491
 - CI success does not mean runtime verification against local POI.
 - An uploaded snippet mentions `api_name`, `api_nowhp`, and `api_maxhp`, but no authoritative raw `/ships` fixture proves those keys. They remain unverified.
 - Supply, repair/docking, mission composition, and rotation checks are not yet backed by real observations. The gate defaults to blocked.
 - No real game actions have been executed.
+- Latest orchestration commit adds offline coverage for the combined planning/gating entry point; check its CI run before reporting success.
 
 ### Next steps
 1. Capture and redact one raw `/ships` record from local POI and verify actual field names.
