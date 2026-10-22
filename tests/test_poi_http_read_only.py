@@ -27,7 +27,11 @@ class FakeOpener:
     def open(self, request, timeout):
         self.requests.append((request, timeout))
         endpoint = request.full_url.rsplit("/", 1)[-1]
-        return FakeResponse(self.payloads[endpoint])
+        payload = self.payloads[endpoint]
+        if isinstance(payload, tuple):
+            body, status = payload
+            return FakeResponse(body, status)
+        return FakeResponse(payload)
 
 
 def encoded(value):
@@ -85,6 +89,11 @@ class PoiReadOnlyAdapterTests(unittest.TestCase):
         adapter = PoiHttpReadOnlyAdapter(opener=self.opener, max_response_bytes=4)
         with self.assertRaisesRegex(ValueError, "size limit"):
             adapter.get_status()
+
+    def test_rejects_redirect_response(self):
+        self.payloads["fleets"] = (encoded([]), 302)
+        with self.assertRaisesRegex(OSError, "HTTP 302"):
+            self.adapter.get_status()
 
 
 if __name__ == "__main__":

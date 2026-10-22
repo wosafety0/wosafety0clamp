@@ -1,8 +1,8 @@
 """Read-only HTTP adapter for a local POI state endpoint.
 
-The adapter is deliberately restricted to loopback HTTP and GET requests.
-It never follows an arbitrary caller-supplied host and never sends gameplay
-commands. Network access is injectable so tests can run entirely offline.
+The adapter is restricted to loopback HTTP and GET requests. Redirects are
+disabled so a local endpoint cannot redirect requests to a remote host.
+Network access is injectable so tests run entirely offline.
 """
 
 from __future__ import annotations
@@ -10,13 +10,18 @@ from __future__ import annotations
 import json
 from typing import Any
 from urllib.parse import urlsplit
-from urllib.request import ProxyHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 from kancollebot.core.fleet_parser import FleetObservation, parse_fleet_payload
 
 
 _DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 _ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, request, response, code, message, headers, new_url):
+        return None
 
 
 class PoiHttpReadOnlyAdapter:
@@ -49,8 +54,11 @@ class PoiHttpReadOnlyAdapter:
         self._base_url = f"http://{parsed.netloc}"
         self._timeout = timeout
         self._max_response_bytes = max_response_bytes
-        # Explicitly disable environment proxy inheritance for loopback traffic.
-        self._opener = opener if opener is not None else build_opener(ProxyHandler({}))
+        # Avoid environment proxy inheritance and reject all HTTP redirects.
+        self._opener = opener if opener is not None else build_opener(
+            ProxyHandler({}),
+            _NoRedirectHandler(),
+        )
 
     def _get_json(self, endpoint: str) -> Any:
         if endpoint not in {"fleets", "ships"}:
