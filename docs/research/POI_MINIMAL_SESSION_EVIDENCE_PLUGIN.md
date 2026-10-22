@@ -20,7 +20,7 @@ The reducer extension is registered by Poi's plugin lifecycle under the package 
 ext.kancollebot-poi-session-evidence._
 ```
 
-This path is source-informed, not yet verified against the installed Poi 12.0.1 binary or the local Nanodesu MCP runtime. Query it only after the plugin has been installed and loaded through Poi's supported plugin mechanism. The extension does not create a new listener, HTTP server, token, or dependency.
+This path is source-informed, not yet verified against the installed Poi 12.0.1 binary or the local Nanodesu MCP runtime. Query it only after the plugin has been installed and loaded through Poi's supported plugin mechanism. The extension does not create a new listener, HTTP server, token, or dependency. However, the stock Nanodesu MCP plugin currently denies the entire `ext` root and only allows individually reviewed plugin reducers. Therefore this state path is **not readable through an unmodified Nanodesu installation**. Do not treat the source-derived path as an operational bridge until a separately reviewed transport/allowlist change is made.
 
 The stored evidence has only these fields: `bridgeInstanceId`, `responsePath`, `responseOk`, `observedAt`, `invalidated`, and (only while unavailable) `reason`. It never stores response/request bodies, account IDs, cookies, credentials, or fleet/ship data.
 
@@ -36,6 +36,10 @@ The stored evidence has only these fields: `bridgeInstanceId`, `responsePath`, `
 - This is evidence of a recent successful response action, not a cryptographic proof and not a guarantee that the session remains connected continuously. Another in-process extension could forge an action.
 - No game endpoint is called, no game action is dispatched, and no plugin is installed automatically.
 
+## Current integration boundary
+
+The Python expedition reader remains fail-closed and is not wired to this extension yet. Source inspection of Nanodesu `src/paths.ts` confirmed that `ext` is explicitly denied because arbitrary plugin state is not assumed serializable, with a separate `ALLOWED_EXT_PLUGINS` allowlist. This package is not on that allowlist. The reducer extension can be unit-tested in isolation, but reading it through stock Nanodesu is currently blocked by design. Do not silently widen the external bridge's allowlist or install a separate server without a security review.
+
 ## Validation performed in CI
 
 The Node built-in test runner covers initial fail-closed state, allowlisted responses, ignored actions, malformed timestamps, payload-data non-retention, unload invalidation, and non-main-window behavior. This is a host-shaped unit test only.
@@ -43,10 +47,10 @@ The Node built-in test runner covers initial fail-closed state, allowlisted resp
 ## Required local verification before enabling reads
 
 1. Load the extension manually in the existing Poi 12.0.1 installation using Poi's supported plugin mechanism.
-2. Confirm that `ext.kancollebot-poi-session-evidence._` is visible through the existing loopback Nanodesu `poi_get` tool.
+2. First choose and review a transport. Stock Nanodesu currently denies this `ext` path, so visibility through its existing `poi_get` tool is expected to fail unless its explicit plugin-state allowlist is separately updated.
 3. Confirm a fresh `api_port/port` or `api_get_member/require_info` response updates `observedAt` and that no raw body fields appear.
 4. Unload the extension and confirm the path becomes unavailable/invalidated.
-5. Confirm the Python reader validates the ISO-8601 timestamp against its maximum age and fails closed when the path is absent.
+5. After a transport is selected, integrate it with the Python reader and verify ISO-8601 freshness validation; until then the reader must remain fail-closed.
 6. The Python expedition reader now queries this path before every fleet read and validates the ISO-8601 timestamp against a 120-second maximum age. A missing path, invalidated record, unsupported action, future timestamp, or stale evidence blocks the read.
 7. Repeat on plugin reload and account/session transitions. Do not enable dispatch or relax the session-read gate based on CI alone.
 
