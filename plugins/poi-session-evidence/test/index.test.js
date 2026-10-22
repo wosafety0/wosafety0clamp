@@ -131,6 +131,26 @@ test('stale unload from an older bridge cannot invalidate the current session', 
   delete global.window;
 });
 
+test('stale init from an older bridge cannot roll state back', () => {
+  const { initial } = setupPlugin();
+  const oldId = initial.evidence.bridgeInstanceId;
+  plugin.pluginWillUnload();
+
+  const dispatched = [];
+  global.window = { isMain: true, dispatch(action) { dispatched.push(action); } };
+  plugin.pluginDidLoad();
+  const current = plugin.reducer(undefined, dispatched[0]);
+  assert.notEqual(current.evidence.bridgeInstanceId, oldId);
+
+  const afterStaleInit = plugin.reducer(current, {
+    type: '@@KancolleBot/SessionEvidence/INIT',
+    bridgeInstanceId: oldId,
+  });
+  assert.equal(afterStaleInit, current);
+  assert.equal(afterStaleInit.evidence.bridgeInstanceId, current.evidence.bridgeInstanceId);
+  delete global.window;
+});
+
 test('late allowlisted response cannot revive an unloaded bridge session', () => {
   const { dispatched, initial } = setupPlugin();
   plugin.pluginWillUnload();

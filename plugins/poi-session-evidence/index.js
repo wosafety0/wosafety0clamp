@@ -32,6 +32,10 @@ function reducer(state = null, action = {}) {
     if (typeof action.bridgeInstanceId !== 'string' || action.bridgeInstanceId.length === 0) {
       return { evidence: invalidEvidence(null, 'invalid_bridge_identity') };
     }
+    // A delayed INIT from an older module instance must not roll state backward.
+    if (bridgeInstanceId && action.bridgeInstanceId !== bridgeInstanceId) {
+      return state;
+    }
     return { evidence: invalidEvidence(action.bridgeInstanceId, 'awaiting_fresh_response') };
   }
 
