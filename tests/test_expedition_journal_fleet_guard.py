@@ -135,6 +135,67 @@ class ExpeditionJournalFleetGuardTests(unittest.TestCase):
             self.assertEqual({item["state"] for item in unresolved}, {"unknown", "reserved"})
             self.assertEqual(len(reopened.list_unresolved(fleet_id=2)), 1)
 
+    def test_resolution_requires_explicit_operator_confirmation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ExpeditionActionJournal(Path(directory) / "actions.db")
+            journal.reserve(2, 1, NOW)
+            journal.transition(2, 1, NOW, state="unknown", detail="timeout")
+            with self.assertRaises(JournalError):
+                journal.resolve_unresolved(
+                    2, 1, NOW, outcome="confirmed", evidence="manual check"
+                )
+            self.assertEqual(journal.get(2, 1, NOW)["state"], "unknown")
+
+    def test_resolution_requires_nonempty_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ExpeditionActionJournal(Path(directory) / "actions.db")
+            journal.reserve(2, 1, NOW)
+            journal.transition(2, 1, NOW, state="unknown", detail="timeout")
+            with self.assertRaises(ValueError):
+                journal.resolve_unresolved(
+                    2, 1, NOW, outcome="confirmed", evidence="  ",
+                    operator_confirmed=True,
+                )
+            self.assertEqual(journal.get(2, 1, NOW)["state"], "unknown")
+
+    def test_operator_can_resolve_unknown_with_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ExpeditionActionJournal(Path(directory) / "actions.db")
+            journal.reserve(2, 1, NOW)
+            journal.transition(2, 1, NOW, state="unknown", detail="timeout")
+            journal.resolve_unresolved(
+                2, 1, NOW, outcome="confirmed",
+                evidence="Manually verified in current POI state at 12:05 UTC",
+                operator_confirmed=True,
+            )
+            record = journal.get(2, 1, NOW)
+            self.assertEqual(record["state"], "confirmed")
+            self.assertIn("Operator reconciliation:", record["detail"])
+            self.assertTrue(journal.reserve(2, 2, NOW + timedelta(minutes=6)))
+
+    def test_reserved_action_cannot_be_confirmed_by_reconciliation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ExpeditionActionJournal(Path(directory) / "actions.db")
+            journal.reserve(2, 1, NOW)
+            with self.assertRaises(JournalError):
+                journal.resolve_unresolved(
+                    2, 1, NOW, outcome="confirmed", evidence="mission visible",
+                    operator_confirmed=True,
+                )
+            self.assertEqual(journal.get(2, 1, NOW)["state"], "reserved")
+
+    def test_reserved_action_requires_operator_verified_not_sent_to_reject(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ExpeditionActionJournal(Path(directory) / "actions.db")
+            journal.reserve(2, 1, NOW)
+            journal.resolve_unresolved(
+                2, 1, NOW, outcome="rejected",
+                evidence="Verified dispatch was never submitted after process restart",
+                operator_confirmed=True,
+            )
+            self.assertEqual(journal.get(2, 1, NOW)["state"], "rejected")
+            self.assertTrue(journal.reserve(2, 2, NOW + timedelta(minutes=1)))
+
     def test_unresolved_listing_rejects_invalid_fleet_id(self):
         with tempfile.TemporaryDirectory() as directory:
             journal = ExpeditionActionJournal(Path(directory) / "actions.db")

@@ -154,6 +154,56 @@ class ExpeditionActionJournal:
             for row in rows
         ]
 
+    def resolve_unresolved(
+        self,
+        fleet_id: int,
+        mission_id: int,
+        observed_at: datetime,
+        *,
+        outcome: str,
+        evidence: str,
+        operator_confirmed: bool = False,
+    ) -> None:
+        """Resolve a pending record only after an explicit, evidence-backed human check.
+
+        Submitted/unknown records may be confirmed or rejected. A reserved record
+        may only be rejected when the operator explicitly verifies that dispatch
+        was never sent. Absence from a game-state observation is not evidence.
+        """
+        if outcome not in {"confirmed", "rejected"}:
+            raise ValueError("outcome must be 'confirmed' or 'rejected'")
+        if operator_confirmed is not True:
+            raise JournalError("operator confirmation is required")
+        if not isinstance(evidence, str) or not evidence.strip():
+            raise ValueError("evidence must not be empty")
+        key = self.make_key(fleet_id, mission_id, observed_at)
+        now = datetime.now(timezone.utc).isoformat()
+        detail = "Operator reconciliation: " + evidence.strip()
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT state FROM expedition_actions WHERE action_key = ?",
+                (key,),
+            ).fetchone()
+            if row is None:
+                raise JournalError("cannot resolve an action that was not reserved")
+            current = row[0]
+            if current == "reserved":
+                if outcome != "rejected":
+                    raise JournalError(
+                        "reserved action can only be rejected after verifying it was never sent"
+                    )
+            elif current not in {"submitted", "unknown"}:
+                raise JournalError("action is not in a resolvable state")
+            if outcome not in self.TRANSITIONS.get(current, set()):
+                raise JournalError("invalid journal state transition")
+            db.execute(
+                """UPDATE expedition_actions SET state = ?, detail = ?, updated_at = ?
+                   WHERE action_key = ?""",
+                (outcome, detail, now, key),
+            )
+            db.execute("COMMIT")
+
     def get(self, fleet_id: int, mission_id: int, observed_at: datetime):
         key = self.make_key(fleet_id, mission_id, observed_at)
         with closing(self._connect()) as db:
