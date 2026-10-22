@@ -13,6 +13,8 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 from kancollebot.core.fleet_parser import FleetObservation, parse_fleet_payload
+from kancollebot.core.ship_parser import ShipFieldMap, parse_ship_payload
+from kancollebot.core.models import ShipState
 
 
 _DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
@@ -25,7 +27,7 @@ class _NoRedirectHandler(HTTPRedirectHandler):
 
 
 class PoiHttpReadOnlyAdapter:
-    """Read and cross-check POI fleet/ship IDs using local GET endpoints."""
+    """Read and cross-check POI fleet/ship data using local GET endpoints."""
 
     def __init__(
         self,
@@ -101,6 +103,14 @@ class PoiHttpReadOnlyAdapter:
                 raise ValueError(f"duplicate POI ship ID {ship_id}")
             ship_ids.add(ship_id)
         return ship_ids
+
+    def get_ship_states(self, fields: ShipFieldMap) -> dict[int, ShipState]:
+        """Parse /ships using a caller-supplied, explicit POI field mapping.
+
+        Field names are never guessed. Until the mapping is backed by an
+        authoritative runtime sample, callers must supply it explicitly.
+        """
+        return parse_ship_payload(self._get_json("ships"), fields=fields)
 
     def get_status(self) -> dict[str, object]:
         """Return fleet observations after validating references against /ships."""

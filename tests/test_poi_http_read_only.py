@@ -2,6 +2,7 @@ import json
 import unittest
 
 from kancollebot.adapters.poi.http_read_only import PoiHttpReadOnlyAdapter
+from kancollebot.core.ship_parser import ShipFieldMap
 
 
 class FakeResponse:
@@ -64,6 +65,17 @@ class PoiReadOnlyAdapterTests(unittest.TestCase):
     def test_preserves_japanese_fleet_name(self):
         status = self.adapter.get_status()
         self.assertEqual(status["fleets"][0].fleet_name, "第1艦隊")
+
+    def test_get_ship_states_uses_explicit_field_map(self):
+        self.payloads["ships"] = encoded({
+            "73": {"api_name": "赤城", "api_nowhp": 45, "api_maxhp": 69}
+        })
+        fields = ShipFieldMap(name="api_name", hp="api_nowhp", max_hp="api_maxhp")
+        states = self.adapter.get_ship_states(fields)
+        self.assertEqual(states[73].name, "赤城")
+        self.assertEqual((states[73].hp, states[73].max_hp), (45, 69))
+        self.assertEqual([request.get_method() for request, _ in self.opener.requests], ["GET"])
+        self.assertEqual(self.opener.requests[0][0].full_url.rsplit("/", 1)[-1], "ships")
 
     def test_rejects_non_loopback_url(self):
         with self.assertRaisesRegex(ValueError, "loopback"):
