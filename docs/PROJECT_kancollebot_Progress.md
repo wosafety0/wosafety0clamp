@@ -102,3 +102,10 @@ Current code implements read-only observations, parsing, planning, and fail-clos
 - Added `src/kancollebot/core/ship_schema.py`, a pure bounded shape inspector for `/ships`-style objects. It emits only record counts and field-name/type frequencies, never ship IDs, ship names, or raw field values.
 - Added six offline unit tests for redaction, sampling, malformed input, field limits, invalid limits, and mixed field types.
 - This is a preparatory tool, not proof of actual POI field names. No local POI connection, upload of raw user data, or gameplay action occurred. CI pending verification.
+
+## 2026-10-22 — Bind expedition intent to its planning observation
+
+- Hardened `ExpeditionCycle`: non-wait intents now require a baseline observation, and the cycle stores that exact immutable observation for resolution. The resolver no longer accepts a caller-supplied `before` snapshot that could be unrelated to the decision.
+- Staging checks target fleet uniqueness and action preconditions (completed for collect; idle for dispatch). Missing/invalid baseline fails closed.
+- Added tests for missing baseline, post-snapshot timestamp ordering, and source mismatch; updated cycle tests to the new API.
+- Pure offline logic only. No gameplay adapter, POI runtime access, or live action was introduced. CI pending.
