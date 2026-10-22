@@ -67,6 +67,19 @@ class PoiSessionEvidenceTests(unittest.TestCase):
                 evidence(observedAt="2026-10-22T12:00:01Z"), now=NOW
             )
 
+
+    def test_numeric_truthy_success_is_not_accepted(self):
+        with self.assertRaisesRegex(PoiSessionEvidenceError, "not explicitly successful"):
+            validate_session_evidence(evidence(responseOk=1), now=NOW)
+
+    def test_evidence_at_exact_age_limit_is_accepted(self):
+        observed = validate_session_evidence(
+            evidence(observedAt="2026-10-22T11:58:00Z"),
+            now=NOW,
+            max_age=timedelta(seconds=120),
+        )
+        self.assertEqual(observed, datetime(2026, 10, 22, 11, 58, tzinfo=timezone.utc))
+
     def test_naive_timestamp_fails_closed(self):
         with self.assertRaisesRegex(PoiSessionEvidenceError, "include a timezone"):
             validate_session_evidence(
