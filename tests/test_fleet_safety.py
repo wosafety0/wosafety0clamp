@@ -53,8 +53,9 @@ class FleetSafetyTests(unittest.TestCase):
         self.assertIn("fleet is empty", result.reasons)
 
     def test_invalid_threshold_rejected(self):
-        with self.assertRaises(ValueError):
-            evaluate_fleet_safety(self.fleet, {}, critical_hp_ratio=0)
+        for ratio in (True, float("nan"), float("inf"), 0, 1.1, "0.25"):
+            with self.subTest(ratio=ratio), self.assertRaises(ValueError):
+                evaluate_fleet_safety(self.fleet, {}, critical_hp_ratio=ratio)
 
 
 if __name__ == "__main__":
