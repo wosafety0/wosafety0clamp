@@ -62,6 +62,40 @@ class PoiReadOnlyAdapterTests(unittest.TestCase):
         self.assertEqual([request.full_url.rsplit("/", 1)[-1] for request, _ in self.opener.requests],
                          ["fleets", "ships"])
 
+    def test_diagnose_reports_runtime_schema_without_raw_ship_data(self):
+        self.payloads["ships"] = encoded({
+            "73": {"api_name": "PRIVATE_SHIP_NAME", "api_nowhp": 45, "api_maxhp": 69},
+            "74": {"api_name": "ANOTHER_PRIVATE_NAME", "api_nowhp": 20, "api_maxhp": 30},
+            "13": {"api_name": "THIRD_PRIVATE_NAME", "api_nowhp": 10, "api_maxhp": 10},
+            "70": {"api_name": "FOURTH_PRIVATE_NAME", "api_nowhp": 15, "api_maxhp": 20},
+            "10": {"api_name": "FIFTH_PRIVATE_NAME", "api_nowhp": 8, "api_maxhp": 10},
+            "40": {"api_name": "SIXTH_PRIVATE_NAME", "api_nowhp": 12, "api_maxhp": 15},
+            "62": {"api_name": "SEVENTH_PRIVATE_NAME", "api_nowhp": 25, "api_maxhp": 30},
+            "1": {"api_name": "EIGHTH_PRIVATE_NAME", "api_nowhp": 9, "api_maxhp": 10},
+        })
+        report = self.adapter.diagnose()
+        serialized = json.dumps(report, ensure_ascii=False)
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["fleet_count"], 2)
+        self.assertEqual(report["ship_record_count"], 8)
+        self.assertTrue(report["fleet_ship_references_valid"])
+        self.assertTrue(report["known_field_map_candidate"]["all_records_type_and_range_valid"])
+        self.assertFalse(report["known_field_map_candidate"]["auto_applied"])
+        self.assertIn("api_nowhp", serialized)
+        self.assertNotIn("PRIVATE_SHIP_NAME", serialized)
+        self.assertNotIn("ANOTHER_PRIVATE_NAME", serialized)
+        self.assertNotIn('"73"', serialized)
+
+    def test_diagnose_does_not_accept_partial_or_invalid_hp_mapping(self):
+        self.payloads["ships"] = encoded({
+            "73": {"api_name": "PRIVATE_SHIP_NAME", "api_nowhp": 45, "api_maxhp": 69},
+            "74": {"api_name": "ANOTHER_PRIVATE_NAME", "api_nowhp": True, "api_maxhp": 30},
+        })
+        report = self.adapter.diagnose()
+        self.assertFalse(report["known_field_map_candidate"]["all_records_type_and_range_valid"])
+        self.assertNotIn("PRIVATE_SHIP_NAME", json.dumps(report))
+
     def test_preserves_japanese_fleet_name(self):
         status = self.adapter.get_status()
         self.assertEqual(status["fleets"][0].fleet_name, "第1艦隊")
