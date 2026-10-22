@@ -1,16 +1,20 @@
 import unittest
+from datetime import datetime, timedelta, timezone
 
 from kancollebot.core.expedition_planner import ExpeditionDecision
 from kancollebot.core.expedition_safety import (
     gate_expedition_decision,
+    plan_fresh_safe_expedition,
     plan_safe_expedition,
 )
 from kancollebot.core.fleet_parser import parse_fleet_payload
 from kancollebot.core.models import ShipState
+from kancollebot.core.observed_state import ObservedState
 
 
 class ExpeditionSafetyTests(unittest.TestCase):
     def setUp(self):
+        self.now = datetime(2026, 10, 22, 14, 0, tzinfo=timezone.utc)
         self.fleets = parse_fleet_payload([
             {"api_id": 2, "api_name": "第2艦隊", "api_ship": [73, 70, -1, -1, -1, -1],
              "api_mission": [0, 0, 0, 0]},
@@ -28,6 +32,13 @@ class ExpeditionSafetyTests(unittest.TestCase):
             "mission_composition_verified": True,
             "rotation_verified": True,
         }
+
+    def make_observation(self, payload, observed_at=None, source="poi-http-read-only"):
+        return ObservedState(
+            payload=payload,
+            observed_at=observed_at or self.now - timedelta(seconds=2),
+            source=source,
+        )
 
     def test_dispatch_is_blocked_by_default(self):
         result = gate_expedition_decision(self.dispatch, self.fleets, self.ships)
@@ -110,6 +121,55 @@ class ExpeditionSafetyTests(unittest.TestCase):
             self.fleets, self.ships, mission_by_fleet={2: 5}, **self.all_gates
         )
         self.assertEqual(result.action, "dispatch")
+
+    def test_fresh_observations_allow_planning(self):
+        result = plan_fresh_safe_expedition(
+            self.make_observation(self.fleets),
+            self.make_observation(self.ships),
+            now=self.now,
+            max_age=timedelta(seconds=10),
+            mission_by_fleet={2: 5},
+        )
+        self.assertEqual(result.action, "wait")
+        self.assertIn("supply state has not been verified", result.reason)
+
+    def test_stale_observations_block_all_planning(self):
+        old = self.now - timedelta(minutes=5)
+        result = plan_fresh_safe_expedition(
+            self.make_observation(self.fleets, old),
+            self.make_observation(self.ships, old),
+            now=self.now,
+            max_age=timedelta(seconds=10),
+            mission_by_fleet={2: 5},
+            **self.all_gates,
+        )
+        self.assertEqual(result.action, "wait")
+        self.assertIn("stale", result.reason)
+
+    def test_future_dated_observations_block_all_planning(self):
+        future = self.now + timedelta(seconds=1)
+        result = plan_fresh_safe_expedition(
+            self.make_observation(self.fleets, future),
+            self.make_observation(self.ships, future),
+            now=self.now,
+            max_age=timedelta(seconds=10),
+            mission_by_fleet={2: 5},
+            **self.all_gates,
+        )
+        self.assertEqual(result.action, "wait")
+        self.assertIn("stale", result.reason)
+
+    def test_mismatched_observation_sources_block_all_planning(self):
+        result = plan_fresh_safe_expedition(
+            self.make_observation(self.fleets, source="poi-fleets"),
+            self.make_observation(self.ships, source="cached-ships"),
+            now=self.now,
+            max_age=timedelta(seconds=10),
+            mission_by_fleet={2: 5},
+            **self.all_gates,
+        )
+        self.assertEqual(result.action, "wait")
+        self.assertIn("different sources", result.reason)
 
     def test_non_dispatch_recommendations_are_unchanged(self):
         wait = ExpeditionDecision(action="wait", fleet_id=None, mission_id=None, reason="wait")

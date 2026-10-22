@@ -14,11 +14,12 @@
 - Adapter only issues GET requests to `/fleets` and `/ships`, disables redirects, bounds response size, uses strict UTF-8, and cross-checks fleet ship IDs.
 - Added `get_ship_states(fields)`; field mapping must be explicit and is not guessed.
 - Added pure fleet HP safety checks and a fail-closed dispatch readiness gate. The gate blocks missing/invalid ship state, empty fleets, zero HP, critical HP, and all unchecked supply, repair/docking, mission-composition, and fleet-rotation gates.
-- Added `core/expedition_safety.py` to apply the readiness gate to planner recommendations, plus `plan_safe_expedition()` as a combined planning-and-gating entry point. Dispatch recommendations become `wait` unless the planned fleet is present and every gate passes. Completed-expedition collection retains priority. This is decision gating only, not live-action authorization.
-- Hardened the decision gate: a dispatch recommendation is now blocked if its mission ID is missing/invalid or the observed fleet is no longer explicitly idle. Unknown and underway mission states cannot pass even if all other readiness flags are true.
-- Added offline tests for default blocking, all-gates-passed behavior, absent planned fleet, critical HP, non-idle/unknown mission state, invalid mission ID, and preservation of non-dispatch decisions.
+- Hardened the dispatch decision gate: invalid mission IDs and fleets that are not explicitly observed idle are blocked, including unknown and underway mission states.
+- Added `plan_fresh_safe_expedition()`: it requires fleet and ship observations to be timezone-aware, within a caller-specified maximum age, and labeled with the same source. Stale, future-dated, or mixed-source snapshots return `wait` instead of planning from inconsistent data.
+- Added offline tests for dispatch safety, invalid mission IDs, non-idle/unknown mission state, fresh observations, stale/future timestamps, and mismatched observation sources.
 - CI passed for commit `6dc50b1d2bd806d9064f1a88864c29ecdb42dcc9` (run 39789699491): https://github.com/wosafety0/KancolleBot/actions/runs/39789699491
 - CI passed for orchestration commit `728c3d6dff244e71ff8f1ba841766906cfcd51ba` (run 39791133890): https://github.com/wosafety0/KancolleBot/actions/runs/39791133890
+- CI passed for dispatch-gate hardening commit `5fca0b28c7da438067140210aab995d3787f9291` (run 39791838719): https://github.com/wosafety0/KancolleBot/actions/runs/39791838719
 - CI success does not mean runtime verification against local POI.
 - An uploaded snippet mentions `api_name`, `api_nowhp`, and `api_maxhp`, but no authoritative raw `/ships` fixture proves those keys. They remain unverified.
 - Supply, repair/docking, mission composition, and rotation checks are not yet backed by real observations. The gate defaults to blocked.
