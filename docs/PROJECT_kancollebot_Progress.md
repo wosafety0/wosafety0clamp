@@ -96,3 +96,9 @@ Current code implements read-only observations, parsing, planning, and fail-clos
 - Added 12 offline cycle tests covering collect/dispatch confirmation, mismatch, no-op wait, duplicate resolution, and failure paths.
 - This module stages **intent only**. It does not click, connect to POI, dispatch, collect, or authorize gameplay. Existing safety gates remain mandatory before any future action adapter.
 - CI for this change must be checked separately. Cloud success does not establish local runtime integration.
+
+## 2026-10-22 — Privacy-preserving ship schema inspection
+
+- Added `src/kancollebot/core/ship_schema.py`, a pure bounded shape inspector for `/ships`-style objects. It emits only record counts and field-name/type frequencies, never ship IDs, ship names, or raw field values.
+- Added six offline unit tests for redaction, sampling, malformed input, field limits, invalid limits, and mixed field types.
+- This is a preparatory tool, not proof of actual POI field names. No local POI connection, upload of raw user data, or gameplay action occurred. CI pending verification.
