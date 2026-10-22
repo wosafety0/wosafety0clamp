@@ -34,6 +34,10 @@ class PoiMcpClient:
         parsed = urllib.parse.urlsplit(endpoint)
         if parsed.scheme != "http" or not parsed.hostname or not parsed.path:
             raise ValueError("endpoint must be an absolute HTTP URL")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("endpoint must not contain URL credentials")
+        if parsed.query or parsed.fragment:
+            raise ValueError("endpoint must not contain a query or fragment")
         try:
             address = ipaddress.ip_address(parsed.hostname)
             is_loopback = address.is_loopback
