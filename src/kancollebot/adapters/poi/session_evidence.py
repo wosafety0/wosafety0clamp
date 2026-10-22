@@ -51,6 +51,8 @@ def validate_session_evidence(
     }
     if not set(value).issubset(allowed_fields):
         raise PoiSessionEvidenceError("session evidence contains unexpected fields")
+    if "reason" in value:
+        raise PoiSessionEvidenceError("session evidence includes an unavailable reason")
 
     instance_id = value.get("bridgeInstanceId")
     if not isinstance(instance_id, str) or not instance_id.strip():

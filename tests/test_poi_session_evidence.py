@@ -51,6 +51,14 @@ class PoiSessionEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(PoiSessionEvidenceError, "invalidated"):
             validate_session_evidence(evidence(invalidated=True), now=NOW)
 
+    def test_reason_bearing_unavailable_evidence_fails_closed(self):
+        with self.assertRaisesRegex(PoiSessionEvidenceError, "unavailable reason"):
+            validate_session_evidence(evidence(reason="plugin_unloading"), now=NOW)
+
+    def test_unexpected_fields_fail_closed(self):
+        with self.assertRaisesRegex(PoiSessionEvidenceError, "unexpected fields"):
+            validate_session_evidence(evidence(fleetData={"id": 1}), now=NOW)
+
     def test_missing_bridge_instance_fails_closed(self):
         with self.assertRaisesRegex(PoiSessionEvidenceError, "identity is missing"):
             validate_session_evidence(evidence(bridgeInstanceId=" "), now=NOW)
