@@ -17,6 +17,13 @@ class JournalError(RuntimeError):
 
 class ExpeditionActionJournal:
     STATES = {"reserved", "submitted", "confirmed", "unknown", "rejected"}
+    TRANSITIONS = {
+        "reserved": {"submitted", "unknown", "rejected"},
+        "submitted": {"confirmed", "unknown", "rejected"},
+        "confirmed": set(),
+        "unknown": set(),
+        "rejected": set(),
+    }
 
     def __init__(self, path: str | Path) -> None:
         self.path = str(path)
@@ -90,13 +97,23 @@ class ExpeditionActionJournal:
         key = self.make_key(fleet_id, mission_id, observed_at)
         now = datetime.now(timezone.utc).isoformat()
         with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT state FROM expedition_actions WHERE action_key = ?",
+                (key,),
+            ).fetchone()
+            if row is None:
+                raise JournalError("cannot transition an action that was not reserved")
+            if state not in self.TRANSITIONS.get(row[0], set()):
+                raise JournalError("invalid journal state transition")
             cursor = db.execute(
                 """UPDATE expedition_actions SET state = ?, detail = ?, updated_at = ?
                    WHERE action_key = ?""",
                 (state, detail, now, key),
             )
             if cursor.rowcount != 1:
-                raise JournalError("cannot transition an action that was not reserved")
+                raise JournalError("journal transition did not update exactly one row")
+            db.execute("COMMIT")
 
     def get(self, fleet_id: int, mission_id: int, observed_at: datetime):
         key = self.make_key(fleet_id, mission_id, observed_at)
