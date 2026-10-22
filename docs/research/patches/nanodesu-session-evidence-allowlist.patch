@@ -5,7 +5,7 @@ diff --git a/src/paths.ts b/src/paths.ts
  export const ALLOWED_EXT_PLUGINS: Record<string, string> = {
 +  'poi-plugin-kancollebot-session-evidence':
 +    'minimal session evidence only; no game data or request/response bodies',
-@@ -119,2 +119,3 @@
+@@ -119,2 +121,3 @@
  export const ALLOWED_EXT_SUBPATHS: Record<string, string[]> = {
 +  'poi-plugin-kancollebot-session-evidence': ['_.evidence'],
    'poi-plugin-battle-detail': ['_.indexes'],
