@@ -12,7 +12,7 @@ def action(*, path="api_port/port", result=1, time=1792670370000):
     # Poi data-resolver dispatches api_data as payload.body after validating
     # the outer envelope's api_result. It does not normally preserve api_result.
     body = {"private": "must-not-leak", "result_payload": {"x": 1}}
-    if result != 1:
+    if type(result) is not int or result != 1:
         # Simulate a malformed/untransformed envelope-shaped action.
         body = {"api_result": result, "api_data": {"private": "must-not-leak"}}
     return {
