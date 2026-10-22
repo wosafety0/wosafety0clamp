@@ -12,20 +12,20 @@ Expose only the session-evidence object emitted by the optional KancolleBot Poi 
 In `src/paths.ts`, add a reviewed package entry to `ALLOWED_EXT_PLUGINS`:
 
 ```ts
-'kancollebot-poi-session-evidence':
+'poi-plugin-kancollebot-session-evidence':
   'single minimal session evidence object; no game data or request/response bodies',
 ```
 
 Add the one permitted subtree to `ALLOWED_EXT_SUBPATHS`:
 
 ```ts
-'kancollebot-poi-session-evidence': ['_.evidence'],
+'poi-plugin-kancollebot-session-evidence': ['_.evidence'],
 ```
 
 The extension reducer nests its state at `evidence`, so the read path is:
 
 ```text
-ext.kancollebot-poi-session-evidence._.evidence
+ext.poi-plugin-kancollebot-session-evidence._.evidence
 ```
 
 The underscore is inserted by Poi's reducer wrapper. The extension must not put any unrelated data beside the evidence object or put raw response data inside it.
@@ -33,8 +33,8 @@ The underscore is inserted by Poi's reducer wrapper. The extension must not put 
 ## Required tests before deployment
 
 1. A query of `ext` remains denied.
-2. A query of `ext.kancollebot-poi-session-evidence` remains denied.
-3. A query of `ext.kancollebot-poi-session-evidence._` remains denied.
+2. A query of `ext.poi-plugin-kancollebot-session-evidence` remains denied.
+3. A query of `ext.poi-plugin-kancollebot-session-evidence._` remains denied.
 4. The exact `_.evidence` subtree is readable and serializable.
 5. An unknown sibling path is denied.
 6. An absent/disabled extension returns the existing not-installed/missing-state behavior.

@@ -1,7 +1,7 @@
 # Minimal Poi Session-Evidence Extension
 
 Date: 2026-10-22
-Status: implementation and Node host-shaped tests added; Poi 12.0.1 runtime compatibility and MCP path visibility are not yet verified.
+Status: implementation and Node host-shaped tests added; Poi 12.0.1 runtime compatibility and MCP path visibility are not yet verified. Package naming was checked against Poi's current plugin loader, which requires the package name to start with `poi-plugin-`.
 
 ## Purpose
 
@@ -14,10 +14,10 @@ Poi's current public response pipeline validates the outer KCSAPI success envelo
 
 ## Minimal state and expected read path
 
-The reducer extension is registered by Poi's plugin lifecycle under the package name `kancollebot-poi-session-evidence`. Poi's current public source nests plugin reducer state under `ext.<package-name>._`, so the expected Nanodesu read-only MCP query path is:
+The reducer extension is registered by Poi's plugin lifecycle under the package name `poi-plugin-kancollebot-session-evidence`. Poi's current public source nests plugin reducer state under `ext.<package-name>._`, so the expected Nanodesu read-only MCP query path is:
 
 ```text
-ext.kancollebot-poi-session-evidence._.evidence
+ext.poi-plugin-kancollebot-session-evidence._.evidence
 ```
 
 This path is source-informed, not yet verified against the installed Poi 12.0.1 binary or the local Nanodesu MCP runtime. Query it only after the plugin has been installed and loaded through Poi's supported plugin mechanism. The extension does not create a new listener, HTTP server, token, or dependency. However, the stock Nanodesu MCP plugin currently denies the entire `ext` root and only allows individually reviewed plugin reducers. Therefore this state path is **not readable through an unmodified Nanodesu installation**. Its `ALLOWED_EXT_SUBPATHS` mechanism also currently applies only after a plugin package has been allowlisted, so a narrowly scoped integration needs both an explicit package entry and an exact `_.` state-subpath restriction. Do not treat the source-derived path as an operational bridge until that transport/allowlist change is separately reviewed and tested.

@@ -1,5 +1,5 @@
 {
-  "name": "kancollebot-poi-session-evidence",
+  "name": "poi-plugin-kancollebot-session-evidence",
   "version": "0.1.0",
   "private": true,
   "description": "Read-only Poi Redux response evidence extension for KancolleBot",
