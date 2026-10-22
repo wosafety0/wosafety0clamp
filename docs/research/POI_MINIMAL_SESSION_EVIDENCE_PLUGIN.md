@@ -47,7 +47,8 @@ The Node built-in test runner covers initial fail-closed state, allowlisted resp
 3. Confirm a fresh `api_port/port` or `api_get_member/require_info` response updates `observedAt` and that no raw body fields appear.
 4. Unload the extension and confirm the path becomes unavailable/invalidated.
 5. Confirm the Python reader validates the ISO-8601 timestamp against its maximum age and fails closed when the path is absent.
-6. Repeat on plugin reload and account/session transitions. Do not enable dispatch or relax the session-read gate based on CI alone.
+6. The Python expedition reader now queries this path before every fleet read and validates the ISO-8601 timestamp against a 120-second maximum age. A missing path, invalidated record, unsupported action, future timestamp, or stale evidence blocks the read.
+7. Repeat on plugin reload and account/session transitions. Do not enable dispatch or relax the session-read gate based on CI alone.
 
 ## Source references
 

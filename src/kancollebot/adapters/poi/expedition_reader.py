@@ -15,6 +15,10 @@ from kancollebot.adapters.poi.expedition_state_v2 import (
     normalize_poi_fleets,
 )
 from kancollebot.adapters.poi.mcp_client import PoiMcpClient, PoiMcpError
+from kancollebot.adapters.poi.session_evidence import (
+    PoiSessionEvidenceError,
+    validate_session_evidence,
+)
 from kancollebot.core.observed_state import ObservedState
 from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
 
@@ -59,12 +63,9 @@ class PoiExpeditionReader:
         health = self._client.health()
         if health.get("status") != "ok" or health.get("storeReady") is not True:
             raise PoiMcpError("Poi bridge is unhealthy or its Redux store is not ready")
-        # Redux persistence means a ready store can still contain cached state
-        # from a previous session. Until the bridge exposes a verified session
-        # signal, never present that payload as an actionable game observation.
-        if health.get("sessionReady") is not True:
+        if health.get("sessionReady") is False:
             raise PoiMcpError(
-                "Poi game session is not verified; cached Redux state is read-blocked"
+                "Poi bridge explicitly reports that the game session is not ready"
             )
         if not self._initialized:
             self._client.initialize()
@@ -72,6 +73,34 @@ class PoiExpeditionReader:
             if not {"poi_describe", "poi_get"}.issubset(tools):
                 raise PoiMcpError("Poi bridge is missing required read-only tools")
             self._initialized = True
+
+        # The stock Nanodesu /health endpoint proves store readiness only.
+        # Require a recent response-evidence record from the optional Poi
+        # reducer extension before reading potentially cached fleet state.
+        evidence_result = _tool_value(
+            self._client.call_read_tool(
+                "poi_get",
+                {
+                    "path": "ext.kancollebot-poi-session-evidence._",
+                    "treatAs": "value",
+                },
+            ),
+            "poi_get(session evidence)",
+        )
+        if (
+            not isinstance(evidence_result, dict)
+            or evidence_result.get("kind") != "object"
+            or not isinstance(evidence_result.get("value"), dict)
+        ):
+            raise PoiMcpError(
+                "Poi session evidence is unavailable; cached Redux state is read-blocked"
+            )
+        try:
+            validate_session_evidence(evidence_result["value"], now=self._clock())
+        except PoiSessionEvidenceError as exc:
+            raise PoiMcpError(
+                f"Poi game session is not verified; cached Redux state is read-blocked: {exc}"
+            ) from exc
 
     @staticmethod
     def _collection_items(value: Any, path: str, *, expected_kind: str) -> Any:

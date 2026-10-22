@@ -16,7 +16,18 @@ class FakePoiClient:
     def __init__(self, *, health=None, tools=None, responses=None):
         self._health = health or {"status": "ok", "storeReady": True, "sessionReady": True}
         self._tools = tools or ("poi_describe", "poi_get", "poi_lookup")
-        self._responses = responses or {}
+        self._responses = responses if responses is not None else {
+            ("poi_get", "ext.kancollebot-poi-session-evidence._"): tool_result({
+                "kind": "object",
+                "value": {
+                    "bridgeInstanceId": "instance-a",
+                    "responsePath": "api_port/port",
+                    "responseOk": True,
+                    "observedAt": NOW.isoformat(),
+                    "invalidated": False,
+                },
+            }),
+        }
         self.calls = []
         self.initialized = False
 
@@ -45,6 +56,16 @@ def tool_result(value):
 
 def valid_responses():
     return {
+        ("poi_get", "ext.kancollebot-poi-session-evidence._"): tool_result({
+            "kind": "object",
+            "value": {
+                "bridgeInstanceId": "instance-a",
+                "responsePath": "api_port/port",
+                "responseOk": True,
+                "observedAt": NOW.isoformat(),
+                "invalidated": False,
+            },
+        }),
         ("poi_describe", "info.fleets"): tool_result({
             "path": "info.fleets", "kind": "array", "total": 1,
             "sampleFields": ["api_id", "api_ship", "api_mission"],
@@ -89,6 +110,10 @@ class PoiExpeditionReaderTests(unittest.TestCase):
         self.assertEqual(
             client.calls,
             [
+                ("poi_get", {
+                    "path": "ext.kancollebot-poi-session-evidence._",
+                    "treatAs": "value",
+                }),
                 ("poi_describe", {"path": "info.fleets"}),
                 ("poi_get", {"path": "info.fleets"}),
                 ("poi_get", {"path": "info.ships"}),
@@ -120,27 +145,60 @@ class PoiExpeditionReaderTests(unittest.TestCase):
         self.assertFalse(client.initialized)
         self.assertEqual(client.calls, [])
 
-    def test_unverified_game_session_blocks_cached_state(self):
+    def test_missing_session_evidence_blocks_cached_state(self):
         reader, client = self.make_reader(
-            health={"status": "ok", "storeReady": True}
+            health={"status": "ok", "storeReady": True},
+            responses={
+                ("poi_get", "ext.kancollebot-poi-session-evidence._"): tool_result({
+                    "kind": "object",
+                    "value": {
+                        "bridgeInstanceId": "instance-a",
+                        "responsePath": None,
+                        "responseOk": False,
+                        "observedAt": None,
+                        "invalidated": True,
+                    },
+                }),
+            },
         )
 
         with self.assertRaisesRegex(PoiMcpError, "session is not verified"):
             reader.read_fleets()
 
-        self.assertFalse(client.initialized)
-        self.assertEqual(client.calls, [])
+        self.assertTrue(client.initialized)
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(client.calls[0][0], "poi_get")
 
     def test_false_game_session_blocks_state(self):
         reader, client = self.make_reader(
             health={"status": "ok", "storeReady": True, "sessionReady": False}
         )
 
-        with self.assertRaisesRegex(PoiMcpError, "session is not verified"):
+        with self.assertRaisesRegex(PoiMcpError, "session is not ready"):
             reader.read_fleets()
 
         self.assertFalse(client.initialized)
         self.assertEqual(client.calls, [])
+
+    def test_stale_session_evidence_blocks_cached_state(self):
+        responses = valid_responses()
+        responses[("poi_get", "ext.kancollebot-poi-session-evidence._")] = tool_result({
+            "kind": "object",
+            "value": {
+                "bridgeInstanceId": "instance-a",
+                "responsePath": "api_port/port",
+                "responseOk": True,
+                "observedAt": "2026-10-22T11:57:59.999Z",
+                "invalidated": False,
+            },
+        })
+        reader, client = self.make_reader(responses=responses)
+
+        with self.assertRaisesRegex(PoiMcpError, "stale"):
+            reader.read_fleets()
+
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(client.calls[0][0], "poi_get")
 
     def test_missing_read_tool_fails_closed(self):
         reader, client = self.make_reader(tools=("poi_describe",))
