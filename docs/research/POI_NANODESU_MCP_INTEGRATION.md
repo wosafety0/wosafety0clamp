@@ -241,3 +241,32 @@ Neither option is implemented or runtime-verified by this source audit. Do not i
 - Reliable active-session signal in Poi 12.0.1: not yet established.
 - Existing session gate: retained; no code relaxation.
 
+## Read-only projection bridge comparison (2026-10-22)
+
+Inspected the public `poooi/plugin-server` source and README:
+- It exposes authenticated read-only snapshots and dataset endpoints, with WebSocket revisioned updates and an MCP endpoint.
+- The server subscribes to Poi's Redux store and emits a new projection when the serialized projected datasets change.
+- Its revision/update mechanism is a useful signal that the projected store changed after the bridge initialized, but it does not identify which game API response caused the change, prove that the game session remains active, or distinguish every legitimate live update from a store reset/replay.
+- The README states that validation uses a Poi-shaped host harness and does not claim a graphical Poi runtime smoke test. Compatibility with the target Poi 12.0.1 installation remains unverified.
+- The bridge requires a bearer token. Any future client must read it from a protected local configuration path, never print it, never place it in a URL, and never relax the loopback restriction. No token was read or created during this source review.
+
+Sources:
+- https://github.com/poooi/plugin-server
+- https://github.com/poooi/plugin-server/blob/main/src/server.ts
+- https://github.com/poooi/plugin-server/blob/main/src/projection.ts
+- https://github.com/poooi/plugin-server/blob/main/tests/server.test.ts
+
+### Decision after comparison
+
+Do not switch bridges or install anything automatically. Neither the Nanodesu health contract nor the inspected plugin-server projection contract supplies a definitive active-login signal. Revisioned updates may support a future freshness monitor, but must not be renamed or interpreted as `sessionReady`.
+
+A stronger signal should be tied to an explicitly observed, recent game response or a verified UI/session transition, with bounded age and invalidation on disconnect, account change, or bridge restart. The exact event and lifecycle handling must be proven against the target Poi 12.0.1 runtime before it can unblock actionable observations.
+
+### Evidence status update
+
+- Nanodesu bridge: store readiness only; no session signal.
+- Poi Redux account/server fields: persisted application state; insufficient as active-session proof.
+- Poi plugin-server: authenticated read-only projection and revisioned store-change notifications; useful for change detection, not session proof.
+- Runtime compatibility and reliable current-session signal: still unverified.
+- No bridge was installed; no credentials were accessed; no game action was executed.
+
