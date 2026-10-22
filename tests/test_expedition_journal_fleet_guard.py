@@ -30,6 +30,7 @@ class ExpeditionJournalFleetGuardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             journal = ExpeditionActionJournal(Path(directory) / "actions.db")
             self.assertTrue(journal.reserve(2, 1, NOW))
+            journal.transition(2, 1, NOW, state="submitted", detail="sent")
             journal.transition(2, 1, NOW, state="confirmed", detail="observed")
             self.assertTrue(journal.reserve(2, 2, NOW + timedelta(seconds=1)))
 
@@ -54,6 +55,35 @@ class ExpeditionJournalFleetGuardTests(unittest.TestCase):
             self.assertTrue(journal.reserve(2, 1, NOW))
             journal.transition(2, 1, NOW, state="submitted", detail="awaiting state")
             self.assertFalse(journal.reserve(2, 2, NOW + timedelta(minutes=1)))
+
+    def test_confirmed_cannot_revert_to_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ExpeditionActionJournal(Path(directory) / "actions.db")
+            journal.reserve(2, 1, NOW)
+            journal.transition(2, 1, NOW, state="submitted", detail="sent")
+            journal.transition(2, 1, NOW, state="confirmed", detail="observed")
+            with self.assertRaises(Exception):
+                journal.transition(2, 1, NOW, state="unknown", detail="late timeout")
+            self.assertEqual(journal.get(2, 1, NOW)["state"], "confirmed")
+
+    def test_unknown_requires_explicit_reconciliation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ExpeditionActionJournal(Path(directory) / "actions.db")
+            journal.reserve(2, 1, NOW)
+            journal.transition(2, 1, NOW, state="unknown", detail="timeout")
+            with self.assertRaises(Exception):
+                journal.transition(2, 1, NOW, state="submitted", detail="retry")
+            journal.transition(2, 1, NOW, state="confirmed", detail="verified")
+            self.assertEqual(journal.get(2, 1, NOW)["state"], "confirmed")
+
+    def test_rejected_cannot_be_reopened(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ExpeditionActionJournal(Path(directory) / "actions.db")
+            journal.reserve(2, 1, NOW)
+            journal.transition(2, 1, NOW, state="rejected", detail="verified rejection")
+            with self.assertRaises(Exception):
+                journal.transition(2, 1, NOW, state="submitted", detail="retry")
+            self.assertEqual(journal.get(2, 1, NOW)["state"], "rejected")
 
     def test_different_fleet_can_be_reserved(self):
         with tempfile.TemporaryDirectory() as directory:
