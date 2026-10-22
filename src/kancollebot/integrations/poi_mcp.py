@@ -206,7 +206,7 @@ class PoiMcpClient:
         # Streamable HTTP MCP servers may return a Server-Sent Events stream
         # instead of a single JSON document. Select the JSON-RPC response for
         # this request; ignore unrelated notifications and non-data fields.
-        for block in reversed(text.replace("\\r\\n", "\\n").split("\\n\\n")):
+        for block in reversed(text.replace("\r\n", "\n").split("\n\n")):
             data_lines = [
                 line[5:].lstrip()
                 for line in block.splitlines()
@@ -215,7 +215,7 @@ class PoiMcpClient:
             if not data_lines:
                 continue
             try:
-                event_payload = json.loads("\\n".join(data_lines))
+                event_payload = json.loads("\n".join(data_lines))
             except json.JSONDecodeError:
                 continue
             if not isinstance(event_payload, dict):
