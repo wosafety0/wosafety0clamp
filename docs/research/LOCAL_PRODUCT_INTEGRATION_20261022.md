@@ -12,15 +12,16 @@
 - `src/kancollebot/adapters/poi/http_read_only.py`: loopback-only HTTP adapter restricted to GET `/fleets` and `/ships`, strict UTF-8/JSON, bounded response size, no redirects, and fleet/ship ID cross-checking. `get_ship_states(fields)` requires an explicit field map.
 - `src/kancollebot/safety/fleet.py`: pure HP gate; empty fleets, missing ship states, ID mismatches, zero HP, and HP at/below the critical ratio block the check.
 - `src/kancollebot/safety/dispatch.py`: fail-closed dispatch readiness gate combining HP safety with explicit supply, repair/docking, mission-composition, and fleet-rotation verification flags. All non-HP gates default to unverified.
-- Offline tests cover parsing, adapter restrictions, Japanese name preservation, malformed payloads, HP safety, and fail-closed dispatch readiness.
+- `src/kancollebot/core/expedition_safety.py` applies the readiness gate to planner recommendations: dispatch becomes `wait` unless the planned fleet exists in current observations and all readiness checks pass. This is still a pure decision layer, not live-action authorization.
+- Offline tests cover parsing, adapter restrictions, Japanese name preservation, malformed payloads, HP safety, fail-closed readiness, and planner-level dispatch gating.
 
 ## Evidence and limitations
 - GitHub Actions CI passed for commit `2fdf715fe697b08bd9609002f852631d554ccd46` (run 39788837921): https://github.com/wosafety0/KancolleBot/actions/runs/39788837921
-- The later dispatch-readiness commit `e36eaf3c108f026931d66ee56d95a75287dd4ce3` has been pushed; its own CI result must be checked separately.
+- CI passed for the latest verified parent commit `6dc50b1d2bd806d9064f1a88864c29ecdb42dcc9` (run 39789699491). The planner-level safety integration is being added after that commit and requires its own CI verification.
 - CI success is not runtime verification against the user's local POI instance.
 - A previous user-provided local diagnostic confirmed `/fleets` and `/ships` returned HTTP 200, with a top-level fleet array and a ship object keyed by IDs. The repository does not yet contain an authoritative redacted raw `/ships` sample confirming name/current-HP/max-HP keys.
 - An uploaded snippet mentions `api_name`, `api_nowhp`, and `api_maxhp`, but this is not proof of the current runtime schema. These names appear only in synthetic tests until verified.
-- The HP/readiness gate is not yet wired into expedition planning or any action adapter. Supply, repair/docking, mission composition, and fleet rotation checks have not been implemented; the new gate safely blocks by default until callers explicitly attest that each check passed.
+- The new planner-level gate converts an unsafe or unverifiable dispatch recommendation to `wait`; callers must use this wrapper. It does not connect to an action adapter or authorize execution. Supply, repair/docking, mission composition, and fleet rotation checks are not yet backed by real observations; the gate safely blocks by default.
 
 ## Safety boundaries
 - Cloud CI does not connect to local POI.
@@ -31,4 +32,5 @@
 1. Capture a minimal, redacted raw `/ships` record from the local read-only endpoint and verify actual field names.
 2. Add an explicit reviewed field map and a fixture test using that evidence.
 3. Implement real supply, repair/docking, composition, and rotation observations; do not manually mark these gates passed without evidence.
-4. Continue KCV (非提助手)-first call-chain research, using KCA only for labeled supplementary comparisons.
+4. Keep live-action authorization as a separate mandatory gate.
+5. Continue KCV (非提助手)-first call-chain research, using KCA only for labeled supplementary comparisons.

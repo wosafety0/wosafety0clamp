@@ -14,14 +14,15 @@
 - Adapter only issues GET requests to `/fleets` and `/ships`, disables redirects, bounds response size, uses strict UTF-8, and cross-checks fleet ship IDs.
 - Added `get_ship_states(fields)`; field mapping must be explicit and is not guessed.
 - Added pure fleet HP safety checks and a fail-closed dispatch readiness gate. The gate blocks missing/invalid ship state, empty fleets, zero HP, critical HP, and all unchecked supply, repair/docking, mission-composition, and fleet-rotation gates.
-- CI passed for commit `2fdf715fe697b08bd9609002f852631d554ccd46` (run 39788837921): https://github.com/wosafety0/KancolleBot/actions/runs/39788837921
-- Dispatch-readiness commit `e36eaf3c108f026931d66ee56d95a75287dd4ce3` is pushed; check its own CI before calling it passed.
+- Added `core/expedition_safety.py` to apply the readiness gate to planner recommendations: dispatch recommendations become `wait` unless the planned fleet is present and every gate passes. Collection/wait recommendations remain unchanged. This is decision gating only, not live-action authorization.
+- Added offline tests for default blocking, all-gates-passed behavior, absent planned fleet, critical HP, and preservation of non-dispatch decisions.
+- CI passed for commit `6dc50b1d2bd806d9064f1a88864c29ecdb42dcc9` (run 39789699491): https://github.com/wosafety0/KancolleBot/actions/runs/39789699491
 - CI success does not mean runtime verification against local POI.
-- An uploaded snippet mentions `api_name`, `api_nowhp`, and `api_maxhp`, but no authoritative raw `/ships` fixture proves those keys. They remain synthetic test fields.
-- The readiness gate is not connected to the planner or action adapter. No real game actions have been executed.
+- An uploaded snippet mentions `api_name`, `api_nowhp`, and `api_maxhp`, but no authoritative raw `/ships` fixture proves those keys. They remain unverified.
+- Supply, repair/docking, mission composition, and rotation checks are not yet backed by real observations. The gate defaults to blocked.
+- No real game actions have been executed.
 
 ### Next steps
-1. Capture and redact one raw `/ships` record from local POI.
-2. Verify the field map and add a fixture test using that evidence.
-3. Implement data-backed supply/repair/composition/rotation checks before enabling those readiness flags.
-4. Continue KCV-first automation call-chain research; label KCA-only evidence clearly.
+1. Capture and redact one raw `/ships` record from local POI and verify actual field names.
+2. Implement data-backed supply/repair/composition/rotation checks; never manually attest these flags without evidence.
+3. Continue KCV (非提助手)-first call-chain research, using KCA only for labeled supplementary comparisons.
