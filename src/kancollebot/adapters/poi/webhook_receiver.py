@@ -174,7 +174,11 @@ class PoiWebhookReceiver:
         if timeout is not None and timeout < 0:
             raise ValueError("timeout must not be negative")
         try:
-            return self._events.get(block=timeout is None or timeout > 0, timeout=timeout)
+            if timeout is None:
+                return self._events.get()
+            if timeout == 0:
+                return self._events.get_nowait()
+            return self._events.get(timeout=timeout)
         except queue.Empty:
             return None
 
