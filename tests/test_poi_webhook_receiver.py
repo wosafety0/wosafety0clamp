@@ -49,7 +49,7 @@ class PoiWebhookReceiverTests(unittest.TestCase):
 
     def test_accepts_map_resource_and_normalizes_path(self):
         payload = {
-            "path": "https://example.invalid/kcs2/resources/map/area.json",
+            "path": "https://example.com/kcs2/resources/map/area.json",
             "stage": "response",
             "timestamp": "fixture-time",
         }
