@@ -42,8 +42,8 @@ class ExpeditionCycleResult:
 class ExpeditionRunner:
     """Coordinate one dispatch attempt per observed state, with fail-closed gates.
 
-    A runner instance is intentionally single-process. Its in-memory duplicate
-    guard is not a durable transaction log and must not be treated as one.
+    A durable journal is mandatory before any dispatch. The in-memory duplicate
+    guard supplements the journal but is not a durable transaction log.
     """
 
     def __init__(self, adapter: ExpeditionAdapter, *, journal: ExpeditionActionJournal | None = None) -> None:
@@ -81,12 +81,35 @@ class ExpeditionRunner:
         if self._stopped:
             return ExpeditionCycleResult("stopped", None, None, "Runner is stopped.")
 
-        state = self._adapter.read_fleets()
-        rotation = select_next_expedition_fleet(
-            state.payload,
-            now=now,
-            preferred_fleet_ids=preferred_fleet_ids,
-        )
+        try:
+            state = self._adapter.read_fleets()
+        except Exception as exc:
+            return ExpeditionCycleResult(
+                "state_unavailable", None, None,
+                "Adapter could not read fleet state: " + type(exc).__name__,
+            )
+
+        if (
+            not isinstance(state, ObservedState)
+            or not isinstance(state.payload, tuple)
+            or any(not isinstance(item, ExpeditionFleetSnapshot) for item in state.payload)
+        ):
+            return ExpeditionCycleResult(
+                "invalid_observation", None, None,
+                "Adapter returned a malformed fleet-state observation.",
+            )
+
+        try:
+            rotation = select_next_expedition_fleet(
+                state.payload,
+                now=now,
+                preferred_fleet_ids=preferred_fleet_ids,
+            )
+        except (TypeError, ValueError, AttributeError) as exc:
+            return ExpeditionCycleResult(
+                "invalid_observation", None, None,
+                "Fleet-state observation failed validation: " + type(exc).__name__,
+            )
         fleet_id = rotation.selected_fleet_id
         if fleet_id is None:
             return ExpeditionCycleResult(
@@ -116,53 +139,62 @@ class ExpeditionRunner:
                 "blocked_by_preflight", rotation, fleet_id, str(exc)
             )
 
+        if self._journal is None:
+            return ExpeditionCycleResult(
+                "journal_required", rotation, fleet_id,
+                "Durable action journal is required; dispatch was not attempted.",
+            )
+
         # Reserve before any external action. A failed journal write must block
         # dispatch, and an ambiguous attempt must never be retried automatically.
-        if self._journal is not None:
-            try:
-                if not self._journal.reserve(fleet_id, mission_id, state.observed_at):
-                    return ExpeditionCycleResult(
-                        "duplicate_blocked", rotation, fleet_id,
-                        "Durable journal already contains this observation.",
-                    )
-            except (OSError, sqlite3.Error, JournalError) as exc:
+        try:
+            if not self._journal.reserve(fleet_id, mission_id, state.observed_at):
                 return ExpeditionCycleResult(
-                    "journal_unavailable", rotation, fleet_id, type(exc).__name__,
+                    "duplicate_blocked", rotation, fleet_id,
+                    "Durable journal already contains this observation.",
                 )
+        except (OSError, sqlite3.Error, JournalError) as exc:
+            return ExpeditionCycleResult(
+                "journal_unavailable", rotation, fleet_id, type(exc).__name__,
+            )
         self._attempted_keys.add(key)
         try:
             self._adapter.dispatch_expedition(fleet_id=fleet_id, mission_id=mission_id)
         except Exception as exc:
-            if self._journal is not None:
-                try:
-                    self._journal.transition(
-                        fleet_id, mission_id, state.observed_at,
-                        state="unknown", detail="Adapter raised during dispatch",
-                    )
-                except (OSError, sqlite3.Error, JournalError):
-                    pass
+            try:
+                self._journal.transition(
+                    fleet_id, mission_id, state.observed_at,
+                    state="unknown", detail="Adapter raised during dispatch",
+                )
+            except (OSError, sqlite3.Error, JournalError):
+                pass
             return ExpeditionCycleResult(
                 "dispatch_outcome_unknown", rotation, fleet_id,
                 "Adapter raised after dispatch began; do not retry automatically: "
                 + type(exc).__name__,
             )
 
-        if self._journal is not None:
-            try:
-                self._journal.transition(
-                    fleet_id, mission_id, state.observed_at,
-                    state="submitted", detail="Dispatch call returned; acceptance unverified",
-                )
-            except (OSError, sqlite3.Error, JournalError):
-                return ExpeditionCycleResult(
-                    "journal_unavailable", rotation, fleet_id,
-                    "Dispatch returned but journal update failed; do not retry.",
-                )
+        try:
+            self._journal.transition(
+                fleet_id, mission_id, state.observed_at,
+                state="submitted", detail="Dispatch call returned; acceptance unverified",
+            )
+        except (OSError, sqlite3.Error, JournalError):
+            return ExpeditionCycleResult(
+                "journal_unavailable", rotation, fleet_id,
+                "Dispatch returned but journal update failed; do not retry.",
+            )
 
         # A fresh observation is required; a successful adapter return alone
         # cannot establish server acceptance.
         try:
             after = self._adapter.read_fleets()
+            if (
+                not isinstance(after, ObservedState)
+                or not isinstance(after.payload, tuple)
+                or any(not isinstance(item, ExpeditionFleetSnapshot) for item in after.payload)
+            ):
+                raise ValueError("malformed post-dispatch observation")
             if after.observed_at <= state.observed_at:
                 raise ValueError("post-dispatch observation is not newer")
             observed = next(
@@ -174,30 +206,28 @@ class ExpeditionRunner:
             accepted = False
 
         if not accepted:
-            if self._journal is not None:
-                try:
-                    self._journal.transition(
-                        fleet_id, mission_id, state.observed_at,
-                        state="unknown", detail="Post-dispatch observation did not confirm mission",
-                    )
-                except (OSError, sqlite3.Error, JournalError):
-                    pass
+            try:
+                self._journal.transition(
+                    fleet_id, mission_id, state.observed_at,
+                    state="unknown", detail="Post-dispatch observation did not confirm mission",
+                )
+            except (OSError, sqlite3.Error, JournalError):
+                pass
             return ExpeditionCycleResult(
                 "dispatch_outcome_unknown", rotation, fleet_id,
                 "Dispatch returned but fresh game state did not confirm the mission.",
             )
 
-        if self._journal is not None:
-            try:
-                self._journal.transition(
-                    fleet_id, mission_id, state.observed_at,
-                    state="confirmed", detail="Fresh game state reports requested mission",
-                )
-            except (OSError, sqlite3.Error, JournalError):
-                return ExpeditionCycleResult(
-                    "journal_unavailable", rotation, fleet_id,
-                    "Mission observed but durable confirmation could not be saved.",
-                )
+        try:
+            self._journal.transition(
+                fleet_id, mission_id, state.observed_at,
+                state="confirmed", detail="Fresh game state reports requested mission",
+            )
+        except (OSError, sqlite3.Error, JournalError):
+            return ExpeditionCycleResult(
+                "journal_unavailable", rotation, fleet_id,
+                "Mission observed but durable confirmation could not be saved.",
+            )
         return ExpeditionCycleResult(
             "dispatch_confirmed", rotation, fleet_id,
             "A newer game-state observation reports the requested mission.",
