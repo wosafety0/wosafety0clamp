@@ -30,6 +30,7 @@ class ExpeditionJournalFleetGuardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             journal = ExpeditionActionJournal(Path(directory) / "actions.db")
             self.assertTrue(journal.reserve(2, 1, NOW))
+            journal.transition(2, 1, NOW, state="submitted", detail="sent")
             journal.transition(2, 1, NOW, state="confirmed", detail="observed")
             self.assertTrue(journal.reserve(2, 2, NOW + timedelta(seconds=1)))
 
