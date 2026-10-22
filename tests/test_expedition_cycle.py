@@ -45,6 +45,19 @@ class ExpeditionCycleTests(unittest.TestCase):
         self.assertEqual(staged.status, "stopped")
         self.assertIsNone(staged.pending)
 
+    def test_malformed_planning_payload_fails_closed(self):
+        malformed = ObservedState(None, self.now - timedelta(seconds=4), "poi")
+        staged = stage_expedition_decision(self.decision, before=malformed)
+        self.assertEqual(staged.status, "stopped")
+        self.assertIsNone(staged.pending)
+        self.assertIn("payload is malformed", staged.reason)
+
+    def test_string_planning_payload_fails_closed(self):
+        malformed = ObservedState("not-a-fleet-list", self.now - timedelta(seconds=4), "poi")
+        staged = stage_expedition_decision(self.decision, before=malformed)
+        self.assertEqual(staged.status, "stopped")
+        self.assertIsNone(staged.pending)
+
     def test_confirmed_dispatch_releases_cycle(self):
         cycle, outcome = self.resolve(self.stage())
         self.assertEqual(cycle.status, "ready")
