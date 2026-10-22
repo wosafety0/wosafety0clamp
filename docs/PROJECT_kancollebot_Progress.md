@@ -29,3 +29,17 @@
 1. Capture and redact one raw `/ships` record from local POI and verify actual field names.
 2. Implement data-backed supply/repair/composition/rotation checks; never manually attest these flags without evidence.
 3. Continue KCV (非提助手)-first call-chain research, using KCA only for labeled supplementary comparisons.
+
+
+## 2026-10-22 — Reference repository identity audit
+
+- Audited the uploaded private repository `wosafety0/KCV` at commit `5f67fd8c134665d64919445edea061b3ec5eaa06`.
+- Found an identity mismatch: its README identifies the material as “KCA Reverse Engineering”; its tree contains `KCA_Decompiled/` and `feitizhushou_Deobfuscation/` with `Grabacr07.KanColleViewer.*` namespaces. This does not verify it as the primary reference KCV = 非提助手.
+- Recorded comparison-only call-chain evidence in `docs/research/REFERENCE_REPO_IDENTITY_AUDIT_20261022.md`. The inspected comparison code sequences UI-coordinate actions with API-session event waits; this is not a POI API contract and must not be attributed to 非提助手.
+- No third-party source was copied into the implementation repository. No local POI connection or real game action was performed.
+- Current commit `f12485f1d9fb2efffb8b764d9a0a9ccb10e536ff` CI passed (run 39792656870): https://github.com/wosafety0/KancolleBot/actions/runs/39792656870
+
+### Next steps
+
+1. Confirm and upload/locate the actual 非提助手 source material using repository metadata and README evidence; do not read the prohibited legacy source path.
+2. Continue Python-side state-machine design from verified event contracts only; keep live actions disabled.
