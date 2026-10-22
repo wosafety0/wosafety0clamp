@@ -59,6 +59,13 @@ class PoiExpeditionReader:
         health = self._client.health()
         if health.get("status") != "ok" or health.get("storeReady") is not True:
             raise PoiMcpError("Poi bridge is unhealthy or its Redux store is not ready")
+        # Redux persistence means a ready store can still contain cached state
+        # from a previous session. Until the bridge exposes a verified session
+        # signal, never present that payload as an actionable game observation.
+        if health.get("sessionReady") is not True:
+            raise PoiMcpError(
+                "Poi game session is not verified; cached Redux state is read-blocked"
+            )
         if not self._initialized:
             self._client.initialize()
             tools = {tool.name for tool in self._client.list_tools()}

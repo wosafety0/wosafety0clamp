@@ -14,7 +14,7 @@ NOW = datetime(2026, 10, 22, 12, 0, tzinfo=timezone.utc)
 
 class FakePoiClient:
     def __init__(self, *, health=None, tools=None, responses=None):
-        self._health = health or {"status": "ok", "storeReady": True}
+        self._health = health or {"status": "ok", "storeReady": True, "sessionReady": True}
         self._tools = tools or ("poi_describe", "poi_get", "poi_lookup")
         self._responses = responses or {}
         self.calls = []
@@ -115,6 +115,28 @@ class PoiExpeditionReaderTests(unittest.TestCase):
         reader, client = self.make_reader(health={"status": "error", "storeReady": False})
 
         with self.assertRaisesRegex(PoiMcpError, "unhealthy"):
+            reader.read_fleets()
+
+        self.assertFalse(client.initialized)
+        self.assertEqual(client.calls, [])
+
+    def test_unverified_game_session_blocks_cached_state(self):
+        reader, client = self.make_reader(
+            health={"status": "ok", "storeReady": True}
+        )
+
+        with self.assertRaisesRegex(PoiMcpError, "session is not verified"):
+            reader.read_fleets()
+
+        self.assertFalse(client.initialized)
+        self.assertEqual(client.calls, [])
+
+    def test_false_game_session_blocks_state(self):
+        reader, client = self.make_reader(
+            health={"status": "ok", "storeReady": True, "sessionReady": False}
+        )
+
+        with self.assertRaisesRegex(PoiMcpError, "session is not verified"):
             reader.read_fleets()
 
         self.assertFalse(client.initialized)
