@@ -35,7 +35,7 @@ def evidence_from_poi_response_action(
     if not isinstance(bridge_instance_id, str) or not bridge_instance_id.strip():
         return None
     action_type = action.get("type")
-    if action_type not in _ALLOWED_ACTIONS:
+    if not isinstance(action_type, str) or action_type not in _ALLOWED_ACTIONS:
         return None
 
     payload = action.get("payload")

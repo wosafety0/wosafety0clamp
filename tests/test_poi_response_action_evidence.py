@@ -77,7 +77,7 @@ class PoiResponseActionEvidenceTests(unittest.TestCase):
         )
 
     def test_rejects_malformed_actions(self):
-        for value in (None, {}, {"type": "@@Response/kcsapi/api_port/port"}):
+        for value in (None, {}, {"type": "@@Response/kcsapi/api_port/port"}, {"type": []}, {"type": {}}):
             with self.subTest(value=value):
                 self.assertIsNone(
                     evidence_from_poi_response_action(
