@@ -123,9 +123,10 @@ class PoiMcpClientTests(unittest.TestCase):
             "event: message\n"
             "data: " + response + "\n\n"
         )
+        responses = iter([FakeSseResponse(body), FakeResponse({})])
         client = PoiMcpClient(
             PoiMcpConfig(token="test-token"),
-            opener=lambda request, timeout: FakeSseResponse(body),
+            opener=lambda request, timeout: next(responses),
         )
 
         result = client.initialize()
