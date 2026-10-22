@@ -144,12 +144,13 @@ class PoiMcpClient:
         }
         if params is not None:
             body["params"] = dict(params)
+        if not self.config.token:
+            raise PoiMcpError("KANCOLLE_POI_MCP_TOKEN is required for MCP requests")
         headers = {
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
+            "Authorization": "Bearer " + self.config.token,
         }
-        if self.config.token:
-            headers["Authorization"] = "Bearer " + self.config.token
         request = urllib.request.Request(
             self.config.base_url.rstrip("/") + "/mcp",
             data=json.dumps(body).encode("utf-8"),
