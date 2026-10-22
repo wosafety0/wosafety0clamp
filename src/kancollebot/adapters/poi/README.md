@@ -45,3 +45,7 @@ python tools/verify_poi_bridge.py --bridge poi-plugin-mcp
 Both modes restrict HTTP traffic to loopback and query only read-only endpoints/tools. The report prints response shapes, not raw fleet or ship values. A successful transport report deliberately leaves session validity marked `NOT_VERIFIED`; it does not prove the game is logged in or that cached data is fresh. The alternative plugin is not installed automatically, and its optional WebView input/debug-eval features must remain disabled.
 
 The verifier has offline unit tests. A local run against Poi 12.0.1 is still required to establish Python-client compatibility and live payload shape.
+
+## Session evidence prototype
+
+`response_action_evidence.py` extracts a minimal record from the two allowlisted Poi Redux response actions. It accepts only an explicit numeric `api_result == 1`, treats the action timestamp as epoch milliseconds, and drops all response/request payload fields. This is a Python contract prototype for the future Poi extension reducer, not a running Poi plugin. The reader remains fail-closed until the real bridge emits and invalidates this evidence correctly.
