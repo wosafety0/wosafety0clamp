@@ -60,3 +60,14 @@ The Node built-in test runner covers initial fail-closed state, allowlisted resp
 - https://github.com/poooi/poi/blob/master/views/redux/reducer-factory.ts
 - https://github.com/poooi/poi/blob/master/views/services/plugin-manager/lifecycle.ts
 - https://github.com/momocow/poi-plugin-nanodesu-mcp/blob/main/src/server.ts
+
+## Poi v12.0.1 source-tag compatibility check
+
+A read-only source comparison was performed against the `v12.0.1` tag (not only Poi's moving `master` branch):
+
+- `views/services/plugin-manager/read-plugin.tsx` enforces the `poi-plugin-*` package-name prefix.
+- `views/services/plugin-manager/lifecycle.ts` registers and unregisters reducers by `plugin.packageName`, and calls `pluginDidLoad` after reducer registration.
+- `views/redux/reducer-factory.ts` wraps each extension reducer under `ext.<packageName>._` and isolates reducer exceptions.
+- The response action declarations include the two allowlisted action names used by this extension.
+
+This establishes source-level compatibility evidence for the published tag only. It does **not** prove that a locally installed Poi 12.0.1 binary loads this plugin, that the running process has the expected window context, or that the Nanodesu MCP query returns the path. Those runtime checks remain open and must be performed before enabling the Python reader.
