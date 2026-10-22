@@ -29,11 +29,11 @@ function reducer(state = null, action = {}) {
   }
 
   if (action.type === ACTION_INIT) {
-    return invalidEvidence(action.bridgeInstanceId, 'awaiting_fresh_response');
+    return { evidence: invalidEvidence(action.bridgeInstanceId, 'awaiting_fresh_response') };
   }
 
   if (action.type === ACTION_INVALIDATE) {
-    return invalidEvidence(action.bridgeInstanceId || (state && state.bridgeInstanceId) || null, 'plugin_unloading');
+    return { evidence: invalidEvidence(action.bridgeInstanceId || (state && state.evidence && state.evidence.bridgeInstanceId) || null, 'plugin_unloading') };
   }
 
   if (!ALLOWED_RESPONSE_ACTIONS.has(action.type)) {
@@ -41,12 +41,12 @@ function reducer(state = null, action = {}) {
   }
 
   if (!bridgeInstanceId || !action.payload || typeof action.payload !== 'object') {
-    return invalidEvidence(bridgeInstanceId, 'invalid_action_payload');
+    return { evidence: invalidEvidence(bridgeInstanceId, 'invalid_action_payload') };
   }
 
   const timestamp = action.payload.time;
   if (typeof timestamp !== 'number' || !Number.isFinite(timestamp) || timestamp <= 0) {
-    return invalidEvidence(bridgeInstanceId, 'invalid_response_timestamp');
+    return { evidence: invalidEvidence(bridgeInstanceId, 'invalid_response_timestamp') };
   }
 
   let observedAt;
@@ -58,11 +58,13 @@ function reducer(state = null, action = {}) {
 
   const responsePath = action.type.slice('@@Response/kcsapi/'.length);
   return {
-    bridgeInstanceId,
-    responsePath,
-    responseOk: true,
-    observedAt,
-    invalidated: false,
+    evidence: {
+      bridgeInstanceId,
+      responsePath,
+      responseOk: true,
+      observedAt,
+      invalidated: false,
+    },
   };
 }
 

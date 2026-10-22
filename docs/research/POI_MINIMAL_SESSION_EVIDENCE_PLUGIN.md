@@ -17,12 +17,12 @@ Poi's current public response pipeline validates the outer KCSAPI success envelo
 The reducer extension is registered by Poi's plugin lifecycle under the package name `kancollebot-poi-session-evidence`. Poi's current public source nests plugin reducer state under `ext.<package-name>._`, so the expected Nanodesu read-only MCP query path is:
 
 ```text
-ext.kancollebot-poi-session-evidence._
+ext.kancollebot-poi-session-evidence._.evidence
 ```
 
 This path is source-informed, not yet verified against the installed Poi 12.0.1 binary or the local Nanodesu MCP runtime. Query it only after the plugin has been installed and loaded through Poi's supported plugin mechanism. The extension does not create a new listener, HTTP server, token, or dependency. However, the stock Nanodesu MCP plugin currently denies the entire `ext` root and only allows individually reviewed plugin reducers. Therefore this state path is **not readable through an unmodified Nanodesu installation**. Its `ALLOWED_EXT_SUBPATHS` mechanism also currently applies only after a plugin package has been allowlisted, so a narrowly scoped integration needs both an explicit package entry and an exact `_.` state-subpath restriction. Do not treat the source-derived path as an operational bridge until that transport/allowlist change is separately reviewed and tested.
 
-The stored evidence has only these fields: `bridgeInstanceId`, `responsePath`, `responseOk`, `observedAt`, `invalidated`, and (only while unavailable) `reason`. It never stores response/request bodies, account IDs, cookies, credentials, or fleet/ship data.
+The reducer state nests the evidence under a dedicated `evidence` object so Nanodesu can allowlist that exact subpath rather than the entire extension state. The stored evidence object has only these fields: `bridgeInstanceId`, `responsePath`, `responseOk`, `observedAt`, `invalidated`, and (only while unavailable) `reason`. It never stores response/request bodies, account IDs, cookies, credentials, or fleet/ship data.
 
 ## Lifecycle and safety
 
@@ -47,7 +47,7 @@ The Node built-in test runner covers initial fail-closed state, allowlisted resp
 ## Required local verification before enabling reads
 
 1. Load the extension manually in the existing Poi 12.0.1 installation using Poi's supported plugin mechanism.
-2. First choose and review a transport. Stock Nanodesu currently denies this `ext` path, so visibility through its existing `poi_get` tool is expected to fail unless its explicit plugin-state allowlist is separately updated.
+2. First review and apply a narrowly scoped Nanodesu allowlist change: add this package to `ALLOWED_EXT_PLUGINS` and add only `_.evidence` to its `ALLOWED_EXT_SUBPATHS`. Stock Nanodesu currently denies this `ext` path, so visibility through its existing `poi_get` tool is expected to fail until that explicit change is deployed.
 3. Confirm a fresh `api_port/port` or `api_get_member/require_info` response updates `observedAt` and that no raw body fields appear.
 4. Unload the extension and confirm the path becomes unavailable/invalidated.
 5. After a transport is selected, integrate it with the Python reader and verify ISO-8601 freshness validation; until then the reader must remain fail-closed.

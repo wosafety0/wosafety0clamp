@@ -22,11 +22,11 @@ function setupPlugin() {
 
 test('initial state is invalid until an allowlisted fresh response arrives', () => {
   const { initial } = setupPlugin();
-  assert.equal(initial.responseOk, false);
-  assert.equal(initial.invalidated, true);
-  assert.equal(initial.reason, 'awaiting_fresh_response');
-  assert.equal(typeof initial.bridgeInstanceId, 'string');
-  assert.equal(initial.bridgeInstanceId.length, 32);
+  assert.equal(initial.evidence.evidence.responseOk, false);
+  assert.equal(initial.evidence.evidence.invalidated, true);
+  assert.equal(initial.evidence.reason, 'awaiting_fresh_response');
+  assert.equal(typeof initial.evidence.bridgeInstanceId, 'string');
+  assert.equal(initial.evidence.bridgeInstanceId.length, 32);
   delete global.window;
 });
 
@@ -41,11 +41,11 @@ test('allowlisted successful Poi response stores only minimal evidence', () => {
       postBody: { secret: 'must-not-leak' },
     },
   });
-  assert.equal(evidence.responseOk, true);
-  assert.equal(evidence.responsePath, 'api_port/port');
-  assert.equal(evidence.observedAt, new Date(timestamp).toISOString());
-  assert.equal(evidence.invalidated, false);
-  assert.deepEqual(Object.keys(evidence).sort(), [
+  assert.equal(evidence.evidence.responseOk, true);
+  assert.equal(evidence.evidence.responsePath, 'api_port/port');
+  assert.equal(evidence.evidence.observedAt, new Date(timestamp).toISOString());
+  assert.equal(evidence.evidence.invalidated, false);
+  assert.deepEqual(Object.keys(evidence.evidence).sort(), [
     'bridgeInstanceId', 'invalidated', 'observedAt', 'responseOk', 'responsePath',
   ]);
   assert.equal(JSON.stringify(evidence).includes('must-not-leak'), false);
@@ -58,7 +58,7 @@ test('require_info is allowlisted and unrelated actions do not refresh evidence'
     type: '@@Response/kcsapi/api_get_member/require_info',
     payload: { time: 1792670370000 },
   });
-  assert.equal(evidence.responsePath, 'api_get_member/require_info');
+  assert.equal(evidence.evidence.responsePath, 'api_get_member/require_info');
   assert.equal(plugin.reducer(evidence, { type: '@@Request/kcsapi/api_port/port' }), evidence);
   delete global.window;
 });
@@ -74,8 +74,8 @@ test('invalid timestamps fail closed and invalidate previous evidence', () => {
       type: '@@Response/kcsapi/api_port/port',
       payload: { time },
     });
-    assert.equal(rejected.responseOk, false);
-    assert.equal(rejected.invalidated, true);
+    assert.equal(rejected.evidence.responseOk, false);
+    assert.equal(rejected.evidence.invalidated, true);
   }
   delete global.window;
 });
@@ -95,8 +95,8 @@ test('plugin unload emits invalidation and drops the module identity', () => {
   plugin.pluginWillUnload();
   assert.equal(dispatched.at(-1).type, INVALIDATE);
   const invalidated = plugin.reducer(initial, dispatched.at(-1));
-  assert.equal(invalidated.invalidated, true);
-  assert.equal(invalidated.responseOk, false);
+  assert.equal(invalidated.evidence.invalidated, true);
+  assert.equal(invalidated.evidence.responseOk, false);
   delete global.window;
 });
 
