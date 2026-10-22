@@ -32,6 +32,14 @@ class ExpeditionActionJournal:
                     updated_at TEXT NOT NULL
                 )"""
             )
+            # One fleet observation can authorize at most one dispatch, even
+            # when a later attempt selects a different mission ID.
+            # A conflicting legacy database fails closed during initialization.
+            db.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS "
+                "idx_expedition_fleet_observation "
+                "ON expedition_actions (fleet_id, observed_at)"
+            )
 
     def _connect(self):
         db = sqlite3.connect(self.path, timeout=5.0, isolation_level=None)
