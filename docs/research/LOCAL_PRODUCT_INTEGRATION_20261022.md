@@ -1,30 +1,32 @@
 # Local Product Files Integration — 2026-10-22
 
 ## Source review
+- `state_parser.py` mixes explanatory prose and Python snippets, so it is not directly importable.
+- `scheduler.py` combines scheduling, a synchronous action queue, and an unverified CDP/WebSocket reader; it is not safe to connect directly to the live game.
+- `guard.py` contains allow-list and failure-lock concepts. The existing package policy remains the canonical live-action gate; live actions stay disabled by default.
 
-Reviewed the uploaded files under `upload/local-product-files-20261022/` on the research branch:
+## Integrated
+- `src/kancollebot/core/fleet_parser.py`: pure fleet parser preserving original ship slot positions; missing expedition state stays unknown.
+- `src/kancollebot/core/expedition_planner.py`: pure planner recommending at most one collect, dispatch, or wait decision; no action execution.
+- `src/kancollebot/core/ship_parser.py`: strict schema-configurable parser for raw `/ships` records. Callers must supply `ShipFieldMap`; field names are not guessed.
+- `src/kancollebot/adapters/poi/http_read_only.py`: loopback-only HTTP adapter restricted to GET `/fleets` and `/ships`, strict UTF-8/JSON, bounded response size, no redirects, and fleet/ship ID cross-checking. `get_ship_states(fields)` requires an explicit field map.
+- `src/kancollebot/safety/fleet.py`: pure HP gate; empty fleets, missing ship states, ID mismatches, zero HP, and HP at/below the critical ratio block the check.
+- Offline tests cover parsing, adapter restrictions, Japanese name preservation, malformed payloads, and HP safety cases.
 
-- `state_parser.py` contains prose mixed with Python code and is not an importable module as uploaded.
-- `scheduler.py` combines scheduling, a synchronous action queue, and an unverified CDP/WebSocket reader. It is not safe to connect directly to the live game.
-- `guard.py` contains useful allow-list and failure-lock concepts. The existing package policy remains the canonical live-action gate; live actions stay disabled by default.
+## Evidence and limitations
+- GitHub Actions CI passed for commit `2fdf715fe697b08bd9609002f852631d554ccd46` (run 39788837921): https://github.com/wosafety0/KancolleBot/actions/runs/39788837921
+- CI success is not runtime verification against the user's local POI instance.
+- A previous user-provided local diagnostic confirmed `/fleets` and `/ships` returned HTTP 200, with a top-level fleet array and a ship object keyed by IDs. The repository does not yet contain an authoritative redacted raw `/ships` sample confirming name/current-HP/max-HP keys.
+- An uploaded snippet mentions `api_name`, `api_nowhp`, and `api_maxhp`, but this is not proof of the current runtime schema. These names appear only in synthetic tests until verified.
+- The HP gate is not yet wired into expedition dispatch planning. Supply, repair/docking, mission composition, and fleet rotation remain unchecked.
 
-## Integrated now
-
-- Added `src/kancollebot/core/fleet_parser.py` as a pure parser for observed fleet payloads.
-- Added `src/kancollebot/core/expedition_planner.py` as a pure planner that recommends at most one action.
-- Added offline tests for top-level JSON arrays, slot preservation, unknown mission state, malformed slots, collection priority, and dispatch recommendations.
-
-## Safety and limitations
-
-- No POI network connection is opened by these modules.
-- No collection, dispatch, supply, battle, or other gameplay action is executed.
-- Missing/invalid expedition state is treated as unknown, never as idle.
-- The planner does not yet verify ship HP, repair status, supply levels, mission fleet requirements, or fleet rotation constraints. A dispatch recommendation is not authorization to execute.
-- The uploaded files remain in the repository as source material and are not imported by runtime code.
+## Safety boundaries
+- Cloud CI does not connect to local POI.
+- No collection, dispatch, supply, battle, or other gameplay action has been executed.
+- A dispatch recommendation is not authorization to execute. Live gameplay actions remain disabled by default.
 
 ## Next steps
-
-1. Run the repository CI workflow for this branch and inspect its result.
-2. Connect the parser to a separately verified read-only POI adapter.
-3. Add safety preconditions for ship state, supply, fleet composition, and rotation.
-4. Only after those gates and failure recovery are tested, design a live action adapter; live actions remain disabled by default.
+1. Capture a minimal, redacted raw `/ships` record from the local read-only endpoint and verify actual field names.
+2. Add an explicit reviewed field map and a fixture test using that evidence.
+3. Integrate the HP gate into dispatch readiness; keep supply, repair/docking, composition, and rotation as unresolved gates.
+4. Continue KCV (非提助手)-first call-chain research, using KCA only for labeled supplementary comparisons.
