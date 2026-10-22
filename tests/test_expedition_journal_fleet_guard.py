@@ -71,7 +71,7 @@ class ExpeditionJournalFleetGuardTests(unittest.TestCase):
             journal = ExpeditionActionJournal(Path(directory) / "actions.db")
             journal.reserve(2, 1, NOW)
             journal.transition(2, 1, NOW, state="unknown", detail="timeout")
-            with self.assertRaises(Exception):
+            with self.assertRaises(JournalError):
                 journal.transition(2, 1, NOW, state="submitted", detail="retry")
             journal.transition(2, 1, NOW, state="confirmed", detail="verified")
             self.assertEqual(journal.get(2, 1, NOW)["state"], "confirmed")
@@ -81,7 +81,7 @@ class ExpeditionJournalFleetGuardTests(unittest.TestCase):
             journal = ExpeditionActionJournal(Path(directory) / "actions.db")
             journal.reserve(2, 1, NOW)
             journal.transition(2, 1, NOW, state="rejected", detail="verified rejection")
-            with self.assertRaises(Exception):
+            with self.assertRaises(JournalError):
                 journal.transition(2, 1, NOW, state="submitted", detail="retry")
             self.assertEqual(journal.get(2, 1, NOW)["state"], "rejected")
 
@@ -121,6 +121,25 @@ class ExpeditionJournalFleetGuardTests(unittest.TestCase):
                     )
             with self.assertRaises(sqlite3.IntegrityError):
                 ExpeditionActionJournal(path)
+
+    def test_unresolved_actions_are_inspectable_after_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "actions.db"
+            journal = ExpeditionActionJournal(path)
+            journal.reserve(2, 1, NOW)
+            journal.transition(2, 1, NOW, state="unknown", detail="timeout")
+            journal.reserve(3, 4, NOW)
+            reopened = ExpeditionActionJournal(path)
+            unresolved = reopened.list_unresolved()
+            self.assertEqual(len(unresolved), 2)
+            self.assertEqual({item["state"] for item in unresolved}, {"unknown", "reserved"})
+            self.assertEqual(len(reopened.list_unresolved(fleet_id=2)), 1)
+
+    def test_unresolved_listing_rejects_invalid_fleet_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ExpeditionActionJournal(Path(directory) / "actions.db")
+            with self.assertRaises(ValueError):
+                journal.list_unresolved(fleet_id=0)
 
 
 if __name__ == "__main__":

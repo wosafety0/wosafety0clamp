@@ -10,14 +10,25 @@ import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TypedDict
 
 
 class JournalError(RuntimeError):
     """The action journal could not safely record or transition an action."""
 
 
+class UnresolvedAction(TypedDict):
+    fleet_id: int
+    mission_id: int
+    observed_at: str
+    state: str
+    detail: str
+    updated_at: str
+
+
 class ExpeditionActionJournal:
     STATES = {"reserved", "submitted", "confirmed", "unknown", "rejected"}
+    UNRESOLVED_STATES = ("reserved", "submitted", "unknown")
     TRANSITIONS = {
         "reserved": {"submitted", "unknown", "rejected"},
         "submitted": {"confirmed", "unknown", "rejected"},
@@ -113,6 +124,35 @@ class ExpeditionActionJournal:
                 (state, detail, now, key),
             )
             db.execute("COMMIT")
+
+    def list_unresolved(self, *, fleet_id: int | None = None) -> list[UnresolvedAction]:
+        """Return pending/ambiguous actions for inspection; this performs no reconciliation."""
+        states = self.UNRESOLVED_STATES
+        placeholders = ", ".join("?" for _ in states)
+        query = (
+            "SELECT fleet_id, mission_id, observed_at, state, detail, updated_at "
+            f"FROM expedition_actions WHERE state IN ({placeholders})"
+        )
+        parameters: tuple[object, ...] = states
+        if fleet_id is not None:
+            if fleet_id < 1:
+                raise ValueError("fleet_id must be positive")
+            query += " AND fleet_id = ?"
+            parameters += (fleet_id,)
+        query += " ORDER BY fleet_id, observed_at"
+        with closing(self._connect()) as db:
+            rows = db.execute(query, parameters).fetchall()
+        return [
+            {
+                "fleet_id": row[0],
+                "mission_id": row[1],
+                "observed_at": row[2],
+                "state": row[3],
+                "detail": row[4],
+                "updated_at": row[5],
+            }
+            for row in rows
+        ]
 
     def get(self, fleet_id: int, mission_id: int, observed_at: datetime):
         key = self.make_key(fleet_id, mission_id, observed_at)
