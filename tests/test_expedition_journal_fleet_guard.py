@@ -6,7 +6,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from kancollebot.expeditions.action_journal import ExpeditionActionJournal
+from kancollebot.expeditions.action_journal import ExpeditionActionJournal, JournalError
 
 
 NOW = datetime(2026, 10, 22, 12, 0, tzinfo=timezone.utc)
@@ -62,7 +62,7 @@ class ExpeditionJournalFleetGuardTests(unittest.TestCase):
             journal.reserve(2, 1, NOW)
             journal.transition(2, 1, NOW, state="submitted", detail="sent")
             journal.transition(2, 1, NOW, state="confirmed", detail="observed")
-            with self.assertRaises(Exception):
+            with self.assertRaises(JournalError):
                 journal.transition(2, 1, NOW, state="unknown", detail="late timeout")
             self.assertEqual(journal.get(2, 1, NOW)["state"], "confirmed")
 
@@ -84,6 +84,15 @@ class ExpeditionJournalFleetGuardTests(unittest.TestCase):
             with self.assertRaises(Exception):
                 journal.transition(2, 1, NOW, state="submitted", detail="retry")
             self.assertEqual(journal.get(2, 1, NOW)["state"], "rejected")
+
+    def test_invalid_transition_releases_database_connection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ExpeditionActionJournal(Path(directory) / "actions.db")
+            journal.reserve(2, 1, NOW)
+            with self.assertRaises(JournalError):
+                journal.transition(2, 1, NOW, state="confirmed", detail="skip submitted")
+            journal.transition(2, 1, NOW, state="submitted", detail="sent")
+            self.assertEqual(journal.get(2, 1, NOW)["state"], "submitted")
 
     def test_different_fleet_can_be_reserved(self):
         with tempfile.TemporaryDirectory() as directory:
