@@ -15,6 +15,19 @@ class ShipStateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ShipState(ship_id=1, name="Test Ship", hp=16, max_hp=15)
 
+    def test_rejects_boolean_or_non_integer_numeric_fields(self):
+        for kwargs in (
+            {"ship_id": True, "name": "Test Ship", "hp": 10, "max_hp": 15},
+            {"ship_id": 1, "name": "Test Ship", "hp": True, "max_hp": 15},
+            {"ship_id": 1, "name": "Test Ship", "hp": 10, "max_hp": 15.0},
+        ):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                ShipState(**kwargs)
+
+    def test_rejects_non_text_name(self):
+        with self.assertRaises(ValueError):
+            ShipState(ship_id=1, name=None, hp=10, max_hp=15)
+
 
 class FleetStateTests(unittest.TestCase):
     def test_accepts_valid_fleet(self):
@@ -28,6 +41,17 @@ class FleetStateTests(unittest.TestCase):
     def test_rejects_more_than_six_ships(self):
         with self.assertRaises(ValueError):
             FleetState(fleet_id=1, ship_ids=(1, 2, 3, 4, 5, 6, 7))
+
+    def test_rejects_boolean_ids_and_invalid_container(self):
+        for kwargs in (
+            {"fleet_id": True, "ship_ids": (10,)},
+            {"fleet_id": 1, "ship_ids": (True,)},
+            {"fleet_id": 1, "ship_ids": [10]},
+            {"fleet_id": 1, "ship_ids": (0,)},
+            {"fleet_id": 1, "ship_ids": (), "mission_id": True},
+        ):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                FleetState(**kwargs)
 
 
 class ObservedStateTests(unittest.TestCase):
@@ -66,10 +90,28 @@ class ObservedStateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "timezone-aware"):
             ObservedState(payload={}, observed_at=datetime(2026, 10, 21), source="test")
 
+    def test_rejects_invalid_observation_fields(self):
+        for observed_at, source in (
+            ("2026-10-21T14:00:00Z", "test"),
+            (self.now, None),
+            (self.now, "  "),
+        ):
+            with self.subTest(observed_at=observed_at, source=source), self.assertRaises(ValueError):
+                ObservedState(payload={}, observed_at=observed_at, source=source)
+
     def test_rejects_negative_max_age(self):
         state = ObservedState(payload={}, observed_at=self.now, source="test")
         with self.assertRaisesRegex(ValueError, "negative"):
             state.is_fresh(now=self.now, max_age=timedelta(seconds=-1))
+
+    def test_rejects_invalid_freshness_arguments(self):
+        state = ObservedState(payload={}, observed_at=self.now, source="test")
+        for now, max_age in (
+            ("not-a-time", self.max_age),
+            (self.now, 30),
+        ):
+            with self.subTest(now=now, max_age=max_age), self.assertRaises(ValueError):
+                state.is_fresh(now=now, max_age=max_age)
 
 
 class SafetyPolicyTests(unittest.TestCase):
