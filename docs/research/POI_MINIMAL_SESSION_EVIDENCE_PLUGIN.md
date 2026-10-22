@@ -38,7 +38,9 @@ The reducer state nests the evidence under a dedicated `evidence` object so Nano
 
 ## Current integration boundary
 
-The Python expedition reader remains fail-closed and is not wired to this extension. Source inspection of Nanodesu `src/paths.ts` confirmed that `ext` is explicitly denied because arbitrary plugin state is not assumed serializable, with a separate `ALLOWED_EXT_PLUGINS` allowlist. This package is not on that allowlist. The reducer extension can be unit-tested in isolation, but reading it through stock Nanodesu is currently blocked by design. Do not silently widen the external bridge's allowlist or install a separate server without a security review.
+The Python expedition reader now contains a read-only integration for the exact evidence path and validates the bridge instance ID, approved response type, strict success flag, invalidation state, and a 120-second timestamp window before any fleet/ship/master-data query. Unknown fields are rejected so the evidence payload cannot quietly expand into game data.
+
+Operational session reads are **disabled by default** in `PoiExpeditionReader`; they require the explicit `enable_session_evidence=True` constructor opt-in. That opt-in is for controlled integration testing only and must not be enabled for normal operation until the local Poi 12.0.1 plugin load and Nanodesu allowlist path have been verified. Source inspection of Nanodesu `src/paths.ts` confirmed that `ext` is explicitly denied unless a plugin and exact subpath are allowlisted. This package is not on the stock allowlist, so the evidence query is expected to fail closed against an unmodified installation. No third-party Nanodesu repository was changed.
 
 ## Validation performed in CI
 

@@ -7,7 +7,7 @@ perform gameplay actions.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from kancollebot.adapters.poi.expedition_state_v2 import (
@@ -15,6 +15,10 @@ from kancollebot.adapters.poi.expedition_state_v2 import (
     normalize_poi_fleets,
 )
 from kancollebot.adapters.poi.mcp_client import PoiMcpClient, PoiMcpError
+from kancollebot.adapters.poi.session_evidence import (
+    PoiSessionEvidenceError,
+    validate_session_evidence,
+)
 from kancollebot.core.observed_state import ObservedState
 from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
 
@@ -50,28 +54,56 @@ class PoiExpeditionReader:
         client: PoiMcpClient | None = None,
         *,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        enable_session_evidence: bool = False,
     ) -> None:
         self._client = client or PoiMcpClient()
         self._clock = clock
+        # Operational reads remain disabled until the local Poi/Nanodesu
+        # bridge path has been verified by an explicit operator-controlled opt-in.
+        self._enable_session_evidence = enable_session_evidence is True
         self._initialized = False
 
     def _ensure_ready(self) -> None:
+        if not self._enable_session_evidence:
+            raise PoiMcpError(
+                "Poi session reads are disabled until local bridge verification is complete"
+            )
         health = self._client.health()
         if health.get("status") != "ok" or health.get("storeReady") is not True:
             raise PoiMcpError("Poi bridge is unhealthy or its Redux store is not ready")
-        # Redux persistence means a ready store can still contain cached state
-        # from a previous session. Until the bridge exposes a verified session
-        # signal, never present that payload as an actionable game observation.
-        if health.get("sessionReady") is not True:
-            raise PoiMcpError(
-                "Poi game session is not verified; cached Redux state is read-blocked"
-            )
         if not self._initialized:
             self._client.initialize()
             tools = {tool.name for tool in self._client.list_tools()}
             if not {"poi_describe", "poi_get"}.issubset(tools):
                 raise PoiMcpError("Poi bridge is missing required read-only tools")
             self._initialized = True
+        # Verify a fresh, explicit bridge observation before reading any fleet,
+        # ship, or master-data paths. Stock Nanodesu is expected to deny this
+        # path until its narrowly scoped allowlist proposal is deployed.
+        try:
+            result = _tool_value(
+                self._client.call_read_tool(
+                    "poi_get",
+                    {"path": "ext.poi-plugin-kancollebot-session-evidence._.evidence"},
+                ),
+                "poi_get(session evidence)",
+            )
+        except PoiMcpError as exc:
+            raise PoiMcpError(f"Poi session evidence unavailable: {exc}") from exc
+        if (
+            isinstance(result, dict)
+            and result.get("kind") == "object"
+            and isinstance(result.get("items"), dict)
+        ):
+            result = result["items"]
+        try:
+            validate_session_evidence(
+                result,
+                now=self._clock(),
+                max_age=timedelta(seconds=120),
+            )
+        except PoiSessionEvidenceError as exc:
+            raise PoiMcpError(f"Poi session evidence rejected: {exc}") from exc
 
     @staticmethod
     def _collection_items(value: Any, path: str, *, expected_kind: str) -> Any:

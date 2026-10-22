@@ -45,6 +45,13 @@ def validate_session_evidence(
     if not isinstance(value, Mapping):
         raise PoiSessionEvidenceError("session evidence is missing")
 
+    allowed_fields = {
+        "bridgeInstanceId", "responsePath", "responseOk",
+        "observedAt", "invalidated", "reason",
+    }
+    if not set(value).issubset(allowed_fields):
+        raise PoiSessionEvidenceError("session evidence contains unexpected fields")
+
     instance_id = value.get("bridgeInstanceId")
     if not isinstance(instance_id, str) or not instance_id.strip():
         raise PoiSessionEvidenceError("bridge instance identity is missing")
