@@ -8,6 +8,8 @@ Network access is injectable so tests run entirely offline.
 from __future__ import annotations
 
 import json
+import os
+from collections import Counter
 from typing import Any
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
@@ -15,6 +17,7 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 from kancollebot.core.fleet_parser import FleetObservation, parse_fleet_payload
 from kancollebot.core.ship_parser import ShipFieldMap, parse_ship_payload
 from kancollebot.core.models import ShipState
+from kancollebot.core.ship_schema import inspect_ship_schema
 
 
 _DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
@@ -112,6 +115,88 @@ class PoiHttpReadOnlyAdapter:
         """
         return parse_ship_payload(self._get_json("ships"), fields=fields)
 
+    def diagnose(self) -> dict[str, object]:
+        """Read fleet and ship endpoints and return a privacy-preserving report.
+
+        The report never includes ship names, ship IDs, or raw record values.
+        Field-name candidates are reported as evidence only; they are not
+        automatically applied to the ship parser or dispatch safety gates.
+        """
+        fleet_payload = self._get_json("fleets")
+        ship_payload = self._get_json("ships")
+        fleets = parse_fleet_payload(fleet_payload)
+        known_ship_ids = self._parse_ship_ids(ship_payload)
+        missing = {
+            ship_id
+            for fleet in fleets
+            for ship_id in fleet.occupied_ship_ids
+            if ship_id not in known_ship_ids
+        }
+        if missing:
+            raise ValueError("fleet payload references ship records absent from /ships")
+
+        schema = inspect_ship_schema(ship_payload)
+        field_names = {name for name, _, _ in schema.fields}
+        records = list(ship_payload.values())
+
+        def field_is_consistent(name: str, expected_type: type, *, non_empty: bool = False) -> bool:
+            return bool(records) and all(
+                name in record
+                and type(record[name]) is expected_type
+                and (not non_empty or bool(record[name].strip()))
+                for record in records
+            )
+
+        candidate_fields = {
+            "name": "api_name",
+            "hp": "api_nowhp",
+            "max_hp": "api_maxhp",
+        }
+        candidate_types = {
+            "name": str,
+            "hp": int,
+            "max_hp": int,
+        }
+        candidate_valid = (
+            candidate_fields["name"] in field_names
+            and candidate_fields["hp"] in field_names
+            and candidate_fields["max_hp"] in field_names
+            and field_is_consistent("api_name", str, non_empty=True)
+            and field_is_consistent("api_nowhp", int)
+            and field_is_consistent("api_maxhp", int)
+            and all(
+                0 <= record["api_nowhp"] <= record["api_maxhp"]
+                and record["api_maxhp"] > 0
+                for record in records
+            )
+        )
+        mission_states = Counter(
+            fleet.mission_state_code if fleet.mission_state_code is not None else "unknown"
+            for fleet in fleets
+        )
+        return {
+            "ok": True,
+            "source": "poi-http-read-only",
+            "endpoints": {"fleets": "read", "ships": "read"},
+            "fleet_count": len(fleets),
+            "ship_record_count": len(known_ship_ids),
+            "fleet_ship_references_valid": True,
+            "mission_state_counts": dict(mission_states),
+            "ship_schema": {
+                "sampled_records": schema.sampled_records,
+                "field_type_counts": [
+                    {"field": name, "type": kind, "count": count}
+                    for name, kind, count in schema.fields
+                ],
+            },
+            "known_field_map_candidate": {
+                "fields": candidate_fields,
+                "all_records_type_and_range_valid": candidate_valid,
+                "auto_applied": False,
+                "note": "Review the live schema before enabling ship-state parsing.",
+            },
+        }
+
     def get_status(self) -> dict[str, object]:
         """Return fleet observations after validating references against /ships."""
         fleet_payload = self._get_json("fleets")
@@ -135,3 +220,29 @@ class PoiHttpReadOnlyAdapter:
             "ship_record_count": len(known_ship_ids),
             "ship_ids": tuple(sorted(known_ship_ids)),
         }
+
+
+def main() -> int:
+    """Run a read-only, privacy-preserving local POI connection diagnostic."""
+    import json
+    import sys
+
+    base_url = os.environ.get("KANCOLLE_POI_HTTP_URL", "http://127.0.0.1:17777")
+    try:
+        report = PoiHttpReadOnlyAdapter(base_url=base_url).diagnose()
+    except Exception as exc:
+        # Do not print raw response data or exception details that may include
+        # local identifiers. The exception type is enough to guide diagnosis.
+        report = {
+            "ok": False,
+            "source": "poi-http-read-only",
+            "error_type": type(exc).__name__,
+            "error": "Read-only POI diagnostic failed; verify endpoint availability and response schema.",
+            "base_url": base_url,
+        }
+    sys.stdout.write(json.dumps(report, ensure_ascii=False, indent=2) + "\\n")
+    return 0 if report["ok"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
