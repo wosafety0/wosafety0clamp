@@ -60,6 +60,17 @@ class ExpeditionActionJournal:
         now = datetime.now(timezone.utc).isoformat()
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            # A newer observation does not resolve an ambiguous dispatch.
+            # Keep the check and insertion inside one write transaction.
+            pending = db.execute(
+                "SELECT 1 FROM expedition_actions "
+                "WHERE fleet_id = ? AND state IN ('reserved', 'submitted', 'unknown') "
+                "LIMIT 1",
+                (fleet_id,),
+            ).fetchone()
+            if pending is not None:
+                db.execute("ROLLBACK")
+                return False
             cursor = db.execute(
                 """INSERT OR IGNORE INTO expedition_actions
                    (action_key, fleet_id, mission_id, observed_at, state, detail, updated_at)
