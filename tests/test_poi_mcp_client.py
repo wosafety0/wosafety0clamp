@@ -57,6 +57,7 @@ class PoiMcpClientTests(unittest.TestCase):
                         "serverInfo": {"name": "poi-plugin-mcp", "version": "1.0.0"},
                     },
                 },
+                {},
                 {
                     "jsonrpc": "2.0",
                     "id": 2,
@@ -98,8 +99,10 @@ class PoiMcpClientTests(unittest.TestCase):
         mcp_request = requests[1]
         self.assertIsInstance(mcp_request, Request)
         self.assertEqual(mcp_request.get_header("Authorization"), "Bearer test-token")
-        self.assertEqual(json.loads(requests[2].data)["method"], "tools/list")
-        self.assertEqual(json.loads(requests[3].data)["method"], "tools/call")
+        self.assertEqual(json.loads(requests[2].data)["method"], "notifications/initialized")
+        self.assertNotIn("id", json.loads(requests[2].data))
+        self.assertEqual(json.loads(requests[3].data)["method"], "tools/list")
+        self.assertEqual(json.loads(requests[4].data)["method"], "tools/call")
 
     def test_initialize_accepts_sse_and_selects_matching_jsonrpc_id(self):
         notification = json.dumps({
@@ -143,6 +146,18 @@ class PoiMcpClientTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(PoiMcpError, "no matching JSON response"):
+            client.initialize()
+
+    def test_jsonrpc_response_id_mismatch_is_rejected(self):
+        client = PoiMcpClient(
+            PoiMcpConfig(token="test-token"),
+            opener=lambda request, timeout: FakeResponse({
+                "jsonrpc": "2.0",
+                "id": 99,
+                "result": {"protocolVersion": "2025-03-26"},
+            }),
+        )
+        with self.assertRaisesRegex(PoiMcpError, "ID does not match"):
             client.initialize()
 
     def test_unknown_tool_is_rejected_before_network_call(self):
