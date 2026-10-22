@@ -68,3 +68,13 @@ Target sequence:
 7. On timeout, connection failure, malformed/unknown state, or inconsistent observations, stop and require fresh observations rather than retrying blindly.
 
 Current code implements read-only observations, parsing, planning, and fail-closed dispatch recommendations. It does **not** yet implement a live collect/dispatch action adapter or verify action outcomes. Live gameplay actions remain disabled by default. The three broader research questions (battle state machine, full POI capability inventory, and generalized stop/recovery design) should only be investigated as needed to close this expedition loop.
+
+
+## 2026-10-22 — Action outcome verification foundation
+
+- Added a pure expedition action verifier for collection and dispatch outcomes; it performs no I/O and cannot trigger gameplay actions.
+- Requires same-source, fresh, timezone-aware, strictly time-ordered pre/post observations. Missing/duplicate target fleet, invalid preconditions, stale snapshots, or unexpected states produce `unknown` and require stopping.
+- Collection is confirmed only by completed -> idle. Dispatch is confirmed only by idle -> underway with the requested mission ID.
+- A valid unchanged state is `not_confirmed`; it still requires stopping and explicitly does not authorize an automatic retry.
+- Added offline unit tests for successful transitions, unchanged states, mismatched mission, unknown preconditions, stale snapshots, source mismatch, and invalid mission IDs.
+- This is verification logic only. There is still no live collect/dispatch adapter, and real gameplay actions remain disabled. CI status must be checked for this commit before treating tests as passed.
