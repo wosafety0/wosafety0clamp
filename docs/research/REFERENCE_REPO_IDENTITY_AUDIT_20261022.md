@@ -44,3 +44,17 @@ These are **comparison-only findings**, not KCV (非提助手) findings.
 - `NEEDS_VALIDATION`: whether any portion of this uploaded material was derived from 非提助手 despite the repository's KCA/Grabacr07 indicators.
 - `BLOCKED`: claiming the primary KCV automation call chain from this repository.
 - No source files were copied into the implementation repository; no local POI connection or real game action was performed.
+
+
+## Official website cross-check
+
+Official product page: https://kancolleassistant.mechland.cn/ (checked 2026-10-22).
+
+The official page identifies the product as “(非)提助手”, describes automatic expeditions, automatic sorties/ship rotation, and says it supports POI mode. It states that its operations are performed through simulated mouse clicks with randomized coordinate offsets rather than sending game-server packets. The page links to downloadable release packages (v2.6.2, dated 2026-08-19), but the page inspected does not provide a source-code repository link.
+
+This confirms product identity and gives a high-level interaction constraint, but **does not expose the internal automation call chain**. The downloaded package may contain useful local help or assemblies, but no such package has been inspected in this cloud task. Do not infer exact action timing, battle-state transitions, retries, or fleet readiness from the product description alone.
+
+Source status:
+- `SOURCE_CONFIRMED`: official page's product description and published feature claims.
+- `NEEDS_VALIDATION`: implementation details inside release package and POI mode integration.
+- `BLOCKED`: internal source call chain from the website alone.

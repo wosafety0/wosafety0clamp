@@ -43,3 +43,12 @@
 
 1. Confirm and upload/locate the actual 非提助手 source material using repository metadata and README evidence; do not read the prohibited legacy source path.
 2. Continue Python-side state-machine design from verified event contracts only; keep live actions disabled.
+
+
+## 2026-10-22 — Official KCV (非提助手) website cross-check
+
+- Checked the official product page: https://kancolleassistant.mechland.cn/.
+- The page identifies the product as “(非)提助手”, lists automatic expeditions, automatic sorties/ship rotation, and POI mode, and states that operation uses simulated mouse clicks with randomized coordinate offsets rather than direct game-server packet requests.
+- The inspected page provides release-package links (v2.6.2, dated 2026-08-19) but no source-code repository link. Product identity is confirmed; internal implementation call chain remains unverified.
+- Do not treat the uploaded `wosafety0/KCV` source tree as verified 非提助手 source; retain the identity-audit conclusion. No binary package was downloaded or inspected in this cloud task.
+- The preceding commit's CI job `test` completed successfully (compile + unit tests). Run: https://github.com/wosafety0/KancolleBot/actions/runs/39793352039
