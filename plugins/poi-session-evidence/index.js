@@ -49,11 +49,11 @@ function reducer(state = null, action = {}) {
   }
 
   const stateEvidence = state && state.evidence;
+  if (stateEvidence && stateEvidence.reason === 'plugin_unloading') {
+    return state;
+  }
   if (!bridgeInstanceId || !stateEvidence || stateEvidence.bridgeInstanceId !== bridgeInstanceId) {
     return { evidence: invalidEvidence(bridgeInstanceId, 'session_identity_mismatch') };
-  }
-  if (stateEvidence.reason === 'plugin_unloading') {
-    return state;
   }
   if (!action.payload || typeof action.payload !== 'object') {
     return { evidence: invalidEvidence(bridgeInstanceId, 'invalid_action_payload') };
