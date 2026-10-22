@@ -24,6 +24,21 @@ class FakeResponse:
         return self._body
 
 
+class FakeSseResponse:
+    def __init__(self, body):
+        self._body = body.encode("utf-8")
+        self.headers = {"Content-Type": "text/event-stream"}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self):
+        return self._body
+
+
 class PoiMcpClientTests(unittest.TestCase):
     def test_config_rejects_non_loopback_endpoint(self):
         with self.assertRaises(ValueError):
@@ -85,6 +100,33 @@ class PoiMcpClientTests(unittest.TestCase):
         self.assertEqual(mcp_request.get_header("Authorization"), "Bearer test-token")
         self.assertEqual(json.loads(requests[2].data)["method"], "tools/list")
         self.assertEqual(json.loads(requests[3].data)["method"], "tools/call")
+
+    def test_initialize_accepts_sse_and_selects_matching_jsonrpc_id(self):
+        body = (
+            "event: message\\ndata: {\\"jsonrpc\\":\\"2.0\\",\\"method\\":\\"notifications/progress\\",\\"params\\":{}}\\n\\n"
+            "event: message\\ndata: {\\"jsonrpc\\":\\"2.0\\",\\"id\\":1,"
+            "\\"result\\":{\\"protocolVersion\\":\\"2025-03-26\\","
+            "\\"capabilities\\":{},\\"serverInfo\\":{\\"name\\":\\"poi-mcp\\"}}}\\n\\n"
+        )
+        client = PoiMcpClient(
+            PoiMcpConfig(token="test-token"),
+            opener=lambda request, timeout: FakeSseResponse(body),
+        )
+
+        result = client.initialize()
+
+        self.assertEqual(result["protocolVersion"], "2025-03-26")
+        self.assertTrue(client._initialized)
+
+    def test_sse_without_matching_response_id_is_rejected(self):
+        body = "event: message\\ndata: {\\"jsonrpc\\":\\"2.0\\",\\"id\\":99,\\"result\\":{}}\\n\\n"
+        client = PoiMcpClient(
+            PoiMcpConfig(token="test-token"),
+            opener=lambda request, timeout: FakeSseResponse(body),
+        )
+
+        with self.assertRaisesRegex(PoiMcpError, "no matching JSON response"):
+            client.initialize()
 
     def test_unknown_tool_is_rejected_before_network_call(self):
         client = PoiMcpClient(opener=lambda *args, **kwargs: self.fail("network must not be called"))
