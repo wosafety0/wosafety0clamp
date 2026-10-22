@@ -2,6 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const plugin = require('../index.js');
 
 const INVALIDATE = '@@KancolleBot/SessionEvidence/INVALIDATE';
@@ -109,4 +111,11 @@ test('non-main windows do not initialize a bridge identity', () => {
   plugin.pluginDidLoad();
   assert.equal(dispatched.length, 0);
   delete global.window;
+});
+
+test('package manifest satisfies Poi package-name requirement', () => {
+  const manifestPath = path.join(__dirname, '..', 'package.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  assert.match(manifest.name, /^poi-plugin-.+/);
+  assert.equal(manifest.poiPlugin.id, 'kancollebot_poi_session_evidence');
 });
