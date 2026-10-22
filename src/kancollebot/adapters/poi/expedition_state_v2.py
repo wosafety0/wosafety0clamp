@@ -80,8 +80,16 @@ def normalize_poi_fleets(
                 raise PoiStateError(f"fleet {fleet_id} references missing ship {ship_id}")
             now_hp = ship.get("api_nowhp")
             max_hp = ship.get("api_maxhp")
-            if not isinstance(now_hp, int) or isinstance(now_hp, bool) or not isinstance(max_hp, int) or max_hp < 1:
-                raise PoiStateError(f"ship {ship_id} has unknown HP fields")
+            if (
+                not isinstance(now_hp, int)
+                or isinstance(now_hp, bool)
+                or not isinstance(max_hp, int)
+                or isinstance(max_hp, bool)
+                or max_hp < 1
+                or now_hp < 0
+                or now_hp > max_hp
+            ):
+                raise PoiStateError(f"ship {ship_id} has invalid or unknown HP fields")
             if now_hp < max_hp:
                 damaged.append(ship_id)
             master_id = ship.get("api_ship_id")
@@ -92,9 +100,25 @@ def normalize_poi_fleets(
                 raise PoiStateError(f"master ship record {master_id} is missing")
             fuel, fuel_cost = ship.get("api_fuel"), master.get("api_fuel")
             ammo, ammo_cost = ship.get("api_bull"), master.get("api_bull")
-            if not isinstance(fuel, int) or not isinstance(fuel_cost, int) or fuel < fuel_cost:
+            if (
+                not isinstance(fuel, int)
+                or isinstance(fuel, bool)
+                or not isinstance(fuel_cost, int)
+                or isinstance(fuel_cost, bool)
+                or fuel < 0
+                or fuel_cost < 0
+                or fuel < fuel_cost
+            ):
                 fuel_ready = False
-            if not isinstance(ammo, int) or not isinstance(ammo_cost, int) or ammo < ammo_cost:
+            if (
+                not isinstance(ammo, int)
+                or isinstance(ammo, bool)
+                or not isinstance(ammo_cost, int)
+                or isinstance(ammo_cost, bool)
+                or ammo < 0
+                or ammo_cost < 0
+                or ammo < ammo_cost
+            ):
                 ammo_ready = False
 
         snapshots.append(ExpeditionFleetSnapshot(
