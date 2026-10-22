@@ -307,3 +307,12 @@ A candidate signal must be tied to a successfully handled current response, have
 - A supported third-party plugin action-stream hook: not established.
 - Poi 12.0.1 runtime compatibility: not tested.
 - Session gate: unchanged and fail-closed; no bridge installed and no game action performed.
+## Session-evidence validation contract prototype (2026-10-22)
+
+Added a pure Python validator at src/kancollebot/adapters/poi/session_evidence.py and offline tests at tests/test_poi_session_evidence.py. The validator requires an explicit bridge instance ID, an allowlisted successful response path (api_port/port or api_get_member/require_info), a timezone-aware observation timestamp within 120 seconds, and invalidated=false. Missing, malformed, future-dated, stale, unsuccessful, or invalidated evidence is rejected.
+
+This is a contract/test seam only. It is not wired into PoiExpeditionReader, does not claim the existing bridge emits these fields, and does not make the current runtime actionable. The current health endpoint still lacks this evidence; the existing session gate remains unchanged. The bridge must truthfully produce and invalidate these fields from verified response-action observation before integration.
+
+Offline test coverage includes valid evidence, both candidate response types, absent evidence, disallowed cached-state paths, unsuccessful responses, invalidation, missing bridge identity, stale/future timestamps, timezone requirements, and invalid age limits.
+
+Evidence status: validator implemented; runtime bridge emission and Poi 12.0.1 compatibility remain unverified. No plugin installation, credential access, or game action was performed.
