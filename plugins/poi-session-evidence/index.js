@@ -1,6 +1,6 @@
 'use strict';
 
-const { randomBytes } = require('node:crypto');
+const { randomBytes } = require('crypto');
 
 const ACTION_PREFIX = '@@KancolleBot/SessionEvidence/';
 const ACTION_INIT = ACTION_PREFIX + 'INIT';
