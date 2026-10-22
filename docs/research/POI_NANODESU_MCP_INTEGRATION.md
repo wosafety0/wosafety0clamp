@@ -270,3 +270,40 @@ A stronger signal should be tied to an explicitly observed, recent game response
 - Runtime compatibility and reliable current-session signal: still unverified.
 - No bridge was installed; no credentials were accessed; no game action was executed.
 
+
+## Official Poi response-action evidence audit (2026-10-22)
+
+Inspected the current public poooi/poi source at master to determine whether a supported plugin surface can observe fresh game responses without treating persisted Redux state as live-session proof.
+
+### Source-confirmed details
+
+- views/redux/actions/types.ts defines GameResponsePayload with method, path, body, postBody, and time. Poi's internal response actions therefore carry a timestamp alongside the response payload.
+- views/redux/actions/response.ts defines typed response actions for api_port/port and api_get_member/require_info, among many other endpoints. These action types are internal Redux action contracts, not themselves a documented public plugin event API.
+- views/redux/info/basic.ts updates info.basic from those actions. views/redux/create-store.ts seeds the Redux store from _storeCache in localStorage, so observing the resulting info.basic or fleet/ship state cannot recover whether its source response happened in the current process/session.
+- views/redux/create-store.ts constructs the store with internal middleware and exports store, dispatch, and getStore from an internal module. The plugin manager exposes window.ipc for registered IPC actions, but the inspected source does not establish a supported public plugin callback for subscribing to every Redux action.
+- views/env-parts/ipc.ts assigns the IPC instance to window.ipc; it does not expose a general Redux action stream.
+
+Sources:
+- https://github.com/poooi/poi/blob/master/views/redux/actions/types.ts
+- https://github.com/poooi/poi/blob/master/views/redux/actions/response.ts
+- https://github.com/poooi/poi/blob/master/views/redux/info/basic.ts
+- https://github.com/poooi/poi/blob/master/views/redux/create-store.ts
+- https://github.com/poooi/poi/blob/master/views/env-parts/ipc.ts
+
+### Engineering conclusion
+
+Poi's internal response actions contain a promising timestamped evidence source, but the inspected public source does not yet prove a stable, supported plugin hook that delivers those actions to a third-party plugin. Importing internal modules or monkey-patching dispatch would be version-fragile and is not accepted as a production integration without a target-version compatibility test.
+
+Do not derive sessionReady from Redux values, and do not infer a response event by polling getStore(). The next implementation step requires one of:
+1. A documented/supported Poi plugin API for observing response actions; or
+2. A separately reviewed bridge change that observes relevant response actions within Poi's own lifecycle and exports only minimal evidence metadata (signal type, observation time, bounded age, and invalidation state), without exporting request credentials or raw response bodies.
+
+A candidate signal must be tied to a successfully handled current response, have a strict freshness limit, and be invalidated on account change, disconnect, store reset, or bridge restart. The meaning of response success and the relevant invalidation events still require source/runtime verification against Poi 12.0.1.
+
+### Evidence status
+
+- Internal response action payload includes time: confirmed from current public source.
+- Typed api_port/port and api_get_member/require_info response actions exist: confirmed.
+- A supported third-party plugin action-stream hook: not established.
+- Poi 12.0.1 runtime compatibility: not tested.
+- Session gate: unchanged and fail-closed; no bridge installed and no game action performed.
