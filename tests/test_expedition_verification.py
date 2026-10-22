@@ -91,6 +91,16 @@ class ExpeditionActionVerificationTests(unittest.TestCase):
         )
         self.assertEqual(result.status, "unknown")
 
+    def test_malformed_post_action_payload_is_unknown(self):
+        result = verify_expedition_action(
+            "collect", fleet_id=2, mission_id=None,
+            before=self.observation(self.fleet(2), self.before_time),
+            after=self.observation(None, self.after_time),
+            now=self.now, max_age=timedelta(seconds=10),
+        )
+        self.assertEqual(result.status, "unknown")
+        self.assertTrue(result.stop_required)
+
     def test_invalid_dispatch_mission_id_is_unknown(self):
         result = verify_expedition_action(
             "dispatch", fleet_id=2, mission_id=True,

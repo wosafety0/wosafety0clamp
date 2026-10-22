@@ -78,3 +78,12 @@ Current code implements read-only observations, parsing, planning, and fail-clos
 - A valid unchanged state is `not_confirmed`; it still requires stopping and explicitly does not authorize an automatic retry.
 - Added offline unit tests for successful transitions, unchanged states, mismatched mission, unknown preconditions, stale snapshots, source mismatch, and invalid mission IDs.
 - This is verification logic only. There is still no live collect/dispatch adapter, and real gameplay actions remain disabled. CI status must be checked for this commit before treating tests as passed.
+
+
+## 2026-10-22 — Targeted KCV expedition review
+
+- Inspected the designated `wosafety0/KCV` repository at commit `5f67fd8c134665d64919445edea061b3ec5eaa06`, limited to the expedition action path.
+- `AutoExpedition.cs` observes successful `api_req_mission_result` events, queues completed-expedition handling based on remaining time, and has explicit stop/reset error paths. `ActFinishExpedition.cs` performs configured coordinate clicks and waits for a mission-result event with a 30-second queue timeout. `ActExpedition.cs` sequences navigation, mission-data observation, fleet/mission selection, availability check, and confirmation.
+- These are reference implementation details, not evidence that POI offers the same action API. A completed UI action queue is not sufficient proof of a fleet state transition.
+- The Python action verifier was added in commit `cfb2d11260f7d98815519c7fa910455c7d3744e5`; it is pure/offline and requires independent post-action observations. No live action adapter was added or executed.
+- Next: finish CI verification for the verifier commit; continue the expedition implementation using observed evidence, and only inspect further KCV code where it resolves a concrete blocker.

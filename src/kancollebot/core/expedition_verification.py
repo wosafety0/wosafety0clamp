@@ -75,6 +75,14 @@ def verify_expedition_action(
     if after.observed_at <= before.observed_at:
         return _unknown("Post-action observation is not newer than the pre-action observation.")
 
+    for snapshot in (before.payload, after.payload):
+        if (
+            not isinstance(snapshot, Sequence)
+            or isinstance(snapshot, (str, bytes, bytearray))
+            or any(not isinstance(item, FleetObservation) for item in snapshot)
+        ):
+            return _unknown("Fleet observation payload is malformed; stop for review.")
+
     before_matches = [item for item in before.payload if item.fleet_id == fleet_id]
     after_matches = [item for item in after.payload if item.fleet_id == fleet_id]
     if len(before_matches) != 1 or len(after_matches) != 1:

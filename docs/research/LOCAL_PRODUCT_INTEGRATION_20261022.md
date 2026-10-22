@@ -34,3 +34,19 @@
 3. Implement real supply, repair/docking, composition, and rotation observations; do not manually mark these gates passed without evidence.
 4. Keep live-action authorization as a separate mandatory gate.
 5. Continue KCV (非提助手)-first call-chain research, using KCA only for labeled supplementary comparisons.
+
+
+## Targeted KCV (非提助手) expedition call-chain findings — 2026-10-22
+
+Repository examined: user-designated `wosafety0/KCV`, branch `upload/kcv-reference-20261022-174555`, commit `5f67fd8c134665d64919445edea061b3ec5eaa06`. These are observations from the exact files below; they do not establish a POI API contract.
+
+- `KCA_Decompiled/KanColleViewer/Grabacr07.KanColleViewer.Actions/AutoExpedition.cs`, blob `5515e3a8d781c775d0071c177bc3f5c887704b38`: lines 437–445 subscribe to successful `api_req_mission_result` observations; lines 504 onward show a stop path that clears running/queued state; lines 538 onward log an expedition error and run a reset action; lines 1790–1835 process a finished-expedition queue and consult the fleet's remaining expedition time; lines 2073 onward validate configured targets and construct an `ActExpedition` action.
+- `KCA_Decompiled/KanColleViewer/Grabacr07.KanColleViewer.Actions/ActFinishExpedition.cs`, blob `e0686f2642fd5443271b211ce7a12dd734b0fdfd`: lines 30–59 build a coordinate-click sequence for Supply/Homeport and wait for `api_req_mission_result` with a 30-second queue timeout. Lines 64 onward start that queue and map its completion/error events to the action state. This is a UI-driven action sequence, not a reusable POI command API.
+- `KCA_Decompiled/KanColleViewer/Grabacr07.KanColleViewer.Actions/ActExpedition.cs`, blob `d497d4b8582db9ed5666e3f91c9adba516ae3408`: lines 420–465 build a queue including sortie/expedition navigation, an `api_get_member_mission`-observed click step, fleet selection, expedition selection, availability checking, and confirmation. Queue completion advances the next fleet; queue errors set the action state to Error.
+
+### Consequences for our Python implementation
+
+1. Keep action issuance separate from verification. A UI queue reaching its own Finished state is not enough to prove the desired fleet state transition.
+2. Preserve the independent pre/post observation verifier: collect requires completed -> idle; dispatch requires idle -> underway for the requested mission. A timeout, stale/mismatched observation, or unconfirmed transition stops the cycle and never triggers a blind retry.
+3. Before any live adapter is designed, establish which of these UI actions can be driven safely through the actual local POI environment. The inspected code uses configured screen coordinates and event observations; it does not prove that POI exposes equivalent action endpoints.
+4. This is intentionally a narrow expedition-path review, not a broad class inventory or battle-state-machine reverse engineering. KCA remains a supplementary reference only when a specific unresolved question needs comparison.
