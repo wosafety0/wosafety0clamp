@@ -63,6 +63,10 @@ class PoiReadOnlyAdapterTests(unittest.TestCase):
                          ["fleets", "ships"])
 
     def test_diagnose_reports_runtime_schema_without_raw_ship_data(self):
+        self.payloads["fleets"] = encoded([
+            {"api_id": 1, "api_name": "Fleet", "api_ship": [73, -1, -1, -1, -1, -1],
+             "api_mission": [0, 0, 0, 0]}
+        ])
         self.payloads["ships"] = encoded({
             "73": {"api_name": "PRIVATE_SHIP_NAME", "api_nowhp": 45, "api_maxhp": 69},
             "74": {"api_name": "ANOTHER_PRIVATE_NAME", "api_nowhp": 20, "api_maxhp": 30},
@@ -88,6 +92,10 @@ class PoiReadOnlyAdapterTests(unittest.TestCase):
         self.assertNotIn('"73"', serialized)
 
     def test_diagnose_does_not_accept_partial_or_invalid_hp_mapping(self):
+        self.payloads["fleets"] = encoded([
+            {"api_id": 1, "api_name": "Fleet", "api_ship": [73, -1, -1, -1, -1, -1],
+             "api_mission": [0, 0, 0, 0]}
+        ])
         self.payloads["ships"] = encoded({
             "73": {"api_name": "PRIVATE_SHIP_NAME", "api_nowhp": 45, "api_maxhp": 69},
             "74": {"api_name": "ANOTHER_PRIVATE_NAME", "api_nowhp": True, "api_maxhp": 30},
