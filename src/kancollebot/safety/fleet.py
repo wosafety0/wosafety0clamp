@@ -7,6 +7,7 @@ Callers must first validate raw POI records into ShipState objects.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Mapping, Sequence
 
 from kancollebot.core.fleet_parser import FleetObservation
@@ -31,8 +32,13 @@ def evaluate_fleet_safety(
     ship at/below the critical HP ratio blocks the recommendation. Supply,
     repair/docking state, and mission composition remain explicitly unchecked.
     """
-    if not 0.0 < critical_hp_ratio <= 1.0:
-        raise ValueError("critical_hp_ratio must be in (0, 1]")
+    if (
+        isinstance(critical_hp_ratio, bool)
+        or not isinstance(critical_hp_ratio, (int, float))
+        or not math.isfinite(critical_hp_ratio)
+        or not 0.0 < critical_hp_ratio <= 1.0
+    ):
+        raise ValueError("critical_hp_ratio must be a finite number in (0, 1]")
 
     reasons: list[str] = []
     ship_ids = fleet.occupied_ship_ids
