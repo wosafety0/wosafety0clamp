@@ -20,7 +20,7 @@ The reducer extension is registered by Poi's plugin lifecycle under the package 
 ext.kancollebot-poi-session-evidence._
 ```
 
-This path is source-informed, not yet verified against the installed Poi 12.0.1 binary or the local Nanodesu MCP runtime. Query it only after the plugin has been installed and loaded through Poi's supported plugin mechanism. The extension does not create a new listener, HTTP server, token, or dependency. However, the stock Nanodesu MCP plugin currently denies the entire `ext` root and only allows individually reviewed plugin reducers. Therefore this state path is **not readable through an unmodified Nanodesu installation**. Do not treat the source-derived path as an operational bridge until a separately reviewed transport/allowlist change is made.
+This path is source-informed, not yet verified against the installed Poi 12.0.1 binary or the local Nanodesu MCP runtime. Query it only after the plugin has been installed and loaded through Poi's supported plugin mechanism. The extension does not create a new listener, HTTP server, token, or dependency. However, the stock Nanodesu MCP plugin currently denies the entire `ext` root and only allows individually reviewed plugin reducers. Therefore this state path is **not readable through an unmodified Nanodesu installation**. Its `ALLOWED_EXT_SUBPATHS` mechanism also currently applies only after a plugin package has been allowlisted, so a narrowly scoped integration needs both an explicit package entry and an exact `_.` state-subpath restriction. Do not treat the source-derived path as an operational bridge until that transport/allowlist change is separately reviewed and tested.
 
 The stored evidence has only these fields: `bridgeInstanceId`, `responsePath`, `responseOk`, `observedAt`, `invalidated`, and (only while unavailable) `reason`. It never stores response/request bodies, account IDs, cookies, credentials, or fleet/ship data.
 
@@ -38,7 +38,7 @@ The stored evidence has only these fields: `bridgeInstanceId`, `responsePath`, `
 
 ## Current integration boundary
 
-The Python expedition reader remains fail-closed and is not wired to this extension yet. Source inspection of Nanodesu `src/paths.ts` confirmed that `ext` is explicitly denied because arbitrary plugin state is not assumed serializable, with a separate `ALLOWED_EXT_PLUGINS` allowlist. This package is not on that allowlist. The reducer extension can be unit-tested in isolation, but reading it through stock Nanodesu is currently blocked by design. Do not silently widen the external bridge's allowlist or install a separate server without a security review.
+The Python expedition reader remains fail-closed and is not wired to this extension. Source inspection of Nanodesu `src/paths.ts` confirmed that `ext` is explicitly denied because arbitrary plugin state is not assumed serializable, with a separate `ALLOWED_EXT_PLUGINS` allowlist. This package is not on that allowlist. The reducer extension can be unit-tested in isolation, but reading it through stock Nanodesu is currently blocked by design. Do not silently widen the external bridge's allowlist or install a separate server without a security review.
 
 ## Validation performed in CI
 
@@ -51,7 +51,7 @@ The Node built-in test runner covers initial fail-closed state, allowlisted resp
 3. Confirm a fresh `api_port/port` or `api_get_member/require_info` response updates `observedAt` and that no raw body fields appear.
 4. Unload the extension and confirm the path becomes unavailable/invalidated.
 5. After a transport is selected, integrate it with the Python reader and verify ISO-8601 freshness validation; until then the reader must remain fail-closed.
-6. The Python expedition reader now queries this path before every fleet read and validates the ISO-8601 timestamp against a 120-second maximum age. A missing path, invalidated record, unsupported action, future timestamp, or stale evidence blocks the read.
+6. When a reviewed transport is available, wire the Python expedition reader to it and validate the ISO-8601 timestamp against a 120-second maximum age. A missing path, invalidated record, unsupported action, future timestamp, or stale evidence must block the read.
 7. Repeat on plugin reload and account/session transitions. Do not enable dispatch or relax the session-read gate based on CI alone.
 
 ## Source references
