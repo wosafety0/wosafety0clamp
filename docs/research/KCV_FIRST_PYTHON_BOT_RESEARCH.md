@@ -108,3 +108,35 @@ Implementation implications:
 - Technical implementation: inspect whichever source or interface gives the fastest reliable evidence; KCA can lead a specific implementation task when its Python source is directly testable.
 - When KCV is obfuscated or its Poi-side counterpart is unavailable, set a bounded investigation effort and pivot to KCA, documented Poi APIs, runtime observation, or a minimal independent implementation.
 - Record each finding as `SOURCE_CONFIRMED`, `OFFLINE_TEST_PASSED`, `RUNTIME_VERIFIED`, or `END_TO_END_VERIFIED`; never promote source inspection into runtime verification.
+
+
+## KCA Poi-mode implementation evidence — 2026-10-23
+
+Status: `SOURCE_CONFIRMED` for the documented KCA integration path; this does not itself prove that the current local installation matches the source revision.
+
+Repository: [XVs32/kcauto_custom](https://github.com/XVs32/kcauto_custom), branch `develop`.
+
+Relevant files:
+- [reference/poi_interaction_mode.md](https://github.com/XVs32/kcauto_custom/blob/develop/reference/poi_interaction_mode.md)
+- [kcauto/util/poi_client.py](https://github.com/XVs32/kcauto_custom/blob/develop/kcauto/util/poi_client.py)
+- [kcauto/api/api_listener.py](https://github.com/XVs32/kcauto_custom/blob/develop/kcauto/api/api_listener.py)
+- [kcauto/api/api_core.py](https://github.com/XVs32/kcauto_custom/blob/develop/kcauto/api/api_core.py)
+- [kcauto/util/poi_plugins.py](https://github.com/XVs32/kcauto_custom/blob/develop/kcauto/util/poi_plugins.py)
+
+Findings:
+1. KCA explicitly supports `general.interaction_mode = "poi"`; its documentation identifies `poi-plugin-forwarder >= 1.1.0` and `poi-plugin-noro6-exporter` as required plugins.
+2. Its documented defaults separate the API webhook receiver (`127.0.0.1:9223`) from the Poi control service (`127.0.0.1:38591`).
+3. `PoiWebhookServer` accepts POST requests on `/webhook/kancolle`, filters KCSAPI paths and map-resource events, preserves request/response/stage/timestamp fields, and queues accepted events.
+4. `ApiWrapper.update_from_api` waits for requested API enum values with an overall timeout, parses the event body through the API-specific processing pipeline, and logs missing API responses when required data does not arrive.
+5. `PoiClient` uses TCP framing: four-byte little-endian packet length followed by a one-byte packet type; JSON packets and frame packets are distinct. The control protocol includes a hello/protocol handshake, ping, capture, and UI commands.
+6. KCA's control client includes action methods such as click/hover/scroll/drag/refresh. These are reference behavior only; KancolleBot must keep them isolated and disabled until a separate safety review authorizes an action path.
+
+Python implementation implication:
+- KCA now provides a concrete, inspectable Python example for both KCSAPI event ingestion and Poi control-protocol framing. For a near-term prototype, prioritize reproducing the read-only webhook ingestion and API-event normalization before implementing any control commands.
+- The webhook data stream is event-based and may be incomplete or delayed; use bounded queues/timeouts, preserve event timestamps and stages, reject malformed bodies, and mark state unknown when required events are missing.
+- Do not equate receiving a KCSAPI event with current home-port readiness or complete fleet state. Session and freshness evidence must remain separate.
+- The control TCP protocol is not the KCV `39788` protocol: the framing, ports, message schema, and server implementation differ. Do not combine them into one generic client.
+
+## Practical reference decision after comparison
+
+KCV remains the product-experience benchmark because the user has extensive successful usage experience. KCA should not be treated as a low-priority fallback for every technical task: its directly inspectable Python implementation makes it the more efficient starting point for API event parsing and TCP framing where those behaviors match the requirement. Investigate KCV's Poi bridge only for behavior that cannot be established from the KCA path or documented Poi APIs, and cap effort when the counterpart source is unavailable.
