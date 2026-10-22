@@ -27,6 +27,11 @@ SENSITIVE_KEY_NAMES = frozenset({
 })
 
 
+def _sanitize_url(value: str) -> str:
+    """Remove query strings and fragments that may contain credentials."""
+    return value.split("#", 1)[0].split("?", 1)[0]
+
+
 def _redact_sensitive_fields(value: Any) -> Any:
     """Return a recursively copied payload with credential-like fields redacted."""
     if isinstance(value, dict):
@@ -37,6 +42,8 @@ def _redact_sensitive_fields(value: Any) -> Any:
         }
     if isinstance(value, list):
         return [_redact_sensitive_fields(item) for item in value]
+    if isinstance(value, str):
+        return _sanitize_url(value) if value.startswith(("http://", "https://")) else value
     return value
 
 
@@ -132,9 +139,10 @@ class PoiWebhookReceiver:
                     if not isinstance(raw_path, str) or not raw_path:
                         self._reply(400, {"status": "INVALID EVENT PATH"})
                         return
+                    safe_path = _sanitize_url(raw_path)
 
-                    is_kcsapi = raw_path.startswith("/kcsapi/")
-                    is_map_resource = "kcs2/resources/map" in raw_path
+                    is_kcsapi = safe_path.startswith("/kcsapi/")
+                    is_map_resource = "kcs2/resources/map" in safe_path
                     if not is_kcsapi and not is_map_resource:
                         self._reply(200, {"status": "FILTERED OUT (UNKNOWN RESOURCE)"})
                         return
@@ -142,18 +150,18 @@ class PoiWebhookReceiver:
                     if is_map_resource:
                         event = {
                             "path": (
-                                raw_path.split(".com/", 1)[-1]
-                                if ".com/" in raw_path
-                                else raw_path
+                                safe_path.split(".com/", 1)[-1]
+                                if ".com/" in safe_path
+                                else safe_path
                             ),
-                            "response": {"url": raw_path},
+                            "response": {"url": safe_path},
                             "request": None,
                             "stage": payload.get("stage"),
                             "timestamp": payload.get("timestamp"),
                         }
                     else:
                         event = {
-                            "path": raw_path,
+                            "path": safe_path,
                             "response": _redact_sensitive_fields(payload.get("response")),
                             "request": _redact_sensitive_fields(payload.get("request")),
                             "stage": payload.get("stage"),
