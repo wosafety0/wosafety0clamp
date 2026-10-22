@@ -29,18 +29,33 @@ function reducer(state = null, action = {}) {
   }
 
   if (action.type === ACTION_INIT) {
+    if (typeof action.bridgeInstanceId !== 'string' || action.bridgeInstanceId.length === 0) {
+      return { evidence: invalidEvidence(null, 'invalid_bridge_identity') };
+    }
     return { evidence: invalidEvidence(action.bridgeInstanceId, 'awaiting_fresh_response') };
   }
 
   if (action.type === ACTION_INVALIDATE) {
-    return { evidence: invalidEvidence(action.bridgeInstanceId || (state && state.evidence && state.evidence.bridgeInstanceId) || null, 'plugin_unloading') };
+    const stateId = state && state.evidence && state.evidence.bridgeInstanceId;
+    // An unload from an older plugin instance must not invalidate a newer one.
+    if (!stateId || action.bridgeInstanceId !== stateId) {
+      return state;
+    }
+    return { evidence: invalidEvidence(stateId, 'plugin_unloading') };
   }
 
   if (!ALLOWED_RESPONSE_ACTIONS.has(action.type)) {
     return state;
   }
 
-  if (!bridgeInstanceId || !action.payload || typeof action.payload !== 'object') {
+  const stateEvidence = state && state.evidence;
+  if (!bridgeInstanceId || !stateEvidence || stateEvidence.bridgeInstanceId !== bridgeInstanceId) {
+    return { evidence: invalidEvidence(bridgeInstanceId, 'session_identity_mismatch') };
+  }
+  if (stateEvidence.reason === 'plugin_unloading') {
+    return state;
+  }
+  if (!action.payload || typeof action.payload !== 'object') {
     return { evidence: invalidEvidence(bridgeInstanceId, 'invalid_action_payload') };
   }
 

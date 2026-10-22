@@ -102,6 +102,49 @@ test('plugin unload emits invalidation and drops the module identity', () => {
   delete global.window;
 });
 
+test('stale unload from an older bridge cannot invalidate the current session', () => {
+  const { dispatched, initial } = setupPlugin();
+  const oldId = initial.evidence.bridgeInstanceId;
+  plugin.pluginWillUnload();
+  const unload = dispatched.at(-1);
+  const unloaded = plugin.reducer(initial, unload);
+  assert.equal(unloaded.evidence.invalidated, true);
+
+  const nextDispatched = [];
+  global.window = { isMain: true, dispatch(action) { nextDispatched.push(action); } };
+  plugin.pluginDidLoad();
+  const nextInitial = plugin.reducer(unloaded, nextDispatched[0]);
+  assert.notEqual(nextInitial.evidence.bridgeInstanceId, oldId);
+
+  const afterStaleUnload = plugin.reducer(nextInitial, unload);
+  assert.equal(afterStaleUnload, nextInitial);
+  assert.equal(afterStaleUnload.evidence.invalidated, true);
+  assert.equal(afterStaleUnload.evidence.reason, 'awaiting_fresh_response');
+
+  const fresh = plugin.reducer(afterStaleUnload, {
+    type: '@@Response/kcsapi/api_port/port',
+    payload: { time: 1792670370000 },
+  });
+  assert.equal(fresh.evidence.bridgeInstanceId, nextInitial.evidence.bridgeInstanceId);
+  assert.equal(fresh.evidence.responseOk, true);
+  assert.equal(fresh.evidence.invalidated, false);
+  delete global.window;
+});
+
+test('late allowlisted response cannot revive an unloaded bridge session', () => {
+  const { dispatched, initial } = setupPlugin();
+  plugin.pluginWillUnload();
+  const unloaded = plugin.reducer(initial, dispatched.at(-1));
+  const late = plugin.reducer(unloaded, {
+    type: '@@Response/kcsapi/api_port/port',
+    payload: { time: 1792670370000 },
+  });
+  assert.equal(late, unloaded);
+  assert.equal(late.evidence.invalidated, true);
+  assert.equal(late.evidence.reason, 'plugin_unloading');
+  delete global.window;
+});
+
 test('non-main windows do not initialize a bridge identity', () => {
   const dispatched = [];
   global.window = {
