@@ -22,3 +22,26 @@ A locally running KanColle automation framework hosted and tested through GitHub
 ## Status
 
 The repository bootstrap is in progress. No real gameplay automation is enabled by the initial scaffold.
+
+
+## Read-only POI connection diagnostic
+
+The initial integration path is the local HTTP state endpoint, because it can
+read fleet and ship state without issuing gameplay commands. The adapter only
+uses loopback HTTP GET requests for `/fleets` and `/ships`, rejects redirects,
+and never prints raw ship records.
+
+From the repository root, run:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m kancollebot.adapters.poi.http_read_only
+```
+
+The default endpoint is `http://127.0.0.1:17777`. To override it for a
+different local loopback port, set `KANCOLLE_POI_HTTP_URL` before running.
+The JSON report shows endpoint/read validation, fleet and ship counts, observed
+field names/types, and whether the known `api_name`/`api_nowhp`/`api_maxhp`
+mapping is consistent across every live ship record. It does not auto-enable
+that mapping or authorize actions. A successful report proves read-only state
+retrieval only; collection, dispatch, and battle actions remain disabled.
