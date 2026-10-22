@@ -57,7 +57,8 @@ def validate_session_evidence(
     instance_id = value.get("bridgeInstanceId")
     if not isinstance(instance_id, str) or not instance_id.strip():
         raise PoiSessionEvidenceError("bridge instance identity is missing")
-    if value.get("responsePath") not in _ALLOWED_RESPONSE_PATHS:
+    response_path = value.get("responsePath")
+    if not isinstance(response_path, str) or response_path not in _ALLOWED_RESPONSE_PATHS:
         raise PoiSessionEvidenceError("response path is not an approved session signal")
     if value.get("responseOk") is not True:
         raise PoiSessionEvidenceError("response was not explicitly successful")
