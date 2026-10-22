@@ -196,3 +196,48 @@ No evidence has been established here that timing jitter or curved cursor paths 
 - Confirmed from primary documentation: Poi Redux data paths and localStorage persistence; Electron minimized/visibility and background-throttling behavior; Node built-in WebSocket version history; alternative bridge README's documented endpoints and port file.
 - Not established: exact Poi 12.0.1 minimization freeze; stale/fresh CDP frame behavior in this app; the claimed official Poi visual-verification skill; successful runtime compatibility of either bridge; active-login signal; any anti-detection benefit from randomized input.
 - No plugin installation or live game action was performed as part of this review.
+
+## Session-signal source audit (2026-10-22)
+
+### Nanodesu MCP health contract: confirmed insufficient
+
+Inspected the current public source in `momocow/poi-plugin-nanodesu-mcp`:
+- `src/server.ts` implements `storeReady()` by calling the configured store accessor and checking that the returned object contains an `info` property.
+- `GET /health` returns `status`, server name/version, port, and `storeReady`. It does **not** return `sessionReady`, a login flag, a current-game-connection flag, or a state freshness timestamp.
+- `index.ts` obtains Poi's Redux store through `resolveGetStore` and passes it to the MCP server. This establishes store access, not active game login.
+
+Sources:
+- https://github.com/momocow/poi-plugin-nanodesu-mcp/blob/main/src/server.ts
+- https://github.com/momocow/poi-plugin-nanodesu-mcp/blob/main/index.ts
+- https://github.com/momocow/poi-plugin-nanodesu-mcp/blob/main/src/poi.ts
+
+### Official Poi Redux state audit: player data is not a session proof
+
+Inspected Poi's current public Redux source:
+- `views/redux/info/index.ts` includes `info.basic`, `info.server`, `info.fleets`, and other player state.
+- `views/redux/info/server.ts` initializes the server fields (`ip`, `id`, `name`) to null and updates them on a server-ready action.
+- `info.basic.api_member_id` is used when handling the `api_get_member/require_info` response to detect an account change and clear stale player state. It is a useful identity/state-consistency field, but because Redux is persisted, a non-null member ID alone cannot prove that a current session is active.
+- A populated fleet list, ship list, member ID, or server selection is therefore not accepted as live-session evidence.
+
+Sources:
+- https://github.com/poooi/poi/blob/master/views/redux/info/index.ts
+- https://github.com/poooi/poi/blob/master/views/redux/info/server.ts
+- https://dev.poi.moe/docs/api/redux
+
+### Decision
+
+Do not synthesize `sessionReady` from the existing `/health` response or infer it from cached Redux fields. The current adapter's `sessionReady is True` requirement is intentionally fail-closed and will block the unmodified Nanodesu bridge.
+
+The next viable options are:
+1. Validate a fresh, current-session signal from the actual Poi 12.0.1 renderer/network lifecycle and expose only a minimal boolean plus evidence age through a separately reviewed read-only bridge; or
+2. Keep state reads non-actionable until a user-confirmed session check has been performed, clearly labelled as operator-confirmed rather than machine-verified.
+
+Neither option is implemented or runtime-verified by this source audit. Do not install a plugin, inspect or print authentication tokens, call game endpoints directly, or perform live game actions as part of this investigation.
+
+### Evidence status after source audit
+
+- Nanodesu `/health` schema inspected: confirmed no session-validity field.
+- Poi Redux account/server fields inspected: confirmed they describe stored application/player state, not sufficient proof of an active session.
+- Reliable active-session signal in Poi 12.0.1: not yet established.
+- Existing session gate: retained; no code relaxation.
+
