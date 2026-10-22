@@ -1,6 +1,6 @@
 """Conservative normalization for Poi fleet snapshots."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from kancollebot.core.observed_state import ObservedState
@@ -32,8 +32,8 @@ def normalize_poi_fleets(
 ) -> ObservedState[tuple[ExpeditionFleetSnapshot, ...]]:
     """Normalize fleet, roster, and master ship records.
 
-    The API mission timestamp is intentionally not interpreted until its slot
-    and units are confirmed against a current authoritative payload.
+    The API mission timestamp uses api_mission[2] in Unix epoch milliseconds,
+    as confirmed by kcauto_custom's fleet parser. It is normalized to aware UTC.
     """
     if observed_at.tzinfo is None or observed_at.utcoffset() is None:
         raise PoiStateError("observed_at must be timezone-aware")
@@ -75,6 +75,7 @@ def normalize_poi_fleets(
         assigned_ship_ids.update(ship_ids)
 
         mission_id = None
+        return_at = None
         raw_mission = fleet.get("api_mission")
         if raw_mission is not None:
             if not isinstance(raw_mission, list) or len(raw_mission) < 4:
@@ -86,6 +87,28 @@ def normalize_poi_fleets(
                 )
             if status > 0:
                 mission_id = _int(raw_mission[1], "mission ID", 1)
+                raw_return_time = raw_mission[2]
+                if (
+                    isinstance(raw_return_time, bool)
+                    or not isinstance(raw_return_time, int)
+                    or raw_return_time < 0
+                ):
+                    raise PoiStateError(
+                        f"fleet {fleet_id} mission return timestamp must be a non-negative integer"
+                    )
+                if raw_return_time != 0:
+                    if len(str(raw_return_time)) != 13:
+                        raise PoiStateError(
+                            f"fleet {fleet_id} mission return timestamp must be 13-digit epoch milliseconds"
+                        )
+                    try:
+                        return_at = datetime.fromtimestamp(
+                            raw_return_time / 1000, tz=timezone.utc
+                        )
+                    except (OSError, OverflowError, ValueError) as exc:
+                        raise PoiStateError(
+                            f"fleet {fleet_id} mission return timestamp is out of range"
+                        ) from exc
 
         damaged = []
         fuel_ready = bool(ship_ids)
@@ -141,7 +164,7 @@ def normalize_poi_fleets(
             fleet_id=fleet_id,
             ship_ids=ship_ids,
             mission_id=mission_id,
-            return_at=None,
+            return_at=return_at,
             fuel_ready=fuel_ready,
             ammo_ready=ammo_ready,
             damaged_ship_ids=tuple(damaged),
