@@ -48,4 +48,6 @@ The verifier has offline unit tests. A local run against Poi 12.0.1 is still req
 
 ## Session evidence prototype
 
-`response_action_evidence.py` extracts a minimal record from the two allowlisted Poi Redux response actions. It accepts only an explicit numeric `api_result == 1`, treats the action timestamp as epoch milliseconds, and drops all response/request payload fields. This is a Python contract prototype for the future Poi extension reducer, not a running Poi plugin. The reader remains fail-closed until the real bridge emits and invalidates this evidence correctly. The timestamp conversion to Unix epoch milliseconds is source-informed but not yet verified end-to-end for Poi 12.0.1; see `docs/research/POI_RESPONSE_TIMESTAMP_SOURCE_AUDIT.md`.
+`response_action_evidence.py` extracts a minimal record from two allowlisted Poi Redux response actions and drops all response/request payload fields. In Poi's current source, the response pipeline checks the outer envelope's numeric `api_result == 1` before dispatch, then normally sets `payload.body` to `api_data`; therefore the Redux action body usually has no `api_result`. The prototype reflects that transformed shape. The source call chain is documented in `docs/research/POI_RESPONSE_TIMESTAMP_SOURCE_AUDIT.md`.
+
+This remains a Python contract prototype, not a running Poi plugin. Current public source does not prove compatibility with the installed Poi 12.0.1 binary, and the reader remains fail-closed until the bridge lifecycle, timestamp behavior, and invalidation are validated in the target runtime.

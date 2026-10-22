@@ -1,7 +1,8 @@
 """Extract minimal current-session evidence from Poi Redux response actions.
 
-This module mirrors the narrow contract a Poi extension reducer must implement.
-It deliberately retains no response body or request payload.
+Poi's current response pipeline validates the outer KCSAPI result before it
+dispatches a response action, then replaces the action body with api_data when
+present. This module retains neither response bodies nor request payloads.
 """
 
 from __future__ import annotations
@@ -24,11 +25,13 @@ def evidence_from_poi_response_action(
     *,
     bridge_instance_id: str,
 ) -> dict[str, Any] | None:
-    """Return a compact evidence record for an allowlisted successful response.
+    """Return compact evidence from an allowlisted Poi success action.
 
-    Poi's response action uses payload.body and payload.time. The time value is
-    treated as Unix epoch milliseconds, matching JavaScript Date.now semantics.
-    Unknown shapes, failed responses and untrusted timestamps return None.
+    In Poi's current data-resolver, only responses with outer api_result == 1
+    reach onGameResponse; the action body is then api_data ?? body. Therefore a
+    normal successful Redux action usually has no api_result field. If a
+    malformed/untransformed body does include api_result, require exact numeric
+    success rather than treating it as truthy.
     """
     if not isinstance(action, Mapping):
         return None
@@ -44,11 +47,13 @@ def evidence_from_poi_response_action(
     body = payload.get("body")
     if not isinstance(body, Mapping):
         return None
-    # KCSAPI success is explicitly numeric api_result == 1; do not accept True,
-    # since bool is a subclass of int in Python.
-    result = body.get("api_result")
-    if type(result) is not int or result != 1:
-        return None
+
+    # Successful responses are filtered before Poi dispatches these actions.
+    # If an outer-envelope-shaped body is supplied anyway, reject non-success.
+    if "api_result" in body:
+        result = body.get("api_result")
+        if type(result) is not int or result != 1:
+            return None
 
     timestamp = payload.get("time")
     if isinstance(timestamp, bool) or not isinstance(timestamp, (int, float)):

@@ -9,10 +9,16 @@ from kancollebot.adapters.poi.response_action_evidence import (
 
 
 def action(*, path="api_port/port", result=1, time=1792670370000):
+    # Poi data-resolver dispatches api_data as payload.body after validating
+    # the outer envelope's api_result. It does not normally preserve api_result.
+    body = {"private": "must-not-leak", "result_payload": {"x": 1}}
+    if result != 1:
+        # Simulate a malformed/untransformed envelope-shaped action.
+        body = {"api_result": result, "api_data": {"private": "must-not-leak"}}
     return {
         "type": "@@Response/kcsapi/" + path,
         "payload": {
-            "body": {"api_result": result, "api_data": {"private": "must-not-leak"}},
+            "body": body,
             "time": time,
             "postBody": {"secret": "must-not-leak"},
         },
@@ -20,7 +26,7 @@ def action(*, path="api_port/port", result=1, time=1792670370000):
 
 
 class PoiResponseActionEvidenceTests(unittest.TestCase):
-    def test_extracts_minimal_port_evidence(self):
+    def test_extracts_minimal_port_evidence_from_resolved_body(self):
         evidence = evidence_from_poi_response_action(
             action(), bridge_instance_id="instance-a"
         )
@@ -53,7 +59,7 @@ class PoiResponseActionEvidenceTests(unittest.TestCase):
             )
         )
 
-    def test_rejects_unsuccessful_response(self):
+    def test_rejects_unsuccessful_envelope_shaped_actions(self):
         for result in (0, 2, True, "1", None):
             with self.subTest(result=result):
                 self.assertIsNone(
@@ -77,7 +83,10 @@ class PoiResponseActionEvidenceTests(unittest.TestCase):
         )
 
     def test_rejects_malformed_actions(self):
-        for value in (None, {}, {"type": "@@Response/kcsapi/api_port/port"}, {"type": []}, {"type": {}}):
+        for value in (
+            None, {}, {"type": "@@Response/kcsapi/api_port/port"},
+            {"type": []}, {"type": {}},
+        ):
             with self.subTest(value=value):
                 self.assertIsNone(
                     evidence_from_poi_response_action(
