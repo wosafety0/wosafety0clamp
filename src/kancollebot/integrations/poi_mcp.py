@@ -98,6 +98,16 @@ class PoiMcpClient:
         )
         if not isinstance(result, dict):
             raise PoiMcpError("MCP initialize result must be an object")
+        negotiated_version = result.get("protocolVersion")
+        if not isinstance(negotiated_version, str) or not negotiated_version:
+            raise PoiMcpError("MCP initialize result is missing protocolVersion")
+        self.config = PoiMcpConfig(
+            base_url=self.config.base_url,
+            token=self.config.token,
+            timeout=self.config.timeout,
+            protocol_version=negotiated_version,
+        )
+        self._send_notification("notifications/initialized")
         self._initialized = True
         return result
 
@@ -164,10 +174,50 @@ class PoiMcpClient:
         if isinstance(error, dict):
             message = error.get("message")
             raise PoiMcpError("MCP request failed: " + (message if isinstance(message, str) else "unknown error"))
+        if payload.get("id") != self._request_id:
+            raise PoiMcpError("MCP response ID does not match the request")
+        if payload.get("jsonrpc") != "2.0":
+            raise PoiMcpError("MCP response has an invalid JSON-RPC version")
         result = payload.get("result")
         if not isinstance(result, dict):
             raise PoiMcpError("MCP response is missing a valid result object")
         return result
+
+    def _send_notification(self, method: str) -> None:
+        """Send a JSON-RPC notification; it must not contain a request ID."""
+        if not self.config.token:
+            raise PoiMcpError("KANCOLLE_POI_MCP_TOKEN is required for MCP requests")
+        body = {"jsonrpc": "2.0", "method": method}
+        request = urllib.request.Request(
+            self.config.base_url.rstrip("/") + "/mcp",
+            data=json.dumps(body).encode("utf-8"),
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + self.config.token,
+            },
+            method="POST",
+        )
+        try:
+            with self._opener(request, timeout=self.config.timeout) as response:
+                status = getattr(response, "status", 200)
+                raw = response.read()
+        except urllib.error.HTTPError as exc:
+            raise PoiMcpError(f"MCP notification failed (HTTP {exc.code})") from None
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            reason = getattr(exc, "reason", None)
+            if isinstance(reason, TimeoutError) or isinstance(exc, TimeoutError):
+                raise PoiMcpError("Poi MCP request timed out") from None
+            raise PoiMcpError("Poi MCP endpoint is unreachable") from None
+        if status not in (200, 202, 204):
+            raise PoiMcpError(f"MCP notification failed (HTTP {status})")
+        # Notifications have no JSON-RPC response. Some servers return an
+        # empty 202/204 body; if a body exists, it must be valid UTF-8 JSON.
+        if raw:
+            try:
+                json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                raise PoiMcpError("MCP notification returned an invalid response") from None
 
     def _open_json(
         self,
