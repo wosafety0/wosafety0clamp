@@ -118,6 +118,28 @@ class ExpeditionRunnerTests(unittest.TestCase):
         self.assertEqual(result.status, "no_ready_fleet")
         self.assertEqual(adapter.dispatches, [])
 
+    def test_ambiguous_failure_blocks_alternate_mission(self):
+        adapter = FakeAdapter(fail_dispatch=True)
+        runner = ExpeditionRunner(adapter)
+        options = dict(
+            now=NOW, max_state_age=timedelta(seconds=30),
+            policy=self.policy(), confirmed=True,
+        )
+        first = runner.run_once(mission_id=1, **options)
+        second = runner.run_once(mission_id=2, **options)
+        self.assertEqual(first.status, "dispatch_outcome_unknown")
+        self.assertEqual(second.status, "duplicate_blocked")
+        self.assertEqual(adapter.dispatches, [(2, 1)])
+
+    def test_future_observation_blocks_dispatch(self):
+        adapter = FakeAdapter(observed_at=NOW + timedelta(seconds=1))
+        result = ExpeditionRunner(adapter).run_once(
+            mission_id=1, now=NOW, max_state_age=timedelta(seconds=30),
+            policy=self.policy(), confirmed=True,
+        )
+        self.assertEqual(result.status, "blocked_by_preflight")
+        self.assertEqual(adapter.dispatches, [])
+
     def test_ambiguous_adapter_failure_blocks_same_observation_retry(self):
         adapter = FakeAdapter(fail_dispatch=True)
         runner = ExpeditionRunner(adapter)

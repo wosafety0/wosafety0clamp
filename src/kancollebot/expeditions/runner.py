@@ -49,7 +49,7 @@ class ExpeditionRunner:
     def __init__(self, adapter: ExpeditionAdapter, *, journal: ExpeditionActionJournal | None = None) -> None:
         self._adapter = adapter
         self._journal = journal
-        self._attempted_keys: set[tuple[int, int, datetime]] = set()
+        self._attempted_keys: set[tuple[int, datetime]] = set()
         self._stopped = False
 
     def stop(self) -> None:
@@ -93,13 +93,13 @@ class ExpeditionRunner:
                 "no_ready_fleet", rotation, None, rotation.reason
             )
 
-        key = (fleet_id, mission_id, state.observed_at)
+        key = (fleet_id, state.observed_at)
         if key in self._attempted_keys:
             return ExpeditionCycleResult(
                 "duplicate_blocked",
                 rotation,
                 fleet_id,
-                "A dispatch attempt already exists for this fleet, mission, and observation.",
+                "A dispatch attempt already exists for this fleet and observation.",
             )
 
         try:
