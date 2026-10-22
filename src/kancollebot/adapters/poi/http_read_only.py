@@ -10,11 +10,13 @@ from __future__ import annotations
 import json
 import os
 from collections import Counter
-from datetime import datetime, timezone
-from typing import Any
+from datetime import datetime, timedelta, timezone
+from typing import Any, Mapping, Sequence
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
+from kancollebot.core.expedition_planner import ExpeditionDecision
+from kancollebot.core.expedition_safety import plan_fresh_safe_expedition
 from kancollebot.core.fleet_parser import FleetObservation, parse_fleet_payload
 from kancollebot.core.ship_parser import ShipFieldMap, parse_ship_payload
 from kancollebot.core.models import ShipState
@@ -159,6 +161,36 @@ class PoiHttpReadOnlyAdapter:
             ObservedState(payload=fleets, observed_at=observed_at, source=source),
             ObservedState(payload=ships, observed_at=observed_at, source=source),
         )
+
+    def read_and_plan(
+        self,
+        fields: ShipFieldMap,
+        *,
+        mission_by_fleet: Mapping[int, int],
+        max_age: timedelta = timedelta(seconds=10),
+        dispatchable_fleet_ids: Sequence[int] = (2, 3, 4),
+    ) -> tuple[
+        ObservedState[tuple[FleetObservation, ...]],
+        ObservedState[dict[int, ShipState]],
+        ExpeditionDecision,
+    ]:
+        """Connect live read-only POI observations to the expedition planner.
+
+        This method cannot execute game actions. Readiness evidence for supply,
+        repair/docking, mission composition, and fleet rotation is deliberately
+        not accepted from callers here, so dispatch remains blocked until those
+        checks are backed by observed data in a separate integration.
+        """
+        fleets_state, ships_state = self.get_observed_states(fields)
+        decision = plan_fresh_safe_expedition(
+            fleets_state,
+            ships_state,
+            now=datetime.now(timezone.utc),
+            max_age=max_age,
+            mission_by_fleet=mission_by_fleet,
+            dispatchable_fleet_ids=dispatchable_fleet_ids,
+        )
+        return fleets_state, ships_state, decision
 
     def diagnose(self) -> dict[str, object]:
         """Read fleet and ship endpoints and return a privacy-preserving report.
