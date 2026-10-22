@@ -28,7 +28,11 @@ The extension reducer nests its state at `evidence`, so the read path is:
 ext.poi-plugin-kancollebot-session-evidence._.evidence
 ```
 
-The underscore is inserted by Poi's reducer wrapper. The extension must not put any unrelated data beside the evidence object or put raw response data inside it.
+The underscore is inserted by Poi's reducer wrapper. Nanodesu's current prefix matcher allows the named subtree and descendants; therefore the extension must keep `evidence` flat, scalar-only, and free of unrelated fields. A future nested field must be reviewed before it is added because it would automatically become readable under this prefix.
+
+## Companion patch
+
+`patches/nanodesu-session-evidence-allowlist.patch` contains the minimal source diff against the current `src/paths.ts` layout. It is a proposal artifact only; it has not been applied to the Nanodesu repository. Re-check upstream context before applying because that repository may change.
 
 ## Required tests before deployment
 
