@@ -87,3 +87,12 @@ Current code implements read-only observations, parsing, planning, and fail-clos
 - These are reference implementation details, not evidence that POI offers the same action API. A completed UI action queue is not sufficient proof of a fleet state transition.
 - The Python action verifier was added in commit `cfb2d11260f7d98815519c7fa910455c7d3744e5`; it is pure/offline and requires independent post-action observations. No live action adapter was added or executed.
 - Next: finish CI verification for the verifier commit; continue the expedition implementation using observed evidence, and only inspect further KCV code where it resolves a concrete blocker.
+
+
+## 2026-10-22 — Pure expedition cycle state transitions
+
+- Added `src/kancollebot/core/expedition_cycle.py`: a pure, fail-closed lifecycle for staging a single expedition intent and resolving it from fresh pre/post fleet observations.
+- States are `ready`, `awaiting_observation`, and `stopped`. Unconfirmed results, missing post-observation, action errors, and attempting to stage another action before resolution lock the cycle instead of retrying.
+- Added 12 offline cycle tests covering collect/dispatch confirmation, mismatch, no-op wait, duplicate resolution, and failure paths.
+- This module stages **intent only**. It does not click, connect to POI, dispatch, collect, or authorize gameplay. Existing safety gates remain mandatory before any future action adapter.
+- CI for this change must be checked separately. Cloud success does not establish local runtime integration.
