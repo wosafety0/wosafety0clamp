@@ -47,6 +47,14 @@ class PoiSessionEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(PoiSessionEvidenceError, "not explicitly successful"):
             validate_session_evidence(evidence(responseOk=False), now=NOW)
 
+    def test_non_string_response_path_fails_closed(self):
+        for response_path in (None, [], {}, 1, True):
+            with self.subTest(response_path=response_path):
+                with self.assertRaisesRegex(PoiSessionEvidenceError, "not an approved"):
+                    validate_session_evidence(
+                        evidence(responsePath=response_path), now=NOW
+                    )
+
     def test_invalidation_fails_closed(self):
         with self.assertRaisesRegex(PoiSessionEvidenceError, "invalidated"):
             validate_session_evidence(evidence(invalidated=True), now=NOW)
