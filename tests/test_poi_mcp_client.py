@@ -102,11 +102,23 @@ class PoiMcpClientTests(unittest.TestCase):
         self.assertEqual(json.loads(requests[3].data)["method"], "tools/call")
 
     def test_initialize_accepts_sse_and_selects_matching_jsonrpc_id(self):
+        notification = json.dumps({
+            "jsonrpc": "2.0", "method": "notifications/progress", "params": {}
+        })
+        response = json.dumps({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "serverInfo": {"name": "poi-mcp"},
+            },
+        })
         body = (
-            "event: message\ndata: {\\"jsonrpc\\":\\"2.0\\",\\"method\\":\\"notifications/progress\\",\\"params\\":{}}\n\n"
-            "event: message\ndata: {\\"jsonrpc\\":\\"2.0\\",\\"id\\":1,"
-            "\\"result\\":{\\"protocolVersion\\":\\"2025-03-26\\","
-            "\\"capabilities\\":{},\\"serverInfo\\":{\\"name\\":\\"poi-mcp\\"}}}\n\n"
+            "event: message\n"
+            "data: " + notification + "\n\n"
+            "event: message\n"
+            "data: " + response + "\n\n"
         )
         client = PoiMcpClient(
             PoiMcpConfig(token="test-token"),
@@ -119,7 +131,12 @@ class PoiMcpClientTests(unittest.TestCase):
         self.assertTrue(client._initialized)
 
     def test_sse_without_matching_response_id_is_rejected(self):
-        body = "event: message\ndata: {\\"jsonrpc\\":\\"2.0\\",\\"id\\":99,\\"result\\":{}}\n\n"
+        body = (
+            "event: message\n"
+            "data: " + json.dumps({
+                "jsonrpc": "2.0", "id": 99, "result": {}
+            }) + "\n\n"
+        )
         client = PoiMcpClient(
             PoiMcpConfig(token="test-token"),
             opener=lambda request, timeout: FakeSseResponse(body),
