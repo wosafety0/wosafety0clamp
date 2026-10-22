@@ -31,9 +31,13 @@ class PoiWebhookReceiverTests(unittest.TestCase):
 
     def test_accepts_kcsapi_event_and_preserves_metadata(self):
         payload = {
-            "path": "/kcsapi/api_port/port",
+            "path": "/kcsapi/api_port/port?api_token=path-secret#ignored",
             "request": {"api_token": "fixture-token"},
-            "response": {"api_result": 1, "api_data": {"api_material": []}},
+            "response": {
+                "api_result": 1,
+                "api_data": {"api_material": []},
+                "debug_url": "https://example.test/callback?access_token=url-secret",
+            },
             "stage": "response",
             "timestamp": 1792670000,
         }
@@ -41,19 +45,26 @@ class PoiWebhookReceiverTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(response["status"], "ACCEPTED & QUEUED")
         event = self.receiver.get_event(timeout=1)
-        self.assertEqual(event["path"], payload["path"])
+        self.assertEqual(event["path"], "/kcsapi/api_port/port")
         self.assertEqual(event["request"], {"api_token": "[REDACTED]"})
         self.assertEqual(
             event["response"],
-            {"api_result": 1, "api_data": {"api_material": []}},
+            {
+                "api_result": 1,
+                "api_data": {"api_material": []},
+                "debug_url": "https://example.test/callback",
+            },
         )
-        self.assertNotIn("fixture-token", json.dumps(event))
+        serialized_event = json.dumps(event)
+        self.assertNotIn("fixture-token", serialized_event)
+        self.assertNotIn("path-secret", serialized_event)
+        self.assertNotIn("url-secret", serialized_event)
         self.assertEqual(event["stage"], "response")
         self.assertEqual(event["timestamp"], payload["timestamp"])
 
     def test_accepts_map_resource_and_normalizes_path(self):
         payload = {
-            "path": "https://example.com/kcs2/resources/map/area.json",
+            "path": "https://example.com/kcs2/resources/map/area.json?token=map-secret#fragment",
             "stage": "response",
             "timestamp": "fixture-time",
         }
@@ -61,7 +72,8 @@ class PoiWebhookReceiverTests(unittest.TestCase):
         self.assertEqual(status, 200)
         event = self.receiver.get_event(timeout=1)
         self.assertEqual(event["path"], "kcs2/resources/map/area.json")
-        self.assertEqual(event["response"]["url"], payload["path"])
+        self.assertEqual(event["response"]["url"], "https://example.com/kcs2/resources/map/area.json")
+        self.assertNotIn("map-secret", json.dumps(event))
         self.assertIsNone(event["request"])
 
     def test_filters_unknown_resources(self):
