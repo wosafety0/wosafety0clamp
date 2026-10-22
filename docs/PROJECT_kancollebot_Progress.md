@@ -118,3 +118,14 @@ Current code implements read-only observations, parsing, planning, and fail-clos
 - Extracted independent design ideas from KanCollePlayerSimulator: resource-utility scoring, anti-thrashing/hysteresis, fleet-composition filters, and POI battle-log-derived offline scenarios. Simulator estimates and TODOs are not authoritative game rules.
 - CI passed for synthesis commit `7f0d84bcd018081ce4efab4e0d22bee5f815288c` (run 39834190517). This validates repository checks only; local Poi integration remains unverified.
 - No local files were changed by this cloud task, no local Poi runtime was accessed, and no real game actions were executed.
+
+
+## 2026-10-23 — Conservative Forwarder event normalization
+
+- Added `src/kancollebot/adapters/poi/event_normalizer.py` as a pure, side-effect-free validation layer for sanitized receiver events.
+- The normalizer fails closed for invalid paths, non-response stages, missing/non-mapping responses, unconfirmed `api_result == 1`, and missing/invalid timestamps. It does not reduce an event into a full fleet snapshot and cannot authorize a gameplay action.
+- Added `tests/test_poi_event_normalizer.py` with 10 offline tests for accepted envelopes and fail-closed cases.
+- GitHub Actions passed for normalizer commit `6b97f98517f3e53a7894888250c0509e3cbcbbaf` (run 39835227594) and test commit `f417c1a6516f59995a4eb78930ff8678158d72d2` (run 39835240442).
+- The exact installed Poi Forwarder payload contract remains unverified. This implementation is deliberately conservative and must be checked against real, redacted local events before being treated as integration-ready.
+- Local Poi startup is not yet requested: the next useful local session should happen after a minimal read-only diagnostic entry point is prepared, so the session can verify delivery, payload shape, timestamp semantics, and state mapping rather than only confirm that Poi launches.
+- No local files were changed or local Poi runtime accessed. No real game actions were executed.
