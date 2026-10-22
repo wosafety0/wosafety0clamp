@@ -29,12 +29,25 @@ def gate_expedition_decision(
     """Convert an unsafe or unverifiable dispatch recommendation to wait.
 
     Collection and wait recommendations are returned unchanged. A dispatch
-    recommendation is retained only if its fleet exists in the observations
-    and every readiness check passes. This function is not live-action
-    authorization; execution must remain separately disabled by default.
+    recommendation is retained only if it identifies a valid mission, its
+    fleet exists and is still observed idle, and every readiness check passes.
+    This function is not live-action authorization; execution must remain
+    separately disabled by default.
     """
     if decision.action != "dispatch":
         return decision
+
+    if (
+        isinstance(decision.mission_id, bool)
+        or not isinstance(decision.mission_id, int)
+        or decision.mission_id <= 0
+    ):
+        return ExpeditionDecision(
+            action="wait",
+            fleet_id=None,
+            mission_id=None,
+            reason="Dispatch blocked: planned mission ID is missing or invalid.",
+        )
 
     fleet = next((item for item in fleets if item.fleet_id == decision.fleet_id), None)
     if fleet is None:
@@ -43,6 +56,17 @@ def gate_expedition_decision(
             fleet_id=None,
             mission_id=None,
             reason="Dispatch blocked: planned fleet is absent from current observations.",
+        )
+
+    if fleet.mission_state_code != 0:
+        return ExpeditionDecision(
+            action="wait",
+            fleet_id=None,
+            mission_id=None,
+            reason=(
+                "Dispatch blocked: planned fleet is not observed idle "
+                "(mission state is unknown or non-idle)."
+            ),
         )
 
     readiness = evaluate_dispatch_readiness(

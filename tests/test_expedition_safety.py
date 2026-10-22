@@ -22,6 +22,12 @@ class ExpeditionSafetyTests(unittest.TestCase):
         self.dispatch = ExpeditionDecision(
             action="dispatch", fleet_id=2, mission_id=5, reason="candidate"
         )
+        self.all_gates = {
+            "supply_verified": True,
+            "repair_status_verified": True,
+            "mission_composition_verified": True,
+            "rotation_verified": True,
+        }
 
     def test_dispatch_is_blocked_by_default(self):
         result = gate_expedition_decision(self.dispatch, self.fleets, self.ships)
@@ -30,25 +36,13 @@ class ExpeditionSafetyTests(unittest.TestCase):
 
     def test_dispatch_passes_only_when_every_gate_passes(self):
         result = gate_expedition_decision(
-            self.dispatch,
-            self.fleets,
-            self.ships,
-            supply_verified=True,
-            repair_status_verified=True,
-            mission_composition_verified=True,
-            rotation_verified=True,
+            self.dispatch, self.fleets, self.ships, **self.all_gates
         )
         self.assertEqual(result, self.dispatch)
 
     def test_missing_planned_fleet_is_blocked(self):
         result = gate_expedition_decision(
-            self.dispatch,
-            [],
-            self.ships,
-            supply_verified=True,
-            repair_status_verified=True,
-            mission_composition_verified=True,
-            rotation_verified=True,
+            self.dispatch, [], self.ships, **self.all_gates
         )
         self.assertEqual(result.action, "wait")
         self.assertIn("absent from current observations", result.reason)
@@ -57,22 +51,45 @@ class ExpeditionSafetyTests(unittest.TestCase):
         ships = dict(self.ships)
         ships[73] = ShipState(ship_id=73, name="赤城", hp=10, max_hp=69)
         result = gate_expedition_decision(
-            self.dispatch,
-            self.fleets,
-            ships,
-            supply_verified=True,
-            repair_status_verified=True,
-            mission_composition_verified=True,
-            rotation_verified=True,
+            self.dispatch, self.fleets, ships, **self.all_gates
         )
         self.assertEqual(result.action, "wait")
         self.assertIn("critical HP", result.reason)
 
+    def test_dispatch_is_blocked_if_fleet_is_no_longer_idle(self):
+        underway = parse_fleet_payload([
+            {"api_id": 2, "api_name": "第2艦隊", "api_ship": [73, 70, -1, -1, -1, -1],
+             "api_mission": [1, 5, 123, 0]},
+        ])
+        result = gate_expedition_decision(
+            self.dispatch, underway, self.ships, **self.all_gates
+        )
+        self.assertEqual(result.action, "wait")
+        self.assertIn("not observed idle", result.reason)
+
+    def test_dispatch_is_blocked_if_mission_state_is_unknown(self):
+        unknown = parse_fleet_payload([
+            {"api_id": 2, "api_name": "第2艦隊", "api_ship": [73, 70, -1, -1, -1, -1]},
+        ])
+        result = gate_expedition_decision(
+            self.dispatch, unknown, self.ships, **self.all_gates
+        )
+        self.assertEqual(result.action, "wait")
+        self.assertIn("not observed idle", result.reason)
+
+    def test_invalid_mission_id_is_blocked(self):
+        invalid = ExpeditionDecision(
+            action="dispatch", fleet_id=2, mission_id=0, reason="bad candidate"
+        )
+        result = gate_expedition_decision(
+            invalid, self.fleets, self.ships, **self.all_gates
+        )
+        self.assertEqual(result.action, "wait")
+        self.assertIn("mission ID is missing or invalid", result.reason)
+
     def test_orchestrator_blocks_dispatch_when_gates_are_unverified(self):
         result = plan_safe_expedition(
-            self.fleets,
-            self.ships,
-            mission_by_fleet={2: 5},
+            self.fleets, self.ships, mission_by_fleet={2: 5}
         )
         self.assertEqual(result.action, "wait")
         self.assertIn("supply state has not been verified", result.reason)
@@ -83,22 +100,14 @@ class ExpeditionSafetyTests(unittest.TestCase):
              "api_mission": [2, 5, 0, 0]},
         ])
         result = plan_safe_expedition(
-            completed,
-            self.ships,
-            mission_by_fleet={2: 5},
+            completed, self.ships, mission_by_fleet={2: 5}
         )
         self.assertEqual(result.action, "collect")
         self.assertEqual(result.fleet_id, 2)
 
     def test_orchestrator_allows_recommendation_only_when_all_gates_pass(self):
         result = plan_safe_expedition(
-            self.fleets,
-            self.ships,
-            mission_by_fleet={2: 5},
-            supply_verified=True,
-            repair_status_verified=True,
-            mission_composition_verified=True,
-            rotation_verified=True,
+            self.fleets, self.ships, mission_by_fleet={2: 5}, **self.all_gates
         )
         self.assertEqual(result.action, "dispatch")
 
