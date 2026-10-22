@@ -53,6 +53,37 @@ class PoiStateValidationEdgeTests(unittest.TestCase):
         self.assertFalse(state.payload[0].fuel_ready)
         self.assertFalse(state.payload[0].ammo_ready)
 
+    def test_unknown_mission_status_fails_closed(self):
+        with self.assertRaisesRegex(PoiStateError, "unsupported mission status"):
+            normalize(fleet={"api_id": 2, "api_ship": [101],
+                             "api_mission": [3, 1, 0, 0]})
+
+    def test_boolean_mission_status_is_rejected(self):
+        with self.assertRaisesRegex(PoiStateError, "mission status"):
+            normalize(fleet={"api_id": 2, "api_ship": [101],
+                             "api_mission": [True, 1, 0, 0]})
+
+    def test_duplicate_fleet_ids_fail_closed(self):
+        fleet = {"api_id": 2, "api_ship": [101], "api_mission": [0, 0, 0, 0]}
+        with self.assertRaisesRegex(PoiStateError, "duplicate fleet ID"):
+            normalize_poi_fleets(
+                [fleet, dict(fleet)], {"101": {"api_ship_id": 11, "api_nowhp": 10,
+                "api_maxhp": 10, "api_fuel": 10, "api_bull": 10}},
+                {"11": {"api_fuel": 10, "api_bull": 10}}, observed_at=NOW
+            )
+
+    def test_ship_cannot_be_assigned_to_multiple_fleets(self):
+        fleets = [
+            {"api_id": 1, "api_ship": [101], "api_mission": [0, 0, 0, 0]},
+            {"api_id": 2, "api_ship": [101], "api_mission": [0, 0, 0, 0]},
+        ]
+        with self.assertRaisesRegex(PoiStateError, "multiple fleets"):
+            normalize_poi_fleets(
+                fleets, {"101": {"api_ship_id": 11, "api_nowhp": 10,
+                "api_maxhp": 10, "api_fuel": 10, "api_bull": 10}},
+                {"11": {"api_fuel": 10, "api_bull": 10}}, observed_at=NOW
+            )
+
     def test_missing_ship_record_fails_closed(self):
         with self.assertRaisesRegex(PoiStateError, "missing ship 101"):
             normalize_poi_fleets(

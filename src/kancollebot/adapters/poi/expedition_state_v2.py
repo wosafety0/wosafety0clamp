@@ -42,10 +42,15 @@ def normalize_poi_fleets(
     ships = _id_map(ships_payload, "info.ships")
     masters = _id_map(master_ships_payload, "const.$ships")
     snapshots = []
+    seen_fleet_ids: set[int] = set()
+    assigned_ship_ids: set[int] = set()
     for index, fleet in enumerate(fleets_payload):
         if not isinstance(fleet, dict):
             raise PoiStateError(f"fleet entry {index} must be an object")
         fleet_id = _int(fleet.get("api_id", index + 1), "fleet api_id", 1)
+        if fleet_id in seen_fleet_ids:
+            raise PoiStateError(f"duplicate fleet ID {fleet_id}")
+        seen_fleet_ids.add(fleet_id)
         raw_ids = fleet.get("api_ship")
         if not isinstance(raw_ids, list) or len(raw_ids) > 6:
             raise PoiStateError(f"fleet {fleet_id} has an invalid api_ship array")
@@ -62,12 +67,23 @@ def normalize_poi_fleets(
         if len(set(ship_ids)) != len(ship_ids):
             raise PoiStateError(f"fleet {fleet_id} has duplicate ship IDs")
 
+        overlap = assigned_ship_ids.intersection(ship_ids)
+        if overlap:
+            raise PoiStateError(
+                f"ship IDs are assigned to multiple fleets: {sorted(overlap)}"
+            )
+        assigned_ship_ids.update(ship_ids)
+
         mission_id = None
         raw_mission = fleet.get("api_mission")
         if raw_mission is not None:
             if not isinstance(raw_mission, list) or len(raw_mission) < 4:
                 raise PoiStateError(f"fleet {fleet_id} api_mission has an unknown shape")
             status = _int(raw_mission[0], "mission status")
+            if status not in (0, 1, 2):
+                raise PoiStateError(
+                    f"fleet {fleet_id} has unsupported mission status {status}"
+                )
             if status > 0:
                 mission_id = _int(raw_mission[1], "mission ID", 1)
 
