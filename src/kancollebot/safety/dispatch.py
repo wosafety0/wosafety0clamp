@@ -6,6 +6,7 @@ never reads POI, schedules actions, or executes gameplay operations.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -30,12 +31,19 @@ def evaluate_dispatch_readiness(
     rotation_verified: bool = False,
     critical_hp_ratio: float = 0.25,
 ) -> DispatchReadiness:
-    """Require HP safety and explicit verification of all other dispatch gates.
+    """Require HP safety and explicit boolean verification of every other gate.
 
-    The boolean flags mean the corresponding check has been performed and
-    passed; they do not mean merely that data is available. Defaults fail
-    closed so callers cannot accidentally treat unchecked conditions as safe.
+    Only the literal boolean True passes a verification gate. Truthy values
+    such as 1 or "yes" are not accepted as evidence. Defaults fail closed.
     """
+    if (
+        isinstance(critical_hp_ratio, bool)
+        or not isinstance(critical_hp_ratio, (int, float))
+        or not math.isfinite(critical_hp_ratio)
+        or not 0.0 < critical_hp_ratio <= 1.0
+    ):
+        raise ValueError("critical_hp_ratio must be a finite number in (0, 1]")
+
     hp_result = evaluate_fleet_safety(
         fleet, ships_by_id, critical_hp_ratio=critical_hp_ratio
     )
@@ -46,5 +54,12 @@ def evaluate_dispatch_readiness(
         (mission_composition_verified, "mission fleet requirements have not been verified"),
         (rotation_verified, "fleet rotation constraints have not been verified"),
     )
-    reasons.extend(reason for passed, reason in required_checks if not passed)
+    for passed, reason in required_checks:
+        if passed is not True:
+            suffix = (
+                " (verification flag must be boolean True)"
+                if not isinstance(passed, bool)
+                else ""
+            )
+            reasons.append(reason + suffix)
     return DispatchReadiness(ready=not reasons, reasons=tuple(reasons))
