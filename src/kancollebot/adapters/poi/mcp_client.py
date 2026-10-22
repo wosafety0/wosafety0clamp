@@ -89,7 +89,10 @@ class PoiMcpClient:
             if notification:
                 return None
             raise PoiMcpError("MCP endpoint returned an empty response")
-        text = body.decode("utf-8", errors="strict")
+        try:
+            text = body.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as exc:
+            raise PoiMcpError("MCP response was not valid UTF-8") from exc
         if "text/event-stream" in content_type:
             messages = []
             data_lines: list[str] = []
@@ -121,7 +124,11 @@ class PoiMcpClient:
         if params is not None:
             payload["params"] = params
         response = self._post(payload)
-        if not isinstance(response, dict) or response.get("id") != request_id:
+        if (
+            not isinstance(response, dict)
+            or type(response.get("id")) is not int
+            or response.get("id") != request_id
+        ):
             raise PoiMcpError(f"Invalid response id for MCP method {method}")
         if "error" in response:
             error = response["error"]
