@@ -1,7 +1,7 @@
 # KCV（非提助手）优先的 Python Bot 研究计划
 
 Date: 2026-10-21
-Status: IDENTITY_CORRECTED; SOURCE_CALL_CHAIN_RESEARCH_PENDING
+Status: IDENTITY_CORRECTED; POI_BRIDGE_PROTOCOL_PARTIALLY_CONFIRMED; AUTOMATION_CALL_CHAIN_PENDING
 Implementation language: Python
 Runtime target: Local Windows + POI
 Primary reference: KCV（非提助手）
@@ -17,7 +17,7 @@ Do not confuse this with the separate public `Grabacr07/KanColleViewer` project.
 KCA refers to `kcauto_custom`:
 https://github.com/XVs32/kcauto_custom
 
-Use KCA as a supplementary implementation and cross-check when KCV behavior is hard to understand or evidence is missing. Do not replace KCV-first research with KCA-first implementation, and do not attribute KCA-only behavior to KCV.
+Treat KCV as the product-experience benchmark because the user has used it extensively. Treat KCA as an active technical reference because its source is easier to inspect and it updates frequently. Do not force a fixed whole-project ranking: choose the reference per technical question based on accessible evidence, implementation cost, testability, and expected benefit. Do not attribute KCA-only behavior to KCV.
 
 ## Existing local research material and boundaries
 
@@ -79,3 +79,32 @@ For every borrowed design, label whether it is KCV-confirmed, KCA-only, or our o
 ## Safety and licensing
 
 Do not upload third-party source trees wholesale. Store our own analysis notes and minimal citations in GitHub; use third-party code only according to its license. No live game actions are part of this research phase.
+
+
+## Poi bridge source evidence — 2026-10-23
+
+Status: `SOURCE_CONFIRMED` for the client-side socket protocol; Poi-side implementation and live compatibility remain `NEEDS_VALIDATION`.
+
+Inspected uploaded reference repository `wosafety0/KCV`, branch `upload/kcv-reference-20261022-174555`:
+- Assistant-related deobfuscated source: [PoiProxy.cs](https://github.com/wosafety0/KCV/blob/upload/kcv-reference-20261022-174555/feitizhushou_Deobfuscation/Grabacr07.KanColleViewer.Models/PoiProxy.cs), blob `0dc6b926b82783b52d00f3b522be1cf2ad45f59c`.
+- A parallel file exists under `KCA_Decompiled/KanColleViewer/...`; use the explicitly named `feitizhushou_Deobfuscation` copy for this KCV/非提助手 evidence and do not confuse it with `kcauto_custom`.
+
+Confirmed from `PoiProxy`:
+1. Connects a TCP socket to `127.0.0.1:39788`.
+2. Frames outbound JSON messages as UTF-8 text: `#k@` + JSON + `#e@`.
+3. Sends a `tag:"port"` handshake containing `ver`, the local proxy `port`, `path`, and `capabilities:["stateSnapshotV1"]`.
+4. Parses incoming JSON messages by `tag`; it recognizes `stateSnapshotReady` and `stateSnapshotError`, and sets `StateSnapshotReady` / `StateSnapshotError` accordingly.
+5. Also recognizes other Poi messages such as `compatibleMode`; it sends UI input messages (`mouse` click/wheel/move and capture) over this channel.
+
+Implementation implications:
+- This is evidence of a local TCP bridge, not evidence that KancolleBot can read a complete authoritative game-state snapshot through this socket.
+- The `stateSnapshotV1` string appears in the capability handshake. The inspected client-side file alone does not establish the snapshot schema, snapshot delivery timing, or whether full fleet/ship state is carried over this channel.
+- Do not repurpose the UI input messages for gameplay automation. The Python MVP should continue to prefer a documented read-only structured-state bridge and use this socket protocol only if the Poi-side counterpart is found and the data contract is verified.
+- Do not treat this as the Nanodesu/Minagi HTTP MCP interface; those are separate bridge implementations and endpoints.
+
+## Updated reference-selection policy
+
+- Product behavior and desired UX: start from the user's long-term experience with KCV.
+- Technical implementation: inspect whichever source or interface gives the fastest reliable evidence; KCA can lead a specific implementation task when its Python source is directly testable.
+- When KCV is obfuscated or its Poi-side counterpart is unavailable, set a bounded investigation effort and pivot to KCA, documented Poi APIs, runtime observation, or a minimal independent implementation.
+- Record each finding as `SOURCE_CONFIRMED`, `OFFLINE_TEST_PASSED`, `RUNTIME_VERIFIED`, or `END_TO_END_VERIFIED`; never promote source inspection into runtime verification.
