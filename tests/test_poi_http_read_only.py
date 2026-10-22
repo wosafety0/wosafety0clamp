@@ -62,6 +62,39 @@ class PoiReadOnlyAdapterTests(unittest.TestCase):
         self.assertEqual([request.full_url.rsplit("/", 1)[-1] for request, _ in self.opener.requests],
                          ["fleets", "ships"])
 
+    def test_get_observed_states_returns_validated_freshness_metadata(self):
+        self.payloads["fleets"] = encoded([
+            {"api_id": 1, "api_name": "Fleet", "api_ship": [73, -1, -1, -1, -1, -1],
+             "api_mission": [0, 0, 0, 0]}
+        ])
+        self.payloads["ships"] = encoded({
+            "73": {"api_name": "赤城", "api_nowhp": 45, "api_maxhp": 69}
+        })
+
+        fleets_state, ships_state = self.adapter.get_observed_states(
+            ShipFieldMap(name="api_name", hp="api_nowhp", max_hp="api_maxhp")
+        )
+
+        self.assertEqual(fleets_state.source, "poi-http-read-only")
+        self.assertEqual(ships_state.source, fleets_state.source)
+        self.assertEqual(fleets_state.observed_at, ships_state.observed_at)
+        self.assertEqual(fleets_state.payload[0].occupied_ship_ids, (73,))
+        self.assertEqual(ships_state.payload[73].name, "赤城")
+        self.assertEqual(ships_state.payload[73].hp, 45)
+        self.assertEqual([request.get_method() for request, _ in self.opener.requests], ["GET", "GET"])
+
+    def test_get_observed_states_rejects_unknown_ship_schema(self):
+        self.payloads["fleets"] = encoded([
+            {"api_id": 1, "api_name": "Fleet", "api_ship": [73, -1, -1, -1, -1, -1],
+             "api_mission": [0, 0, 0, 0]}
+        ])
+        self.payloads["ships"] = encoded({"73": {"unverified_name": "赤城"}})
+
+        with self.assertRaisesRegex(ValueError, "missing required fields"):
+            self.adapter.get_observed_states(
+                ShipFieldMap(name="api_name", hp="api_nowhp", max_hp="api_maxhp")
+            )
+
     def test_diagnose_reports_runtime_schema_without_raw_ship_data(self):
         self.payloads["fleets"] = encoded([
             {"api_id": 1, "api_name": "Fleet", "api_ship": [73, -1, -1, -1, -1, -1],
