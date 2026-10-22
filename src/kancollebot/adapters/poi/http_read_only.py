@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 from collections import Counter
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
@@ -17,6 +18,7 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 from kancollebot.core.fleet_parser import FleetObservation, parse_fleet_payload
 from kancollebot.core.ship_parser import ShipFieldMap, parse_ship_payload
 from kancollebot.core.models import ShipState
+from kancollebot.core.observed_state import ObservedState
 from kancollebot.core.ship_schema import inspect_ship_schema
 
 
@@ -115,6 +117,49 @@ class PoiHttpReadOnlyAdapter:
         """
         return parse_ship_payload(self._get_json("ships"), fields=fields)
 
+    def get_observed_states(
+        self,
+        fields: ShipFieldMap,
+    ) -> tuple[
+        ObservedState[tuple[FleetObservation, ...]],
+        ObservedState[dict[int, ShipState]],
+    ]:
+        """Read, validate, and timestamp fleet/ship observations for planning.
+
+        The timestamp is captured before network I/O so latency makes the
+        observations conservatively older, never artificially fresher. Ship
+        field names remain explicit and are never inferred by this method.
+        """
+        observed_at = datetime.now(timezone.utc)
+        fleet_payload = self._get_json("fleets")
+        ship_payload = self._get_json("ships")
+        fleets = parse_fleet_payload(fleet_payload)
+        known_ship_ids = self._parse_ship_ids(ship_payload)
+        ships = parse_ship_payload(ship_payload, fields=fields)
+
+        missing = {
+            ship_id
+            for fleet in fleets
+            for ship_id in fleet.occupied_ship_ids
+            if ship_id not in known_ship_ids
+        }
+        if missing:
+            raise ValueError("fleet payload references ship records absent from /ships")
+        missing_states = {
+            ship_id
+            for fleet in fleets
+            for ship_id in fleet.occupied_ship_ids
+            if ship_id not in ships
+        }
+        if missing_states:
+            raise ValueError("fleet payload references ship records that failed state parsing")
+
+        source = "poi-http-read-only"
+        return (
+            ObservedState(payload=fleets, observed_at=observed_at, source=source),
+            ObservedState(payload=ships, observed_at=observed_at, source=source),
+        )
+
     def diagnose(self) -> dict[str, object]:
         """Read fleet and ship endpoints and return a privacy-preserving report.
 
@@ -151,11 +196,6 @@ class PoiHttpReadOnlyAdapter:
             "name": "api_name",
             "hp": "api_nowhp",
             "max_hp": "api_maxhp",
-        }
-        candidate_types = {
-            "name": str,
-            "hp": int,
-            "max_hp": int,
         }
         candidate_valid = (
             candidate_fields["name"] in field_names
@@ -238,7 +278,6 @@ def main() -> int:
             "source": "poi-http-read-only",
             "error_type": type(exc).__name__,
             "error": "Read-only POI diagnostic failed; verify endpoint availability and response schema.",
-            "base_url": base_url,
         }
     sys.stdout.write(json.dumps(report, ensure_ascii=False, indent=2) + "\\n")
     return 0 if report["ok"] else 1
