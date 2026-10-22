@@ -16,10 +16,12 @@ class ObservedState(Generic[T]):
     source: str
 
     def __post_init__(self) -> None:
+        if not isinstance(self.observed_at, datetime):
+            raise ValueError("observed_at must be a datetime")
         if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
             raise ValueError("observed_at must be timezone-aware")
-        if not self.source.strip():
-            raise ValueError("source must not be empty")
+        if not isinstance(self.source, str) or not self.source.strip():
+            raise ValueError("source must be a non-empty string")
 
     def is_fresh(
         self,
@@ -31,11 +33,18 @@ class ObservedState(Generic[T]):
 
         Future-dated observations are rejected rather than treated as fresh.
         """
+        if not isinstance(now, datetime):
+            raise ValueError("now must be a datetime")
         if now.tzinfo is None or now.utcoffset() is None:
             raise ValueError("now must be timezone-aware")
+        if not isinstance(max_age, timedelta):
+            raise ValueError("max_age must be a timedelta")
         if max_age < timedelta(0):
             raise ValueError("max_age must not be negative")
-        age = now - self.observed_at
+        try:
+            age = now - self.observed_at
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("observation timestamps are incompatible") from exc
         return timedelta(0) <= age <= max_age
 
     def require_fresh(
