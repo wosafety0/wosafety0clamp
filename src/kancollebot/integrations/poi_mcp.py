@@ -26,8 +26,6 @@ READ_ONLY_TOOLS = frozenset(
         "poi_get_quests",
         "poi_get_inventory",
         "poi_get_operations",
-        "get_fleet_status",
-        "poi_get",
     }
 )
 
