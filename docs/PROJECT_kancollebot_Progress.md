@@ -14,7 +14,7 @@
 ### 项目身份与研究边界
 
 - **KCV = 非提助手**，官网：https://kancolleassistant.mechland.cn/ 。它是首要自动化研究对象。
-- **KCA = kcauto_custom**，仓库：https://github.com/XVs32/kcauto_custom 。仅用于补充和交叉验证，不能把 KCA 行为误记为 KCV 行为。
+- **KCA = kcauto_custom**，仓库 https://github.com/XVs32/kcauto_custom 。仅用于补充和交叉验证，不能把 KCA 行为误记为 KCV 行为。
 - 不要将 KCV（非提助手）与独立的 `Grabacr07/KanColleViewer` 官方 Viewer 项目混为一谈。
 - 历史记录中的 KCV 源码根目录为 `D:\\KancolleBot\\Source\\KCV`，反混淆报告目录为 `D:\\KancolleBot\\Reports\\KCV_Deobfuscation`。这属于旧项目路径，按用户要求不得自动扫描、读取或修改；只可使用当前项目中已有副本、已提供材料和已有研究记录。
 - 当前项目中的 `02_ReverseEngineering/KCA/OriginalReferences_Deobfuscation_Test/Grabacr07.KanColleViewer.Models/Assistant.cs` 与 `.../Grabacr07.KanColleViewer.Views.Assistant/AutoSortie.xaml.cs`，由用户明确指定作为 KCV 相关 Assistant 自动化研究材料。虽然路径含 `KCA`，不得因此将其归类为 KCA 源码；本地研究保留，上传第三方源码前须单独审查许可证与必要性。
@@ -38,3 +38,10 @@
 4. 在证据不足处对照 KCA，明确标记 KCV 已证实、KCA 独有或自研策略。
 5. 验证 POI 实际支持的状态读取方式。
 6. 扩展纯 Python 状态模型、策略函数和离线模拟测试；真实操作默认关闭。
+
+## 2026-10-22 — Poi read-only bridge verification
+
+- User-run diagnostics confirmed the Nanodesu bridge at `127.0.0.1:12450` reports healthy, supports MCP initialization and `tools/list`, and describes `info.fleets` as an array with `api_id`, `api_name`, `api_mission`, and `api_ship` fields.
+- User-run Minagi `get_fleet_status(fleetId=1)` returned six ship entries and fleet metrics. These are observations from the installed bridge; no game actions were issued. The game was under maintenance, so the result does not establish fresh server-synchronized state.
+- Added `tests/test_poi_expedition_reader.py` on branch `dev/poi-reader-contract-tests-20261022` to cover normalized success, JSON-text responses, unhealthy bridge, missing tools, truncated collections, missing ship records, tool-level errors, and ambiguous payloads. CI result is pending and must be checked before claiming the tests pass.
+- The Python reader has not yet been run directly against the user's local Poi process. Live Python-client compatibility remains unverified. Real dispatch and battle actions remain disabled.
