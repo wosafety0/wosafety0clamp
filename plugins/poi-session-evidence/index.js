@@ -53,7 +53,7 @@ function reducer(state = null, action = {}) {
   try {
     observedAt = new Date(timestamp).toISOString();
   } catch (_) {
-    return invalidEvidence(bridgeInstanceId, 'invalid_response_timestamp');
+    return { evidence: invalidEvidence(bridgeInstanceId, 'invalid_response_timestamp') };
   }
 
   const responsePath = action.type.slice('@@Response/kcsapi/'.length);

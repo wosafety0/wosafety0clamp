@@ -22,8 +22,8 @@ function setupPlugin() {
 
 test('initial state is invalid until an allowlisted fresh response arrives', () => {
   const { initial } = setupPlugin();
-  assert.equal(initial.evidence.evidence.responseOk, false);
-  assert.equal(initial.evidence.evidence.invalidated, true);
+  assert.equal(initial.evidence.responseOk, false);
+  assert.equal(initial.evidence.invalidated, true);
   assert.equal(initial.evidence.reason, 'awaiting_fresh_response');
   assert.equal(typeof initial.evidence.bridgeInstanceId, 'string');
   assert.equal(initial.evidence.bridgeInstanceId.length, 32);
