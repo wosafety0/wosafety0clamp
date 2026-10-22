@@ -95,6 +95,42 @@ class PoiReadOnlyAdapterTests(unittest.TestCase):
                 ShipFieldMap(name="api_name", hp="api_nowhp", max_hp="api_maxhp")
             )
 
+    def test_read_and_plan_collects_completed_expedition_from_poi_observation(self):
+        self.payloads["fleets"] = encoded([
+            {"api_id": 2, "api_name": "Fleet", "api_ship": [73, -1, -1, -1, -1, -1],
+             "api_mission": [2, 5, 123456, 0]}
+        ])
+        self.payloads["ships"] = encoded({
+            "73": {"api_name": "赤城", "api_nowhp": 45, "api_maxhp": 69}
+        })
+
+        fleets_state, ships_state, decision = self.adapter.read_and_plan(
+            ShipFieldMap(name="api_name", hp="api_nowhp", max_hp="api_maxhp"),
+            mission_by_fleet={2: 5},
+        )
+
+        self.assertEqual(fleets_state.source, ships_state.source)
+        self.assertEqual(decision.action, "collect")
+        self.assertEqual(decision.fleet_id, 2)
+
+    def test_read_and_plan_keeps_dispatch_blocked_without_readiness_evidence(self):
+        self.payloads["fleets"] = encoded([
+            {"api_id": 2, "api_name": "Fleet", "api_ship": [73, -1, -1, -1, -1, -1],
+             "api_mission": [0, 0, 0, 0]}
+        ])
+        self.payloads["ships"] = encoded({
+            "73": {"api_name": "赤城", "api_nowhp": 45, "api_maxhp": 69}
+        })
+
+        _, _, decision = self.adapter.read_and_plan(
+            ShipFieldMap(name="api_name", hp="api_nowhp", max_hp="api_maxhp"),
+            mission_by_fleet={2: 5},
+            dispatchable_fleet_ids=(2,),
+        )
+
+        self.assertEqual(decision.action, "wait")
+        self.assertIn("blocked by readiness gate", decision.reason)
+
     def test_diagnose_reports_runtime_schema_without_raw_ship_data(self):
         self.payloads["fleets"] = encoded([
             {"api_id": 1, "api_name": "Fleet", "api_ship": [73, -1, -1, -1, -1, -1],
