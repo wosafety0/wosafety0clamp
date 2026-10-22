@@ -157,7 +157,7 @@ class PoiMcpClient:
             headers=headers,
             method="POST",
         )
-        payload = self._open_json(request)
+        payload = self._open_json(request, expected_id=self._request_id)
         if not isinstance(payload, dict):
             raise PoiMcpError("MCP response must be a JSON object")
         error = payload.get("error")
@@ -169,10 +169,19 @@ class PoiMcpClient:
             raise PoiMcpError("MCP response is missing a valid result object")
         return result
 
-    def _open_json(self, request: urllib.request.Request) -> Any:
+    def _open_json(
+        self,
+        request: urllib.request.Request,
+        *,
+        expected_id: int | None = None,
+    ) -> Any:
         try:
             with self._opener(request, timeout=self.config.timeout) as response:
                 raw = response.read()
+                content_type = ""
+                headers = getattr(response, "headers", None)
+                if headers is not None:
+                    content_type = headers.get("Content-Type", "")
         except urllib.error.HTTPError as exc:
             # Do not include request headers or tokens in exceptions.
             if exc.code == 401:
@@ -184,6 +193,33 @@ class PoiMcpClient:
                 raise PoiMcpError("Poi MCP request timed out") from None
             raise PoiMcpError("Poi MCP endpoint is unreachable") from None
         try:
-            return json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            raise PoiMcpError("Poi MCP returned invalid JSON") from None
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            raise PoiMcpError("Poi MCP returned invalid UTF-8") from None
+
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            if "text/event-stream" not in content_type.lower() and not text.lstrip().startswith("data:"):
+                raise PoiMcpError("Poi MCP returned invalid JSON") from None
+
+        # Streamable HTTP MCP servers may return a Server-Sent Events stream
+        # instead of a single JSON document. Select the JSON-RPC response for
+        # this request; ignore unrelated notifications and non-data fields.
+        for block in reversed(text.replace("\\r\\n", "\\n").split("\\n\\n")):
+            data_lines = [
+                line[5:].lstrip()
+                for line in block.splitlines()
+                if line.startswith("data:")
+            ]
+            if not data_lines:
+                continue
+            try:
+                event_payload = json.loads("\\n".join(data_lines))
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event_payload, dict):
+                continue
+            if expected_id is None or event_payload.get("id") == expected_id:
+                return event_payload
+        raise PoiMcpError("Poi MCP event stream contained no matching JSON response")
