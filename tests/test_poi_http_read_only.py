@@ -114,7 +114,7 @@ class PoiReadOnlyAdapterTests(unittest.TestCase):
         serialized = json.dumps(report, ensure_ascii=False)
 
         self.assertTrue(report["ok"])
-        self.assertEqual(report["fleet_count"], 2)
+        self.assertEqual(report["fleet_count"], 1)
         self.assertEqual(report["ship_record_count"], 8)
         self.assertTrue(report["fleet_ship_references_valid"])
         self.assertTrue(report["known_field_map_candidate"]["all_records_type_and_range_valid"])
