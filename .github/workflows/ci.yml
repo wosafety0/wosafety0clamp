@@ -21,6 +21,8 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - name: Run Poi session-evidence extension tests
+        run: node --test plugins/poi-session-evidence/test/*.test.js
       - name: Compile Python source
         run: python -m compileall -q src tests
       - name: Run unit tests
