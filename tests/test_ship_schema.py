@@ -24,9 +24,8 @@ class ShipSchemaTests(unittest.TestCase):
 
     def test_invalid_payload_is_rejected(self):
         for value in (None, [], {"1": []}, {"x": {}}, {"0": {}}):
-            with self.subTest(value=value):
-                with self.assertRaises(ValueError):
-                    inspect_ship_schema(value)
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                inspect_ship_schema(value)
 
     def test_field_limit_is_enforced(self):
         with self.assertRaises(ValueError):
@@ -34,13 +33,25 @@ class ShipSchemaTests(unittest.TestCase):
 
     def test_invalid_limits_are_rejected(self):
         for limit in (True, 0, 101):
-            with self.assertRaises(ValueError):
+            with self.subTest(limit=limit), self.assertRaises(ValueError):
                 inspect_ship_schema({"1": {}}, max_records=limit)
 
     def test_mixed_field_types_are_preserved(self):
         report = inspect_ship_schema({"1": {"hp": 5}, "2": {"hp": None}})
         self.assertIn(("hp", "number", 1), report.fields)
         self.assertIn(("hp", "null", 1), report.fields)
+
+    def test_malformed_record_outside_sample_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "must be objects"):
+            inspect_ship_schema({"1": {"hp": 5}, "2": None}, max_records=1)
+
+    def test_invalid_key_outside_sample_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "positive decimal IDs"):
+            inspect_ship_schema({"1": {"hp": 5}, "invalid": {"hp": 6}}, max_records=1)
+
+    def test_invalid_field_name_outside_sample_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "field names"):
+            inspect_ship_schema({"1": {"hp": 5}, "2": {"": 6}}, max_records=1)
 
 
 if __name__ == "__main__":

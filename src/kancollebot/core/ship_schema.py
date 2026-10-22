@@ -35,10 +35,12 @@ def _json_type(value: Any) -> str:
 def inspect_ship_schema(
     payload: Any, *, max_records: int = 20, max_fields: int = 100
 ) -> ShipSchemaReport:
-    """Inspect a bounded sample, rejecting malformed and oversized shapes.
+    """Inspect a bounded sample while validating every record's shape.
 
-    The caller must decide whether field names themselves are safe to share.
-    This is a pure function; it does not connect to POI or log raw records.
+    Validation covers the complete mapping, not just the sample, so malformed
+    records outside the reporting window cannot silently pass. Only sampled
+    field/type frequencies are returned. The caller must decide whether field
+    names themselves are safe to share. This function performs no I/O.
     """
     if isinstance(max_records, bool) or not isinstance(max_records, int) or not 1 <= max_records <= 100:
         raise ValueError("max_records must be an integer between 1 and 100")
@@ -48,11 +50,10 @@ def inspect_ship_schema(
         raise ValueError("ships payload must be a mapping")
     if len(payload) > 100000:
         raise ValueError("ships payload exceeds the supported record count")
+
     counts: Counter[tuple[str, str]] = Counter()
     sampled = 0
     for key, record in payload.items():
-        if sampled >= max_records:
-            break
         if not isinstance(key, str) or not key.isdecimal() or int(key) <= 0:
             raise ValueError("ship keys must be positive decimal IDs")
         if not isinstance(record, dict):
@@ -60,10 +61,13 @@ def inspect_ship_schema(
         if len(record) > max_fields:
             raise ValueError("ship record exceeds field limit")
         for field, value in record.items():
-            if not isinstance(field, str) or len(field) > 128:
-                raise ValueError("ship field names must be short strings")
-            counts[(field, _json_type(value))] += 1
-        sampled += 1
+            if not isinstance(field, str) or not field or len(field) > 128:
+                raise ValueError("ship field names must be non-empty short strings")
+        if sampled < max_records:
+            for field, value in record.items():
+                counts[(field, _json_type(value))] += 1
+            sampled += 1
+
     return ShipSchemaReport(
         record_count=len(payload),
         sampled_records=sampled,
