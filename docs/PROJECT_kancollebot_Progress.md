@@ -109,3 +109,12 @@ Current code implements read-only observations, parsing, planning, and fail-clos
 - Staging checks target fleet uniqueness and action preconditions (completed for collect; idle for dispatch). Missing/invalid baseline fails closed.
 - Added tests for missing baseline, post-snapshot timestamp ordering, and source mismatch; updated cycle tests to the new API.
 - Pure offline logic only. No gameplay adapter, POI runtime access, or live action was introduced. CI pending.
+
+## 2026-10-23 — Reference synthesis and passive-ingestion implementation boundary
+
+- Consolidated Poi Forwarder, Kuma, KCV (非提助手), KCA, KanCollePlayerSimulator, and KancolleSniffer findings in `docs/research/REFERENCE_SYNTHESIS_AND_IMPLEMENTATION_PLAN_20261023.md`.
+- Confirmed from the current source that the webhook receiver already sanitizes and queues events, but it does not yet validate KCSAPI success semantics or reduce a sequence of events into a coherent current state.
+- Prioritized the next implementation task: verify the real Poi Forwarder payload contract, then implement a pure normalizer with offline fixtures. Do not invent event fields or infer a complete fleet state from one event.
+- Extracted independent design ideas from KanCollePlayerSimulator: resource-utility scoring, anti-thrashing/hysteresis, fleet-composition filters, and POI battle-log-derived offline scenarios. Simulator estimates and TODOs are not authoritative game rules.
+- CI passed for synthesis commit `7f0d84bcd018081ce4efab4e0d22bee5f815288c` (run 39834190517). This validates repository checks only; local Poi integration remains unverified.
+- No local files were changed by this cloud task, no local Poi runtime was accessed, and no real game actions were executed.
