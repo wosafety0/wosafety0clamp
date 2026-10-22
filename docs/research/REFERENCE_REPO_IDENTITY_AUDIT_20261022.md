@@ -2,11 +2,11 @@
 
 ## Result
 
-**IDENTITY MISMATCH FOUND — do not treat this upload as the primary KCV (非提助手) source.**
+**Project identity is established by the user: KCV = 非提助手, and `wosafety0/KCV` is the user's designated decompiled reference repository for 非提助手.** This project must use that identity as its research premise.
 
-The private repository `wosafety0/KCV` currently points to branch `upload/kcv-reference-20261022-174555`, commit `5f67fd8c134665d64919445edea061b3ec5eaa06`. Its README begins with “KCA Reverse Engineering” and describes the directories as KCA material. The recursive tree contains `KCA_Decompiled/` and `feitizhushou_Deobfuscation/`; both contain C# namespaces and project paths such as `Grabacr07.KanColleViewer.Actions` and `Grabacr07.KanColleViewer.Models`.
+The uploaded repository is at branch `upload/kcv-reference-20261022-174555`, commit `5f67fd8c134665d64919445edea061b3ec5eaa06`. Its README begins with “KCA Reverse Engineering”, and the tree contains both `KCA_Decompiled/` and `feitizhushou_Deobfuscation/`, with C# namespaces such as `Grabacr07.KanColleViewer.Actions` and `Grabacr07.KanColleViewer.Models`. These are **metadata, directory-layout, or code-lineage inconsistencies to resolve within the repository**, not grounds to reject the user's stated project identity.
 
-This is evidence that the uploaded repository contains a decompiled Grabacr07.KanColleViewer/KCA-oriented codebase, not verified source for the user-designated primary reference, KCV = 非提助手 (https://kancolleassistant.mechland.cn/). A folder named `feitizhushou_Deobfuscation` is not sufficient proof of project identity when its source namespaces and the repository README point elsewhere.
+For implementation claims, keep repository identity separate from component lineage: verify which subdirectory, build/version, and call chain a finding belongs to. Do not assume every file in the repository represents the same 非提助手 version or component. The official product page (https://kancolleassistant.mechland.cn/) independently confirms the product name and high-level features, but does not expose its internal call chain.
 
 ## What was inspected
 
@@ -22,7 +22,7 @@ This is evidence that the uploaded repository contains a decompiled Grabacr07.Ka
 
 ## Call-chain findings from the inspected comparison code
 
-These are **comparison-only findings**, not KCV (非提助手) findings.
+These findings are source-level observations from the uploaded reference repository. Before attributing a specific behavior to a particular 非提助手 version, confirm the containing subdirectory/build lineage and the surrounding call chain. They are not a POI API contract.
 
 1. `AutoSortie.Start()` enables the automation controller; its controller owns current-action state and can stop the current action.
 2. `ActAutoSortie` builds ordered `AutoActionQueue` steps. The inspected start sequence clicks a fleet/map UI coordinate, then creates an `ActClickSession` associated with `api_req_map_start`.
@@ -35,14 +35,15 @@ These are **comparison-only findings**, not KCV (非提助手) findings.
 - Do not port these classes or infer that POI exposes these same observables.
 - Keep the current Python implementation read-only and pure; retain fail-closed state checks and live actions disabled.
 - A future battle design should be built as a tested state machine with explicit observed events, deadlines, cancellation, and recovery. Event names must come from a verified source or a redacted runtime fixture.
-- To resume primary KCV research, locate/confirm a source archive whose metadata, README, namespaces, and version identify it as 非提助手. Do not scan the prohibited legacy path `D:\\KancolleBot\\Source`.
+- Continue from the user-designated repository, tracing only the smallest call chain needed for the current feature. Do not scan the prohibited legacy path `D:\\KancolleBot\\Source`.
 - Keep KCA/Grabacr07 code labeled as supplementary comparison material only. Do not copy third-party source into the Python project.
 
 ## Evidence status
 
 - `SOURCE_CONFIRMED`: repository README, tree layout, representative file paths, and the listed event names are present in the uploaded source.
-- `NEEDS_VALIDATION`: whether any portion of this uploaded material was derived from 非提助手 despite the repository's KCA/Grabacr07 indicators.
-- `BLOCKED`: claiming the primary KCV automation call chain from this repository.
+- `USER_CONFIRMED_IDENTITY`: the repository is the user's designated 非提助手 decompilation reference.
+- `NEEDS_VALIDATION`: the exact lineage/version represented by each subdirectory and whether individual findings apply to the target build.
+- `BLOCKED`: treating every file as one uniform version or treating observed events as a POI API contract.
 - No source files were copied into the implementation repository; no local POI connection or real game action was performed.
 
 

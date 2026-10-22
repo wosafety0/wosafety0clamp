@@ -34,8 +34,8 @@
 ## 2026-10-22 — Reference repository identity audit
 
 - Audited the uploaded private repository `wosafety0/KCV` at commit `5f67fd8c134665d64919445edea061b3ec5eaa06`.
-- Found an identity mismatch: its README identifies the material as “KCA Reverse Engineering”; its tree contains `KCA_Decompiled/` and `feitizhushou_Deobfuscation/` with `Grabacr07.KanColleViewer.*` namespaces. This does not verify it as the primary reference KCV = 非提助手.
-- Recorded comparison-only call-chain evidence in `docs/research/REFERENCE_REPO_IDENTITY_AUDIT_20261022.md`. The inspected comparison code sequences UI-coordinate actions with API-session event waits; this is not a POI API contract and must not be attributed to 非提助手.
+- User-confirmed research identity: KCV = 非提助手; `wosafety0/KCV` is the designated decompiled reference repository. README wording (“KCA Reverse Engineering”), directory names, and namespaces are metadata/code-lineage inconsistencies to analyze, not grounds to reject that identity.
+- Existing call-chain observations in `docs/research/REFERENCE_REPO_IDENTITY_AUDIT_20261022.md` must be attributed to their exact subdirectory/version after tracing context; they are not a POI API contract.
 - No third-party source was copied into the implementation repository. No local POI connection or real game action was performed.
 - Current commit `f12485f1d9fb2efffb8b764d9a0a9ccb10e536ff` CI passed (run 39792656870): https://github.com/wosafety0/KancolleBot/actions/runs/39792656870
 
@@ -50,5 +50,21 @@
 - Checked the official product page: https://kancolleassistant.mechland.cn/.
 - The page identifies the product as “(非)提助手”, lists automatic expeditions, automatic sorties/ship rotation, and POI mode, and states that operation uses simulated mouse clicks with randomized coordinate offsets rather than direct game-server packet requests.
 - The inspected page provides release-package links (v2.6.2, dated 2026-08-19) but no source-code repository link. Product identity is confirmed; internal implementation call chain remains unverified.
-- Do not treat the uploaded `wosafety0/KCV` source tree as verified 非提助手 source; retain the identity-audit conclusion. No binary package was downloaded or inspected in this cloud task.
+- Treat `wosafety0/KCV` as the user-designated 非提助手 decompilation reference. Continue validating component/version lineage before attributing individual implementation details. No binary package was downloaded or inspected in this cloud task.
 - The preceding commit's CI job `test` completed successfully (compile + unit tests). Run: https://github.com/wosafety0/KancolleBot/actions/runs/39793352039
+
+
+## Development focus update — expedition closure first (2026-10-22)
+
+The immediate implementation priority is a minimal automatic-expedition closed loop, not broad KCV reverse engineering or a full battle state machine.
+
+Target sequence:
+1. Read fleet and ship observations and validate freshness/completeness.
+2. Detect completed expeditions and recommend collection before dispatch.
+3. Verify the result of collection before making another decision.
+4. Check fleet readiness using evidence-backed HP, supply, repair/docking, mission-composition, and rotation data.
+5. Select a configured mission and recommend dispatch only when every gate passes.
+6. Verify the post-dispatch state before treating the operation as successful.
+7. On timeout, connection failure, malformed/unknown state, or inconsistent observations, stop and require fresh observations rather than retrying blindly.
+
+Current code implements read-only observations, parsing, planning, and fail-closed dispatch recommendations. It does **not** yet implement a live collect/dispatch action adapter or verify action outcomes. Live gameplay actions remain disabled by default. The three broader research questions (battle state machine, full POI capability inventory, and generalized stop/recovery design) should only be investigated as needed to close this expedition loop.
