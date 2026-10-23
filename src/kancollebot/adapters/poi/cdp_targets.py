@@ -74,6 +74,8 @@ def _validate_websocket_url(url: str) -> str:
         raise CdpDiscoveryError("DevTools target points to a non-loopback WebSocket")
     if "@" in parsed.netloc or parsed.username is not None or parsed.password is not None:
         raise CdpDiscoveryError("Credentials in debugger WebSocket URL are not allowed")
+    if parsed.query:
+        raise CdpDiscoveryError("Query strings in debugger WebSocket URLs are not allowed")
     if parsed.fragment:
         raise CdpDiscoveryError("Fragments in debugger WebSocket URL are not allowed")
     try:
