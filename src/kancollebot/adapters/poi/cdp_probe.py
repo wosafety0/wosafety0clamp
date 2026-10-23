@@ -71,8 +71,12 @@ def _connect_websocket(url: str, timeout: float) -> socket.socket:
         loopback = ipaddress.ip_address(parsed.hostname).is_loopback
     except ValueError:
         loopback = parsed.hostname.casefold() == "localhost"
-    if not loopback or parsed.username or parsed.password or parsed.fragment:
+    if not loopback or "@" in parsed.netloc or parsed.username is not None or parsed.password is not None:
         raise CdpProbeError("CDP WebSocket must be credential-free and loopback-only")
+    if parsed.query:
+        raise CdpProbeError("CDP WebSocket query strings are not allowed")
+    if parsed.fragment:
+        raise CdpProbeError("CDP WebSocket fragments are not allowed")
     try:
         port = parsed.port
     except ValueError as exc:
