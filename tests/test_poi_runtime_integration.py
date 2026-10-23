@@ -104,6 +104,20 @@ class PoiRuntimeIntegrationTests(unittest.TestCase):
         self.assertTrue(report["forwarder_event_accepted"])
         self.assertTrue(report["page_probe_performed"])
         self.assertTrue(report["http_reads_performed"])
+        self.assertTrue(report["http_diagnostic_completed"])
+        self.assertEqual(
+            report["gates"],
+            {
+                "forwarder_event_accepted": True,
+                "source_event_fresh": True,
+                "cdp_target_identity_validated": True,
+                "cdp_document_ready": True,
+                "fleets_endpoint_read": True,
+                "ships_endpoint_read": True,
+                "fleet_ship_references_valid": True,
+                "gameplay_actions_disabled": True,
+            },
+        )
         self.assertFalse(report["actions_enabled"])
         self.assertFalse(report["gameplay_actions_enabled"])
         self.assertTrue(report["diagnostic"]["ok"])
