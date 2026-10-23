@@ -36,9 +36,29 @@ class HealthGatedReaderTests(unittest.TestCase):
         state, observation = self.call(
             state_at=self.now - timedelta(seconds=1), events=events, failure_at=failure_at
         )
-        self.assertEqual(events, ["probe", "state_timestamp", "read_state", "state_timestamp"])
+        self.assertEqual(events, ["probe", "state_timestamp", "read_state", "probe", "state_timestamp"])
         self.assertEqual(state, {"fleets": []})
         self.assertEqual(observation.latest_valid_state_at, self.now - timedelta(seconds=1))
+
+    def test_renderer_change_during_read_blocks_payload(self):
+        events = []
+        changed = CdpPageProbe(
+            checked_at=self.now,
+            target_found=True,
+            title="Different renderer",
+            url="app://different",
+            document_ready_state="complete",
+            error_text="",
+        )
+        probes = iter((self.probe, changed))
+        with self.assertRaisesRegex(PageHealthGateError, "renderer_identity_changed"):
+            read_state_with_page_health(
+                probe_page=lambda: (events.append("probe") or next(probes)),
+                read_state=lambda: (events.append("read_state") or {"fleets": []}),
+                latest_valid_state_at=lambda: self.now - timedelta(seconds=1),
+                now_provider=lambda: self.now,
+            )
+        self.assertEqual(events, ["probe", "read_state", "probe"])
 
     def test_connection_error_blocks_state_read(self):
         events = []
