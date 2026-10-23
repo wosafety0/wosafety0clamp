@@ -32,6 +32,16 @@ class CdpTarget:
     websocket_url: str
 
 
+def _sanitize_display_url(url: str) -> str:
+    """Remove URL credentials, query parameters, and fragments before display."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        netloc = parsed.netloc.rsplit("@", 1)[-1]
+        return parsed._replace(netloc=netloc, query="", fragment="").geturl()
+    except (TypeError, ValueError):
+        return "[invalid-url]"
+
+
 def _validate_loopback_http_url(url: str) -> str:
     if any(ord(char) <= 0x20 or ord(char) == 0x7F for char in url):
         raise ValueError("CDP endpoint URL contains whitespace or control characters")
@@ -203,7 +213,7 @@ def main() -> int:
             "selected": {
                 "id": selected.target_id,
                 "title": selected.title,
-                "url": selected.url,
+                "url": _sanitize_display_url(selected.url),
                 "websocket_endpoint": selected.websocket_url,
             },
             "actions_enabled": False,
