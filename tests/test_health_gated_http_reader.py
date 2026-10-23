@@ -37,7 +37,7 @@ class PoiHealthGatedHttpReaderTests(unittest.TestCase):
 
         state, observation = reader.get_observed_states(fields=object())
 
-        self.assertEqual(events, ["probe", "read"])
+        self.assertEqual(events, ["probe", "read", "probe"])
         self.assertEqual(state, ("fleets", "ships"))
         self.assertEqual(observation.latest_valid_state_at, self.now)
 
