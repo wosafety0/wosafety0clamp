@@ -51,19 +51,14 @@ class PoiHealthGatedHttpReaderTests(unittest.TestCase):
 
         adapter.get_observed_states.assert_called_once()
 
-    def test_drains_post_read_webhook_event_for_recovery(self):
+    def test_event_arriving_after_read_starts_cannot_authorize_that_read(self):
         now = datetime.now(timezone.utc)
-        failure_at = now.replace(microsecond=0)
-        if failure_at >= now:
-            from datetime import timedelta
-            failure_at = failure_at - timedelta(seconds=1)
-        event_time = now
         adapter = Mock()
         adapter.get_observed_states.return_value = ("fleets", "ships")
         event = {
             "path": "/kcsapi/api_port/port",
             "stage": "response",
-            "timestamp": event_time.timestamp(),
+            "timestamp": now.timestamp(),
             "response": {"api_result": 1},
         }
         receiver = Mock()
@@ -78,13 +73,10 @@ class PoiHealthGatedHttpReaderTests(unittest.TestCase):
             now_provider=lambda: now,
         )
 
-        state, observation = reader.get_observed_states(
-            fields=object(), connection_failure_at=failure_at,
-        )
+        with self.assertRaises(RuntimeError):
+            reader.get_observed_states(fields=object())
 
-        self.assertEqual(state, ("fleets", "ships"))
-        self.assertEqual(observation.latest_valid_state_at, event_time)
-        self.assertGreater(observation.latest_valid_state_at, failure_at)
+        adapter.get_observed_states.assert_not_called()
 
     def test_connection_failure_requires_a_later_event(self):
         adapter = Mock()
