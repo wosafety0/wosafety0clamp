@@ -47,7 +47,10 @@ class PoiHealthGatedHttpReader:
             event = self._receiver.get_event(timeout=0)
             if event is None:
                 return
-            self._tracker.observe_event(event)
+            if self._now_provider is None:
+                self._tracker.observe_event(event)
+            else:
+                self._tracker.observe_event(event, now=self._now_provider())
 
     def _latest_after_drain(self) -> datetime | None:
         self._drain_events()
