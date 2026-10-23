@@ -73,8 +73,8 @@ class CdpProbeTests(unittest.TestCase):
     def test_websocket_handshake_rejects_malformed_status_and_headers(self):
         cases = (
             ("HTTP/1.1 1010 Switching Protocols", "", "upgrade was rejected"),
-            ("HTTP/1.1 101 Switching Protocols", "Upgrade: websocket\\r\\n", "duplicate or empty headers"),
-            ("HTTP/1.1 101 Switching Protocols", "malformed-header\\r\\n", "malformed header"),
+            ("HTTP/1.1 101 Switching Protocols", "Upgrade: websocket\r\n", "duplicate or empty headers"),
+            ("HTTP/1.1 101 Switching Protocols", "malformed-header\r\n", "malformed header"),
         )
         for status_line, extra_headers, expected_error in cases:
             fake = self._make_handshake_fake(status_line, extra_headers)
@@ -99,18 +99,18 @@ class CdpProbeTests(unittest.TestCase):
 
             def sendall(self, request):
                 request_text = request.decode("ascii")
-                key_line = next(line for line in request_text.split("\\r\\n") if line.startswith("Sec-WebSocket-Key:"))
+                key_line = next(line for line in request_text.split("\r\n") if line.startswith("Sec-WebSocket-Key:"))
                 key = key_line.split(":", 1)[1].strip()
                 accept = base64.b64encode(
                     hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest()
                 ).decode("ascii")
                 response = (
-                    f"{status_line}\\r\\n"
-                    "Upgrade: websocket\\r\\n"
-                    "Connection: Upgrade\\r\\n"
-                    f"Sec-WebSocket-Accept: {accept}\\r\\n"
+                    f"{status_line}\r\n"
+                    "Upgrade: websocket\r\n"
+                    "Connection: Upgrade\r\n"
+                    f"Sec-WebSocket-Accept: {accept}\r\n"
                     f"{extra_headers}"
-                    "\\r\\n"
+                    "\r\n"
                 )
                 self.response.extend(response.encode("ascii"))
 
