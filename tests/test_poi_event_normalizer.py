@@ -23,6 +23,21 @@ class PoiEventNormalizerTests(unittest.TestCase):
         self.assertEqual(result.path, "/kcsapi/api_port/port")
         self.assertEqual(result.observed_at, datetime.fromtimestamp(1792670000, timezone.utc))
 
+    def test_accepts_actual_forwarder_response_received_stage(self):
+        result = normalize_forwarder_event(self.event(stage="response_received"))
+        self.assertTrue(result.state_eligible)
+        self.assertEqual(result.stage, "response_received")
+
+    def test_map_resource_is_not_state_eligible(self):
+        result = normalize_forwarder_event(self.event(path="kcs2/resources/map/1.json"))
+        self.assertFalse(result.state_eligible)
+        self.assertEqual(result.reason, "unsupported_resource_path")
+
+    def test_unrelated_absolute_path_is_not_state_eligible(self):
+        result = normalize_forwarder_event(self.event(path="/unrelated/resource"))
+        self.assertFalse(result.state_eligible)
+        self.assertEqual(result.reason, "unsupported_resource_path")
+
     def test_request_event_is_not_state_eligible(self):
         result = normalize_forwarder_event(self.event(stage="request"))
         self.assertFalse(result.state_eligible)
