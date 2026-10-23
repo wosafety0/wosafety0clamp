@@ -135,6 +135,8 @@ def _read_text_message(sock: socket.socket, *, max_message_bytes: int = 2 * 1024
         length = header[1] & 0x7F
         if header[0] & 0x70:
             raise CdpProbeError("CDP WebSocket reserved frame bits are set")
+        if masked:
+            raise CdpProbeError("CDP server-to-client frames must not be masked")
         if length == 126:
             length = struct.unpack("!H", _read_exact(sock, 2))[0]
             if length < 126:
