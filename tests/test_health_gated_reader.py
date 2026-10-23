@@ -121,6 +121,38 @@ class HealthGatedReaderTests(unittest.TestCase):
             )
         self.assertEqual(events, ["probe", "read_state", "probe"])
 
+    def test_post_read_probe_timestamp_stale_withholds_payload(self):
+        events = []
+        stale = CdpPageProbe(
+            checked_at=self.now - timedelta(seconds=6),
+            target_found=True,
+            title=self.probe.title,
+            url=self.probe.url,
+            document_ready_state="complete",
+            error_text=self.probe.error_text,
+        )
+        probes = iter((self.probe, stale))
+        with self.assertRaises(PageHealthGateError):
+            read_state_with_page_health(
+                probe_page=lambda: (events.append("probe") or next(probes)),
+                read_state=lambda: (events.append("read_state") or {"secret": "fixture"}),
+                latest_valid_state_at=lambda: self.now - timedelta(seconds=1),
+                now_provider=lambda: self.now,
+            )
+        self.assertEqual(events, ["probe", "read_state", "probe"])
+
+    def test_source_evidence_expires_during_read(self):
+        events = []
+        moments = iter((self.now, self.now, self.now + timedelta(seconds=20)))
+        with self.assertRaises(PageHealthGateError):
+            read_state_with_page_health(
+                probe_page=lambda: (events.append("probe") or self.probe),
+                read_state=lambda: (events.append("read_state") or {"secret": "fixture"}),
+                latest_valid_state_at=lambda: self.now - timedelta(seconds=1),
+                now_provider=lambda: next(moments),
+            )
+        self.assertEqual(events, ["probe", "read_state", "probe"])
+
     def test_connection_error_blocks_state_read(self):
         events = []
         bad_probe = CdpPageProbe(
