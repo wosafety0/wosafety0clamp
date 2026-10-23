@@ -11,6 +11,7 @@ import base64
 import hashlib
 import ipaddress
 import json
+import math
 import os
 import socket
 import struct
@@ -44,6 +45,8 @@ class CdpPageProbe:
 
 
 def _connect_websocket(url: str, timeout: float) -> socket.socket:
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("timeout must be finite and positive")
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme != "ws" or not parsed.hostname:
         raise CdpProbeError("Only ws:// CDP endpoints are supported")
@@ -155,6 +158,8 @@ def _read_text_message(
     max_message_bytes: int = 2 * 1024 * 1024,
     deadline: float | None = None,
 ) -> str:
+    if isinstance(max_message_bytes, bool) or not isinstance(max_message_bytes, int) or max_message_bytes <= 0:
+        raise ValueError("max_message_bytes must be a positive integer")
     chunks = bytearray()
     fragmented = False
     while True:
@@ -210,6 +215,8 @@ def _read_text_message(
 
 
 def _evaluate_read_only(target: CdpTarget, timeout: float) -> dict[str, Any]:
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("timeout must be finite and positive")
     sock = _connect_websocket(target.websocket_url, timeout)
     try:
         expression = (
@@ -262,8 +269,8 @@ def probe_poi_page(
     timeout: float = 2.0,
 ) -> CdpPageProbe:
     """Probe exactly one selected Poi page without any game interaction."""
-    if timeout <= 0:
-        raise ValueError("timeout must be positive")
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("timeout must be finite and positive")
     checked_at = datetime.now(timezone.utc)
     try:
         targets = list_page_targets(endpoint, timeout=timeout)
