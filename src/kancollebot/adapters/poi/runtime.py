@@ -8,6 +8,7 @@ dispatches, collects, clicks, reloads, or issues game API requests.
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 import time
@@ -45,6 +46,7 @@ class PoiPreflightConfig:
         if (
             isinstance(self.event_timeout_seconds, bool)
             or not isinstance(self.event_timeout_seconds, (int, float))
+            or not math.isfinite(self.event_timeout_seconds)
             or self.event_timeout_seconds <= 0
         ):
             raise ValueError("event_timeout_seconds must be positive")
