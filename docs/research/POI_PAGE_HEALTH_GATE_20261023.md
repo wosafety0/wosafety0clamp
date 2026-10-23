@@ -20,11 +20,16 @@ The timestamp callback must report a real validated state observation (for examp
 - Uses only `Runtime.evaluate` with a fixed metadata expression.
 - Ambiguous targets, protocol errors, timeouts, invalid messages, and socket closure provide no healthy evidence.
 - Page discovery and `document.readyState` alone do not establish game-state freshness.
+- The Poi webhook receiver removes URL userinfo, query strings, and fragments from HTTP(S) URLs found in KCSAPI event strings and map-resource response URLs, so URL-embedded credentials are not retained in queued events.
 - The supported facade is `PoiHealthGatedHttpReader`. Its `get_observed_states`, `get_status`, `diagnose`, and `read_and_plan` methods all route through the same page and source-event gate. The wrapped `PoiHttpReadOnlyAdapter` remains a low-level primitive: do not expose it to application consumers or call its methods directly when health gating is required.
 
 ## Validation
 
-GitHub Actions validation is tracked on the pull request. Unit tests are offline/mocked and do not constitute a live Poi validation.
+GitHub Actions validation is tracked on the pull request. The URL-userinfo sanitization change and its KCSAPI/nested-URL/map-resource regression tests passed the CI and Python Tests workflows for commit `827a012c2c12e4872f339e84c95b40b2c775b22f`:
+- [CI](https://github.com/wosafety0/KancolleBot/actions/runs/39963311856)
+- [Python Tests](https://github.com/wosafety0/KancolleBot/actions/runs/39963311923)
+
+Unit tests are offline/mocked and do not constitute a live Poi validation.
 
 ## Safety
 
