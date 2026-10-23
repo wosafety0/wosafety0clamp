@@ -71,12 +71,16 @@ def normalize_forwarder_event(event: Mapping[str, Any]) -> NormalizedForwarderEv
     path = _normalize_path(event.get("path"))
     if path is None:
         return NormalizedForwarderEvent("", "unknown", None, None, False, "invalid_path")
+    if not path.startswith("/kcsapi/"):
+        return NormalizedForwarderEvent(path, "unknown", None, None, False, "unsupported_resource_path")
 
     stage_value = event.get("stage")
     stage = stage_value.strip().lower() if isinstance(stage_value, str) else "unknown"
     observed_at = _parse_timestamp(event.get("timestamp"))
 
-    if stage != "response":
+    # The inspected Poi Forwarder emits response_received. Accept the older
+    # response label only for compatibility with existing fixtures/versions.
+    if stage not in {"response", "response_received"}:
         return NormalizedForwarderEvent(path, stage, observed_at, None, False, "not_a_response_stage")
 
     response = event.get("response")
