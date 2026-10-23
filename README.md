@@ -60,6 +60,34 @@ evidence fails closed. Its output is a privacy-preserving schema diagnostic.
 The HTTP adapter remains a low-level primitive; application callers should use
 `PoiHealthGatedHttpReader` and must not expose the adapter directly.
 
+## Preflight report interpretation
+
+The JSON report is a **single-run diagnostic**, not permission to automate gameplay.
+`status=PASS_READ_ONLY_HEALTH_GATED` means only that all read-only gates
+passed during this invocation. A nonzero exit code or `status=FAILED` must
+never be treated as a usable state snapshot.
+
+- `gates.forwarder_event_accepted` becomes true once a validated Forwarder
+  event is received; it remains true if a later CDP or HTTP check fails.
+- `gates.source_event_fresh` means the validated source timestamp still meets
+  the 15-second page-health freshness window at report time. The tracker can
+  initially accept an event up to 30 seconds old; acceptance alone does not
+  authorize an HTTP read.
+- `gates.cdp_target_identity_validated` and `gates.cdp_document_ready`
+  indicate the renderer identity and document-readiness checks.
+- `gates.fleets_endpoint_read`, `gates.ships_endpoint_read`, and
+  `gates.fleet_ship_references_valid` summarize the schema-only HTTP
+  diagnostic, without returning raw fleet or ship records.
+- `gates.gameplay_actions_disabled` is always true by design; it is **not**
+  evidence that expedition or battle execution has been tested.
+- `http_diagnostic_completed` is true only when the diagnostic returns and
+  its post-read gate report is evaluated. Failure paths can have some earlier
+  gates true while this flag remains false.
+
+The receiver is loopback-only but does not authenticate the local sender.
+These gates establish bounded read-only health evidence, not cryptographic
+provenance or authorization to issue game commands.
+
 ## Real-environment acceptance checklist
 
 Before treating a real Poi connection as validated, manually confirm all of the
