@@ -25,22 +25,35 @@ _MAX_FUTURE_SKEW_SECONDS = 5.0
 
 
 def _parse_event_timestamp(value: Any) -> datetime | None:
-    """Parse only numeric Unix seconds/milliseconds; reject ambiguous strings."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    """Parse Unix seconds/milliseconds or an unambiguous timezone-aware ISO timestamp."""
+    if isinstance(value, bool):
         return None
-    try:
-        numeric = float(value)
-    except (OverflowError, TypeError, ValueError):
-        return None
-    if not math.isfinite(numeric) or numeric <= 0:
-        return None
-    # Poi Date.now() is milliseconds; some forwarders serialize Unix seconds.
-    if numeric >= 100_000_000_000:
-        numeric /= 1000.0
-    try:
-        return datetime.fromtimestamp(numeric, tz=timezone.utc)
-    except (OverflowError, OSError, ValueError):
-        return None
+    if isinstance(value, (int, float)):
+        try:
+            numeric = float(value)
+        except (OverflowError, TypeError, ValueError):
+            return None
+        if not math.isfinite(numeric) or numeric <= 0:
+            return None
+        # Poi Date.now() is milliseconds; some forwarders serialize Unix seconds.
+        if numeric >= 100_000_000_000:
+            numeric /= 1000.0
+        try:
+            return datetime.fromtimestamp(numeric, tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
+    if isinstance(value, str) and value.strip():
+        text = value.strip()
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            return None
+        return parsed.astimezone(timezone.utc)
+    return None
 
 
 class PoiStateObservationTracker:
