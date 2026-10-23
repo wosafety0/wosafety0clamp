@@ -228,6 +228,19 @@ class CdpProbeTests(unittest.TestCase):
                         _connect_websocket("ws://127.0.0.1:9222/devtools/page/x", 0.2)
             self.assertTrue(fake.closed)
 
+    def test_websocket_handshake_allows_horizontal_tab_in_header_value(self):
+        fake = self._make_handshake_fake(
+            "HTTP/1.1 101 Switching Protocols",
+            "X-Test: left\\tright\\r\\n",
+        )
+        with patch(
+            "kancollebot.adapters.poi.cdp_probe.socket.create_connection",
+            return_value=fake,
+        ):
+            sock = _connect_websocket("ws://127.0.0.1:9222/devtools/page/x", 0.2)
+        self.assertIs(sock, fake)
+        sock.close()
+
     def test_probe_rejects_url_change_after_target_discovery(self):
         target = CdpTarget("1", "Poi", "app://poi", "ws://127.0.0.1:9222/devtools/page/1")
         with patch("kancollebot.adapters.poi.cdp_probe.list_page_targets", return_value=(target,)), \
