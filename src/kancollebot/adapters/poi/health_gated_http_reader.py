@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable
 
 from kancollebot.adapters.poi.health_gated_reader import read_state_with_page_health
 from kancollebot.adapters.poi.http_read_only import PoiHttpReadOnlyAdapter
@@ -12,10 +12,10 @@ from kancollebot.core.ship_parser import ShipFieldMap
 
 
 class PoiHealthGatedHttpReader:
-    """Expose validated fleet/ship reads only after page and source-event checks pass.
+    """Expose fleet/ship reads only after page and source-event checks pass.
 
-    The receiver must already be started and the Poi Forwarder must be configured
-    to post events to it. No event or no verified page evidence means fail-closed.
+    The receiver must already be started and Poi Forwarder must post events to it.
+    No event or no verified page evidence means fail-closed.
     """
 
     def __init__(
@@ -24,14 +24,18 @@ class PoiHealthGatedHttpReader:
         receiver: PoiWebhookReceiver,
         tracker: PoiStateObservationTracker,
         *,
-        probe_page: Any,
+        probe_page: Callable[[], Any],
+        now_provider: Callable[[], datetime] | None = None,
     ) -> None:
         if not callable(probe_page):
             raise TypeError("probe_page must be callable")
+        if now_provider is not None and not callable(now_provider):
+            raise TypeError("now_provider must be callable")
         self._adapter = adapter
         self._receiver = receiver
         self._tracker = tracker
         self._probe_page = probe_page
+        self._now_provider = now_provider
 
     def _drain_events(self) -> None:
         """Consume queued webhook events and retain only validated state timestamps."""
@@ -48,19 +52,15 @@ class PoiHealthGatedHttpReader:
         connection_failure_at: datetime | None = None,
     ):
         """Probe first, read and validate state, then require recent source event evidence."""
-        def read_state():
-            return self._adapter.get_observed_states(fields)
-
-        def latest_valid_state_at():
-            self._drain_events()
-            return self._tracker.latest_valid_state_at
-
-        # Drain any queued event evidence before the probe; the health-gated reader
-        # still probes the renderer before it calls read_state().
         self._drain_events()
         return read_state_with_page_health(
             probe_page=self._probe_page,
-            read_state=read_state,
-            latest_valid_state_at=latest_valid_state_at,
+            read_state=lambda: self._adapter.get_observed_states(fields),
+            latest_valid_state_at=lambda: self._latest_after_drain(),
             connection_failure_at=connection_failure_at,
+            now_provider=self._now_provider,
         )
+
+    def _latest_after_drain(self) -> datetime | None:
+        self._drain_events()
+        return self._tracker.latest_valid_state_at
