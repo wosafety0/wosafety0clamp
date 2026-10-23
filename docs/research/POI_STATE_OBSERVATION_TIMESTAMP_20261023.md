@@ -8,14 +8,14 @@
 
 An event advances the tracker only when all conditions pass:
 
-- `stage` is exactly `response`.
+- `stage` is `response_received` as emitted by the inspected `poi-plugin-api-forwarder` source. The legacy `response` stage is also accepted for compatibility; request/map stages are rejected.
 - `path` is one of the explicitly allowlisted state endpoints.
 - `response.api_result` is integer `1`.
 - `timestamp` is a numeric Unix timestamp in seconds or milliseconds.
 - The source timestamp is not more than five seconds in the future and is no older than the configured maximum age (30 seconds by default).
 - The timestamp is newer than the stored timestamp; out-of-order events cannot move freshness backwards.
 
-Unknown timestamp strings, request-stage events, unrelated paths, failed responses, stale timestamps, and malformed payloads are rejected.
+The inspected Forwarder sends `{ path, request: postBody, response: body, stage: "response_received", timestamp: Date.now() }` for `/kcsapi/` events. Its timestamp is Unix milliseconds. Unknown timestamp strings, request/map stages, unrelated paths, failed responses, stale timestamps, and malformed payloads are rejected.
 
 ## Integration boundary
 
@@ -25,4 +25,4 @@ The tracker must be fed events returned by `PoiWebhookReceiver.get_event()`. The
 
 ## Validation
 
-Unit tests use fixed timestamps and mocked event dictionaries. They do not connect to Poi, perform game actions, or prove the runtime Forwarder configuration.
+Unit tests use fixed timestamps and mocked event dictionaries. The event envelope and stage/timestamp format were checked against the public `pmsleepcheck/poi-plugin-api-forwarder` branch `feature/poi-interaction-server` (`index.js`). Unit tests still do not connect to the user's installed Poi process or prove that the installed plugin version/configuration matches that source.
