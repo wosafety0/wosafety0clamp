@@ -49,7 +49,7 @@ class PoiHealthGatedHttpReaderTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             reader.get_observed_states(fields=object())
 
-        adapter.get_observed_states.assert_called_once()
+        adapter.get_observed_states.assert_not_called()
 
     def test_event_arriving_after_read_starts_cannot_authorize_that_read(self):
         now = datetime.now(timezone.utc)
@@ -90,6 +90,7 @@ class PoiHealthGatedHttpReaderTests(unittest.TestCase):
 
         with self.assertRaises(RuntimeError):
             reader.get_observed_states(fields=object(), connection_failure_at=self.now)
+        adapter.get_observed_states.assert_not_called()
 
     def test_status_and_diagnostic_reads_use_the_same_health_gate(self):
         tracker = PoiStateObservationTracker()
@@ -123,8 +124,8 @@ class PoiHealthGatedHttpReaderTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             reader.diagnose()
 
-        adapter.get_status.assert_called_once_with()
-        adapter.diagnose.assert_called_once_with()
+        adapter.get_status.assert_not_called()
+        adapter.diagnose.assert_not_called()
 
     def test_read_and_plan_uses_gated_observations(self):
         from unittest.mock import patch
