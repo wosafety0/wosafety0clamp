@@ -337,9 +337,9 @@ class PoiRuntimeIntegrationTests(unittest.TestCase):
         self.assertTrue(report["http_reads_performed"])
         self.assertFalse(report["actions_enabled"])
 
-    def test_preflight_config_rejects_non_finite_event_timeout(self):
-        for invalid in (float("nan"), float("inf"), float("-inf")):
-            with self.subTest(timeout=repr(invalid)):
+    def test_preflight_config_rejects_non_finite_or_unrepresentable_event_timeout(self):
+        for invalid in (float("nan"), float("inf"), float("-inf"), 10**1000):
+            with self.subTest(timeout=repr(invalid)[:80]):
                 with self.assertRaises(ValueError):
                     PoiPreflightConfig(event_timeout_seconds=invalid)
 
