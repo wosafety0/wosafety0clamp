@@ -65,7 +65,7 @@ class PoiStateObservationTracker:
         if event.get("stage") != "response" or event.get("path") not in _STATE_PATHS:
             return False
         response = event.get("response")
-        if not isinstance(response, dict) or response.get("api_result") != 1:
+        if not isinstance(response, dict) or type(response.get("api_result")) is not int or response.get("api_result") != 1:
             return False
         timestamp = _parse_event_timestamp(event.get("timestamp"))
         if timestamp is None:
