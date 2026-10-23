@@ -153,5 +153,29 @@ class PoiHealthGatedHttpReaderTests(unittest.TestCase):
         adapter.get_observed_states.assert_called_once_with(unittest.mock.ANY)
 
 
+    def test_queued_event_uses_injected_clock_for_timestamp_validation(self):
+        event = {
+            "path": "/kcsapi/api_port/port",
+            "stage": "response_received",
+            "timestamp": self.now.timestamp(),
+            "response": {"api_result": 1},
+        }
+        receiver = Mock()
+        receiver.get_event.side_effect = [event, None, None, None]
+        tracker = PoiStateObservationTracker()
+        adapter = Mock()
+        adapter.get_observed_states.return_value = ("fleets", "ships")
+        reader = PoiHealthGatedHttpReader(
+            adapter, receiver, tracker, probe_page=lambda: self.probe,
+            now_provider=lambda: self.now,
+        )
+
+        state, observation = reader.get_observed_states(fields=object())
+
+        self.assertEqual(state, ("fleets", "ships"))
+        self.assertEqual(observation.latest_valid_state_at, self.now)
+        adapter.get_observed_states.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()
