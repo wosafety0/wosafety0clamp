@@ -169,7 +169,7 @@ class PoiWebhookReceiver:
                         }
                     else:
                         event = {
-                            "path": safe_path,
+                            "path": resource_path,
                             "response": _redact_sensitive_fields(payload.get("response")),
                             "request": _redact_sensitive_fields(payload.get("request")),
                             "stage": payload.get("stage"),
