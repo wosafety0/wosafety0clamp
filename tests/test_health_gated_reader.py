@@ -36,7 +36,7 @@ class HealthGatedReaderTests(unittest.TestCase):
         state, observation = self.call(
             state_at=self.now - timedelta(seconds=1), events=events, failure_at=failure_at
         )
-        self.assertEqual(events, ["probe", "read_state", "state_timestamp"])
+        self.assertEqual(events, ["probe", "state_timestamp", "read_state", "state_timestamp"])
         self.assertEqual(state, {"fleets": []})
         self.assertEqual(observation.latest_valid_state_at, self.now - timedelta(seconds=1))
 
@@ -51,13 +51,17 @@ class HealthGatedReaderTests(unittest.TestCase):
         self.assertEqual(events, ["probe"])
 
     def test_stale_state_blocks_returning_read_payload(self):
+        events = []
         with self.assertRaises(PageHealthGateError):
-            self.call(state_at=self.now - timedelta(seconds=30))
+            self.call(state_at=self.now - timedelta(seconds=30), events=events)
+        self.assertEqual(events, ["probe", "state_timestamp"])
 
     def test_state_not_observed_after_failure_is_blocked(self):
         failure_at = self.now - timedelta(seconds=2)
+        events = []
         with self.assertRaises(PageHealthGateError):
-            self.call(state_at=failure_at, failure_at=failure_at)
+            self.call(state_at=failure_at, failure_at=failure_at, events=events)
+        self.assertEqual(events, ["probe", "state_timestamp"])
 
     def test_missing_target_blocks_state_read(self):
         events = []
