@@ -89,7 +89,7 @@ def read_state_with_page_health(
     if (
         post_probe.target_found is not True
         or post_probe.title != probe.title
-        or post_probe.url != probe.url
+        or post_probe.url_identity != probe.url_identity
     ):
         raise PageHealthGateError("renderer_identity_changed_during_read")
     observation = PageHealthObservation(
