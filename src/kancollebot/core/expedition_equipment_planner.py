@@ -147,9 +147,9 @@ def plan_expedition_equipment(
                    for equipment_id, key in item_to_key.items()}
     assignments = tuple(
         EquipmentAssignment(req.ship_id, req.slot, key_to_item[(req.ship_id, req.slot)].equipment_id,
-                            req.model_id, selected[(req.ship_id, req.slot)].stars,
-                            selected[(req.ship_id, req.slot)].source_ship_id,
-                            selected[(req.ship_id, req.slot)].source_slot)
+                            req.model_id, key_to_item[(req.ship_id, req.slot)].stars,
+                            key_to_item[(req.ship_id, req.slot)].source_ship_id,
+                            key_to_item[(req.ship_id, req.slot)].source_slot)
         for req in sorted(requirements, key=lambda req: (req.ship_id, req.slot))
     )
     return EquipmentPlanResult(True, assignments, "Read-only allocation plan only; swap and readiness verification are not performed.")
