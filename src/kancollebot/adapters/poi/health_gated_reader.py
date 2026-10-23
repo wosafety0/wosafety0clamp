@@ -57,10 +57,13 @@ def read_state_with_page_health(
     )
     if preliminary.status is PageHealthStatus.UNHEALTHY:
         require_healthy_page(preliminary)
-    if preliminary.status is PageHealthStatus.UNKNOWN and preliminary.reasons != (
-        "valid_game_state_observation_missing",
-    ):
-        require_healthy_page(preliminary)
+    if preliminary.status is PageHealthStatus.UNKNOWN:
+        # Do not touch the state endpoint until valid source evidence exists.
+        # A webhook arriving during/after the read cannot retroactively authorize it.
+        try:
+            require_healthy_page(preliminary)
+        except RuntimeError as exc:
+            raise PageHealthGateError(str(exc)) from exc
 
     state = read_state()
     state_at = latest_valid_state_at()
