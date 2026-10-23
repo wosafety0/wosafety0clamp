@@ -61,6 +61,12 @@ class PoiSnapshotTests(unittest.TestCase):
         with self.assertRaises(SnapshotValidationError):
             parse_snapshot(payload, now=NOW)
 
+    def test_rejects_float_schema_version(self):
+        payload = valid_payload()
+        payload["schema_version"] = 1.0
+        with self.assertRaises(SnapshotValidationError):
+            parse_snapshot(payload, now=NOW)
+
     def test_rejects_naive_timestamp(self):
         payload = valid_payload()
         payload["observed_at"] = "2026-10-23T02:00:00"
