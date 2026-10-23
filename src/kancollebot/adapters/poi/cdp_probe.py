@@ -126,15 +126,26 @@ def _read_exact(sock: socket.socket, size: int) -> bytes:
 
 def _read_text_message(sock: socket.socket, *, max_message_bytes: int = 2 * 1024 * 1024) -> str:
     chunks = bytearray()
+    fragmented = False
     while True:
         header = _read_exact(sock, 2)
+        fin = bool(header[0] & 0x80)
         opcode = header[0] & 0x0F
         masked = bool(header[1] & 0x80)
         length = header[1] & 0x7F
+        if header[0] & 0x70:
+            raise CdpProbeError("CDP WebSocket reserved frame bits are set")
         if length == 126:
             length = struct.unpack("!H", _read_exact(sock, 2))[0]
+            if length < 126:
+                raise CdpProbeError("CDP WebSocket frame uses a non-minimal length")
         elif length == 127:
             length = struct.unpack("!Q", _read_exact(sock, 8))[0]
+            if length < 65536 or length & (1 << 63):
+                raise CdpProbeError("CDP WebSocket frame has an invalid extended length")
+        is_control = opcode >= 8
+        if is_control and (not fin or length > 125):
+            raise CdpProbeError("CDP WebSocket control frame is malformed")
         if length > max_message_bytes or len(chunks) + length > max_message_bytes:
             raise CdpProbeError("CDP message exceeded 2 MiB")
         mask = _read_exact(sock, 4) if masked else b""
@@ -149,10 +160,19 @@ def _read_text_message(sock: socket.socket, *, max_message_bytes: int = 2 * 1024
         if opcode == 10:
             continue
         if opcode == 1:
+            if fragmented:
+                raise CdpProbeError("CDP WebSocket started a nested data message")
             chunks.extend(data)
-            return chunks.decode("utf-8", errors="strict")
+            if fin:
+                return chunks.decode("utf-8", errors="strict")
+            fragmented = True
+            continue
         if opcode == 0:
+            if not fragmented:
+                raise CdpProbeError("CDP WebSocket sent an unexpected continuation frame")
             chunks.extend(data)
+            if fin:
+                return chunks.decode("utf-8", errors="strict")
             continue
         raise CdpProbeError("Unsupported CDP WebSocket frame opcode")
 
