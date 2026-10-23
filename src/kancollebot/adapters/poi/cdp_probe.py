@@ -71,7 +71,6 @@ def _connect_websocket(url: str, timeout: float) -> socket.socket:
     connect_host = "127.0.0.1" if parsed.hostname.casefold() == "localhost" else parsed.hostname
     key = base64.b64encode(os.urandom(16)).decode("ascii")
     sock = socket.create_connection((connect_host, port), timeout=timeout)
-    sock.settimeout(timeout)
     host = f"[{connect_host}]:{port}" if ":" in connect_host else f"{connect_host}:{port}"
     request = (
         f"GET {path} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\n"
@@ -79,9 +78,15 @@ def _connect_websocket(url: str, timeout: float) -> socket.socket:
         "Sec-WebSocket-Version: 13\r\n\r\n"
     )
     try:
+        deadline = time.monotonic() + timeout
+        sock.settimeout(max(deadline - time.monotonic(), 1e-6))
         sock.sendall(request.encode("ascii"))
         response = bytearray()
         while b"\r\n\r\n" not in response:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise CdpProbeError("CDP WebSocket handshake deadline exceeded")
+            sock.settimeout(remaining)
             chunk = sock.recv(1)
             if not chunk:
                 raise CdpProbeError("CDP WebSocket closed during handshake")
