@@ -51,7 +51,10 @@ def _validate_loopback_http_url(url: str) -> str:
         raise ValueError("CDP endpoint has an invalid port") from exc
     if port is None or not 1 <= port <= 65535:
         raise ValueError("CDP endpoint must include a valid TCP port")
-    return f"http://{parsed.netloc}"
+    # Normalize localhost to an IP literal so the HTTP client cannot resolve
+    # the hostname to a non-loopback address through a modified hosts file.
+    authority = f"127.0.0.1:{port}" if parsed.hostname.lower() == "localhost" else parsed.netloc
+    return f"http://{authority}"
 
 
 def _validate_websocket_url(url: str) -> str:
@@ -72,6 +75,11 @@ def _validate_websocket_url(url: str) -> str:
         raise CdpDiscoveryError("Debugger WebSocket URL has an invalid port") from exc
     if port is None or not 1 <= port <= 65535:
         raise CdpDiscoveryError("Debugger WebSocket URL must include a valid port")
+    # The probe opens this URL later; avoid a second hostname resolution for
+    # localhost by returning a validated loopback IP literal instead.
+    if parsed.hostname.lower() == "localhost":
+        authority = f"127.0.0.1:{port}"
+        return parsed._replace(netloc=authority).geturl()
     return url
 
 
