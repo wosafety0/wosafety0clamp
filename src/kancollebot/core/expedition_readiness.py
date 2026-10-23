@@ -23,6 +23,15 @@ class ReadinessGate:
 
 
 @dataclass(frozen=True, slots=True)
+class ShipSupplyObservation:
+    ship_id: int
+    fuel_current: int
+    fuel_max: int
+    ammo_current: int
+    ammo_max: int
+
+
+@dataclass(frozen=True, slots=True)
 class ExpeditionReadinessResult:
     expedition_id: int
     candidate_ship_ids: tuple[int, ...]
@@ -60,6 +69,7 @@ def assess_expedition_readiness(
     morale_verified: bool = False,
     special_requirements_verified: bool = False,
     drum_model_id: int | None = None,
+    supply_observations: Sequence[ShipSupplyObservation] = (),
 ) -> ExpeditionReadinessResult:
     """Assess known gates. Unknown facts block readiness; dispatch is always false."""
     gates: list[ReadinessGate] = []
@@ -103,6 +113,33 @@ def assess_expedition_readiness(
         return ExpeditionReadinessResult(expedition_id, (), (), tuple(gates), False, False)
 
     planned_ids = set(fleet.ship_ids)
+    valid_supply_records = all(
+        isinstance(item, ShipSupplyObservation)
+        and type(item.ship_id) is int and item.ship_id > 0
+        and all(type(value) is int and value >= 0 for value in (
+            item.fuel_current, item.fuel_max, item.ammo_current, item.ammo_max
+        ))
+        and item.fuel_max > 0 and item.ammo_max > 0
+        and item.fuel_current <= item.fuel_max and item.ammo_current <= item.ammo_max
+        for item in supply_observations
+    )
+    supply_ids = [item.ship_id for item in supply_observations]
+    if not valid_supply_records or len(supply_ids) != len(set(supply_ids)):
+        supply_ok = False
+        supply_detail = "Supply observations are malformed or contain duplicate ship IDs."
+    else:
+        supply_by_id = {item.ship_id: item for item in supply_observations}
+        if not planned_ids.issubset(supply_by_id):
+            supply_ok = False
+            supply_detail = "Fuel/ammo state is missing for one or more planned ships."
+        else:
+            unfilled = [ship_id for ship_id in fleet.ship_ids
+                        if supply_by_id[ship_id].fuel_current != supply_by_id[ship_id].fuel_max
+                        or supply_by_id[ship_id].ammo_current != supply_by_id[ship_id].ammo_max]
+            supply_ok = not unfilled
+            supply_detail = ("All planned ships are fully supplied." if supply_ok else
+                             f"Ships are not fully supplied: {sorted(unfilled)}")
+    gates.append(ReadinessGate("ship_supply", supply_ok, supply_detail))
     invalid_targets = [item for item in equipment_requirements if item.ship_id not in planned_ids]
     if invalid_targets:
         gates.append(ReadinessGate(
