@@ -17,6 +17,20 @@ class CdpProbeTests(unittest.TestCase):
         with self.assertRaises(CdpProbeError):
             _connect_websocket("ws://192.0.2.1:9222/devtools/page/x", 0.2)
 
+    def test_websocket_urls_with_control_or_space_characters_rejected_before_network(self):
+        for url in (
+            "ws://127.0.0.1:9222/devtools/page/x\\r\\nInjected: header",
+            "ws://127.0.0.1:9222/devtools/page/x\r\nInjected: header",
+            "ws://127.0.0.1:9222/devtools/page/has space",
+        ):
+            with self.subTest(url=url):
+                with patch(
+                    "kancollebot.adapters.poi.cdp_probe.socket.create_connection"
+                ) as connect:
+                    with self.assertRaises(CdpProbeError):
+                        _connect_websocket(url, 0.2)
+                    connect.assert_not_called()
+
     def test_bad_scheme_rejected(self):
         with self.assertRaises(CdpProbeError):
             _connect_websocket("wss://127.0.0.1:9222/devtools/page/x", 0.2)
