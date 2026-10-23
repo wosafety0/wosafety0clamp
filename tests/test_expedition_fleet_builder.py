@@ -25,6 +25,24 @@ class FleetBuilderTests(unittest.TestCase):
         result = build_expedition_fleet(ships, {"DD": 1}, reserved_ship_ids=[1])
         self.assertEqual(result.ship_ids, (5,))
 
+    def test_na_slot_accepts_any_ship_type(self):
+        ships = [ship(1, "CL", 10), ship(2, "DD", 8), ship(3, "CA", 5)]
+        result = build_expedition_fleet(ships, {"CL": 1, "NA": 1},
+                                        min_total_level=15)
+        self.assertTrue(result.eligible)
+        self.assertEqual(set(result.ship_ids), {1, 3})
+
+    def test_na_does_not_reuse_ship(self):
+        result = build_expedition_fleet([ship(1, "DD", 30)],
+                                        {"DD": 1, "NA": 1})
+        self.assertFalse(result.eligible)
+
+    def test_all_na_slots(self):
+        result = build_expedition_fleet([ship(1, "DD", 5), ship(2, "CL", 6)],
+                                        {"NA": 2})
+        self.assertTrue(result.eligible)
+        self.assertEqual(set(result.ship_ids), {1, 2})
+
     def test_missing_type_fails_closed(self):
         self.assertFalse(build_expedition_fleet([ship(1, "DD", 99)], {"CL": 1}).eligible)
 
