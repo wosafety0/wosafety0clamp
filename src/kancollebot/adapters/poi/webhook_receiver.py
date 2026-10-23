@@ -11,7 +11,7 @@ import json
 import queue
 import threading
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 
 DEFAULT_MAX_BODY_BYTES = 2 * 1024 * 1024
@@ -29,7 +29,16 @@ SENSITIVE_KEY_NAMES = frozenset({
 
 
 def _sanitize_url(value: str) -> str:
-    """Remove query strings and fragments that may contain credentials."""
+    """Remove URL userinfo, query strings, and fragments that may contain secrets."""
+    if value.startswith(("http://", "https://")):
+        try:
+            parts = urlsplit(value)
+        except ValueError:
+            return value.split("#", 1)[0].split("?", 1)[0]
+        # URL userinfo is everything before the final @ in netloc. Keep the
+        # host/port, but never retain a username or password in queued events.
+        safe_netloc = parts.netloc.rsplit("@", 1)[-1]
+        return urlunsplit((parts.scheme, safe_netloc, parts.path, "", ""))
     return value.split("#", 1)[0].split("?", 1)[0]
 
 
