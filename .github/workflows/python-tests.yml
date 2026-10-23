@@ -1,0 +1,31 @@
+name: Python Tests
+
+on:
+  push:
+    branches:
+      - dev/poi-page-health-gate-20261023
+  pull_request:
+    branches:
+      - dev/poi-webhook-secret-redaction-20261023
+      - dev/poi-page-health-gate-20261023
+
+permissions:
+  contents: read
+
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile Python sources
+        run: python -m compileall -q src tests
+      - name: Run standard-library unit tests
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -v
