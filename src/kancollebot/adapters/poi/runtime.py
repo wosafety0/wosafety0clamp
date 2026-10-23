@@ -82,6 +82,7 @@ def run_read_only_preflight(
         "actions_enabled": False,
         "gameplay_actions_enabled": False,
         "http_reads_performed": False,
+        "http_diagnostic_attempted": False,
         "http_diagnostic_completed": False,
         "gates": {
             "forwarder_event_accepted": False,
@@ -140,7 +141,7 @@ def run_read_only_preflight(
             probe_page=page_probe,
         )
         def tracked_diagnostic():
-            report["http_reads_performed"] = True
+            report["http_diagnostic_attempted"] = True
             return adapter.diagnose()
 
         # The read callback is invoked only after the initial health gate.
@@ -178,6 +179,7 @@ def run_read_only_preflight(
             "status": "PASS_READ_ONLY_HEALTH_GATED",
             "reason": "all_read_only_acceptance_gates_confirmed",
             "http_reads_performed": True,
+            "http_diagnostic_attempted": True,
             "http_diagnostic_completed": True,
             "forwarder_event_accepted": True,
             "page_probe_performed": True,
