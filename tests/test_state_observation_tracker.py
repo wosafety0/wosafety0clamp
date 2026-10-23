@@ -35,6 +35,7 @@ class PoiStateObservationTrackerTests(unittest.TestCase):
 
     def test_rejects_failed_response_and_malformed_timestamp(self):
         self.assertFalse(self.tracker.observe_event(self.event(response={"api_result": 0}), now=self.now))
+        self.assertFalse(self.tracker.observe_event(self.event(response={"api_result": True}), now=self.now))
         self.assertFalse(self.tracker.observe_event(self.event(timestamp="fixture-time"), now=self.now))
         self.assertIsNone(self.tracker.latest_valid_state_at)
 
