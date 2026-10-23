@@ -21,7 +21,7 @@ Unknown timestamp strings, request-stage events, unrelated paths, failed respons
 
 The tracker must be fed events returned by `PoiWebhookReceiver.get_event()`. The receiver itself does not authenticate the sender; binding to `127.0.0.1` reduces network exposure but does not protect against other local processes. Treat this timestamp as event freshness evidence, not cryptographic proof of origin.
 
-The tracker is not yet wired into the HTTP adapter automatically. A future orchestration entry point must probe the Poi page first, perform a read-only state read, then use `latest_valid_state_at` in `read_state_with_page_health`. The caller must record connection failures in UTC and pass `connection_failure_at`; otherwise post-failure recovery cannot be enforced.
+`PoiHealthGatedHttpReader` now composes the tracker with `PoiHttpReadOnlyAdapter` and `read_state_with_page_health`: it probes the page before the HTTP state read, drains queued webhook events, and returns fleet/ship observations only when the page and timestamp gates pass. Existing direct adapter methods remain available and are not automatically gated; callers requiring the safety guarantee must use the wrapper. The caller must record connection failures in UTC and pass `connection_failure_at`; otherwise post-failure recovery cannot be enforced. The caller must record connection failures in UTC and pass `connection_failure_at`; otherwise post-failure recovery cannot be enforced.
 
 ## Validation
 
