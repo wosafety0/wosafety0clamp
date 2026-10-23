@@ -99,6 +99,66 @@ class PoiHealthGatedHttpReaderTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             reader.get_observed_states(fields=object(), connection_failure_at=self.now)
 
+    def test_status_and_diagnostic_reads_use_the_same_health_gate(self):
+        tracker = PoiStateObservationTracker()
+        self.assertTrue(tracker.observe_event({
+            "path": "/kcsapi/api_port/port", "stage": "response_received",
+            "timestamp": self.now.timestamp(), "response": {"api_result": 1},
+        }, now=self.now))
+        adapter = Mock()
+        adapter.get_status.return_value = {"source": "poi-http-read-only"}
+        adapter.diagnose.return_value = {"ok": True}
+        reader = self.make_reader(adapter, tracker)
+
+        status, status_observation = reader.get_status()
+        diagnostic, diagnostic_observation = reader.diagnose()
+
+        self.assertEqual(status, {"source": "poi-http-read-only"})
+        self.assertEqual(diagnostic, {"ok": True})
+        self.assertEqual(status_observation.latest_valid_state_at, self.now)
+        self.assertEqual(diagnostic_observation.latest_valid_state_at, self.now)
+        adapter.get_status.assert_called_once_with()
+        adapter.diagnose.assert_called_once_with()
+
+    def test_status_and_diagnostic_are_withheld_without_fresh_event_evidence(self):
+        adapter = Mock()
+        adapter.get_status.return_value = {"source": "poi-http-read-only"}
+        adapter.diagnose.return_value = {"ok": True}
+        reader = self.make_reader(adapter, PoiStateObservationTracker())
+
+        with self.assertRaises(RuntimeError):
+            reader.get_status()
+        with self.assertRaises(RuntimeError):
+            reader.diagnose()
+
+        adapter.get_status.assert_called_once_with()
+        adapter.diagnose.assert_called_once_with()
+
+    def test_read_and_plan_uses_gated_observations(self):
+        from unittest.mock import patch
+
+        tracker = PoiStateObservationTracker()
+        self.assertTrue(tracker.observe_event({
+            "path": "/kcsapi/api_port/port", "stage": "response_received",
+            "timestamp": self.now.timestamp(), "response": {"api_result": 1},
+        }, now=self.now))
+        fleets_state = object()
+        ships_state = object()
+        adapter = Mock()
+        adapter.get_observed_states.return_value = (fleets_state, ships_state)
+        reader = self.make_reader(adapter, tracker)
+        decision = object()
+
+        with patch(
+            "kancollebot.adapters.poi.health_gated_http_reader.plan_fresh_safe_expedition",
+            return_value=decision,
+        ) as planner:
+            result = reader.read_and_plan(fields=object(), mission_by_fleet={2: 1})
+
+        self.assertEqual(result, (fleets_state, ships_state, decision))
+        planner.assert_called_once()
+        adapter.get_observed_states.assert_called_once_with(unittest.mock.ANY)
+
 
 if __name__ == "__main__":
     unittest.main()
