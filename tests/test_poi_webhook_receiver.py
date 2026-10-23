@@ -83,6 +83,44 @@ class PoiWebhookReceiverTests(unittest.TestCase):
         self.assertEqual(event["stage"], "response")
         self.assertEqual(event["timestamp"], payload["timestamp"])
 
+
+    def test_strips_url_userinfo_from_kcsapi_and_nested_urls(self):
+        payload = {
+            "path": "https://path-user:path-password@poi.example/kcsapi/api_port/port?token=query-secret",
+            "stage": "response_received",
+            "timestamp": 1792670000,
+            "response": {
+                "api_result": 1,
+                "debug_url": "https://nested-user:nested-password@example.test/callback?token=nested-query-secret",
+            },
+        }
+        status, _ = self.post(payload)
+        self.assertEqual(status, 200)
+        event = self.receiver.get_event(timeout=1)
+        serialized_event = json.dumps(event)
+        for secret in (
+            "path-user", "path-password", "query-secret",
+            "nested-user", "nested-password", "nested-query-secret",
+        ):
+            self.assertNotIn(secret, serialized_event)
+        self.assertEqual(event["path"], "/kcsapi/api_port/port")
+        self.assertEqual(event["response"]["debug_url"], "https://example.test/callback")
+
+    def test_strips_url_userinfo_from_map_resource_url(self):
+        payload = {
+            "path": "https://map-user:map-password@example.com/kcs2/resources/map/area.json?token=map-query-secret#fragment",
+            "stage": "response",
+            "timestamp": "fixture-time",
+        }
+        status, _ = self.post(payload)
+        self.assertEqual(status, 200)
+        event = self.receiver.get_event(timeout=1)
+        serialized_event = json.dumps(event)
+        for secret in ("map-user", "map-password", "map-query-secret"):
+            self.assertNotIn(secret, serialized_event)
+        self.assertEqual(event["path"], "kcs2/resources/map/area.json")
+        self.assertEqual(event["response"]["url"], "https://example.com/kcs2/resources/map/area.json")
+
     def test_accepts_map_resource_and_normalizes_path(self):
         payload = {
             "path": "https://example.com/kcs2/resources/map/area.json?token=map-secret#fragment",
