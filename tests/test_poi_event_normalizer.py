@@ -84,6 +84,13 @@ class PoiEventNormalizerTests(unittest.TestCase):
         self.assertFalse(result.state_eligible)
         self.assertEqual(result.reason, "invalid_path")
 
+    def test_malformed_absolute_url_fails_closed_without_raising(self):
+        for path in ("http://[", "https://[::1"):
+            with self.subTest(path=path):
+                result = normalize_forwarder_event(self.event(path=path))
+                self.assertFalse(result.state_eligible)
+                self.assertEqual(result.reason, "invalid_path")
+
     def test_boolean_api_result_is_not_accepted_as_integer_success(self):
         result = normalize_forwarder_event(self.event(response={"api_result": True}))
         self.assertFalse(result.state_eligible)
