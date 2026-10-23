@@ -79,7 +79,7 @@ class CdpProbeTests(unittest.TestCase):
                 del self.data[:size]
                 return bytes(chunk)
 
-        fake = FakeSocket(b"\\x81\\x81\\x00\\x00\\x00\\x00x")
+        fake = FakeSocket(b"\x81\x81\x00\x00\x00\x00x")
         with self.assertRaisesRegex(CdpProbeError, "must not be masked"):
             _read_text_message(fake)
 
