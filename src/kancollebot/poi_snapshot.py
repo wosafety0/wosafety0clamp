@@ -150,6 +150,15 @@ def parse_snapshot(
             raise SnapshotValidationError(str(exc)) from exc
         fleets.append(fleet)
 
+    known_ship_ids = {ship.ship_id for ship in ships}
+    for fleet in fleets:
+        unknown_ids = set(fleet.ship_ids) - known_ship_ids
+        if unknown_ids:
+            unknown_text = ", ".join(str(ship_id) for ship_id in sorted(unknown_ids))
+            raise SnapshotValidationError(
+                f"fleet {fleet.fleet_id} references unknown ship IDs: {unknown_text}"
+            )
+
     try:
         game = GameSnapshot(
             observed_at=observed_at,
