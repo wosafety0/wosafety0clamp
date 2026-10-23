@@ -40,6 +40,8 @@ python -m kancollebot.adapters.poi.http_read_only
 
 The default endpoint is `http://127.0.0.1:17777`. To override it for a
 different local loopback port, set `KANCOLLE_POI_HTTP_URL` before running.
+
+**Safety boundary:** this command calls the low-level `PoiHttpReadOnlyAdapter` directly. It is an ungated, read-only diagnostic only; it does not perform the CDP page-health check or webhook freshness check. Do not use its output as authorization for planning or game actions. The supported combined health guarantee is provided by `PoiHealthGatedHttpReader`, but no production application entry point currently wires the live Poi Forwarder receiver, CDP probe, and HTTP adapter together. That integration must be implemented and validated before relying on health-gated runtime behavior.
 The JSON report shows endpoint/read validation, fleet and ship counts, observed
 field names/types, and whether the known `api_name`/`api_nowhp`/`api_maxhp`
 mapping is consistent across every live ship record. It does not auto-enable
