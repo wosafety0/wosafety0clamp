@@ -29,7 +29,10 @@ def _normalize_path(value: Any) -> str | None:
         return None
     candidate = value.strip()
     if candidate.startswith(("http://", "https://")):
-        candidate = urlsplit(candidate).path
+        try:
+            candidate = urlsplit(candidate).path
+        except ValueError:
+            return None
     else:
         candidate = candidate.split("#", 1)[0].split("?", 1)[0]
     if not candidate or not candidate.startswith(("/", "kcs2/")):
