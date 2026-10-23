@@ -32,7 +32,7 @@ def build_expedition_fleet(
 ) -> FleetBuildResult:
     """Find a valid fleet without assuming unobserved equipment or game state.
 
-    required_types are exact ship-type minimum counts. This planner does not
+    required_types specify required ship-type slots; NA is any eligible ship type.\n    This planner does not
     certify drum, landing-craft, supply, morale, or mission-specific constraints.
     """
     invalid = FleetBuildResult(False, (), "Invalid or incomplete composition input.")
@@ -60,7 +60,7 @@ def build_expedition_fleet(
          and isinstance(s.level, int) and not isinstance(s.level, bool) and s.level > 0),
         key=lambda s: (-s.level, s.ship_id),
     )
-    slots = sorted(t for t, count in required_types.items() for _ in range(count))
+    slots = sorted((t for t, count in required_types.items() for _ in range(count)), key=lambda t: (t == "NA", t))
     best = None
 
     def search(index, chosen, used):
@@ -81,7 +81,7 @@ def build_expedition_fleet(
             return
         kind = slots[index]
         for ship in pool:
-            if ship.ship_type == kind and ship.ship_id not in used:
+            if (kind == "NA" or ship.ship_type == kind) and ship.ship_id not in used:
                 search(index + 1, chosen + [ship], used | {ship.ship_id})
 
     search(0, [], set())
