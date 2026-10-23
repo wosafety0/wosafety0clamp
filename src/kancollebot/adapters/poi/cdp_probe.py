@@ -94,6 +94,16 @@ def _connect_websocket(url: str, timeout: float) -> socket.socket:
         ).decode("ascii")
         if headers.get("sec-websocket-accept") != expected:
             raise CdpProbeError("CDP WebSocket handshake accept key mismatch")
+        upgrade_tokens = {
+            token.strip().casefold()
+            for token in headers.get("upgrade", "").split(",")
+        }
+        connection_tokens = {
+            token.strip().casefold()
+            for token in headers.get("connection", "").split(",")
+        }
+        if "websocket" not in upgrade_tokens or "upgrade" not in connection_tokens:
+            raise CdpProbeError("CDP WebSocket handshake is missing Upgrade headers")
         return sock
     except Exception:
         sock.close()
