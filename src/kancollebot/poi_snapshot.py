@@ -88,7 +88,7 @@ def parse_snapshot(
     """
     root = _mapping(payload, "snapshot")
     version = root.get("schema_version")
-    if isinstance(version, bool) or version != 1:
+    if isinstance(version, bool) or not isinstance(version, int) or version != 1:
         raise SnapshotValidationError("unsupported schema_version; expected 1")
 
     observed_at = _timestamp(root.get("observed_at"))
