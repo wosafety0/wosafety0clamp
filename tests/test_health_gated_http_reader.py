@@ -62,7 +62,7 @@ class PoiHealthGatedHttpReaderTests(unittest.TestCase):
             "response": {"api_result": 1},
         }
         receiver = Mock()
-        receiver.get_event.side_effect = [None, event, None]
+        receiver.get_event.side_effect = [None, None, event, None]
         tracker = PoiStateObservationTracker()
         probe = CdpPageProbe(
             checked_at=now, target_found=True, title="Poi", url="app://poi",
