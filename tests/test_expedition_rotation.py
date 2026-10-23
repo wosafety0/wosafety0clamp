@@ -54,7 +54,7 @@ class FleetRotationTests(unittest.TestCase):
             select_next_expedition_fleet((ready(1), ready(1)), now=NOW)
 
     def test_duplicate_preferences_are_rejected(self):
-        with self.assertRaisesRegex(ValueError, "preferences must be unique"):
+        with self.assertRaisesRegex(ValueError, "preferred fleet IDs must be unique"):
             select_next_expedition_fleet(
                 (ready(1),), now=NOW, preferred_fleet_ids=(1, 1)
             )
