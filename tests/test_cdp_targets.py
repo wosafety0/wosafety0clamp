@@ -4,6 +4,7 @@ from unittest.mock import patch
 from kancollebot.adapters.poi.cdp_targets import (
     CdpDiscoveryError,
     _RejectRedirects,
+    _sanitize_display_url,
     _get_json,
     _validate_loopback_http_url,
     _validate_websocket_url,
@@ -12,6 +13,12 @@ from kancollebot.adapters.poi.cdp_targets import (
 
 
 class CdpTargetLoopbackTests(unittest.TestCase):
+    def test_display_url_redacts_credentials_query_and_fragment(self):
+        self.assertEqual(
+            _sanitize_display_url("https://user:password@example.test/game?token=secret#private"),
+            "https://example.test/game",
+        )
+
     def test_localhost_http_endpoint_is_normalized_to_ipv4_loopback(self):
         self.assertEqual(
             _validate_loopback_http_url("http://localhost:9222"),
