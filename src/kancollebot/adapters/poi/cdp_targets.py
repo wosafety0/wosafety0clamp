@@ -73,6 +73,8 @@ def _validate_websocket_url(url: str) -> str:
         raise CdpDiscoveryError("DevTools target points to a non-loopback WebSocket")
     if parsed.username or parsed.password:
         raise CdpDiscoveryError("Credentials in debugger WebSocket URL are not allowed")
+    if parsed.fragment:
+        raise CdpDiscoveryError("Fragments in debugger WebSocket URL are not allowed")
     try:
         port = parsed.port
     except ValueError as exc:
