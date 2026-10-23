@@ -120,6 +120,11 @@ def run_read_only_preflight(
         # Preserve the completed event gate if a later CDP or HTTP check fails.
         report["gates"]["forwarder_event_accepted"] = True
         report["forwarder_event_accepted"] = True
+        # Record freshness at acceptance, even when subsequent page checks fail.
+        accepted_at = getattr(tracker, "latest_valid_state_at", None)
+        if isinstance(accepted_at, datetime) and accepted_at.tzinfo is not None:
+            accepted_age = (datetime.now(timezone.utc) - accepted_at).total_seconds()
+            report["gates"]["source_event_fresh"] = 0 <= accepted_age <= 15.0
 
         def page_probe():
             return probe_factory(
