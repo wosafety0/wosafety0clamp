@@ -112,6 +112,14 @@ class PoiRuntimeIntegrationTests(unittest.TestCase):
         self.assertNotIn("赤城", serialized)
         self.assertNotIn('"73"', serialized)
 
+    def test_legacy_http_module_entrypoint_delegates_to_gated_runtime(self):
+        from unittest.mock import patch
+        from kancollebot.adapters.poi import http_read_only
+
+        with patch("kancollebot.adapters.poi.runtime.main", return_value=7) as runtime_main:
+            self.assertEqual(http_read_only.main(), 7)
+        runtime_main.assert_called_once_with()
+
     def test_missing_forwarder_event_fails_before_any_http_read(self):
         calls = {"http_adapter_constructed": 0, "probe": 0}
 
