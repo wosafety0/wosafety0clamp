@@ -52,6 +52,8 @@ def _connect_websocket(url: str, timeout: float) -> socket.socket:
         or timeout <= 0
     ):
         raise ValueError("timeout must be finite and positive")
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in url):
+        raise CdpProbeError("CDP WebSocket URL contains control characters")
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme != "ws" or not parsed.hostname:
         raise CdpProbeError("Only ws:// CDP endpoints are supported")
@@ -70,6 +72,8 @@ def _connect_websocket(url: str, timeout: float) -> socket.socket:
     path = parsed.path or "/"
     if parsed.query:
         path += "?" + parsed.query
+    if not path.startswith("/") or any(ord(char) <= 0x20 or ord(char) == 0x7F for char in path):
+        raise CdpProbeError("CDP WebSocket request target contains invalid characters")
     # Resolve the special localhost name to an IP literal ourselves rather
     # than allowing socket.create_connection to consult a potentially modified
     # hosts file or resolver configuration.
