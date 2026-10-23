@@ -1,0 +1,1478 @@
+{
+  "schema_version": 1,
+  "scope": "partial_kca_expedition_reference",
+  "record_count": 42,
+  "notes": "Reference data only. UNKNOWN is not zero or false. Do not authorize dispatch based on this dataset alone.",
+  "expeditions": [
+    {
+      "id": 1,
+      "name_ja": "練習航海",
+      "name_en": "Practice Voyage",
+      "duration_minutes": 15,
+      "requirements": {
+        "composition_raw": "2NA",
+        "flagship_level_min": 1,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 30,
+        "steel": 0,
+        "bauxite": 0,
+        "normal_item": "none",
+        "normal_item_count": 0,
+        "great_success_item": "none",
+        "great_success_item_count": 0
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 2,
+      "name_ja": "長距離練習航海",
+      "name_en": "Long-Distance Training Voyage",
+      "duration_minutes": 30,
+      "requirements": {
+        "composition_raw": "4NA",
+        "flagship_level_min": 2,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 100,
+        "steel": 30,
+        "bauxite": 0,
+        "normal_item": "bucket",
+        "normal_item_count": 1,
+        "great_success_item": "none",
+        "great_success_item_count": 0
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 3,
+      "name_ja": "警備任務",
+      "name_en": "Security Tasks",
+      "duration_minutes": 20,
+      "requirements": {
+        "composition_raw": "3NA",
+        "flagship_level_min": 3,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 30,
+        "ammo": 30,
+        "steel": 40,
+        "bauxite": 0,
+        "normal_item": "none",
+        "normal_item_count": 0,
+        "great_success_item": "none",
+        "great_success_item_count": 0
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 4,
+      "name_ja": "対潜警戒任務",
+      "name_en": "Anti-Submarine Alert",
+      "duration_minutes": 50,
+      "requirements": {
+        "composition_raw": "1CL,2DD",
+        "flagship_level_min": 3,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 70,
+        "steel": 0,
+        "bauxite": 0,
+        "normal_item": "bucket",
+        "normal_item_count": 1,
+        "great_success_item": "smallBox",
+        "great_success_item_count": 1
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 5,
+      "name_ja": "海上護衛任務",
+      "name_en": "Maritime Security Missions",
+      "duration_minutes": 90,
+      "requirements": {
+        "composition_raw": "1CL,2DD,1NA",
+        "flagship_level_min": 3,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 200,
+        "ammo": 200,
+        "steel": 20,
+        "bauxite": 20,
+        "normal_item": "none",
+        "normal_item_count": 0,
+        "great_success_item": "none",
+        "great_success_item_count": 0
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 6,
+      "name_ja": "防空射撃演習",
+      "name_en": "Anti-Air Exercises",
+      "duration_minutes": 40,
+      "requirements": {
+        "composition_raw": "4NA",
+        "flagship_level_min": 4,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 0,
+        "steel": 0,
+        "bauxite": 80,
+        "normal_item": "smallBox",
+        "normal_item_count": 1,
+        "great_success_item": "none",
+        "great_success_item_count": 0
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 7,
+      "name_ja": "観艦式予行",
+      "name_en": "Ceremonial Dress Rehearsal",
+      "duration_minutes": 60,
+      "requirements": {
+        "composition_raw": "6NA",
+        "flagship_level_min": 5,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 0,
+        "steel": 50,
+        "bauxite": 30,
+        "normal_item": "torch",
+        "normal_item_count": 1,
+        "great_success_item": "none",
+        "great_success_item_count": 0
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 8,
+      "name_ja": "観艦式",
+      "name_en": "Naval Review",
+      "duration_minutes": 180,
+      "requirements": {
+        "composition_raw": "6NA",
+        "flagship_level_min": 6,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 50,
+        "ammo": 100,
+        "steel": 50,
+        "bauxite": 50,
+        "normal_item": "torch",
+        "normal_item_count": 2,
+        "great_success_item": "devmat",
+        "great_success_item_count": 1
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 9,
+      "name_ja": "タンカー護衛任務",
+      "name_en": "Tanker Escort Duties",
+      "duration_minutes": 240,
+      "requirements": {
+        "composition_raw": "1CL,2DD,1NA",
+        "flagship_level_min": 3,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 350,
+        "ammo": 0,
+        "steel": 0,
+        "bauxite": 0,
+        "normal_item": "smallBox",
+        "normal_item_count": 1,
+        "great_success_item": "bucket",
+        "great_success_item_count": 2
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 10,
+      "name_ja": "強行偵察任務",
+      "name_en": "Attack Force Recon Missions",
+      "duration_minutes": 90,
+      "requirements": {
+        "composition_raw": "2CL,1NA",
+        "flagship_level_min": 3,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 50,
+        "steel": 0,
+        "bauxite": 40,
+        "normal_item": "bucket",
+        "normal_item_count": 1,
+        "great_success_item": "torch",
+        "great_success_item_count": 1
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 11,
+      "name_ja": "ボーキサイト輸送任務",
+      "name_en": "Bauxite Transport Missions",
+      "duration_minutes": 300,
+      "requirements": {
+        "composition_raw": "2DD,2NA",
+        "flagship_level_min": 6,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 0,
+        "steel": 0,
+        "bauxite": 250,
+        "normal_item": "smallBox",
+        "normal_item_count": 1,
+        "great_success_item": "bucket",
+        "great_success_item_count": 1
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 12,
+      "name_ja": "資源輸送任務",
+      "name_en": "Resource Transportation Missions",
+      "duration_minutes": 480,
+      "requirements": {
+        "composition_raw": "2DD,2NA",
+        "flagship_level_min": 4,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 50,
+        "ammo": 250,
+        "steel": 200,
+        "bauxite": 50,
+        "normal_item": "medBox",
+        "normal_item_count": 1,
+        "great_success_item": "devmat",
+        "great_success_item_count": 1
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 13,
+      "name_ja": "鼠輸送作戦",
+      "name_en": "\"Rat Transportation\" Strategy",
+      "duration_minutes": 240,
+      "requirements": {
+        "composition_raw": "1CL,4DD,1NA",
+        "flagship_level_min": 5,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 240,
+        "ammo": 300,
+        "steel": 0,
+        "bauxite": 0,
+        "normal_item": "bucket",
+        "normal_item_count": 2,
+        "great_success_item": "smallBox",
+        "great_success_item_count": 1
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 14,
+      "name_ja": "包囲陸戦隊撤収作戦",
+      "name_en": "Besieged Troop Evacuation Strategies",
+      "duration_minutes": 360,
+      "requirements": {
+        "composition_raw": "1CL,3DD,2NA",
+        "flagship_level_min": 6,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 280,
+        "steel": 200,
+        "bauxite": 30,
+        "normal_item": "bucket",
+        "normal_item_count": 1,
+        "great_success_item": "devmat",
+        "great_success_item_count": 1
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 15,
+      "name_ja": "囮機動部隊支援作戦",
+      "name_en": "Decoy Task Force Assistance Operations",
+      "duration_minutes": 720,
+      "requirements": {
+        "composition_raw": "2CVL,2DD,2NA",
+        "flagship_level_min": 8,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 0,
+        "steel": 300,
+        "bauxite": 400,
+        "normal_item": "largeBox",
+        "normal_item_count": 1,
+        "great_success_item": "devmat",
+        "great_success_item_count": 1
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 16,
+      "name_ja": "艦隊決戦援護作戦",
+      "name_en": "Fleet Battle Support Strategy",
+      "duration_minutes": 900,
+      "requirements": {
+        "composition_raw": "1CL,2DD,3NA",
+        "flagship_level_min": 10,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 500,
+        "ammo": 500,
+        "steel": 200,
+        "bauxite": 200,
+        "normal_item": "torch",
+        "normal_item_count": 2,
+        "great_success_item": "devmat",
+        "great_success_item_count": 2
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 17,
+      "name_ja": "敵地偵察作戦",
+      "name_en": "Enemy Territory Reconnaissance Operations",
+      "duration_minutes": 45,
+      "requirements": {
+        "composition_raw": "1CL,3DD,2NA",
+        "flagship_level_min": 20,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 70,
+        "ammo": 90,
+        "steel": 50,
+        "bauxite": 0,
+        "normal_item": "none",
+        "normal_item_count": 0,
+        "great_success_item": "none",
+        "great_success_item_count": 0
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 18,
+      "name_ja": "航空機輸送作戦",
+      "name_en": "Aircraft Transport Strategy",
+      "duration_minutes": 300,
+      "requirements": {
+        "composition_raw": "2CVL,1AV,2DD,1NA",
+        "flagship_level_min": 15,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 0,
+        "steel": 300,
+        "bauxite": 150,
+        "normal_item": "bucket",
+        "normal_item_count": 1,
+        "great_success_item": "none",
+        "great_success_item_count": 0
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 19,
+      "name_ja": "北号作戦",
+      "name_en": "Northern Offensive Operations",
+      "duration_minutes": 360,
+      "requirements": {
+        "composition_raw": "2BBV,2DD,2NA",
+        "flagship_level_min": 20,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 400,
+        "ammo": 50,
+        "steel": 50,
+        "bauxite": 30,
+        "normal_item": "smallBox",
+        "normal_item_count": 1,
+        "great_success_item": "devmat",
+        "great_success_item_count": 1
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 20,
+      "name_ja": "潜水艦哨戒任務",
+      "name_en": "Submarine Patrol",
+      "duration_minutes": 120,
+      "requirements": {
+        "composition_raw": "1SS,1CL",
+        "flagship_level_min": 1,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 0,
+        "steel": 150,
+        "bauxite": 0,
+        "normal_item": "devmat",
+        "normal_item_count": 1,
+        "great_success_item": "medBox",
+        "great_success_item_count": 1
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 21,
+      "name_ja": "北方鼠輸送作戦",
+      "name_en": "Northern \"Rat Transportation\" Strategy",
+      "duration_minutes": 140,
+      "requirements": {
+        "composition_raw": "1CL,4DD",
+        "flagship_level_min": 15,
+        "total_level_min": 30,
+        "drum_count_min": 4,
+        "drum_carriers_min": 3,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 320,
+        "ammo": 270,
+        "steel": 0,
+        "bauxite": 0,
+        "normal_item": "smallBox",
+        "normal_item_count": 1,
+        "great_success_item": "none",
+        "great_success_item_count": 0
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 22,
+      "name_ja": "艦隊演習",
+      "name_en": "Fleet Exercises",
+      "duration_minutes": 180,
+      "requirements": {
+        "composition_raw": "1CA,1CL,2DD,2NA",
+        "flagship_level_min": 30,
+        "total_level_min": 45,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 10,
+        "steel": 0,
+        "bauxite": 0,
+        "normal_item": "none",
+        "normal_item_count": 0,
+        "great_success_item": "none",
+        "great_success_item_count": 0
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 23,
+      "name_ja": "航空戦艦運用演習",
+      "name_en": "Aviation Battleship Exercises",
+      "duration_minutes": 240,
+      "requirements": {
+        "composition_raw": "2BBV,2DD,2NA",
+        "flagship_level_min": 50,
+        "total_level_min": 200,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 50,
+        "steel": 0,
+        "bauxite": 130,
+        "normal_item": "medBox",
+        "normal_item_count": 1,
+        "great_success_item": "none",
+        "great_success_item_count": 0
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 24,
+      "name_ja": "北方航路海上護衛",
+      "name_en": "Guard the North Sea Route!",
+      "duration_minutes": 500,
+      "requirements": {
+        "composition_raw": "1CL,4DD,1NA",
+        "flagship_level_min": 50,
+        "total_level_min": 200,
+        "drum_count_min": 2,
+        "drum_carriers_min": 1,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 500,
+        "ammo": 0,
+        "steel": 0,
+        "bauxite": 150,
+        "normal_item": "devmat",
+        "normal_item_count": 2,
+        "great_success_item": "bucket",
+        "great_success_item_count": 1
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 25,
+      "name_ja": "通商破壊作戦",
+      "name_en": "Trade Route Destruction Strategy",
+      "duration_minutes": 2400,
+      "requirements": {
+        "composition_raw": "2CA,2DD",
+        "flagship_level_min": 25,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 900,
+        "ammo": 0,
+        "steel": 500,
+        "bauxite": 0,
+        "normal_item": "medBox",
+        "normal_item_count": 1,
+        "great_success_item": "none",
+        "great_success_item_count": 0
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 26,
+      "name_ja": "敵母港空襲作戦",
+      "name_en": "Enemy Home Port Bombing Campaign",
+      "duration_minutes": 4800,
+      "requirements": {
+        "composition_raw": "1CVL,1CL,2DD",
+        "flagship_level_min": 30,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 0,
+        "steel": 0,
+        "bauxite": 900,
+        "normal_item": "bucket",
+        "normal_item_count": 3,
+        "great_success_item": "largeBox",
+        "great_success_item_count": 1
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 27,
+      "name_ja": "潜水艦通商破壊作戦",
+      "name_en": "Submarine Commerce Destruction Strategy",
+      "duration_minutes": 1200,
+      "requirements": {
+        "composition_raw": "2SS",
+        "flagship_level_min": 1,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 0,
+        "steel": 800,
+        "bauxite": 0,
+        "normal_item": "devmat",
+        "normal_item_count": 2,
+        "great_success_item": "smallBox",
+        "great_success_item_count": 2
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 28,
+      "name_ja": "西方海域封鎖作戦",
+      "name_en": "Western Sea Blockade Operation",
+      "duration_minutes": 1500,
+      "requirements": {
+        "composition_raw": "3SS",
+        "flagship_level_min": 30,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 0,
+        "steel": 900,
+        "bauxite": 350,
+        "normal_item": "devmat",
+        "normal_item_count": 3,
+        "great_success_item": "medBox",
+        "great_success_item_count": 2
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 29,
+      "name_ja": "潜水艦派遣演習",
+      "name_en": "Submarine Dispatch Exercises",
+      "duration_minutes": 1440,
+      "requirements": {
+        "composition_raw": "3SS",
+        "flagship_level_min": 50,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 50,
+        "steel": 0,
+        "bauxite": 100,
+        "normal_item": "devmat",
+        "normal_item_count": 1,
+        "great_success_item": "smallBox",
+        "great_success_item_count": 1
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 30,
+      "name_ja": "潜水艦派遣作戦",
+      "name_en": "Submarine Dispatch Operations",
+      "duration_minutes": 2880,
+      "requirements": {
+        "composition_raw": "4SS",
+        "flagship_level_min": 55,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 50,
+        "steel": 0,
+        "bauxite": 100,
+        "normal_item": "devmat",
+        "normal_item_count": 3,
+        "great_success_item": "largeBox",
+        "great_success_item_count": 1
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 31,
+      "name_ja": "海外艦との接触",
+      "name_en": "Contacting Foreign Vessels",
+      "duration_minutes": 120,
+      "requirements": {
+        "composition_raw": "4SS",
+        "flagship_level_min": 60,
+        "total_level_min": 200,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 30,
+        "steel": 0,
+        "bauxite": 0,
+        "normal_item": "smallBox",
+        "normal_item_count": 1,
+        "great_success_item": "none",
+        "great_success_item_count": 0
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 32,
+      "name_ja": "遠洋練習航海",
+      "name_en": "Seafaring Training",
+      "duration_minutes": 1440,
+      "requirements": {
+        "composition_raw": "1CT,2DD",
+        "flagship_level_min": 5,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 50,
+        "ammo": 50,
+        "steel": 50,
+        "bauxite": 50,
+        "normal_item": "largeBox",
+        "normal_item_count": 1,
+        "great_success_item": "devmat",
+        "great_success_item_count": 3
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 33,
+      "name_ja": "前衛支援任務",
+      "name_en": "Node Support Expedition",
+      "duration_minutes": 15,
+      "requirements": {
+        "composition_raw": "2DD",
+        "flagship_level_min": 0,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 0,
+        "steel": 0,
+        "bauxite": 0,
+        "normal_item": "none",
+        "normal_item_count": 0,
+        "great_success_item": "none",
+        "great_success_item_count": 0
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 34,
+      "name_ja": "艦隊決戦支援任務",
+      "name_en": "Boss Support Expedition",
+      "duration_minutes": 30,
+      "requirements": {
+        "composition_raw": "2DD",
+        "flagship_level_min": 0,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 0,
+        "steel": 0,
+        "bauxite": 0,
+        "normal_item": "none",
+        "normal_item_count": 0,
+        "great_success_item": "none",
+        "great_success_item_count": 0
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 35,
+      "name_ja": "ＭＯ作戦",
+      "name_en": "Operation MO",
+      "duration_minutes": 420,
+      "requirements": {
+        "composition_raw": "1CVL,1AV,1CA,1DD,2NA",
+        "flagship_level_min": 40,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 0,
+        "steel": 240,
+        "bauxite": 280,
+        "normal_item": "smallBox",
+        "normal_item_count": 2,
+        "great_success_item": "devmat",
+        "great_success_item_count": 1
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 36,
+      "name_ja": "水上機基地建設",
+      "name_en": "Water Base Construction",
+      "duration_minutes": 540,
+      "requirements": {
+        "composition_raw": "2AV,1CL,1DD,2NA",
+        "flagship_level_min": 30,
+        "total_level_min": 0,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 480,
+        "ammo": 0,
+        "steel": 200,
+        "bauxite": 200,
+        "normal_item": "medBox",
+        "normal_item_count": 2,
+        "great_success_item": "bucket",
+        "great_success_item_count": 1
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 37,
+      "name_ja": "東京急行",
+      "name_en": "Tokyo Express I",
+      "duration_minutes": 165,
+      "requirements": {
+        "composition_raw": "1CL,5DD",
+        "flagship_level_min": 50,
+        "total_level_min": 200,
+        "drum_count_min": 5,
+        "drum_carriers_min": 3,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 380,
+        "steel": 270,
+        "bauxite": 0,
+        "normal_item": "smallBox",
+        "normal_item_count": 1,
+        "great_success_item": "none",
+        "great_success_item_count": 0
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 38,
+      "name_ja": "東京急行(弐)",
+      "name_en": "Tokyo Express II",
+      "duration_minutes": 175,
+      "requirements": {
+        "composition_raw": "5DD,1NA",
+        "flagship_level_min": 65,
+        "total_level_min": 240,
+        "drum_count_min": 10,
+        "drum_carriers_min": 4,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 420,
+        "ammo": 0,
+        "steel": 200,
+        "bauxite": 0,
+        "normal_item": "smallBox",
+        "normal_item_count": 1,
+        "great_success_item": "none",
+        "great_success_item_count": 0
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 39,
+      "name_ja": "遠洋潜水艦作戦",
+      "name_en": "Deep-Sea Submarine Warfare",
+      "duration_minutes": 1800,
+      "requirements": {
+        "composition_raw": "1AS,4SS",
+        "flagship_level_min": 3,
+        "total_level_min": 180,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 0,
+        "ammo": 0,
+        "steel": 300,
+        "bauxite": 0,
+        "normal_item": "bucket",
+        "normal_item_count": 2,
+        "great_success_item": "medBox",
+        "great_success_item_count": 1
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 40,
+      "name_ja": "水上機前線輸送",
+      "name_en": "Front-Line Seaplane Delivery",
+      "duration_minutes": 410,
+      "requirements": {
+        "composition_raw": "1CL,2AV,2DD,1NA",
+        "flagship_level_min": 25,
+        "total_level_min": 150,
+        "drum_count_min": 4,
+        "drum_carriers_min": 1,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 300,
+        "ammo": 300,
+        "steel": 0,
+        "bauxite": 100,
+        "normal_item": "smallBox",
+        "normal_item_count": 3,
+        "great_success_item": "bucket",
+        "great_success_item_count": 1
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 42,
+      "name_ja": "ミ船団護衛(一号船団)",
+      "name_en": "Mi Convoy Escort (Fleet No.1)",
+      "duration_minutes": 480,
+      "requirements": {
+        "composition_raw": "1CL,2DD,1NA",
+        "flagship_level_min": 45,
+        "total_level_min": 200,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 800,
+        "ammo": 0,
+        "steel": 0,
+        "bauxite": 200,
+        "normal_item": "largeBox",
+        "normal_item_count": 1,
+        "great_success_item": "torch",
+        "great_success_item_count": 3
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    },
+    {
+      "id": 100,
+      "name_ja": "兵站強化任務",
+      "name_en": "Supply Line Strengthening Mission",
+      "duration_minutes": 25,
+      "requirements": {
+        "composition_raw": "3DD,1NA",
+        "flagship_level_min": 5,
+        "total_level_min": 10,
+        "drum_count_min": 0,
+        "drum_carriers_min": 0,
+        "additional_stats": "UNKNOWN",
+        "additional_equipment": "UNKNOWN"
+      },
+      "great_success": {
+        "conditions": "UNKNOWN",
+        "probability": "UNKNOWN"
+      },
+      "base_rewards": {
+        "fuel": 45,
+        "ammo": 45,
+        "steel": 0,
+        "bauxite": 0,
+        "normal_item": "none",
+        "normal_item_count": 0,
+        "great_success_item": "none",
+        "great_success_item_count": 0
+      },
+      "source": {
+        "repository": "XVs32/kcauto_custom",
+        "path": "data/expedition/expedition.json",
+        "blob_sha": "2e5d510f2675e110d4b2053b3890cc4daf5b130d"
+      },
+      "verification": "UNVERIFIED"
+    }
+  ]
+}
