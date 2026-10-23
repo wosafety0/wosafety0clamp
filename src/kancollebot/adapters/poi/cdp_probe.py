@@ -82,13 +82,22 @@ def _connect_websocket(url: str, timeout: float) -> socket.socket:
                 raise CdpProbeError("CDP WebSocket handshake headers too large")
         header, _ = bytes(response).split(b"\r\n\r\n", 1)
         lines = header.decode("iso-8859-1").split("\r\n")
-        if not lines[0].startswith("HTTP/1.1 101 "):
+        status_parts = lines[0].split(" ", 2)
+        if (
+            len(status_parts) != 3
+            or status_parts[0] != "HTTP/1.1"
+            or status_parts[1] != "101"
+        ):
             raise CdpProbeError("CDP WebSocket upgrade was rejected")
         headers = {}
         for line in lines[1:]:
-            if ":" in line:
-                name, value = line.split(":", 1)
-                headers[name.strip().casefold()] = value.strip()
+            if not line or ":" not in line:
+                raise CdpProbeError("CDP WebSocket handshake contains a malformed header")
+            name, value = line.split(":", 1)
+            normalized_name = name.strip().casefold()
+            if not normalized_name or normalized_name in headers:
+                raise CdpProbeError("CDP WebSocket handshake contains duplicate or empty headers")
+            headers[normalized_name] = value.strip()
         expected = base64.b64encode(
             hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest()
         ).decode("ascii")
