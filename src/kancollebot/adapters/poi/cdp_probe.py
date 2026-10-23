@@ -49,6 +49,16 @@ def _normalize_timeout(timeout: Any) -> float:
     return normalized
 
 
+def _sanitize_display_url(url: str) -> str:
+    """Remove URL credentials, query parameters, and fragments before display."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        netloc = parsed.netloc.rsplit("@", 1)[-1]
+        return parsed._replace(netloc=netloc, query="", fragment="").geturl()
+    except (TypeError, ValueError):
+        return "[invalid-url]"
+
+
 @dataclass(frozen=True, slots=True)
 class CdpPageProbe:
     checked_at: datetime
@@ -58,6 +68,11 @@ class CdpPageProbe:
     document_ready_state: str | None
     error_text: str
     probe_error: str = ""
+
+    @property
+    def display_url(self) -> str:
+        """Privacy-safe URL for logs and user-facing diagnostics; url stays raw for identity checks."""
+        return _sanitize_display_url(self.url)
 
 
 def _connect_websocket(url: str, timeout: float) -> socket.socket:
