@@ -144,7 +144,11 @@ def run_read_only_preflight(
         )
         def tracked_diagnostic():
             report["http_diagnostic_attempted"] = True
-            return adapter.diagnose()
+            result = adapter.diagnose()
+            # The adapter completed its GET diagnostic even if the later
+            # post-read page-health check rejects the result.
+            report["http_reads_performed"] = True
+            return result
 
         # The read callback is invoked only after the initial health gate.
         diagnostic, observation = reader._read_with_health(tracked_diagnostic)
