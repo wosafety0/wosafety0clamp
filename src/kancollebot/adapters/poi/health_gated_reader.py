@@ -50,6 +50,11 @@ def read_state_with_page_health(
         error_text=probe.error_text,
     )
 
+    # Require validated source evidence before touching the HTTP adapter.
+    # Recheck after the read as well, so a concurrent failure or stale event
+    # cannot authorize a result retroactively.
+    initial_state_at = latest_valid_state_at()
+    observation = replace(observation, latest_valid_state_at=initial_state_at)
     preliminary = evaluate_page_health(
         observation,
         now=clock(),
@@ -58,8 +63,6 @@ def read_state_with_page_health(
     if preliminary.status is PageHealthStatus.UNHEALTHY:
         require_healthy_page(preliminary)
     if preliminary.status is PageHealthStatus.UNKNOWN:
-        # Do not touch the state endpoint until valid source evidence exists.
-        # A webhook arriving during/after the read cannot retroactively authorize it.
         try:
             require_healthy_page(preliminary)
         except RuntimeError as exc:
