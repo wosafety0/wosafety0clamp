@@ -158,6 +158,20 @@ class CdpProbeTests(unittest.TestCase):
         fake = FakeSocket(b"\x01\x01a\x80\x01b")
         self.assertEqual(_read_text_message(fake), "ab")
 
+    def test_read_exact_rejects_expired_overall_deadline(self):
+        class FakeSocket:
+            def settimeout(self, timeout):
+                self.timeout = timeout
+
+            def recv(self, size):
+                raise AssertionError("recv must not be called after the deadline")
+
+        from kancollebot.adapters.poi.cdp_probe import _read_exact
+
+        with patch("kancollebot.adapters.poi.cdp_probe.time.monotonic", return_value=2.0):
+            with self.assertRaisesRegex(CdpProbeError, "response deadline exceeded"):
+                _read_exact(FakeSocket(), 1, deadline=1.0)
+
     def test_unexpected_continuation_frame_is_rejected(self):
         class FakeSocket:
             def __init__(self, data):
@@ -204,6 +218,9 @@ class CdpProbeTests(unittest.TestCase):
         class FakeSocket:
             def __init__(self):
                 self.closed = False
+
+            def settimeout(self, timeout):
+                self.timeout = timeout
 
             def close(self):
                 self.closed = True
