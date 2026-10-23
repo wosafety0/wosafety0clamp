@@ -36,7 +36,7 @@ class CdpProbeTests(unittest.TestCase):
             _connect_websocket("wss://127.0.0.1:9222/devtools/page/x", 0.2)
 
     def test_non_finite_or_non_positive_websocket_timeouts_rejected_before_network(self):
-        for timeout in (0, -1, float("nan"), float("inf"), -float("inf")):
+        for timeout in (0, -1, float("nan"), float("inf"), -float("inf"), 10**1000):
             with self.subTest(timeout=timeout):
                 with patch("kancollebot.adapters.poi.cdp_probe.socket.create_connection") as connect:
                     with self.assertRaisesRegex(ValueError, "finite and positive"):
