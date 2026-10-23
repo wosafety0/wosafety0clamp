@@ -166,6 +166,7 @@ class PoiRuntimeIntegrationTests(unittest.TestCase):
         self.assertEqual(report["reason"], "preflight_failed_RuntimeError")
         self.assertTrue(report["forwarder_event_accepted"])
         self.assertTrue(report["gates"]["forwarder_event_accepted"])
+        self.assertTrue(report["gates"]["source_event_fresh"])
         self.assertFalse(report["http_reads_performed"])
         self.assertFalse(report["actions_enabled"])
 
