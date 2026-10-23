@@ -31,6 +31,18 @@ class CdpProbeTests(unittest.TestCase):
                         _connect_websocket(url, 0.2)
                     connect.assert_not_called()
 
+    def test_websocket_userinfo_and_query_strings_rejected_before_network(self):
+        for url in (
+            "ws://user:secret@127.0.0.1:9222/devtools/page/x",
+            "ws://@127.0.0.1:9222/devtools/page/x",
+            "ws://127.0.0.1:9222/devtools/page/x?access_token=secret",
+        ):
+            with self.subTest(url=url):
+                with patch("kancollebot.adapters.poi.cdp_probe.socket.create_connection") as connect:
+                    with self.assertRaises(CdpProbeError):
+                        _connect_websocket(url, 0.2)
+                    connect.assert_not_called()
+
     def test_bad_scheme_rejected(self):
         with self.assertRaises(CdpProbeError):
             _connect_websocket("wss://127.0.0.1:9222/devtools/page/x", 0.2)
