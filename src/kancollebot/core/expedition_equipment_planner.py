@@ -125,28 +125,28 @@ def plan_expedition_equipment(
             return EquipmentPlanResult(False, (), f"No eligible instance for ship {req.ship_id} slot {req.slot} model {req.model_id}.")
 
     ordered = sorted(requirements, key=lambda req: (len(candidates[(req.ship_id, req.slot)]), req.ship_id, req.slot))
-    selected = {}
-    used = set()
-    def search(index):
-        if index == len(ordered):
-            return True
-        req = ordered[index]
-        key = (req.ship_id, req.slot)
+    # Deterministic augmenting-path matching avoids exponential backtracking.
+    item_to_key = {}
+
+    def assign(key, visited):
+        req = next(req for req in ordered if (req.ship_id, req.slot) == key)
         for item in candidates[key]:
-            if item.equipment_id in used:
+            if item.equipment_id in visited:
                 continue
-            selected[key] = item
-            used.add(item.equipment_id)
-            if search(index + 1):
+            visited.add(item.equipment_id)
+            previous_key = item_to_key.get(item.equipment_id)
+            if previous_key is None or assign(previous_key, visited):
+                item_to_key[item.equipment_id] = key
                 return True
-            used.remove(item.equipment_id)
-            del selected[key]
         return False
 
-    if not search(0):
-        return EquipmentPlanResult(False, (), "Equipment instances cannot satisfy all requirements without reuse.")
+    for req in ordered:
+        if not assign((req.ship_id, req.slot), set()):
+            return EquipmentPlanResult(False, (), "Equipment instances cannot satisfy all requirements without reuse.")
+    key_to_item = {key: next(item for item in inventory if item.equipment_id == equipment_id)
+                   for equipment_id, key in item_to_key.items()}
     assignments = tuple(
-        EquipmentAssignment(req.ship_id, req.slot, selected[(req.ship_id, req.slot)].equipment_id,
+        EquipmentAssignment(req.ship_id, req.slot, key_to_item[(req.ship_id, req.slot)].equipment_id,
                             req.model_id, selected[(req.ship_id, req.slot)].stars,
                             selected[(req.ship_id, req.slot)].source_ship_id,
                             selected[(req.ship_id, req.slot)].source_slot)
