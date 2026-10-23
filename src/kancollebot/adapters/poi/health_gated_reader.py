@@ -83,6 +83,23 @@ def read_state_with_page_health(
         raise PageHealthGateError(str(exc)) from exc
 
     state = read_state()
+    # A renderer may navigate or disconnect during the HTTP read. Re-probe
+    # before releasing the payload rather than reusing the pre-read snapshot.
+    post_probe = probe_page()
+    if (
+        post_probe.target_found is not True
+        or post_probe.title != probe.title
+        or post_probe.url != probe.url
+    ):
+        raise PageHealthGateError("renderer_identity_changed_during_read")
+    observation = PageHealthObservation(
+        checked_at=post_probe.checked_at,
+        target_found=post_probe.target_found,
+        document_ready_state=post_probe.document_ready_state,
+        title=post_probe.title,
+        url=post_probe.url,
+        error_text=post_probe.error_text,
+    )
     state_at = latest_valid_state_at()
     observation = replace(observation, latest_valid_state_at=state_at)
     final_decision = evaluate_page_health(
