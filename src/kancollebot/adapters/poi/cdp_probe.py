@@ -123,7 +123,7 @@ def _connect_websocket(url: str, timeout: float) -> socket.socket:
                 or any(not (char.isascii() and (char.isalnum() or char in token_chars)) for char in name)
                 or normalized_name in headers
             ):
-                raise CdpProbeError("CDP WebSocket handshake contains duplicate or empty headers, or an invalid header name")
+                raise CdpProbeError("CDP WebSocket handshake contains invalid headers (duplicate or empty headers, or invalid header name)")
             if any((ord(char) < 0x20 and char != "\\t") or ord(char) == 0x7F for char in value):
                 raise CdpProbeError("CDP WebSocket handshake contains invalid header values")
             headers[normalized_name] = value.strip()
