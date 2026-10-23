@@ -75,6 +75,13 @@ class PoiEventNormalizerTests(unittest.TestCase):
         result = normalize_forwarder_event(self.event(timestamp="2026-10-22T12:00:00"))
         self.assertFalse(result.state_eligible)
 
+    def test_out_of_range_timezone_aware_iso_timestamp_fails_closed(self):
+        result = normalize_forwarder_event(
+            self.event(timestamp="0001-01-01T00:00:00+14:00")
+        )
+        self.assertFalse(result.state_eligible)
+        self.assertIsNone(result.observed_at)
+
     def test_url_query_and_fragment_are_removed_from_path(self):
         result = normalize_forwarder_event(self.event(path="https://example.test/kcsapi/api_port/port?token=secret#fragment"))
         self.assertEqual(result.path, "/kcsapi/api_port/port")
