@@ -119,16 +119,23 @@ def _get_json(url: str, timeout: float) -> Any:
         raise CdpDiscoveryError("DevTools endpoint did not return valid JSON") from exc
 
 
+def _normalize_timeout(timeout: Any) -> float:
+    """Validate timeout inputs without leaking OverflowError for huge integers."""
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+        raise ValueError("timeout must be finite and positive")
+    try:
+        normalized = float(timeout)
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise ValueError("timeout must be finite and positive") from exc
+    if not math.isfinite(normalized) or normalized <= 0:
+        raise ValueError("timeout must be finite and positive")
+    return normalized
+
+
 def list_page_targets(endpoint: str = DEFAULT_CDP_ENDPOINT, *, timeout: float = 2.0) -> tuple[CdpTarget, ...]:
     """Return validated page targets without exposing non-loopback endpoints."""
     base = _validate_loopback_http_url(endpoint)
-    if (
-        isinstance(timeout, bool)
-        or not isinstance(timeout, (int, float))
-        or not math.isfinite(timeout)
-        or timeout <= 0
-    ):
-        raise ValueError("timeout must be finite and positive")
+    timeout = _normalize_timeout(timeout)
     raw = _get_json(base + "/json/list", timeout)
     if not isinstance(raw, list):
         raise CdpDiscoveryError("DevTools target list is not an array")
