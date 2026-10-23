@@ -152,7 +152,7 @@ class CdpTargetLoopbackTests(unittest.TestCase):
                 )
 
     def test_invalid_discovery_timeouts_rejected_before_network(self):
-        for timeout in (True, None, "1", [], {}, 0, -1, float("nan"), float("inf"), -float("inf"), 10**1000):
+        for timeout in (True, None, "1", [], {}, 0, -1, float("nan"), float("inf"), -float("inf"), 10**1000, 1e308, 3600.001):
             with self.subTest(timeout=repr(timeout)[:80]):
                 with patch("kancollebot.adapters.poi.cdp_targets._get_json") as get_json:
                     with self.assertRaisesRegex(ValueError, "finite and positive"):
