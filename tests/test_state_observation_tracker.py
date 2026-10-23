@@ -49,6 +49,11 @@ class PoiStateObservationTrackerTests(unittest.TestCase):
         self.assertFalse(self.tracker.observe_event(event, now=self.now))
         self.assertIsNone(self.tracker.latest_valid_state_at)
 
+    def test_rejects_out_of_range_timezone_aware_iso_timestamp(self):
+        event = self.event(timestamp="0001-01-01T00:00:00+14:00")
+        self.assertFalse(self.tracker.observe_event(event, now=self.now))
+        self.assertIsNone(self.tracker.latest_valid_state_at)
+
     def test_rejects_request_stage_and_unrelated_endpoint(self):
         self.assertFalse(self.tracker.observe_event(self.event(stage="request"), now=self.now))
         self.assertFalse(self.tracker.observe_event(self.event(path="/kcsapi/api_req_map/start"), now=self.now))
