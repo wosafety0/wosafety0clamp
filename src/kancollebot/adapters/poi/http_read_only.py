@@ -295,24 +295,10 @@ class PoiHttpReadOnlyAdapter:
 
 
 def main() -> int:
-    """Run a read-only, privacy-preserving local POI connection diagnostic."""
-    import json
-    import sys
+    """Route the legacy module command through the supported health-gated runtime."""
+    from kancollebot.adapters.poi.runtime import main as runtime_main
 
-    base_url = os.environ.get("KANCOLLE_POI_HTTP_URL", "http://127.0.0.1:17777")
-    try:
-        report = PoiHttpReadOnlyAdapter(base_url=base_url).diagnose()
-    except Exception as exc:
-        # Do not print raw response data or exception details that may include
-        # local identifiers. The exception type is enough to guide diagnosis.
-        report = {
-            "ok": False,
-            "source": "poi-http-read-only",
-            "error_type": type(exc).__name__,
-            "error": "Read-only POI diagnostic failed; verify endpoint availability and response schema.",
-        }
-    sys.stdout.write(json.dumps(report, ensure_ascii=False, indent=2) + "\\n")
-    return 0 if report["ok"] else 1
+    return runtime_main()
 
 
 if __name__ == "__main__":
