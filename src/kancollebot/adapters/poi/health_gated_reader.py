@@ -50,6 +50,23 @@ def read_state_with_page_health(
         error_text=probe.error_text,
     )
 
+    # Reject a missing or unhealthy renderer before consulting state evidence.
+    # The only acceptable UNKNOWN reason at this stage is the not-yet-attached
+    # source timestamp; every other UNKNOWN result fails closed immediately.
+    page_only = evaluate_page_health(
+        observation,
+        now=clock(),
+        connection_failure_at=connection_failure_at,
+    )
+    if page_only.status is not PageHealthStatus.HEALTHY and (
+        page_only.status is PageHealthStatus.UNHEALTHY
+        or page_only.reasons != ("valid_game_state_observation_missing",)
+    ):
+        try:
+            require_healthy_page(page_only)
+        except RuntimeError as exc:
+            raise PageHealthGateError(str(exc)) from exc
+
     # Require validated source evidence before touching the HTTP adapter.
     # Recheck after the read as well, so a concurrent failure or stale event
     # cannot authorize a result retroactively.
@@ -60,13 +77,10 @@ def read_state_with_page_health(
         now=clock(),
         connection_failure_at=connection_failure_at,
     )
-    if preliminary.status is PageHealthStatus.UNHEALTHY:
+    try:
         require_healthy_page(preliminary)
-    if preliminary.status is PageHealthStatus.UNKNOWN:
-        try:
-            require_healthy_page(preliminary)
-        except RuntimeError as exc:
-            raise PageHealthGateError(str(exc)) from exc
+    except RuntimeError as exc:
+        raise PageHealthGateError(str(exc)) from exc
 
     state = read_state()
     state_at = latest_valid_state_at()
