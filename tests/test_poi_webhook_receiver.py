@@ -29,6 +29,27 @@ class PoiWebhookReceiverTests(unittest.TestCase):
         except urllib.error.HTTPError as exc:
             return exc.code, json.loads(exc.read().decode("utf-8"))
 
+    def test_accepts_absolute_kcsapi_url_and_strips_credentials(self):
+        payload = {
+            "path": "https://poi.example/kcsapi/api_port/port?api_token=url-secret#fragment",
+            "stage": "response_received",
+            "timestamp": 1792670000,
+            "response": {"api_result": 1},
+        }
+        status, response = self.post(payload)
+        self.assertEqual(status, 200)
+        self.assertEqual(response["status"], "ACCEPTED & QUEUED")
+        event = self.receiver.get_event(timeout=1)
+        self.assertEqual(event["path"], "/kcsapi/api_port/port")
+        self.assertNotIn("url-secret", json.dumps(event))
+
+    def test_rejects_malformed_absolute_event_url(self):
+        payload = {"path": "https://[", "stage": "response", "timestamp": 1792670000}
+        status, response = self.post(payload)
+        self.assertEqual(status, 400)
+        self.assertEqual(response["status"], "INVALID EVENT PATH")
+        self.assertIsNone(self.receiver.get_event(timeout=0))
+
     def test_accepts_kcsapi_event_and_preserves_metadata(self):
         payload = {
             "path": "/kcsapi/api_port/port?api_token=path-secret#ignored",
