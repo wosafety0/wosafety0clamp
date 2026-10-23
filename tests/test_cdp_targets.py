@@ -48,6 +48,12 @@ class CdpTargetLoopbackTests(unittest.TestCase):
                 with self.assertRaises(error):
                     validator(url)
 
+    def test_websocket_fragments_are_rejected_during_discovery(self):
+        with self.assertRaisesRegex(CdpDiscoveryError, "Fragments"):
+            _validate_websocket_url(
+                "ws://127.0.0.1:9222/devtools/page/abc#unexpected"
+            )
+
     def test_non_loopback_hosts_are_rejected(self):
         for url in (
             "http://192.0.2.1:9222",
