@@ -24,41 +24,78 @@ A locally running KanColle automation framework hosted and tested through GitHub
 The repository bootstrap is in progress. No real gameplay automation is enabled by the initial scaffold.
 
 
-## Read-only POI connection diagnostic
+## Read-only POI health-gated preflight
 
-The initial integration path is the local HTTP state endpoint, because it can
-read fleet and ship state without issuing gameplay commands. The adapter only
-uses loopback HTTP GET requests for `/fleets` and `/ships`, rejects redirects,
-and never prints raw ship records.
+The supported runtime composes the loopback Poi Forwarder receiver, CDP renderer
+probe, read-only HTTP adapter, source-event freshness tracker, and
+`PoiHealthGatedHttpReader`. The legacy command
+`python -m kancollebot.adapters.poi.http_read_only` now delegates to this
+same health-gated runtime rather than bypassing it.
 
-From the repository root, run:
+From the repository root, start the preflight:
 
 ```powershell
 $env:PYTHONPATH = "src"
-python -m kancollebot.adapters.poi.http_read_only
+python -m kancollebot.adapters.poi.runtime
 ```
 
-The default endpoint is `http://127.0.0.1:17777`. To override it for a
-different local loopback port, set `KANCOLLE_POI_HTTP_URL` before running.
+Defaults:
+- HTTP state endpoint: `http://127.0.0.1:17777`
+- Chrome DevTools endpoint: `http://127.0.0.1:9222`
+- Forwarder receiver: `http://127.0.0.1:9223/webhook/kancolle`
+- Wait for a valid Forwarder state event: 60 seconds
 
-**Safety boundary:** this command calls the low-level `PoiHttpReadOnlyAdapter` directly. It is an ungated, read-only diagnostic only; it does not perform the CDP page-health check or webhook freshness check. Do not use its output as authorization for planning or game actions. The supported combined health guarantee is provided by `PoiHealthGatedHttpReader`, but no production application entry point currently wires the live Poi Forwarder receiver, CDP probe, and HTTP adapter together. That integration must be implemented and validated before relying on health-gated runtime behavior.
-The JSON report shows endpoint/read validation, fleet and ship counts, observed
-field names/types, and whether the known `api_name`/`api_nowhp`/`api_maxhp`
-mapping is consistent across every live ship record. It does not auto-enable
-that mapping or authorize actions. A successful report proves read-only state
-retrieval only; collection, dispatch, and battle actions remain disabled.
+Optional environment overrides: `KANCOLLE_POI_HTTP_URL`,
+`KANCOLLE_POI_CDP_ENDPOINT`, `KANCOLLE_POI_TITLE_HINT`,
+`KANCOLLE_POI_URL_HINT`, `KANCOLLE_POI_WEBHOOK_PORT`, and
+`KANCOLLE_POI_EVENT_TIMEOUT_SECONDS`. The receiver binds only to IPv4
+loopback. Start this command, configure Poi Forwarder manually to POST its
+response events to the printed webhook URL, and then let a fresh successful
+KCSAPI response arrive. This command does not edit Poi or Forwarder settings.
 
+The runtime performs no HTTP state reads until it receives a recent successful
+state-relevant event; it then probes exactly one matching Poi page before
+reading `/fleets` and `/ships`. Any missing, stale, ambiguous, or unhealthy
+evidence fails closed. Its output is a privacy-preserving schema diagnostic.
+The HTTP adapter remains a low-level primitive; application callers should use
+`PoiHealthGatedHttpReader` and must not expose the adapter directly.
+
+## Real-environment acceptance checklist
+
+Before treating a real Poi connection as validated, manually confirm all of the
+following and record the versions/configuration used:
+
+1. Poi is running and the loopback CDP endpoint is enabled intentionally.
+2. CDP discovery selects exactly one intended Poi renderer; no ambiguous page
+   match is accepted.
+3. Poi Forwarder is installed/enabled and posts the actual `response_received`
+   envelope to the printed loopback webhook URL.
+4. The receiver accepts a real successful `/kcsapi/` response and the tracker
+   advances from the source timestamp; failed, request-stage, stale, future,
+   and unrelated-resource events are rejected.
+5. The CDP probe reports the intended page with `document.readyState=complete`
+   and no browser connection-error markers.
+6. The real HTTP endpoint responds to loopback GET requests for `/fleets` and
+   `/ships`; redirects, schema errors, and broken fleet-to-ship references
+   are rejected.
+7. A deliberately missing/stale webhook event and an unavailable/ambiguous CDP
+   target both block the diagnostic before state is returned.
+8. The report contains no ship names, IDs, cookies, tokens, or raw state records.
+9. No game action is enabled. Collection, dispatch, and battle execution remain
+   disabled until their own observed-state preconditions and action adapters are
+   separately reviewed and tested.
+
+Current CI uses mocked CDP metadata and local fixture HTTP/Forwarder traffic.
+It validates wiring and fail-closed behavior, **not** the user's live Poi
+installation. The runtime does not configure Forwarder automatically and does
+not authenticate local webhook senders; a loopback-only endpoint is not proof
+of sender identity.
 
 ## POI observations to expedition planner
 
 - `get_observed_states(fields)` reads both endpoints, parses fleet and ship
   state, validates fleet-to-ship references, and returns timestamped observations
-  with a common source label. The timestamp is captured before network I/O so
-  endpoint latency makes the observations conservatively older.
-- `read_and_plan(fields, mission_by_fleet=...)` feeds those observations into
-  the existing freshness and expedition safety layers. A completed expedition
-  can be recommended for collection. Dispatch remains blocked until supply,
-  repair/docking, mission-composition, and fleet-rotation checks are backed by
-  actual observations.
-- These methods only read and plan. They do not click, collect, dispatch, or
-  execute battles.
+  with a common source label.
+- `read_and_plan(fields, mission_by_fleet=...)` feeds observations through the
+  health-gated facade and existing expedition safety layers. It only plans;
+  no game action is sent.
