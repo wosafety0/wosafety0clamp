@@ -26,6 +26,28 @@ class CdpTargetLoopbackTests(unittest.TestCase):
             "ws://127.0.0.1:9222/devtools/page/abc",
         )
 
+    def test_raw_control_characters_and_spaces_are_rejected_before_url_parsing(self):
+        malformed_urls = (
+            "http://127.0.0.1:9222\n.evil",
+            "http://127.0.0.1:9222/\r",
+            "http://127.0.0.1:\t9222",
+            " http://127.0.0.1:9222",
+            "ws://127.0.0.1:9222/devtools/page/abc\n.evil",
+            "ws://127.0.0.1:9222/devtools/page/abc\r",
+            "ws://127.0.0.1:\t9222/devtools/page/abc",
+            " ws://127.0.0.1:9222/devtools/page/abc",
+        )
+        for url in malformed_urls:
+            with self.subTest(url=repr(url)):
+                validator = (
+                    _validate_loopback_http_url
+                    if url.lstrip().startswith("http:")
+                    else _validate_websocket_url
+                )
+                error = ValueError if url.lstrip().startswith("http:") else CdpDiscoveryError
+                with self.assertRaises(error):
+                    validator(url)
+
     def test_non_loopback_hosts_are_rejected(self):
         for url in (
             "http://192.0.2.1:9222",
