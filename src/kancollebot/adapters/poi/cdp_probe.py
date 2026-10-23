@@ -212,15 +212,32 @@ def probe_poi_page(
         targets = list_page_targets(endpoint, timeout=timeout)
         target = select_poi_renderer(targets, title_hint=title_hint, url_hint=url_hint)
         data = _evaluate_read_only(target, timeout)
+        actual_title = data.get("title", "")
+        actual_url = data.get("url", "")
+        ready_state = data.get("readyState", "")
+        if not all(isinstance(value, str) for value in (actual_title, actual_url, ready_state)):
+            raise CdpProbeError("CDP document metadata contains invalid field types")
+        # Revalidate the live document metadata obtained over the selected
+        # target's WebSocket; the discovery list may be stale during navigation.
+        if actual_url != target.url:
+            raise CdpProbeError("Selected Poi page URL changed during the read-only probe")
+        try:
+            select_poi_renderer(
+                (CdpTarget(target.target_id, actual_title, actual_url, target.websocket_url),),
+                title_hint=title_hint,
+                url_hint=url_hint,
+            )
+        except CdpDiscoveryError as exc:
+            raise CdpProbeError("Live document metadata no longer matches the selected Poi page") from exc
         body_text = data.get("bodyText", "")
         if not isinstance(body_text, str):
             body_text = ""
         return CdpPageProbe(
             checked_at=checked_at,
             target_found=True,
-            title=str(data.get("title", "")),
-            url=str(data.get("url", "")),
-            document_ready_state=str(data.get("readyState", "")),
+            title=actual_title,
+            url=actual_url,
+            document_ready_state=ready_state,
             error_text=body_text,
         )
     except (CdpDiscoveryError, CdpProbeError, OSError, TimeoutError, ValueError) as exc:
