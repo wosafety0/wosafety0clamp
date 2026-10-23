@@ -224,6 +224,67 @@ class PoiRuntimeIntegrationTests(unittest.TestCase):
         self.assertFalse(report["http_diagnostic_completed"])
         self.assertFalse(report["actions_enabled"])
 
+    def test_completed_http_reads_are_reported_when_post_read_probe_fails(self):
+        now = datetime.now(timezone.utc)
+
+        class FixtureReceiver(PoiWebhookReceiver):
+            def start(inner_self):
+                port = super(FixtureReceiver, inner_self).start()
+                event = {
+                    "path": "/kcsapi/api_port/port",
+                    "response": {"api_result": 1, "api_data": {}},
+                    "stage": "response_received",
+                    "timestamp": now.timestamp() * 1000,
+                }
+                request = Request(
+                    f"http://127.0.0.1:{port}{WEBHOOK_PATH}",
+                    data=json.dumps(event).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(request, timeout=2) as response:
+                    self.assertEqual(response.status, 200)
+                return port
+
+        class SuccessfulAdapter:
+            def __init__(self, **kwargs):
+                pass
+
+            def diagnose(self):
+                return {
+                    "ok": True,
+                    "endpoints": {"fleets": "read", "ships": "read"},
+                    "fleet_ship_references_valid": True,
+                }
+
+        probe_calls = {"count": 0}
+
+        def probe_then_fail(**kwargs):
+            probe_calls["count"] += 1
+            if probe_calls["count"] > 1:
+                raise RuntimeError("synthetic post-read CDP failure")
+            return CdpPageProbe(
+                checked_at=datetime.now(timezone.utc),
+                target_found=True,
+                title="Poi - KanColle",
+                url="app://poi",
+                document_ready_state="complete",
+                error_text="KanColle",
+            )
+
+        code, report = run_read_only_preflight(
+            PoiPreflightConfig(webhook_port=0, event_timeout_seconds=2),
+            receiver_factory=FixtureReceiver,
+            adapter_factory=SuccessfulAdapter,
+            probe_factory=probe_then_fail,
+        )
+        self.assertEqual(code, 2)
+        self.assertEqual(report["reason"], "preflight_failed_RuntimeError")
+        self.assertTrue(report["http_diagnostic_attempted"])
+        self.assertTrue(report["http_reads_performed"])
+        self.assertFalse(report["http_diagnostic_completed"])
+        self.assertFalse(report["actions_enabled"])
+
     def test_invalid_diagnostic_result_preserves_completion_without_success(self):
         now = datetime.now(timezone.utc)
 
