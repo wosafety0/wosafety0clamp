@@ -11,6 +11,7 @@ import json
 import queue
 import threading
 from typing import Any
+from urllib.parse import urlsplit
 
 
 DEFAULT_MAX_BODY_BYTES = 2 * 1024 * 1024
@@ -140,9 +141,16 @@ class PoiWebhookReceiver:
                         self._reply(400, {"status": "INVALID EVENT PATH"})
                         return
                     safe_path = _sanitize_url(raw_path)
+                    resource_path = safe_path
+                    if safe_path.startswith(("http://", "https://")):
+                        try:
+                            resource_path = urlsplit(safe_path).path
+                        except ValueError:
+                            self._reply(400, {"status": "INVALID EVENT PATH"})
+                            return
 
-                    is_kcsapi = safe_path.startswith("/kcsapi/")
-                    is_map_resource = "kcs2/resources/map" in safe_path
+                    is_kcsapi = resource_path.startswith("/kcsapi/")
+                    is_map_resource = "kcs2/resources/map" in resource_path
                     if not is_kcsapi and not is_map_resource:
                         self._reply(200, {"status": "FILTERED OUT (UNKNOWN RESOURCE)"})
                         return
@@ -150,8 +158,8 @@ class PoiWebhookReceiver:
                     if is_map_resource:
                         event = {
                             "path": (
-                                safe_path.split(".com/", 1)[-1]
-                                if ".com/" in safe_path
+                                resource_path.lstrip("/")
+                                if safe_path.startswith(("http://", "https://"))
                                 else safe_path
                             ),
                             "response": {"url": safe_path},
