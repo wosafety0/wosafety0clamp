@@ -28,6 +28,19 @@ class PoiEventNormalizerTests(unittest.TestCase):
         self.assertTrue(result.state_eligible)
         self.assertEqual(result.stage, "response_received")
 
+    def test_accepts_poi_forwarder_millisecond_timestamp(self):
+        seconds = 1792670000
+        result = normalize_forwarder_event(self.event(timestamp=seconds * 1000))
+        self.assertTrue(result.state_eligible)
+        self.assertEqual(result.observed_at, datetime.fromtimestamp(seconds, timezone.utc))
+
+    def test_rejects_non_finite_and_unrepresentable_numeric_timestamps(self):
+        for timestamp in (float("nan"), float("inf"), 10 ** 1000, 0, -1):
+            with self.subTest(timestamp=repr(timestamp)):
+                result = normalize_forwarder_event(self.event(timestamp=timestamp))
+                self.assertFalse(result.state_eligible)
+                self.assertEqual(result.reason, "invalid_or_missing_timestamp")
+
     def test_map_resource_is_not_state_eligible(self):
         result = normalize_forwarder_event(self.event(path="kcs2/resources/map/1.json"))
         self.assertFalse(result.state_eligible)
