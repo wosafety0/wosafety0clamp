@@ -62,17 +62,27 @@ def _sanitize_display_url(url: str) -> str:
 @dataclass(frozen=True, slots=True)
 class CdpPageProbe:
     checked_at: datetime
-    target_found: bool
+    target_found: bool | None
     title: str
     url: str
     document_ready_state: str | None
     error_text: str
     probe_error: str = ""
+    url_identity: str = ""
+
+    def __post_init__(self) -> None:
+        # Keep only a one-way identity digest for navigation-change detection.
+        # The raw URL can contain query tokens and must not escape this object.
+        raw_url = self.url
+        if not self.url_identity:
+            digest = hashlib.sha256(raw_url.encode("utf-8", errors="replace")).hexdigest()
+            object.__setattr__(self, "url_identity", digest)
+        object.__setattr__(self, "url", _sanitize_display_url(raw_url))
 
     @property
     def display_url(self) -> str:
-        """Privacy-safe URL for logs and user-facing diagnostics; url stays raw for identity checks."""
-        return _sanitize_display_url(self.url)
+        """Privacy-safe URL for logs and user-facing diagnostics."""
+        return self.url
 
 
 def _connect_websocket(url: str, timeout: float) -> socket.socket:
