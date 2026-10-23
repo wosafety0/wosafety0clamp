@@ -60,6 +60,26 @@ class HealthGatedReaderTests(unittest.TestCase):
             )
         self.assertEqual(events, ["probe", "read_state", "probe"])
 
+    def test_post_read_connection_error_withholds_payload(self):
+        events = []
+        failed = CdpPageProbe(
+            checked_at=self.now,
+            target_found=True,
+            title=self.probe.title,
+            url=self.probe.url,
+            document_ready_state="complete",
+            error_text="net::ERR_CONNECTION_CLOSED",
+        )
+        probes = iter((self.probe, failed))
+        with self.assertRaises(PageHealthGateError):
+            read_state_with_page_health(
+                probe_page=lambda: (events.append("probe") or next(probes)),
+                read_state=lambda: (events.append("read_state") or {"secret": "fixture"}),
+                latest_valid_state_at=lambda: self.now - timedelta(seconds=1),
+                now_provider=lambda: self.now,
+            )
+        self.assertEqual(events, ["probe", "read_state", "probe"])
+
     def test_connection_error_blocks_state_read(self):
         events = []
         bad_probe = CdpPageProbe(
