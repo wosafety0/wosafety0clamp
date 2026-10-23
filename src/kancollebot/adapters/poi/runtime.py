@@ -82,6 +82,17 @@ def run_read_only_preflight(
         "actions_enabled": False,
         "gameplay_actions_enabled": False,
         "http_reads_performed": False,
+        "http_diagnostic_completed": False,
+        "gates": {
+            "forwarder_event_accepted": False,
+            "source_event_fresh": False,
+            "cdp_target_identity_validated": False,
+            "cdp_document_ready": False,
+            "fleets_endpoint_read": False,
+            "ships_endpoint_read": False,
+            "fleet_ship_references_valid": False,
+            "gameplay_actions_disabled": True,
+        },
         "reason": "preflight_not_completed",
     }
     try:
@@ -120,16 +131,45 @@ def run_read_only_preflight(
             probe_page=page_probe,
         )
         diagnostic, observation = reader.diagnose()
+        source_event_age = (
+            (datetime.now(timezone.utc) - observation.latest_valid_state_at).total_seconds()
+            if observation.latest_valid_state_at is not None
+            else None
+        )
+        source_event_fresh = source_event_age is not None and 0 <= source_event_age <= 15.0
+        endpoints = diagnostic.get("endpoints", {})
+        gates = {
+            "forwarder_event_accepted": True,
+            "source_event_fresh": source_event_fresh,
+            # probe_poi_page only returns target_found=True after live title/URL
+            # identity has been revalidated against the discovered renderer.
+            "cdp_target_identity_validated": (
+                observation.target_found is True
+                and bool(observation.title.strip())
+                and bool(observation.url.strip())
+            ),
+            "cdp_document_ready": observation.document_ready_state == "complete",
+            "fleets_endpoint_read": isinstance(endpoints, dict) and endpoints.get("fleets") == "read",
+            "ships_endpoint_read": isinstance(endpoints, dict) and endpoints.get("ships") == "read",
+            "fleet_ship_references_valid": diagnostic.get("fleet_ship_references_valid") is True,
+            "gameplay_actions_disabled": True,
+        }
+        if not all(gates.values()):
+            report["reason"] = "post_read_gate_report_inconsistent"
+            report["gates"] = gates
+            report["http_reads_performed"] = True
+            report["http_diagnostic_completed"] = True
+            return 2, report
         report.update({
             "status": "PASS_READ_ONLY_HEALTH_GATED",
-            "reason": "page_health_and_source_event_freshness_confirmed",
+            "reason": "all_read_only_acceptance_gates_confirmed",
             "http_reads_performed": True,
+            "http_diagnostic_completed": True,
             "forwarder_event_accepted": True,
             "page_probe_performed": True,
             "page_document_ready": observation.document_ready_state == "complete",
-            "source_event_age_seconds": max(
-                0.0, (datetime.now(timezone.utc) - observation.latest_valid_state_at).total_seconds()
-            ) if observation.latest_valid_state_at is not None else None,
+            "source_event_age_seconds": max(0.0, source_event_age) if source_event_age is not None else None,
+            "gates": gates,
             "diagnostic": diagnostic,
             "actions_enabled": False,
             "gameplay_actions_enabled": False,
