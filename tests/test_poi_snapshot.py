@@ -97,6 +97,12 @@ class PoiSnapshotTests(unittest.TestCase):
         with self.assertRaisesRegex(SnapshotValidationError, "duplicates"):
             parse_snapshot(payload, now=NOW)
 
+    def test_rejects_fleet_referencing_unknown_ship(self):
+        payload = valid_payload()
+        payload["fleets"][0]["ship_ids"] = [999]
+        with self.assertRaisesRegex(SnapshotValidationError, "unknown ship IDs: 999"):
+            parse_snapshot(payload, now=NOW)
+
     def test_rejects_hp_above_maximum(self):
         payload = valid_payload()
         payload["ships"][0]["hp"] = 16
