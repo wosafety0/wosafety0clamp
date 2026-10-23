@@ -45,10 +45,10 @@ class CdpTargetLoopbackTests(unittest.TestCase):
 
     def test_http_endpoint_rejects_raw_whitespace_and_control_characters(self):
         for url in (
-            "http://127.0.0.1:9222\\n",
-            "http://127.0.0.1:\\t9222",
-            "http://127.0.0.1:9222\\r/json/list",
-            "\\x00http://127.0.0.1:9222",
+            "http://127.0.0.1:9222\n",
+            "http://127.0.0.1:\t9222",
+            "http://127.0.0.1:9222\r/json/list",
+            "\x00http://127.0.0.1:9222",
             " http://127.0.0.1:9222",
         ):
             with self.subTest(url=repr(url)):
@@ -57,10 +57,10 @@ class CdpTargetLoopbackTests(unittest.TestCase):
 
     def test_websocket_endpoint_rejects_raw_whitespace_and_control_characters(self):
         for url in (
-            "ws://127.0.0.1:9222/devtools/page/abc\\n",
-            "ws://127.0.0.1:\\t9222/devtools/page/abc",
-            "ws://127.0.0.1:9222/devtools/\\rpage/abc",
-            "\\x00ws://127.0.0.1:9222/devtools/page/abc",
+            "ws://127.0.0.1:9222/devtools/page/abc\n",
+            "ws://127.0.0.1:\t9222/devtools/page/abc",
+            "ws://127.0.0.1:9222/devtools/\rpage/abc",
+            "\x00ws://127.0.0.1:9222/devtools/page/abc",
             " ws://127.0.0.1:9222/devtools/page/abc",
         ):
             with self.subTest(url=repr(url)):
