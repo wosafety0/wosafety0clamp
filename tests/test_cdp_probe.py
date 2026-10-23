@@ -208,6 +208,26 @@ class CdpProbeTests(unittest.TestCase):
 
         return FakeSocket()
 
+    def test_websocket_handshake_rejects_invalid_header_names_values_and_unsolicited_negotiation(self):
+        cases = (
+            ("Bad Header: value\\r\\n", "invalid headers"),
+            ("Bad\\x01Name: value\\r\\n", "invalid headers"),
+            ("X-Test: bad\\x01value\\r\\n", "invalid header values"),
+            ("Sec-WebSocket-Protocol: cdp\\r\\n", "unrequested extension or subprotocol"),
+            ("Sec-WebSocket-Extensions: permessage-deflate\\r\\n", "unrequested extension or subprotocol"),
+        )
+        for extra_headers, expected_error in cases:
+            extra_headers = extra_headers.encode("ascii").decode("unicode_escape")
+            fake = self._make_handshake_fake("HTTP/1.1 101 Switching Protocols", extra_headers)
+            with self.subTest(extra_headers=repr(extra_headers)):
+                with patch(
+                    "kancollebot.adapters.poi.cdp_probe.socket.create_connection",
+                    return_value=fake,
+                ):
+                    with self.assertRaisesRegex(CdpProbeError, expected_error):
+                        _connect_websocket("ws://127.0.0.1:9222/devtools/page/x", 0.2)
+            self.assertTrue(fake.closed)
+
     def test_probe_rejects_url_change_after_target_discovery(self):
         target = CdpTarget("1", "Poi", "app://poi", "ws://127.0.0.1:9222/devtools/page/1")
         with patch("kancollebot.adapters.poi.cdp_probe.list_page_targets", return_value=(target,)), \
