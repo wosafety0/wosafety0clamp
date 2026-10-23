@@ -26,10 +26,12 @@ class CdpProbeTests(unittest.TestCase):
         import hashlib
 
         class FakeSocket:
-            def __init__(self, upgrade, connection):
+            def __init__(self, upgrade, connection, status_line="HTTP/1.1 101 Switching Protocols", extra_headers=""):
                 self.response = bytearray()
                 self.upgrade = upgrade
                 self.connection = connection
+                self.status_line = status_line
+                self.extra_headers = extra_headers
                 self.closed = False
 
             def settimeout(self, timeout):
@@ -43,10 +45,12 @@ class CdpProbeTests(unittest.TestCase):
                     hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest()
                 ).decode("ascii")
                 response = (
-                    "HTTP/1.1 101 Switching Protocols\r\n"
+                    f"{self.status_line}\r\n"
                     f"Upgrade: {self.upgrade}\r\n"
                     f"Connection: {self.connection}\r\n"
-                    f"Sec-WebSocket-Accept: {accept}\r\n\r\n"
+                    f"Sec-WebSocket-Accept: {accept}\r\n"
+                    f"{self.extra_headers}"
+                    "\r\n"
                 )
                 self.response.extend(response.encode("ascii"))
 
@@ -65,6 +69,60 @@ class CdpProbeTests(unittest.TestCase):
                     with self.assertRaisesRegex(CdpProbeError, "missing Upgrade headers"):
                         _connect_websocket("ws://127.0.0.1:9222/devtools/page/x", 0.2)
             self.assertTrue(fake.closed)
+
+    def test_websocket_handshake_rejects_malformed_status_and_headers(self):
+        cases = (
+            ("HTTP/1.1 1010 Switching Protocols", "", "upgrade was rejected"),
+            ("HTTP/1.1 101 Switching Protocols", "Upgrade: websocket\\r\\n", "duplicate or empty headers"),
+            ("HTTP/1.1 101 Switching Protocols", "malformed-header\\r\\n", "malformed header"),
+        )
+        for status_line, extra_headers, expected_error in cases:
+            fake = self._make_handshake_fake(status_line, extra_headers)
+            with self.subTest(status_line=status_line, extra_headers=extra_headers):
+                with patch("kancollebot.adapters.poi.cdp_probe.socket.create_connection", return_value=fake):
+                    with self.assertRaisesRegex(CdpProbeError, expected_error):
+                        _connect_websocket("ws://127.0.0.1:9222/devtools/page/x", 0.2)
+            self.assertTrue(fake.closed)
+
+    @staticmethod
+    def _make_handshake_fake(status_line, extra_headers):
+        import base64
+        import hashlib
+
+        class FakeSocket:
+            def __init__(self):
+                self.response = bytearray()
+                self.closed = False
+
+            def settimeout(self, timeout):
+                pass
+
+            def sendall(self, request):
+                request_text = request.decode("ascii")
+                key_line = next(line for line in request_text.split("\\r\\n") if line.startswith("Sec-WebSocket-Key:"))
+                key = key_line.split(":", 1)[1].strip()
+                accept = base64.b64encode(
+                    hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest()
+                ).decode("ascii")
+                response = (
+                    f"{status_line}\\r\\n"
+                    "Upgrade: websocket\\r\\n"
+                    "Connection: Upgrade\\r\\n"
+                    f"Sec-WebSocket-Accept: {accept}\\r\\n"
+                    f"{extra_headers}"
+                    "\\r\\n"
+                )
+                self.response.extend(response.encode("ascii"))
+
+            def recv(self, size):
+                chunk = self.response[:size]
+                del self.response[:size]
+                return bytes(chunk)
+
+            def close(self):
+                self.closed = True
+
+        return FakeSocket()
 
     def test_probe_rejects_url_change_after_target_discovery(self):
         target = CdpTarget("1", "Poi", "app://poi", "ws://127.0.0.1:9222/devtools/page/1")
