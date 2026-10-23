@@ -85,8 +85,12 @@ def _validate_websocket_url(url: str) -> str:
 
 def _get_json(url: str, timeout: float) -> Any:
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
+    # Do not let environment-configured HTTP proxies intercept this loopback-only
+    # request. The endpoint is local DevTools, and proxy routing would violate
+    # the loopback boundary even though the URL itself was validated.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with opener.open(request, timeout=timeout) as response:
             if response.status != 200:
                 raise CdpDiscoveryError(f"DevTools endpoint returned HTTP {response.status}")
             body = response.read(MAX_RESPONSE_BYTES + 1)
