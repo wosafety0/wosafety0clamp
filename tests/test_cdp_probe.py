@@ -6,6 +6,7 @@ from kancollebot.adapters.poi.cdp_probe import (
     CdpProbeError,
     _connect_websocket,
     _evaluate_read_only,
+    probe_poi_page,
 )
 from kancollebot.adapters.poi.cdp_targets import CdpTarget
 
@@ -18,6 +19,27 @@ class CdpProbeTests(unittest.TestCase):
     def test_bad_scheme_rejected(self):
         with self.assertRaises(CdpProbeError):
             _connect_websocket("wss://127.0.0.1:9222/devtools/page/x", 0.2)
+
+    def test_probe_rejects_url_change_after_target_discovery(self):
+        target = CdpTarget("1", "Poi", "app://poi", "ws://127.0.0.1:9222/devtools/page/1")
+        with patch("kancollebot.adapters.poi.cdp_probe.list_page_targets", return_value=(target,)), \
+             patch("kancollebot.adapters.poi.cdp_probe._evaluate_read_only", return_value={
+                 "title": "Poi", "url": "app://other", "readyState": "complete", "bodyText": ""
+             }):
+            probe = probe_poi_page()
+        self.assertIsNone(probe.target_found)
+        self.assertEqual(probe.probe_error, "CdpProbeError")
+        self.assertIsNone(probe.document_ready_state)
+
+    def test_probe_rejects_live_title_that_no_longer_matches_hint(self):
+        target = CdpTarget("1", "Poi", "app://poi", "ws://127.0.0.1:9222/devtools/page/1")
+        with patch("kancollebot.adapters.poi.cdp_probe.list_page_targets", return_value=(target,)), \
+             patch("kancollebot.adapters.poi.cdp_probe._evaluate_read_only", return_value={
+                 "title": "Unrelated page", "url": "app://poi", "readyState": "complete", "bodyText": ""
+             }):
+            probe = probe_poi_page(title_hint="poi")
+        self.assertIsNone(probe.target_found)
+        self.assertEqual(probe.probe_error, "CdpProbeError")
 
     def test_read_only_runtime_evaluation_with_mocked_socket(self):
         class FakeSocket:
