@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from kancollebot.adapters.poi.cdp_targets import (
     CdpDiscoveryError,
+    _RejectRedirects,
     _get_json,
     _validate_loopback_http_url,
     _validate_websocket_url,
@@ -58,6 +59,28 @@ class CdpTargetLoopbackTests(unittest.TestCase):
         self.assertIsInstance(proxy_handler, __import__("urllib.request").request.ProxyHandler)
         self.assertEqual(proxy_handler.proxies, {})
         opener.open.assert_called_once()
+
+    def test_http_json_fetch_installs_redirect_rejection_handler(self):
+        with patch(
+            "kancollebot.adapters.poi.cdp_targets.urllib.request.build_opener"
+        ) as build_opener:
+            response = build_opener.return_value.open.return_value.__enter__.return_value
+            response.status = 200
+            response.read.return_value = b"[]"
+            self.assertEqual(_get_json("http://127.0.0.1:9222/json/list", 0.5), [])
+        handlers = build_opener.call_args.args
+        self.assertTrue(any(isinstance(handler, _RejectRedirects) for handler in handlers))
+
+    def test_redirect_handler_refuses_external_and_loopback_redirects(self):
+        import urllib.request
+
+        handler = _RejectRedirects()
+        request = urllib.request.Request("http://127.0.0.1:9222/json/list")
+        for location in ("http://example.com/", "http://127.0.0.1:9333/"):
+            with self.subTest(location=location):
+                self.assertIsNone(
+                    handler.redirect_request(request, None, 302, "Found", {}, location)
+                )
 
     def test_http_discovery_uses_normalized_loopback_literal(self):
         with patch(
