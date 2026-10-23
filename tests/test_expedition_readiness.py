@@ -6,7 +6,7 @@ from pathlib import Path
 
 from kancollebot.core.expedition_equipment_planner import EquipmentInstance, EquipmentSlotRequirement
 from kancollebot.core.expedition_fleet_builder import CandidateShip
-from kancollebot.core.expedition_readiness import assess_expedition_readiness
+from kancollebot.core.expedition_readiness import ShipSupplyObservation, assess_expedition_readiness
 
 ROOT = Path(__file__).resolve().parents[1]
 RULES = ROOT / "data" / "expedition" / "expedition_rules_kca_reference.json"
@@ -98,6 +98,32 @@ class ExpeditionReadinessTests(unittest.TestCase):
         self.assertFalse(drum_gate.passed)
         self.assertFalse(result.dispatch_authorized)
 
+    def test_full_supply_is_verified_for_planned_ships(self):
+        supply = [ShipSupplyObservation(i, 15, 15, 20, 20) for i in (10, 11, 12, 13)]
+        result = assess_expedition_readiness(
+            self.rules, 1, self.sample_ships(), [], supply_observations=supply,
+        )
+        gate = next(item for item in result.gates if item.name == "ship_supply")
+        self.assertTrue(gate.passed, gate.detail)
+        self.assertFalse(result.dispatch_authorized)
+
+    def test_missing_supply_observation_blocks_readiness(self):
+        result = assess_expedition_readiness(
+            self.rules, 1, self.sample_ships(), [], supply_observations=(),
+        )
+        gate = next(item for item in result.gates if item.name == "ship_supply")
+        self.assertFalse(gate.passed)
+        self.assertIn("missing", gate.detail)
+        self.assertFalse(result.dispatch_authorized)
+
+    def test_partial_supply_blocks_readiness(self):
+        supply = [ShipSupplyObservation(i, 15, 15, 10, 20) for i in (10, 11, 12, 13)]
+        result = assess_expedition_readiness(
+            self.rules, 1, self.sample_ships(), [], supply_observations=supply,
+        )
+        gate = next(item for item in result.gates if item.name == "ship_supply")
+        self.assertFalse(gate.passed)
+        self.assertIn("not fully supplied", gate.detail)
 
 
 if __name__ == "__main__":
