@@ -39,6 +39,37 @@ class CdpProbeTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "positive integer"):
                     _read_text_message(FakeSocket(), max_message_bytes=limit)
 
+    def test_handshake_deadline_expires_during_slow_header_stream(self):
+        class SlowSocket:
+            def __init__(self):
+                self.closed = False
+                self.timeouts = []
+
+            def settimeout(self, timeout):
+                self.timeouts.append(timeout)
+
+            def sendall(self, request):
+                pass
+
+            def recv(self, size):
+                return b"H"
+
+            def close(self):
+                self.closed = True
+
+        fake = SlowSocket()
+        with patch(
+            "kancollebot.adapters.poi.cdp_probe.socket.create_connection",
+            return_value=fake,
+        ), patch(
+            "kancollebot.adapters.poi.cdp_probe.time.monotonic",
+            side_effect=(1.0, 1.0, 1.1, 1.2),
+        ):
+            with self.assertRaisesRegex(CdpProbeError, "handshake deadline exceeded"):
+                _connect_websocket("ws://127.0.0.1:9222/devtools/page/x", 0.15)
+        self.assertTrue(fake.closed)
+        self.assertTrue(fake.timeouts)
+
     def test_websocket_handshake_requires_upgrade_headers(self):
         import base64
         import hashlib
