@@ -104,6 +104,7 @@ class PoiRuntimeIntegrationTests(unittest.TestCase):
         self.assertTrue(report["forwarder_event_accepted"])
         self.assertTrue(report["page_probe_performed"])
         self.assertTrue(report["http_reads_performed"])
+        self.assertTrue(report["http_diagnostic_attempted"])
         self.assertTrue(report["http_diagnostic_completed"])
         self.assertEqual(
             report["gates"],
@@ -218,7 +219,8 @@ class PoiRuntimeIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(code, 2)
         self.assertEqual(report["reason"], "preflight_failed_OSError")
-        self.assertTrue(report["http_reads_performed"])
+        self.assertTrue(report["http_diagnostic_attempted"])
+        self.assertFalse(report["http_reads_performed"])
         self.assertFalse(report["http_diagnostic_completed"])
         self.assertFalse(report["actions_enabled"])
 
