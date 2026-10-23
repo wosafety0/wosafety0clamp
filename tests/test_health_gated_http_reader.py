@@ -8,48 +8,61 @@ from kancollebot.adapters.poi.state_observation_tracker import PoiStateObservati
 
 
 class PoiHealthGatedHttpReaderTests(unittest.TestCase):
-    def test_page_probe_precedes_http_read_and_source_event_gate(self):
-        now = datetime(2026, 10, 23, 12, 0, tzinfo=timezone.utc)
-        events = []
-        probe = CdpPageProbe(
-            checked_at=now, target_found=True, title="Poi", url="app://poi",
+    def setUp(self):
+        self.now = datetime(2026, 10, 23, 12, 0, tzinfo=timezone.utc)
+        self.probe = CdpPageProbe(
+            checked_at=self.now, target_found=True, title="Poi", url="app://poi",
             document_ready_state="complete", error_text="KanColle"
         )
-        adapter = Mock()
-        adapter.get_observed_states.side_effect = lambda fields: (events.append("read"), ("fleets", "ships"))[1]
+
+    def make_reader(self, adapter, tracker):
         receiver = Mock()
         receiver.get_event.return_value = None
+        return PoiHealthGatedHttpReader(
+            adapter, receiver, tracker, probe_page=lambda: self.probe,
+            now_provider=lambda: self.now,
+        )
+
+    def test_page_probe_precedes_http_read_and_source_event_gate(self):
+        events = []
+        adapter = Mock()
+        adapter.get_observed_states.side_effect = lambda fields: (events.append("read"), ("fleets", "ships"))[1]
         tracker = PoiStateObservationTracker()
-        tracker.observe_event({
+        self.assertTrue(tracker.observe_event({
             "path": "/kcsapi/api_port/port", "stage": "response",
-            "timestamp": now.timestamp(), "response": {"api_result": 1},
-        }, now=now)
-        reader = PoiHealthGatedHttpReader(adapter, receiver, tracker, probe_page=lambda: (events.append("probe") or probe))
+            "timestamp": self.now.timestamp(), "response": {"api_result": 1},
+        }, now=self.now))
+        reader = self.make_reader(adapter, tracker)
+        reader._probe_page = lambda: (events.append("probe") or self.probe)
 
         state, observation = reader.get_observed_states(fields=object())
 
         self.assertEqual(events, ["probe", "read"])
         self.assertEqual(state, ("fleets", "ships"))
-        self.assertEqual(observation.latest_valid_state_at, now)
+        self.assertEqual(observation.latest_valid_state_at, self.now)
 
     def test_missing_event_evidence_blocks_returned_state(self):
-        now = datetime(2026, 10, 23, 12, 0, tzinfo=timezone.utc)
-        probe = CdpPageProbe(
-            checked_at=now, target_found=True, title="Poi", url="app://poi",
-            document_ready_state="complete", error_text="KanColle"
-        )
         adapter = Mock()
         adapter.get_observed_states.return_value = ("fleets", "ships")
-        receiver = Mock()
-        receiver.get_event.return_value = None
-        reader = PoiHealthGatedHttpReader(adapter, receiver, PoiStateObservationTracker(), probe_page=lambda: probe)
-        with unittest.mock.patch("kancollebot.adapters.poi.health_gated_reader.datetime") as clock:
-            clock.now.return_value = now
-            clock.now.side_effect = None
-            # The real policy clock is not replaced here; absent state evidence must fail closed.
-            with self.assertRaises(RuntimeError):
-                reader.get_observed_states(fields=object())
+        reader = self.make_reader(adapter, PoiStateObservationTracker())
+
+        with self.assertRaises(RuntimeError):
+            reader.get_observed_states(fields=object())
+
         adapter.get_observed_states.assert_called_once()
+
+    def test_connection_failure_requires_a_later_event(self):
+        adapter = Mock()
+        adapter.get_observed_states.return_value = ("fleets", "ships")
+        tracker = PoiStateObservationTracker()
+        tracker.observe_event({
+            "path": "/kcsapi/api_port/port", "stage": "response",
+            "timestamp": self.now.timestamp(), "response": {"api_result": 1},
+        }, now=self.now)
+        reader = self.make_reader(adapter, tracker)
+
+        with self.assertRaises(RuntimeError):
+            reader.get_observed_states(fields=object(), connection_failure_at=self.now)
 
 
 if __name__ == "__main__":
