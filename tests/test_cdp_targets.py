@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from kancollebot.adapters.poi.cdp_targets import (
     CdpDiscoveryError,
+    _get_json,
     _validate_loopback_http_url,
     _validate_websocket_url,
     list_page_targets,
@@ -40,6 +41,23 @@ class CdpTargetLoopbackTests(unittest.TestCase):
                 error = ValueError if url.startswith("http:") else CdpDiscoveryError
                 with self.assertRaises(error):
                     validator(url)
+
+    def test_http_json_fetch_disables_environment_proxies(self):
+        with patch(
+            "kancollebot.adapters.poi.cdp_targets.urllib.request.build_opener"
+        ) as build_opener:
+            opener = build_opener.return_value
+            response = opener.open.return_value.__enter__.return_value
+            response.status = 200
+            response.read.return_value = b"[]"
+
+            self.assertEqual(_get_json("http://127.0.0.1:9222/json/list", 0.5), [])
+
+        build_opener.assert_called_once()
+        proxy_handler = build_opener.call_args.args[0]
+        self.assertIsInstance(proxy_handler, __import__("urllib.request").request.ProxyHandler)
+        self.assertEqual(proxy_handler.proxies, {})
+        opener.open.assert_called_once()
 
     def test_http_discovery_uses_normalized_loopback_literal(self):
         with patch(
