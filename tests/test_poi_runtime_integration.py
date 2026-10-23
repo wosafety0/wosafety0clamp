@@ -170,6 +170,58 @@ class PoiRuntimeIntegrationTests(unittest.TestCase):
         self.assertFalse(report["http_reads_performed"])
         self.assertFalse(report["actions_enabled"])
 
+    def test_http_diagnostic_exception_records_attempt_without_completion(self):
+        now = datetime.now(timezone.utc)
+
+        class FixtureReceiver(PoiWebhookReceiver):
+            def start(inner_self):
+                port = super(FixtureReceiver, inner_self).start()
+                event = {
+                    "path": "/kcsapi/api_port/port",
+                    "request": None,
+                    "response": {"api_result": 1, "api_data": {}},
+                    "stage": "response_received",
+                    "timestamp": now.timestamp() * 1000,
+                }
+                request = Request(
+                    f"http://127.0.0.1:{port}{WEBHOOK_PATH}",
+                    data=json.dumps(event).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(request, timeout=2) as response:
+                    self.assertEqual(response.status, 200)
+                return port
+
+        class FailingAdapter:
+            def __init__(self, **kwargs):
+                pass
+
+            def diagnose(self):
+                raise OSError("synthetic HTTP read failure")
+
+        def healthy_probe(**kwargs):
+            return CdpPageProbe(
+                checked_at=datetime.now(timezone.utc),
+                target_found=True,
+                title="Poi - KanColle",
+                url="app://poi",
+                document_ready_state="complete",
+                error_text="KanColle",
+            )
+
+        code, report = run_read_only_preflight(
+            PoiPreflightConfig(webhook_port=0, event_timeout_seconds=2),
+            receiver_factory=FixtureReceiver,
+            adapter_factory=FailingAdapter,
+            probe_factory=healthy_probe,
+        )
+        self.assertEqual(code, 2)
+        self.assertEqual(report["reason"], "preflight_failed_OSError")
+        self.assertTrue(report["http_reads_performed"])
+        self.assertFalse(report["http_diagnostic_completed"])
+        self.assertFalse(report["actions_enabled"])
+
     def test_legacy_http_module_entrypoint_delegates_to_gated_runtime(self):
         from unittest.mock import patch
         from kancollebot.adapters.poi import http_read_only
