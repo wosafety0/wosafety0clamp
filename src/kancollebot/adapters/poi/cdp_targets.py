@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -96,8 +97,13 @@ def _get_json(url: str, timeout: float) -> Any:
 def list_page_targets(endpoint: str = DEFAULT_CDP_ENDPOINT, *, timeout: float = 2.0) -> tuple[CdpTarget, ...]:
     """Return validated page targets without exposing non-loopback endpoints."""
     base = _validate_loopback_http_url(endpoint)
-    if timeout <= 0:
-        raise ValueError("timeout must be positive")
+    if (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or not math.isfinite(timeout)
+        or timeout <= 0
+    ):
+        raise ValueError("timeout must be finite and positive")
     raw = _get_json(base + "/json/list", timeout)
     if not isinstance(raw, list):
         raise CdpDiscoveryError("DevTools target list is not an array")
