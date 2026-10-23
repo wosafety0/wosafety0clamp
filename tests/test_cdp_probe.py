@@ -21,6 +21,24 @@ class CdpProbeTests(unittest.TestCase):
         with self.assertRaises(CdpProbeError):
             _connect_websocket("wss://127.0.0.1:9222/devtools/page/x", 0.2)
 
+    def test_non_finite_or_non_positive_websocket_timeouts_rejected_before_network(self):
+        for timeout in (0, -1, float("nan"), float("inf"), -float("inf")):
+            with self.subTest(timeout=timeout):
+                with patch("kancollebot.adapters.poi.cdp_probe.socket.create_connection") as connect:
+                    with self.assertRaisesRegex(ValueError, "finite and positive"):
+                        _connect_websocket("ws://127.0.0.1:9222/devtools/page/x", timeout)
+                    connect.assert_not_called()
+
+    def test_invalid_message_size_limit_rejected(self):
+        class FakeSocket:
+            def recv(self, size):
+                raise AssertionError("invalid size limits must fail before reading")
+
+        for limit in (0, -1, True, 1.5):
+            with self.subTest(limit=limit):
+                with self.assertRaisesRegex(ValueError, "positive integer"):
+                    _read_text_message(FakeSocket(), max_message_bytes=limit)
+
     def test_websocket_handshake_requires_upgrade_headers(self):
         import base64
         import hashlib
