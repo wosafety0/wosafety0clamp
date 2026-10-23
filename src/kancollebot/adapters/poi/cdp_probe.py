@@ -33,16 +33,19 @@ class CdpProbeError(RuntimeError):
     """Raised when a read-only CDP probe cannot be completed safely."""
 
 
+MAX_TIMEOUT_SECONDS = 3600.0
+
+
 def _normalize_timeout(timeout: Any) -> float:
-    """Validate timeout inputs without leaking OverflowError for huge integers."""
+    """Validate timeout inputs and bound socket/protocol waits to one hour."""
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
         raise ValueError("timeout must be finite and positive")
     try:
         normalized = float(timeout)
     except (OverflowError, TypeError, ValueError) as exc:
         raise ValueError("timeout must be finite and positive") from exc
-    if not math.isfinite(normalized) or normalized <= 0:
-        raise ValueError("timeout must be finite and positive")
+    if not math.isfinite(normalized) or normalized <= 0 or normalized > MAX_TIMEOUT_SECONDS:
+        raise ValueError("timeout must be finite and positive, and at most 3600 seconds")
     return normalized
 
 
