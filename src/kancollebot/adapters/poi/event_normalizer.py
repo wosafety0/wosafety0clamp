@@ -65,9 +65,12 @@ def _parse_timestamp(value: Any) -> datetime | None:
             parsed = datetime.fromisoformat(text)
         except ValueError:
             return None
-        if parsed.tzinfo is None:
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
             return None
-        return parsed.astimezone(timezone.utc)
+        try:
+            return parsed.astimezone(timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
     return None
 
 
