@@ -266,13 +266,36 @@ class CdpProbeTests(unittest.TestCase):
             document_ready_state="complete",
             error_text="",
         )
-        self.assertEqual(probe.url, raw_url)
+        self.assertEqual(probe.url, "https://example.test/game")
         self.assertEqual(probe.display_url, "https://example.test/game")
+        self.assertNotIn("password", probe.url)
+        self.assertNotIn("token=secret", probe.url)
+        self.assertNotIn("private", probe.url)
+        self.assertEqual(len(probe.url_identity), 64)
+        self.assertNotEqual(probe.url_identity, raw_url)
 
     def test_invalid_display_url_is_safely_redacted(self):
         from kancollebot.adapters.poi.cdp_probe import _sanitize_display_url
 
         self.assertEqual(_sanitize_display_url("https://[invalid"), "[invalid-url]")
+
+    def test_url_identity_digest_detects_query_only_navigation_without_retaining_query(self):
+        from kancollebot.adapters.poi.cdp_probe import CdpPageProbe
+
+        base = dict(
+            checked_at=datetime.now(timezone.utc),
+            target_found=True,
+            title="Poi",
+            document_ready_state="complete",
+            error_text="",
+        )
+        first = CdpPageProbe(url="https://example.test/game?token=first", **base)
+        second = CdpPageProbe(url="https://example.test/game?token=second", **base)
+        self.assertEqual(first.url, "https://example.test/game")
+        self.assertEqual(second.url, "https://example.test/game")
+        self.assertNotEqual(first.url_identity, second.url_identity)
+        self.assertNotIn("first", first.url_identity)
+        self.assertNotIn("second", second.url_identity)
 
     def test_probe_rejects_url_change_after_target_discovery(self):
         target = CdpTarget("1", "Poi", "app://poi", "ws://127.0.0.1:9222/devtools/page/1")
