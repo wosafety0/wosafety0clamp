@@ -43,7 +43,7 @@ def _validate_loopback_http_url(url: str) -> str:
         is_loopback = parsed.hostname.lower() == "localhost"
     if not is_loopback:
         raise ValueError("CDP endpoint must use a loopback host")
-    if parsed.username or parsed.password:
+    if "@" in parsed.netloc or parsed.username is not None or parsed.password is not None:
         raise ValueError("Credentials in CDP endpoint URLs are not allowed")
     if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
         raise ValueError("CDP endpoint must be a base URL without path, query, or fragment")
@@ -71,7 +71,7 @@ def _validate_websocket_url(url: str) -> str:
         is_loopback = parsed.hostname.lower() == "localhost"
     if not is_loopback:
         raise CdpDiscoveryError("DevTools target points to a non-loopback WebSocket")
-    if parsed.username or parsed.password:
+    if "@" in parsed.netloc or parsed.username is not None or parsed.password is not None:
         raise CdpDiscoveryError("Credentials in debugger WebSocket URL are not allowed")
     if parsed.fragment:
         raise CdpDiscoveryError("Fragments in debugger WebSocket URL are not allowed")
