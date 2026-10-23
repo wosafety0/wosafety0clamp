@@ -251,7 +251,12 @@ def _evaluate_read_only(target: CdpTarget, timeout: float) -> dict[str, Any]:
                 continue
             if "error" in message:
                 raise CdpProbeError("CDP Runtime.evaluate returned a protocol error")
-            result = message.get("result", {}).get("result", {})
+            envelope = message.get("result")
+            if not isinstance(envelope, dict):
+                raise CdpProbeError("CDP Runtime.evaluate response has an invalid result envelope")
+            result = envelope.get("result")
+            if not isinstance(result, dict):
+                raise CdpProbeError("CDP Runtime.evaluate response has an invalid remote object")
             value = result.get("value")
             if not isinstance(value, str):
                 raise CdpProbeError("CDP returned no serializable document metadata")
