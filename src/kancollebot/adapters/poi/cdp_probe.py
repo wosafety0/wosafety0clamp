@@ -124,7 +124,7 @@ def _connect_websocket(url: str, timeout: float) -> socket.socket:
                 or normalized_name in headers
             ):
                 raise CdpProbeError("CDP WebSocket handshake contains invalid headers (duplicate or empty headers, or invalid header name)")
-            if any((ord(char) < 0x20 and char != "\\t") or ord(char) == 0x7F for char in value):
+            if any((ord(char) < 0x20 and char != "\t") or ord(char) == 0x7F for char in value):
                 raise CdpProbeError("CDP WebSocket handshake contains invalid header values")
             headers[normalized_name] = value.strip()
         if "sec-websocket-extensions" in headers or "sec-websocket-protocol" in headers:
