@@ -59,6 +59,7 @@ def assess_expedition_readiness(
     live_state_fresh: bool = False,
     morale_verified: bool = False,
     special_requirements_verified: bool = False,
+    drum_model_id: int | None = None,
 ) -> ExpeditionReadinessResult:
     """Assess known gates. Unknown facts block readiness; dispatch is always false."""
     gates: list[ReadinessGate] = []
@@ -122,12 +123,37 @@ def assess_expedition_readiness(
 
     drum_count = req.get("drum_count_min")
     drum_carriers = req.get("drum_carriers_min")
-    drums_known = type(drum_count) is int and drum_count == 0 and type(drum_carriers) is int and drum_carriers == 0
-    gates.append(ReadinessGate(
-        "drum_requirements", drums_known,
-        "No drums required." if drums_known else
-        "Drum model IDs and carrier compatibility are not integrated; requirement remains unknown.",
-    ))
+    drum_slots = [
+        item for item in equipment_requirements
+        if drum_model_id is not None and item.model_id == drum_model_id
+    ]
+    drum_ship_ids = {item.ship_id for item in drum_slots}
+    drum_input_valid = type(drum_model_id) is int and drum_model_id > 0
+    if type(drum_count) is int and drum_count == 0 and type(drum_carriers) is int and drum_carriers == 0:
+        drums_known = True
+        drum_detail = "No drums required by imported rule."
+    elif (
+        drum_input_valid
+        and type(drum_count) is int and drum_count >= 0
+        and type(drum_carriers) is int and drum_carriers >= 0
+        and len(drum_slots) >= drum_count
+        and len(drum_ship_ids) >= drum_carriers
+        and all(item.ship_id in planned_ids for item in drum_slots)
+    ):
+        # Equipment count alone cannot prove a ship is a valid drum carrier.
+        drums_known = False
+        drum_detail = (
+            f"Found {len(drum_slots)} declared drum slots across {len(drum_ship_ids)} ships, "
+            "but game-specific carrier compatibility is not verified."
+        )
+    else:
+        drums_known = False
+        drum_detail = (
+            "Drum model ID or explicit drum slot requirements are missing or insufficient."
+            if drum_input_valid else
+            "Drum model ID is unknown; drum count and carrier requirements cannot be verified."
+        )
+    gates.append(ReadinessGate("drum_requirements", drums_known, drum_detail))
 
     additional_known = (
         special_requirements_verified
