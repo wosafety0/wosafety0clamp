@@ -52,7 +52,7 @@ class CdpProbeTests(unittest.TestCase):
                 del self.data[:size]
                 return bytes(chunk)
 
-        fake = FakeSocket(b"\\x01\\x01a\\x80\\x01b")
+        fake = FakeSocket(b"\x01\x01a\x80\x01b")
         self.assertEqual(_read_text_message(fake), "ab")
 
     def test_unexpected_continuation_frame_is_rejected(self):
@@ -65,7 +65,7 @@ class CdpProbeTests(unittest.TestCase):
                 del self.data[:size]
                 return bytes(chunk)
 
-        fake = FakeSocket(b"\\x80\\x01x")
+        fake = FakeSocket(b"\x80\x01x")
         with self.assertRaises(CdpProbeError):
             _read_text_message(fake)
 
@@ -79,7 +79,7 @@ class CdpProbeTests(unittest.TestCase):
                 del self.data[:size]
                 return bytes(chunk)
 
-        fake = FakeSocket(b"\\xC1\\x01x")
+        fake = FakeSocket(b"\xC1\x01x")
         with self.assertRaises(CdpProbeError):
             _read_text_message(fake)
 
