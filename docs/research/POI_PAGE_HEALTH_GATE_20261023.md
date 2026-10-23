@@ -20,11 +20,11 @@ The timestamp callback must report a real validated state observation (for examp
 - Uses only `Runtime.evaluate` with a fixed metadata expression.
 - Ambiguous targets, protocol errors, timeouts, invalid messages, and socket closure provide no healthy evidence.
 - Page discovery and `document.readyState` alone do not establish game-state freshness.
-- This helper is not yet wired automatically into every existing POI adapter entry point; callers must explicitly use it to receive the orchestration guarantee.
+- The supported facade is `PoiHealthGatedHttpReader`. Its `get_observed_states`, `get_status`, `diagnose`, and `read_and_plan` methods all route through the same page and source-event gate. The wrapped `PoiHttpReadOnlyAdapter` remains a low-level primitive: do not expose it to application consumers or call its methods directly when health gating is required.
 
 ## Validation
 
-GitHub Actions run 6 for the current branch completed successfully. The workflow compiled `src` and `tests`, then ran 201 standard-library unit tests; all passed. Tests are offline/mocked and do not constitute a live Poi validation.
+GitHub Actions validation is tracked on the pull request. Unit tests are offline/mocked and do not constitute a live Poi validation.
 
 ## Safety
 
