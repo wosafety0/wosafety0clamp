@@ -126,6 +126,49 @@ class PoiRuntimeIntegrationTests(unittest.TestCase):
         self.assertNotIn("赤城", serialized)
         self.assertNotIn('"73"', serialized)
 
+    def test_accepted_event_remains_reported_when_page_probe_fails(self):
+        now = datetime.now(timezone.utc)
+
+        class ForwarderFixtureReceiver(PoiWebhookReceiver):
+            def start(inner_self):
+                port = super(ForwarderFixtureReceiver, inner_self).start()
+                event = {
+                    "path": "/kcsapi/api_port/port",
+                    "request": None,
+                    "response": {"api_result": 1, "api_data": {}},
+                    "stage": "response_received",
+                    "timestamp": now.timestamp() * 1000,
+                }
+                request = Request(
+                    f"http://127.0.0.1:{port}{WEBHOOK_PATH}",
+                    data=json.dumps(event).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(request, timeout=2) as response:
+                    self.assertEqual(response.status, 200)
+                return port
+
+        def failing_probe(**kwargs):
+            raise RuntimeError("synthetic CDP failure")
+
+        code, report = run_read_only_preflight(
+            PoiPreflightConfig(
+                http_url=self.http_url,
+                webhook_port=0,
+                event_timeout_seconds=2,
+            ),
+            receiver_factory=ForwarderFixtureReceiver,
+            probe_factory=failing_probe,
+        )
+        self.assertEqual(code, 2)
+        self.assertEqual(report["status"], "FAILED")
+        self.assertEqual(report["reason"], "preflight_failed_RuntimeError")
+        self.assertTrue(report["forwarder_event_accepted"])
+        self.assertTrue(report["gates"]["forwarder_event_accepted"])
+        self.assertFalse(report["http_reads_performed"])
+        self.assertFalse(report["actions_enabled"])
+
     def test_legacy_http_module_entrypoint_delegates_to_gated_runtime(self):
         from unittest.mock import patch
         from kancollebot.adapters.poi import http_read_only
