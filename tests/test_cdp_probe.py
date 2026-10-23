@@ -69,6 +69,20 @@ class CdpProbeTests(unittest.TestCase):
         with self.assertRaises(CdpProbeError):
             _read_text_message(fake)
 
+    def test_masked_server_frame_is_rejected(self):
+        class FakeSocket:
+            def __init__(self, data):
+                self.data = bytearray(data)
+
+            def recv(self, size):
+                chunk = self.data[:size]
+                del self.data[:size]
+                return bytes(chunk)
+
+        fake = FakeSocket(b"\\x81\\x81\\x00\\x00\\x00\\x00x")
+        with self.assertRaisesRegex(CdpProbeError, "must not be masked"):
+            _read_text_message(fake)
+
     def test_reserved_websocket_frame_bits_are_rejected(self):
         class FakeSocket:
             def __init__(self, data):
