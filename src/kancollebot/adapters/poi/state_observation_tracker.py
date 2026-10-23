@@ -60,14 +60,15 @@ class PoiStateObservationTracker:
     """Thread-safe timestamp tracker backed only by validated Poi response events."""
 
     def __init__(self, *, max_age_seconds: float = 30.0) -> None:
-        if (
-            isinstance(max_age_seconds, bool)
-            or not isinstance(max_age_seconds, (int, float))
-            or not math.isfinite(float(max_age_seconds))
-            or max_age_seconds <= 0
-        ):
+        if isinstance(max_age_seconds, bool) or not isinstance(max_age_seconds, (int, float)):
             raise ValueError("max_age_seconds must be a positive number")
-        self.max_age_seconds = float(max_age_seconds)
+        try:
+            normalized_max_age = float(max_age_seconds)
+        except (OverflowError, TypeError, ValueError):
+            raise ValueError("max_age_seconds must be a positive number")
+        if not math.isfinite(normalized_max_age) or normalized_max_age <= 0:
+            raise ValueError("max_age_seconds must be a positive number")
+        self.max_age_seconds = normalized_max_age
         self._latest_at: datetime | None = None
         self._lock = Lock()
 
