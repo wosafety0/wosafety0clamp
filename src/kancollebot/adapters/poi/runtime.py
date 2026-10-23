@@ -52,8 +52,8 @@ class PoiPreflightConfig:
             timeout_value = float(self.event_timeout_seconds)
         except (OverflowError, ValueError) as exc:
             raise ValueError("event_timeout_seconds must be a positive finite number") from exc
-        if not math.isfinite(timeout_value) or timeout_value <= 0:
-            raise ValueError("event_timeout_seconds must be a positive finite number")
+        if not math.isfinite(timeout_value) or timeout_value <= 0 or timeout_value > 3600.0:
+            raise ValueError("event_timeout_seconds must be a positive finite number no greater than 3600 seconds")
 
 
 def _config_from_environment() -> PoiPreflightConfig:
