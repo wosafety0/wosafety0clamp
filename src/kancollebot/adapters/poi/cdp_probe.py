@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import ipaddress
 import json
 import math
@@ -34,6 +35,7 @@ class CdpProbeError(RuntimeError):
 
 
 MAX_TIMEOUT_SECONDS = 3600.0
+_URL_IDENTITY_KEY = os.urandom(32)
 
 
 def _normalize_timeout(timeout: Any) -> float:
@@ -75,7 +77,7 @@ class CdpPageProbe:
         # The raw URL can contain query tokens and must not escape this object.
         raw_url = self.url
         if not self.url_identity:
-            digest = hashlib.sha256(raw_url.encode("utf-8", errors="replace")).hexdigest()
+            digest = hmac.new(_URL_IDENTITY_KEY, raw_url.encode("utf-8", errors="replace"), hashlib.sha256).hexdigest()
             object.__setattr__(self, "url_identity", digest)
         object.__setattr__(self, "url", _sanitize_display_url(raw_url))
 
