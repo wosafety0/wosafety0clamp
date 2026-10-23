@@ -232,6 +232,41 @@ class CdpProbeTests(unittest.TestCase):
         with self.assertRaises(CdpProbeError):
             _read_text_message(fake)
 
+    def test_malformed_runtime_response_shapes_fail_closed(self):
+        class FakeSocket:
+            def __init__(self):
+                self.closed = False
+
+            def settimeout(self, timeout):
+                pass
+
+            def close(self):
+                self.closed = True
+
+        target = CdpTarget(
+            "1", "Poi", "app://poi", "ws://127.0.0.1:9222/devtools/page/1"
+        )
+        for payload in (
+            {"id": 1, "result": None},
+            {"id": 1, "result": []},
+            {"id": 1, "result": {"result": None}},
+            {"id": 1, "result": {"result": []}},
+        ):
+            with self.subTest(payload=payload):
+                fake = FakeSocket()
+                with patch(
+                    "kancollebot.adapters.poi.cdp_probe._connect_websocket",
+                    return_value=fake,
+                ), patch(
+                    "kancollebot.adapters.poi.cdp_probe._send_frame"
+                ), patch(
+                    "kancollebot.adapters.poi.cdp_probe._read_text_message",
+                    return_value=json.dumps(payload),
+                ):
+                    with self.assertRaises(CdpProbeError):
+                        _evaluate_read_only(target, 1.0)
+                self.assertTrue(fake.closed)
+
     def test_read_only_runtime_evaluation_with_mocked_socket(self):
         class FakeSocket:
             def __init__(self):
