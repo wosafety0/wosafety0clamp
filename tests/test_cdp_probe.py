@@ -60,10 +60,10 @@ class CdpProbeTests(unittest.TestCase):
 
         for upgrade, connection in (("h2c", "Upgrade"), ("websocket", "keep-alive")):
             fake = FakeSocket(upgrade, connection)
-            with self.subTest(upgrade=upgrade, connection=connection), \\
-                 patch("kancollebot.adapters.poi.cdp_probe.socket.create_connection", return_value=fake):
-                with self.assertRaisesRegex(CdpProbeError, "missing Upgrade headers"):
-                    _connect_websocket("ws://127.0.0.1:9222/devtools/page/x", 0.2)
+            with self.subTest(upgrade=upgrade, connection=connection):
+                with patch("kancollebot.adapters.poi.cdp_probe.socket.create_connection", return_value=fake):
+                    with self.assertRaisesRegex(CdpProbeError, "missing Upgrade headers"):
+                        _connect_websocket("ws://127.0.0.1:9222/devtools/page/x", 0.2)
             self.assertTrue(fake.closed)
 
     def test_probe_rejects_url_change_after_target_discovery(self):
