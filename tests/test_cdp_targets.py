@@ -54,6 +54,23 @@ class CdpTargetLoopbackTests(unittest.TestCase):
                 "ws://127.0.0.1:9222/devtools/page/abc#unexpected"
             )
 
+    def test_empty_userinfo_delimiters_are_rejected(self):
+        for url in (
+            "http://@127.0.0.1:9222",
+            "http://user@127.0.0.1:9222",
+            "ws://@127.0.0.1:9222/devtools/page/abc",
+            "ws://user@127.0.0.1:9222/devtools/page/abc",
+        ):
+            with self.subTest(url=url):
+                validator = (
+                    _validate_loopback_http_url
+                    if url.startswith("http:")
+                    else _validate_websocket_url
+                )
+                error = ValueError if url.startswith("http:") else CdpDiscoveryError
+                with self.assertRaises(error):
+                    validator(url)
+
     def test_non_loopback_hosts_are_rejected(self):
         for url in (
             "http://192.0.2.1:9222",
