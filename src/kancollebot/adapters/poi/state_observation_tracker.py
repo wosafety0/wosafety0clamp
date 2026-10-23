@@ -7,6 +7,7 @@ future-dated, request-stage, and failed responses are ignored.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 from threading import Lock
 from typing import Any
 
@@ -27,8 +28,11 @@ def _parse_event_timestamp(value: Any) -> datetime | None:
     """Parse only numeric Unix seconds/milliseconds; reject ambiguous strings."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    numeric = float(value)
-    if numeric <= 0:
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return None
+    if not math.isfinite(numeric) or numeric <= 0:
         return None
     # Poi Date.now() is milliseconds; some forwarders serialize Unix seconds.
     if numeric >= 100_000_000_000:
@@ -43,7 +47,12 @@ class PoiStateObservationTracker:
     """Thread-safe timestamp tracker backed only by validated Poi response events."""
 
     def __init__(self, *, max_age_seconds: float = 30.0) -> None:
-        if isinstance(max_age_seconds, bool) or not isinstance(max_age_seconds, (int, float)) or max_age_seconds <= 0:
+        if (
+            isinstance(max_age_seconds, bool)
+            or not isinstance(max_age_seconds, (int, float))
+            or not math.isfinite(float(max_age_seconds))
+            or max_age_seconds <= 0
+        ):
             raise ValueError("max_age_seconds must be a positive number")
         self.max_age_seconds = float(max_age_seconds)
         self._latest_at: datetime | None = None
