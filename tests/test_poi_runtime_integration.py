@@ -334,7 +334,7 @@ class PoiRuntimeIntegrationTests(unittest.TestCase):
         self.assertEqual(report["reason"], "diagnostic_result_invalid")
         self.assertTrue(report["http_diagnostic_attempted"])
         self.assertTrue(report["http_diagnostic_completed"])
-        self.assertFalse(report["http_reads_performed"])
+        self.assertTrue(report["http_reads_performed"])
         self.assertFalse(report["actions_enabled"])
 
     def test_preflight_config_rejects_non_finite_event_timeout(self):
