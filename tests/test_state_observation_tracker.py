@@ -12,7 +12,7 @@ class PoiStateObservationTrackerTests(unittest.TestCase):
     def event(self, **changes):
         value = {
             "path": "/kcsapi/api_port/port",
-            "stage": "response",
+            "stage": "response_received",
             "timestamp": self.now.timestamp(),
             "response": {"api_result": 1, "api_data": {}},
         }
@@ -21,6 +21,17 @@ class PoiStateObservationTrackerTests(unittest.TestCase):
 
     def test_accepts_successful_state_response_with_seconds_timestamp(self):
         self.assertTrue(self.tracker.observe_event(self.event(), now=self.now))
+        self.assertEqual(self.tracker.latest_valid_state_at, self.now)
+
+    def test_accepts_actual_forwarder_response_received_stage(self):
+        event = self.event(timestamp=self.now.timestamp() * 1000)
+        event["stage"] = "response_received"
+        self.assertTrue(self.tracker.observe_event(event, now=self.now))
+        self.assertEqual(self.tracker.latest_valid_state_at, self.now)
+
+    def test_accepts_legacy_response_stage(self):
+        event = self.event(stage="response")
+        self.assertTrue(self.tracker.observe_event(event, now=self.now))
         self.assertEqual(self.tracker.latest_valid_state_at, self.now)
 
     def test_accepts_poi_milliseconds_timestamp(self):
