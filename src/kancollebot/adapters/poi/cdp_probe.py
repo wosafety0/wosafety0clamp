@@ -1,0 +1,235 @@
+"""Read-only CDP probe for the selected Poi renderer.
+
+Uses only the Python standard library, connects to loopback WebSocket endpoints,
+and evaluates read-only document metadata. It never clicks, reloads, or sends
+game API requests. This probe does not prove Redux freshness; callers must
+supply a separately validated state timestamp to the policy layer.
+"""
+from __future__ import annotations
+
+import base64
+import hashlib
+import ipaddress
+import json
+import os
+import socket
+import struct
+import urllib.parse
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any
+
+from kancollebot.adapters.poi.cdp_targets import (
+    CdpDiscoveryError,
+    CdpTarget,
+    list_page_targets,
+    select_poi_renderer,
+)
+
+
+class CdpProbeError(RuntimeError):
+    """Raised when a read-only CDP probe cannot be completed safely."""
+
+
+@dataclass(frozen=True, slots=True)
+class CdpPageProbe:
+    checked_at: datetime
+    target_found: bool
+    title: str
+    url: str
+    document_ready_state: str | None
+    error_text: str
+    probe_error: str = ""
+
+
+def _connect_websocket(url: str, timeout: float) -> socket.socket:
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme != "ws" or not parsed.hostname:
+        raise CdpProbeError("Only ws:// CDP endpoints are supported")
+    try:
+        loopback = ipaddress.ip_address(parsed.hostname).is_loopback
+    except ValueError:
+        loopback = parsed.hostname.casefold() == "localhost"
+    if not loopback or parsed.username or parsed.password or parsed.fragment:
+        raise CdpProbeError("CDP WebSocket must be credential-free and loopback-only")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise CdpProbeError("Invalid CDP WebSocket port") from exc
+    if port is None or not 1 <= port <= 65535:
+        raise CdpProbeError("CDP WebSocket port is required")
+    path = parsed.path or "/"
+    if parsed.query:
+        path += "?" + parsed.query
+    key = base64.b64encode(os.urandom(16)).decode("ascii")
+    sock = socket.create_connection((parsed.hostname, port), timeout=timeout)
+    sock.settimeout(timeout)
+    host = f"[{parsed.hostname}]:{port}" if ":" in parsed.hostname else f"{parsed.hostname}:{port}"
+    request = (
+        f"GET {path} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\n"
+        f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
+        "Sec-WebSocket-Version: 13\r\n\r\n"
+    )
+    try:
+        sock.sendall(request.encode("ascii"))
+        response = bytearray()
+        while b"\r\n\r\n" not in response:
+            chunk = sock.recv(1)
+            if not chunk:
+                raise CdpProbeError("CDP WebSocket closed during handshake")
+            response.extend(chunk)
+            if len(response) > 16384:
+                raise CdpProbeError("CDP WebSocket handshake headers too large")
+        header, _ = bytes(response).split(b"\r\n\r\n", 1)
+        lines = header.decode("iso-8859-1").split("\r\n")
+        if not lines[0].startswith("HTTP/1.1 101 "):
+            raise CdpProbeError("CDP WebSocket upgrade was rejected")
+        headers = {}
+        for line in lines[1:]:
+            if ":" in line:
+                name, value = line.split(":", 1)
+                headers[name.strip().casefold()] = value.strip()
+        expected = base64.b64encode(
+            hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest()
+        ).decode("ascii")
+        if headers.get("sec-websocket-accept") != expected:
+            raise CdpProbeError("CDP WebSocket handshake accept key mismatch")
+        return sock
+    except Exception:
+        sock.close()
+        raise
+
+
+def _send_frame(sock: socket.socket, payload: bytes, opcode: int = 1) -> None:
+    first = 0x80 | opcode
+    length = len(payload)
+    mask = os.urandom(4)
+    if length < 126:
+        header = bytes((first, 0x80 | length))
+    elif length < 65536:
+        header = bytes((first, 0x80 | 126)) + struct.pack("!H", length)
+    else:
+        header = bytes((first, 0x80 | 127)) + struct.pack("!Q", length)
+    masked = bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload))
+    sock.sendall(header + mask + masked)
+
+
+def _read_exact(sock: socket.socket, size: int) -> bytes:
+    chunks = bytearray()
+    while len(chunks) < size:
+        chunk = sock.recv(size - len(chunks))
+        if not chunk:
+            raise CdpProbeError("CDP WebSocket closed before response completed")
+        chunks.extend(chunk)
+    return bytes(chunks)
+
+
+def _read_text_message(sock: socket.socket, *, max_message_bytes: int = 2 * 1024 * 1024) -> str:
+    chunks = bytearray()
+    while True:
+        header = _read_exact(sock, 2)
+        opcode = header[0] & 0x0F
+        masked = bool(header[1] & 0x80)
+        length = header[1] & 0x7F
+        if length == 126:
+            length = struct.unpack("!H", _read_exact(sock, 2))[0]
+        elif length == 127:
+            length = struct.unpack("!Q", _read_exact(sock, 8))[0]
+        if length > max_message_bytes or len(chunks) + length > max_message_bytes:
+            raise CdpProbeError("CDP message exceeded 2 MiB")
+        mask = _read_exact(sock, 4) if masked else b""
+        data = _read_exact(sock, length)
+        if masked:
+            data = bytes(byte ^ mask[index % 4] for index, byte in enumerate(data))
+        if opcode == 8:
+            raise CdpProbeError("CDP WebSocket sent a close frame")
+        if opcode == 9:
+            _send_frame(sock, data, opcode=10)
+            continue
+        if opcode == 10:
+            continue
+        if opcode == 1:
+            chunks.extend(data)
+            return chunks.decode("utf-8", errors="strict")
+        if opcode == 0:
+            chunks.extend(data)
+            continue
+        raise CdpProbeError("Unsupported CDP WebSocket frame opcode")
+
+
+def _evaluate_read_only(target: CdpTarget, timeout: float) -> dict[str, Any]:
+    sock = _connect_websocket(target.websocket_url, timeout)
+    try:
+        expression = (
+            "JSON.stringify({title:String(document.title||''),"
+            "url:String(location.href||''),"
+            "readyState:String(document.readyState||''),"
+            "bodyText:String((document.body&&document.body.innerText)||'').slice(0,12000)})"
+        )
+        command = {
+            "id": 1,
+            "method": "Runtime.evaluate",
+            "params": {
+                "expression": expression,
+                "returnByValue": True,
+                "awaitPromise": True,
+                "timeout": int(timeout * 1000),
+            },
+        }
+        _send_frame(sock, json.dumps(command, separators=(",", ":")).encode("utf-8"))
+        while True:
+            message = json.loads(_read_text_message(sock))
+            if not isinstance(message, dict) or message.get("id") != 1:
+                continue
+            if "error" in message:
+                raise CdpProbeError("CDP Runtime.evaluate returned a protocol error")
+            result = message.get("result", {}).get("result", {})
+            value = result.get("value")
+            if not isinstance(value, str):
+                raise CdpProbeError("CDP returned no serializable document metadata")
+            decoded = json.loads(value)
+            if not isinstance(decoded, dict):
+                raise CdpProbeError("CDP document metadata has an invalid shape")
+            return decoded
+    except (OSError, TimeoutError, UnicodeError, json.JSONDecodeError) as exc:
+        raise CdpProbeError(f"CDP read-only probe failed ({type(exc).__name__})") from exc
+    finally:
+        sock.close()
+
+
+def probe_poi_page(
+    *,
+    endpoint: str = "http://127.0.0.1:9222",
+    title_hint: str = "poi",
+    url_hint: str = "",
+    timeout: float = 2.0,
+) -> CdpPageProbe:
+    """Probe exactly one selected Poi page without any game interaction."""
+    if timeout <= 0:
+        raise ValueError("timeout must be positive")
+    checked_at = datetime.now(timezone.utc)
+    try:
+        targets = list_page_targets(endpoint, timeout=timeout)
+        target = select_poi_renderer(targets, title_hint=title_hint, url_hint=url_hint)
+        data = _evaluate_read_only(target, timeout)
+        body_text = data.get("bodyText", "")
+        if not isinstance(body_text, str):
+            body_text = ""
+        return CdpPageProbe(
+            checked_at=checked_at,
+            target_found=True,
+            title=str(data.get("title", "")),
+            url=str(data.get("url", "")),
+            document_ready_state=str(data.get("readyState", "")),
+            error_text=body_text,
+        )
+    except (CdpDiscoveryError, CdpProbeError, OSError, TimeoutError, ValueError) as exc:
+        return CdpPageProbe(
+            checked_at=checked_at,
+            target_found=False if isinstance(exc, CdpDiscoveryError) and "found 0" in str(exc) else None,
+            title="",
+            url="",
+            document_ready_state=None,
+            error_text="",
+            probe_error=type(exc).__name__,
+        )
