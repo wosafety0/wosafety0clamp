@@ -146,12 +146,16 @@ def run_read_only_preflight(
 
         # The read callback is invoked only after the initial health gate.
         diagnostic, observation = reader._read_with_health(tracked_diagnostic)
+        report["http_diagnostic_completed"] = True
         source_event_age = (
             (datetime.now(timezone.utc) - observation.latest_valid_state_at).total_seconds()
             if observation.latest_valid_state_at is not None
             else None
         )
         source_event_fresh = source_event_age is not None and 0 <= source_event_age <= 15.0
+        if not isinstance(diagnostic, dict):
+            report["reason"] = "diagnostic_result_invalid"
+            return 2, report
         endpoints = diagnostic.get("endpoints", {})
         gates = {
             "forwarder_event_accepted": True,
