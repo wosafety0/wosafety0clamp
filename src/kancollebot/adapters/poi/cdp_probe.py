@@ -117,9 +117,18 @@ def _connect_websocket(url: str, timeout: float) -> socket.socket:
                 raise CdpProbeError("CDP WebSocket handshake contains a malformed header")
             name, value = line.split(":", 1)
             normalized_name = name.strip().casefold()
-            if not normalized_name or normalized_name in headers:
-                raise CdpProbeError("CDP WebSocket handshake contains duplicate or empty headers")
+            token_chars = "!#$%&'*+-.^_`|~"
+            if (
+                not normalized_name
+                or any(not (char.isascii() and (char.isalnum() or char in token_chars)) for char in name)
+                or normalized_name in headers
+            ):
+                raise CdpProbeError("CDP WebSocket handshake contains duplicate or invalid headers")
+            if any((ord(char) < 0x20 and char != "\\t") or ord(char) == 0x7F for char in value):
+                raise CdpProbeError("CDP WebSocket handshake contains invalid header values")
             headers[normalized_name] = value.strip()
+        if "sec-websocket-extensions" in headers or "sec-websocket-protocol" in headers:
+            raise CdpProbeError("CDP WebSocket handshake selected an unrequested extension or subprotocol")
         expected = base64.b64encode(
             hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest()
         ).decode("ascii")
