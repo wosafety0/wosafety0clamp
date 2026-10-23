@@ -1,5 +1,6 @@
 import json
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 from kancollebot.adapters.poi.cdp_probe import (
@@ -252,6 +253,26 @@ class CdpProbeTests(unittest.TestCase):
             sock = _connect_websocket("ws://127.0.0.1:9222/devtools/page/x", 0.2)
         self.assertIs(sock, fake)
         sock.close()
+
+    def test_display_url_redacts_userinfo_query_and_fragment_without_changing_identity_url(self):
+        from kancollebot.adapters.poi.cdp_probe import CdpPageProbe
+
+        raw_url = "https://user:password@example.test/game?token=secret&x=1#private"
+        probe = CdpPageProbe(
+            checked_at=datetime.now(timezone.utc),
+            target_found=True,
+            title="Poi",
+            url=raw_url,
+            document_ready_state="complete",
+            error_text="",
+        )
+        self.assertEqual(probe.url, raw_url)
+        self.assertEqual(probe.display_url, "https://example.test/game")
+
+    def test_invalid_display_url_is_safely_redacted(self):
+        from kancollebot.adapters.poi.cdp_probe import _sanitize_display_url
+
+        self.assertEqual(_sanitize_display_url("https://[invalid"), "[invalid-url]")
 
     def test_probe_rejects_url_change_after_target_discovery(self):
         target = CdpTarget("1", "Poi", "app://poi", "ws://127.0.0.1:9222/devtools/page/1")
