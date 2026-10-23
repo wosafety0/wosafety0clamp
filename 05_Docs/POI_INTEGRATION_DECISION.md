@@ -1,132 +1,97 @@
 # POI Integration Decision Record
 
-**Status:** Selected architecture; implementation gate remains open  
+**Status:** CDP-first verification selected; no live game actions enabled  
 **Date:** 2026-10-23  
-**Branch:** research/poi-plugin-bridge-20261023  
-**Scope:** Read-only game-state integration. No gameplay actions are authorized by this record.
+**Branch:** dev/expedition-mvp-cdp-first-20261023  
+**Scope:** Read-only state observation and offline expedition planning.
 
 ## Decision
 
-Use a **Poi plugin as the primary state adapter** and a **versioned, atomically written JSON snapshot file** as the initial plugin-to-Python boundary. Keep Python as the planner and automation core. Treat Chrome DevTools Protocol (CDP, currently observed at 127.0.0.1:9222) as a development diagnostic/fallback only, not as the production contract.
+First verify the existing Poi Chromium DevTools Protocol endpoint at `127.0.0.1:9222` as the lowest-cost read-only state source. Do not develop a separate Poi plugin unless testing shows a concrete blocker: unavailable state, unstable target/context behavior, unacceptable polling cost, or a clear maintenance advantage from a supported plugin API.
 
-This is a selected design direction, not a claim that the plugin bridge already works. The plugin runtime's supported access to Poi's state store and filesystem must be verified in a minimal read-only prototype before implementation is considered integrated.
+Keep the Python planner independent of the transport. The existing `PoiSnapshot` JSON parser remains useful as a normalized boundary and for fixture tests, but its presence does not mean a producer or live adapter is already integrated.
 
-## Why this direction
+This is a sequencing decision, not a claim that live CDP state reads have passed. Earlier local checks established that the endpoint and a KanColle page target were visible; a complete WebSocket request and validated state extraction still require a read-only smoke test in the user's local Poi session.
 
-1. **Fits the user's host preference:** Poi remains the running game host; no second game client is introduced.
-2. **Decouples Python from Chromium internals:** Python reads a documented file schema instead of discovering CDP targets, handling WebSocket details, or evaluating JavaScript in a renderer.
-3. **Keeps the boundary read-only:** the first adapter exports observations only. No commands, clicks, API requests, cookies, tokens, or authentication state cross the boundary.
-4. **Testable away from the game:** Python parsing, validation, stale-data checks, planning, and safety logic can use fixtures and standard-library unit tests in GitHub Actions.
-5. **Supports later replacement:** the Python adapter consumes a normalized snapshot contract; the producer can be changed without rewriting planner logic.
+## Why CDP-first
 
-## Evidence and limits
+1. **Reuse the current host:** Poi remains the game host; no second client or new plugin is introduced prematurely.
+2. **Lower initial cost:** use an existing debugging endpoint before adding plugin packaging, plugin lifecycle, and IPC/file-output concerns.
+3. **Keep the core transport-neutral:** Python planning receives normalized immutable state rather than handling CDP details directly.
+4. **Fail closed:** missing, stale, malformed, or incomplete observations must never be interpreted as permission to act.
+5. **Make the plugin decision evidence-based:** only revisit plugin development when a measurable CDP limitation appears.
 
-### Existing local evidence supplied by the user
+## Known evidence and limits
 
-The local preflight found these files under D:\Project_KancolleBot\03_Integrations\:
+### Existing local evidence
 
-- state_fetcher-PoiCDP.py: reads window.getStore() fields for fleets, ships, ship constants, and materials via CDP.
-- state_fetcher.py: contains a similar CDP state reader, mixed with explanatory text and unrelated SafetyGuard code.
-- action_utils.py: contains CDP screenshot/click helpers and hard-coded references into the prohibited legacy path D:\KancolleBot\templates\....
+The user's prior read-only preflight reported:
+- Poi's CDP endpoint on `127.0.0.1:9222` responded to `/json/version` and `/json/list`.
+- The target list included the Poi main page and a KanColle webview at `https://play.games.dmm.com/game/kancolle`.
+- Local file `03_Integrations/state_fetcher-PoiCDP.py` was described as using CDP and `window.getStore()` to read fleets, ships, ship constants, and materials.
+- A separate `action_utils.py` includes click helpers and references the prohibited legacy path `D:\KancolleBot\templates\...`; it must not be run or reused for this read-only task.
 
-The local Poi plugin directory showed installed third-party plugins, including poi-plugin-noro6-exporter and poi-plugin-forwarder. This establishes that Poi has a plugin ecosystem on the user's machine; it does **not** establish a supported API for this new plugin or prove filesystem/IPC access.
+These findings establish endpoint/target visibility and the existence of a local state-reader attempt. They do not prove that WebSocket evaluation, all requested fields, or long-running polling are reliable. No game action is permitted in this phase.
 
-### Current remote repository evidence
+### Remote implementation evidence
 
-- src/kancollebot/models.py defines immutable ShipState, FleetState, and GameSnapshot models.
-- tests/test_models.py covers basic model validation.
-- .github/workflows/tests.yml runs standard-library unit tests on Python 3.12.
-- README.md states that the game client remains local and that mock-first testing is preferred.
+- `src/kancollebot/models.py` provides immutable normalized state models.
+- `src/kancollebot/poi_snapshot.py` validates versioned JSON, timestamps, IDs, HP, and optional resource fields.
+- `src/kancollebot/expeditions/planner.py` and `rotation.py` provide offline readiness recommendations and deterministic fleet selection.
+- Tests use synthetic data and preserve Japanese names such as 「第1艦隊」 and 「吹雪」.
 
-The local project and remote repository are not structurally identical. This decision record is stored in the remote repository; it does not assert that the local files were changed or synchronized.
+Remote repository changes do not mean the local project was modified or synchronized.
 
-## Proposed data flow
+## Intended architecture
 
-    Poi plugin (read-only state access)
-            |
-            | versioned JSON snapshot; atomic replace
-            v
-    User-local state file (not committed or uploaded)
-            |
-            v
-    Python PoiSnapshotAdapter
-            |
-            v
-    Validated immutable GameSnapshot
-            |
-            v
-    Planner / simulation / safety checks
+    Existing Poi host
+        |
+        | CDP 9222, read-only observation during MVP validation
+        v
+    Read-only state adapter (transport-specific)
+        |
+        | normalized, validated snapshot
+        v
+    Python planner and fleet rotation
+        |
+        v
+    Recommendation / simulation only
 
-The initial transport is a file because it avoids introducing an always-listening local HTTP service or a new network protocol. This choice is conditional on confirming that the Poi plugin environment supports a safe, supported write path. If it does not, evaluate a loopback-only IPC/HTTP bridge as the alternative; do not silently fall back to CDP as the permanent interface.
+Keep the CDP transport at the adapter boundary. Do not place target discovery, WebSocket framing, or JavaScript snippets inside expedition business logic. Do not use CDP to click, dispatch, collect, send game API commands, or alter game state during this phase.
 
-## Snapshot contract (version 1 proposal)
+## Read-only validation requirements
 
-The producer should emit one complete JSON document and replace the previous snapshot atomically. It must not expose partial writes.
+- Discover the game target from `/json/list`; do not hard-code a changing target ID.
+- Restrict evaluation to a pure read-only expression that inspects the expected state store.
+- Never inspect, print, or persist cookies, authentication tokens, request headers, or credentials.
+- Return only fields needed by the normalized state contract; avoid dumping the entire store.
+- Validate the returned structure and timestamp; treat missing fields as unknown.
+- Distinguish endpoint reachable, target found, WebSocket connected, state store found, and schema valid. Do not collapse these into one PASS.
+- Do not invoke mouse, keyboard, click, dispatch, collect, battle, or other action methods.
+- Do not access `D:\KancolleBot\Source`.
 
-    {
-      "schema_version": 1,
-      "source": "poi-plugin",
-      "observed_at": "2026-10-23T01:00:00Z",
-      "fleets": [
-        {
-          "fleet_id": 1,
-          "name": "第1艦隊",
-          "ship_ids": [1],
-          "expedition_id": null,
-          "in_battle": false
-        }
-      ],
-      "ships": [
-        {
-          "ship_id": 1,
-          "name": "吹雪",
-          "hp": 15,
-          "max_hp": 15,
-          "condition": 49,
-          "fuel": 15,
-          "ammo": 20
-        }
-      ],
-      "materials": {
-        "fuel": 100,
-        "ammo": 100,
-        "steel": 100,
-        "bauxite": 100
-      }
-    }
+## When to reconsider a Poi plugin
 
-The numbers and values above are illustrative fixtures only, not live game data. Preserve Japanese fleet and ship names.
+Investigate a dedicated plugin only if a read-only CDP prototype demonstrates one or more concrete issues:
+- required state is inaccessible or incomplete from the page context;
+- target or context changes make polling unreliable;
+- connection overhead or reconnection behavior is unacceptable;
+- an official, supported plugin API materially improves stability and can expose state without introducing unsafe action paths.
 
-### Contract requirements
+If a plugin is later justified, keep the same versioned snapshot contract and Python planner interface. Prefer an atomic JSON snapshot only if the plugin runtime has a verified supported file-write path; otherwise evaluate a loopback-only IPC alternative.
 
-- Require schema_version, timezone-aware observed_at, fleets, and ships.
-- Reject unknown major schema versions, malformed IDs, duplicate IDs, impossible HP ranges, and invalid numeric values.
-- Treat absent optional values as unknown (null), not as zero.
-- Reject snapshots older than a configurable freshness limit before any future planner may rely on them.
-- The snapshot contains state only; never include cookies, tokens, request headers, credentials, or action commands.
-- Write to a temporary file in the same directory, flush/close it, then atomically replace the target file. The reader must handle a missing file, parse failure, and stale snapshot as explicit errors.
-- The state file stays outside Git-tracked source paths. Never commit real player state or reference-app caches.
+## Current MVP safety gates
 
-## Implementation stages
-
-1. **Remote-only now:** define the contract and implement/test the Python parser against synthetic fixtures. No Poi runtime is needed for this stage.
-2. **Minimal Poi plugin prototype:** inspect the documented plugin entry point and supported store/file APIs; export a synthetic or read-only snapshot only. Do not add gameplay controls.
-3. **Local acceptance test:** launch the plugin in the user's existing Poi instance, verify plugin loading and schema correctness, and confirm that no game action is issued.
-4. **Planner integration:** connect validated snapshots to planning/simulation only after freshness and failure behavior are tested.
-5. **Execution adapter:** keep disabled until separately reviewed and explicitly enabled with preconditions, cancellation, audit logs, and safety checks.
-
-## Acceptance gates
-
-- [ ] Plugin API and state-store access are supported by source/documentation or verified prototype evidence.
-- [ ] File output mechanism is verified in the actual Poi plugin runtime.
-- [ ] Synthetic fixture parser tests pass in GitHub Actions or a local standard-library test run.
-- [ ] Missing, stale, malformed, duplicate-ID, and unsupported-version cases fail closed.
-- [ ] A real Poi read-only smoke test confirms the schema without clicks or game API actions.
-- [ ] No secrets, real player-state snapshots, or third-party source trees enter Git history.
+- [ ] Read-only WebSocket connection to the identified KanColle target is verified locally.
+- [ ] State-store lookup and a minimal field projection are verified without invoking game actions.
+- [ ] Malformed, missing, stale, or incomplete state fails closed.
+- [ ] Offline planner and fleet-rotation unit tests pass in CI.
+- [ ] No live dispatch, collection, battle action, click automation, or API command transmission is enabled.
+- [ ] No secrets, real player-state snapshots, third-party source trees, or local caches are committed.
 
 ## Explicit non-goals
 
-- No use of D:\KancolleBot\Source.
+- No use of `D:\KancolleBot\Source`.
 - No modification of original Poi/KCA installation or cache data.
-- No game actions, click automation, dispatch, battle decisions, or API command transmission in this integration phase.
-- No claim that a plugin is installed, loaded, or connected until a real test confirms it.
+- No standalone Poi plugin unless evidence shows the CDP-first approach is insufficient.
+- No claim of local execution, local file modification, or live-state success based only on remote commits.
