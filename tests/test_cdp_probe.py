@@ -21,6 +21,51 @@ class CdpProbeTests(unittest.TestCase):
         with self.assertRaises(CdpProbeError):
             _connect_websocket("wss://127.0.0.1:9222/devtools/page/x", 0.2)
 
+    def test_websocket_handshake_requires_upgrade_headers(self):
+        import base64
+        import hashlib
+
+        class FakeSocket:
+            def __init__(self, upgrade, connection):
+                self.response = bytearray()
+                self.upgrade = upgrade
+                self.connection = connection
+                self.closed = False
+
+            def settimeout(self, timeout):
+                pass
+
+            def sendall(self, request):
+                request_text = request.decode("ascii")
+                key_line = next(line for line in request_text.split("\\r\\n") if line.startswith("Sec-WebSocket-Key:"))
+                key = key_line.split(":", 1)[1].strip()
+                accept = base64.b64encode(
+                    hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest()
+                ).decode("ascii")
+                response = (
+                    "HTTP/1.1 101 Switching Protocols\\r\\n"
+                    f"Upgrade: {self.upgrade}\\r\\n"
+                    f"Connection: {self.connection}\\r\\n"
+                    f"Sec-WebSocket-Accept: {accept}\\r\\n\\r\\n"
+                )
+                self.response.extend(response.encode("ascii"))
+
+            def recv(self, size):
+                chunk = self.response[:size]
+                del self.response[:size]
+                return bytes(chunk)
+
+            def close(self):
+                self.closed = True
+
+        for upgrade, connection in (("h2c", "Upgrade"), ("websocket", "keep-alive")):
+            fake = FakeSocket(upgrade, connection)
+            with self.subTest(upgrade=upgrade, connection=connection), \\
+                 patch("kancollebot.adapters.poi.cdp_probe.socket.create_connection", return_value=fake):
+                with self.assertRaisesRegex(CdpProbeError, "missing Upgrade headers"):
+                    _connect_websocket("ws://127.0.0.1:9222/devtools/page/x", 0.2)
+            self.assertTrue(fake.closed)
+
     def test_probe_rejects_url_change_after_target_discovery(self):
         target = CdpTarget("1", "Poi", "app://poi", "ws://127.0.0.1:9222/devtools/page/1")
         with patch("kancollebot.adapters.poi.cdp_probe.list_page_targets", return_value=(target,)), \
