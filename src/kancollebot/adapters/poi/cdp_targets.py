@@ -83,12 +83,19 @@ def _validate_websocket_url(url: str) -> str:
     return url
 
 
+class _RejectRedirects(urllib.request.HTTPRedirectHandler):
+    """Never follow DevTools redirects outside the validated loopback endpoint."""
+
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        return None
+
+
 def _get_json(url: str, timeout: float) -> Any:
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
     # Do not let environment-configured HTTP proxies intercept this loopback-only
     # request. The endpoint is local DevTools, and proxy routing would violate
     # the loopback boundary even though the URL itself was validated.
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _RejectRedirects())
     try:
         with opener.open(request, timeout=timeout) as response:
             if response.status != 200:
