@@ -37,16 +37,16 @@ class CdpProbeTests(unittest.TestCase):
 
             def sendall(self, request):
                 request_text = request.decode("ascii")
-                key_line = next(line for line in request_text.split("\\r\\n") if line.startswith("Sec-WebSocket-Key:"))
+                key_line = next(line for line in request_text.split("\r\n") if line.startswith("Sec-WebSocket-Key:"))
                 key = key_line.split(":", 1)[1].strip()
                 accept = base64.b64encode(
                     hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest()
                 ).decode("ascii")
                 response = (
-                    "HTTP/1.1 101 Switching Protocols\\r\\n"
-                    f"Upgrade: {self.upgrade}\\r\\n"
-                    f"Connection: {self.connection}\\r\\n"
-                    f"Sec-WebSocket-Accept: {accept}\\r\\n\\r\\n"
+                    "HTTP/1.1 101 Switching Protocols\r\n"
+                    f"Upgrade: {self.upgrade}\r\n"
+                    f"Connection: {self.connection}\r\n"
+                    f"Sec-WebSocket-Accept: {accept}\r\n\r\n"
                 )
                 self.response.extend(response.encode("ascii"))
 
