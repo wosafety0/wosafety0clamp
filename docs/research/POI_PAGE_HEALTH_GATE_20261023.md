@@ -18,6 +18,7 @@ The timestamp callback must report a real validated state observation (for examp
 - Accepts only credential-free `ws://` loopback endpoints from validated CDP target discovery.
 - Applies socket timeouts and a 2 MiB message limit.
 - Uses only `Runtime.evaluate` with a fixed metadata expression.
+- Redacts URL userinfo, query strings, and fragments from probe results and CLI output. A SHA-256 identity digest detects navigation changes without retaining the raw URL in the result object.
 - Ambiguous targets, protocol errors, timeouts, invalid messages, and socket closure provide no healthy evidence.
 - Page discovery and `document.readyState` alone do not establish game-state freshness.
 - The Poi webhook receiver removes URL userinfo, query strings, and fragments from HTTP(S) URLs found in KCSAPI event strings and map-resource response URLs, so URL-embedded credentials are not retained in queued events.
