@@ -276,6 +276,12 @@ class PoiRuntimeIntegrationTests(unittest.TestCase):
         self.assertFalse(report["http_reads_performed"])
         self.assertFalse(report["actions_enabled"])
 
+    def test_preflight_config_rejects_non_finite_event_timeout(self):
+        for invalid in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(timeout=repr(invalid)):
+                with self.assertRaises(ValueError):
+                    PoiPreflightConfig(event_timeout_seconds=invalid)
+
     def test_legacy_http_module_entrypoint_delegates_to_gated_runtime(self):
         from unittest.mock import patch
         from kancollebot.adapters.poi import http_read_only
