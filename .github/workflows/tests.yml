@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - dev/kcv-research-python-direction
+      - dev/expedition-mvp-cdp-first-20261023
   pull_request:
 
 jobs:
