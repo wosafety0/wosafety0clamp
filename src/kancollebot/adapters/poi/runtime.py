@@ -139,7 +139,12 @@ def run_read_only_preflight(
             tracker,
             probe_page=page_probe,
         )
-        diagnostic, observation = reader.diagnose()
+        def tracked_diagnostic():
+            report["http_reads_performed"] = True
+            return adapter.diagnose()
+
+        # The read callback is invoked only after the initial health gate.
+        diagnostic, observation = reader._read_with_health(tracked_diagnostic)
         source_event_age = (
             (datetime.now(timezone.utc) - observation.latest_valid_state_at).total_seconds()
             if observation.latest_valid_state_at is not None
