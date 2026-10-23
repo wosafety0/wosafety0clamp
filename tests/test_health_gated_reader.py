@@ -80,6 +80,47 @@ class HealthGatedReaderTests(unittest.TestCase):
             )
         self.assertEqual(events, ["probe", "read_state", "probe"])
 
+    def test_post_read_document_not_ready_withholds_payload(self):
+        events = []
+        loading = CdpPageProbe(
+            checked_at=self.now,
+            target_found=True,
+            title=self.probe.title,
+            url=self.probe.url,
+            document_ready_state="loading",
+            error_text=self.probe.error_text,
+        )
+        probes = iter((self.probe, loading))
+        with self.assertRaises(PageHealthGateError):
+            read_state_with_page_health(
+                probe_page=lambda: (events.append("probe") or next(probes)),
+                read_state=lambda: (events.append("read_state") or {"secret": "fixture"}),
+                latest_valid_state_at=lambda: self.now - timedelta(seconds=1),
+                now_provider=lambda: self.now,
+            )
+        self.assertEqual(events, ["probe", "read_state", "probe"])
+
+    def test_post_read_target_missing_withholds_payload(self):
+        events = []
+        missing = CdpPageProbe(
+            checked_at=self.now,
+            target_found=False,
+            title="",
+            url="",
+            document_ready_state=None,
+            error_text="",
+            probe_error="CdpDiscoveryError",
+        )
+        probes = iter((self.probe, missing))
+        with self.assertRaises(PageHealthGateError):
+            read_state_with_page_health(
+                probe_page=lambda: (events.append("probe") or next(probes)),
+                read_state=lambda: (events.append("read_state") or {"secret": "fixture"}),
+                latest_valid_state_at=lambda: self.now - timedelta(seconds=1),
+                now_provider=lambda: self.now,
+            )
+        self.assertEqual(events, ["probe", "read_state", "probe"])
+
     def test_connection_error_blocks_state_read(self):
         events = []
         bad_probe = CdpPageProbe(
