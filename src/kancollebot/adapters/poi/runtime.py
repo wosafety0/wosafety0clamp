@@ -117,6 +117,10 @@ def run_read_only_preflight(
             report["http_reads_performed"] = False
             return 2, report
 
+        # Preserve the completed event gate if a later CDP or HTTP check fails.
+        report["gates"]["forwarder_event_accepted"] = True
+        report["forwarder_event_accepted"] = True
+
         def page_probe():
             return probe_factory(
                 endpoint=config.cdp_endpoint,
