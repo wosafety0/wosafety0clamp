@@ -53,6 +53,16 @@ class PoiStateObservationTrackerTests(unittest.TestCase):
         self.assertTrue(self.tracker.observe_event(self.event(timestamp=older.timestamp()), now=self.now))
         self.assertEqual(self.tracker.latest_valid_state_at, newer)
 
+    def test_rejects_non_finite_and_unrepresentable_timestamps(self):
+        for value in (float("nan"), float("inf"), 10 ** 1000):
+            self.assertFalse(self.tracker.observe_event(self.event(timestamp=value), now=self.now))
+        self.assertIsNone(self.tracker.latest_valid_state_at)
+
+    def test_rejects_non_finite_age_limit(self):
+        for value in (float("nan"), float("inf")):
+            with self.assertRaises(ValueError):
+                PoiStateObservationTracker(max_age_seconds=value)
+
     def test_naive_now_is_rejected(self):
         with self.assertRaises(ValueError):
             self.tracker.observe_event(self.event(), now=datetime(2026, 10, 23, 12, 0))
