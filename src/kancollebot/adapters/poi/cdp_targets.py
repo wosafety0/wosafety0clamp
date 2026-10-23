@@ -34,8 +34,6 @@ class CdpTarget:
 def _validate_loopback_http_url(url: str) -> str:
     if any(ord(char) <= 0x20 or ord(char) == 0x7F for char in url):
         raise ValueError("CDP endpoint URL contains whitespace or control characters")
-    if any(ord(char) <= 0x20 or ord(char) == 0x7F for char in url):
-        raise ValueError("CDP endpoint URL contains whitespace or control characters")
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme != "http" or not parsed.hostname:
         raise ValueError("CDP endpoint must be an absolute HTTP URL")
@@ -62,8 +60,6 @@ def _validate_loopback_http_url(url: str) -> str:
 
 
 def _validate_websocket_url(url: str) -> str:
-    if any(ord(char) <= 0x20 or ord(char) == 0x7F for char in url):
-        raise CdpDiscoveryError("Debugger WebSocket URL contains whitespace or control characters")
     if any(ord(char) <= 0x20 or ord(char) == 0x7F for char in url):
         raise CdpDiscoveryError("Debugger WebSocket URL contains whitespace or control characters")
     parsed = urllib.parse.urlsplit(url)
