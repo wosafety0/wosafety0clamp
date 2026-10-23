@@ -231,7 +231,7 @@ class CdpProbeTests(unittest.TestCase):
     def test_websocket_handshake_allows_horizontal_tab_in_header_value(self):
         fake = self._make_handshake_fake(
             "HTTP/1.1 101 Switching Protocols",
-            "X-Test: left\\tright\\r\\n",
+            "X-Test: left\tright\r\n",
         )
         with patch(
             "kancollebot.adapters.poi.cdp_probe.socket.create_connection",
