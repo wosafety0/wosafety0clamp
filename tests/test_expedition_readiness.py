@@ -57,5 +57,48 @@ class ExpeditionReadinessTests(unittest.TestCase):
         self.assertFalse(result.candidate_ship_ids)
 
 
+    def test_drum_mission_stays_blocked_without_known_drum_model(self):
+        ships = [
+            CandidateShip(20, "CL", 20, True, False, False),
+            CandidateShip(21, "DD", 20, True, False, False),
+            CandidateShip(22, "DD", 20, True, False, False),
+            CandidateShip(23, "DD", 20, True, False, False),
+            CandidateShip(24, "DD", 20, True, False, False),
+        ]
+        result = assess_expedition_readiness(
+            self.rules, 21, ships, [], live_state_fresh=True,
+            morale_verified=True, special_requirements_verified=True,
+        )
+        drum_gate = next(g for g in result.gates if g.name == "drum_requirements")
+        self.assertFalse(drum_gate.passed)
+        self.assertFalse(result.ready_for_review)
+        self.assertFalse(result.dispatch_authorized)
+
+    def test_drum_slots_do_not_prove_carrier_compatibility(self):
+        ships = [
+            CandidateShip(20, "CL", 20, True, False, False),
+            CandidateShip(21, "DD", 20, True, False, False),
+            CandidateShip(22, "DD", 20, True, False, False),
+            CandidateShip(23, "DD", 20, True, False, False),
+            CandidateShip(24, "DD", 20, True, False, False),
+        ]
+        slots = [
+            EquipmentSlotRequirement(21, 0, 44),
+            EquipmentSlotRequirement(22, 0, 44),
+            EquipmentSlotRequirement(23, 0, 44),
+            EquipmentSlotRequirement(24, 0, 44),
+        ]
+        result = assess_expedition_readiness(
+            self.rules, 21, ships,
+            [EquipmentInstance(100 + i, 44, 0) for i in range(4)],
+            slots, drum_model_id=44, live_state_fresh=True,
+            morale_verified=True, special_requirements_verified=True,
+        )
+        drum_gate = next(g for g in result.gates if g.name == "drum_requirements")
+        self.assertFalse(drum_gate.passed)
+        self.assertFalse(result.dispatch_authorized)
+
+
+
 if __name__ == "__main__":
     unittest.main()
