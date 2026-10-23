@@ -65,10 +65,14 @@ def _connect_websocket(url: str, timeout: float) -> socket.socket:
     path = parsed.path or "/"
     if parsed.query:
         path += "?" + parsed.query
+    # Resolve the special localhost name to an IP literal ourselves rather
+    # than allowing socket.create_connection to consult a potentially modified
+    # hosts file or resolver configuration.
+    connect_host = "127.0.0.1" if parsed.hostname.casefold() == "localhost" else parsed.hostname
     key = base64.b64encode(os.urandom(16)).decode("ascii")
-    sock = socket.create_connection((parsed.hostname, port), timeout=timeout)
+    sock = socket.create_connection((connect_host, port), timeout=timeout)
     sock.settimeout(timeout)
-    host = f"[{parsed.hostname}]:{port}" if ":" in parsed.hostname else f"{parsed.hostname}:{port}"
+    host = f"[{connect_host}]:{port}" if ":" in connect_host else f"{connect_host}:{port}"
     request = (
         f"GET {path} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\n"
         f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
