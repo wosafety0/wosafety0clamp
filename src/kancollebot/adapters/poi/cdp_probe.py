@@ -33,6 +33,19 @@ class CdpProbeError(RuntimeError):
     """Raised when a read-only CDP probe cannot be completed safely."""
 
 
+def _normalize_timeout(timeout: Any) -> float:
+    """Validate timeout inputs without leaking OverflowError for huge integers."""
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+        raise ValueError("timeout must be finite and positive")
+    try:
+        normalized = float(timeout)
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise ValueError("timeout must be finite and positive") from exc
+    if not math.isfinite(normalized) or normalized <= 0:
+        raise ValueError("timeout must be finite and positive")
+    return normalized
+
+
 @dataclass(frozen=True, slots=True)
 class CdpPageProbe:
     checked_at: datetime
@@ -45,13 +58,7 @@ class CdpPageProbe:
 
 
 def _connect_websocket(url: str, timeout: float) -> socket.socket:
-    if (
-        isinstance(timeout, bool)
-        or not isinstance(timeout, (int, float))
-        or not math.isfinite(timeout)
-        or timeout <= 0
-    ):
-        raise ValueError("timeout must be finite and positive")
+    timeout = _normalize_timeout(timeout)
     if any(ord(char) < 0x20 or ord(char) == 0x7F for char in url):
         raise CdpProbeError("CDP WebSocket URL contains control characters")
     parsed = urllib.parse.urlsplit(url)
@@ -242,13 +249,7 @@ def _read_text_message(
 
 
 def _evaluate_read_only(target: CdpTarget, timeout: float) -> dict[str, Any]:
-    if (
-        isinstance(timeout, bool)
-        or not isinstance(timeout, (int, float))
-        or not math.isfinite(timeout)
-        or timeout <= 0
-    ):
-        raise ValueError("timeout must be finite and positive")
+    timeout = _normalize_timeout(timeout)
     sock = _connect_websocket(target.websocket_url, timeout)
     try:
         expression = (
@@ -306,13 +307,7 @@ def probe_poi_page(
     timeout: float = 2.0,
 ) -> CdpPageProbe:
     """Probe exactly one selected Poi page without any game interaction."""
-    if (
-        isinstance(timeout, bool)
-        or not isinstance(timeout, (int, float))
-        or not math.isfinite(timeout)
-        or timeout <= 0
-    ):
-        raise ValueError("timeout must be finite and positive")
+    timeout = _normalize_timeout(timeout)
     checked_at = datetime.now(timezone.utc)
     try:
         targets = list_page_targets(endpoint, timeout=timeout)
