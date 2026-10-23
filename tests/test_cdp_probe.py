@@ -6,6 +6,7 @@ from kancollebot.adapters.poi.cdp_probe import (
     CdpProbeError,
     _connect_websocket,
     _evaluate_read_only,
+    _read_text_message,
     probe_poi_page,
 )
 from kancollebot.adapters.poi.cdp_targets import CdpTarget
@@ -40,6 +41,47 @@ class CdpProbeTests(unittest.TestCase):
             probe = probe_poi_page(title_hint="poi")
         self.assertIsNone(probe.target_found)
         self.assertEqual(probe.probe_error, "CdpProbeError")
+
+    def test_fragmented_text_message_is_reassembled(self):
+        class FakeSocket:
+            def __init__(self, data):
+                self.data = bytearray(data)
+
+            def recv(self, size):
+                chunk = self.data[:size]
+                del self.data[:size]
+                return bytes(chunk)
+
+        fake = FakeSocket(b"\\x01\\x01a\\x80\\x01b")
+        self.assertEqual(_read_text_message(fake), "ab")
+
+    def test_unexpected_continuation_frame_is_rejected(self):
+        class FakeSocket:
+            def __init__(self, data):
+                self.data = bytearray(data)
+
+            def recv(self, size):
+                chunk = self.data[:size]
+                del self.data[:size]
+                return bytes(chunk)
+
+        fake = FakeSocket(b"\\x80\\x01x")
+        with self.assertRaises(CdpProbeError):
+            _read_text_message(fake)
+
+    def test_reserved_websocket_frame_bits_are_rejected(self):
+        class FakeSocket:
+            def __init__(self, data):
+                self.data = bytearray(data)
+
+            def recv(self, size):
+                chunk = self.data[:size]
+                del self.data[:size]
+                return bytes(chunk)
+
+        fake = FakeSocket(b"\\xC1\\x01x")
+        with self.assertRaises(CdpProbeError):
+            _read_text_message(fake)
 
     def test_read_only_runtime_evaluation_with_mocked_socket(self):
         class FakeSocket:
