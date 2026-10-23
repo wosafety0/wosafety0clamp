@@ -60,6 +60,31 @@ class HealthGatedReaderTests(unittest.TestCase):
             )
         self.assertEqual(events, ["probe", "read_state", "probe"])
 
+    def test_query_only_navigation_during_read_blocks_payload(self):
+        events = []
+        first = CdpPageProbe(
+            checked_at=self.now, target_found=True, title=self.probe.title,
+            url="https://example.test/game?view=one",
+            document_ready_state="complete", error_text="",
+        )
+        changed = CdpPageProbe(
+            checked_at=self.now, target_found=True, title=self.probe.title,
+            url="https://example.test/game?view=two",
+            document_ready_state="complete", error_text="",
+        )
+        self.assertEqual(first.url, changed.url)
+        self.assertNotEqual(first.url_identity, changed.url_identity)
+        probes = iter((first, changed))
+        with self.assertRaisesRegex(PageHealthGateError, "renderer_identity_changed"):
+            read_state_with_page_health(
+                probe_page=lambda: (events.append("probe") or next(probes)),
+                read_state=lambda: (events.append("read_state") or {"fixture": True}),
+                latest_valid_state_at=lambda: self.now - timedelta(seconds=1),
+                now_provider=lambda: self.now,
+            )
+        self.assertEqual(events, ["probe", "read_state", "probe"])
+        self.assertNotIn("view=", first.url)
+
     def test_post_read_connection_error_withholds_payload(self):
         events = []
         failed = CdpPageProbe(
