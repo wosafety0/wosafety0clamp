@@ -14,6 +14,7 @@ import json
 import os
 import socket
 import struct
+import time
 import urllib.parse
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -133,9 +134,14 @@ def _send_frame(sock: socket.socket, payload: bytes, opcode: int = 1) -> None:
     sock.sendall(header + mask + masked)
 
 
-def _read_exact(sock: socket.socket, size: int) -> bytes:
+def _read_exact(sock: socket.socket, size: int, *, deadline: float | None = None) -> bytes:
     chunks = bytearray()
     while len(chunks) < size:
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise CdpProbeError("CDP WebSocket response deadline exceeded")
+            sock.settimeout(remaining)
         chunk = sock.recv(size - len(chunks))
         if not chunk:
             raise CdpProbeError("CDP WebSocket closed before response completed")
@@ -143,11 +149,16 @@ def _read_exact(sock: socket.socket, size: int) -> bytes:
     return bytes(chunks)
 
 
-def _read_text_message(sock: socket.socket, *, max_message_bytes: int = 2 * 1024 * 1024) -> str:
+def _read_text_message(
+    sock: socket.socket,
+    *,
+    max_message_bytes: int = 2 * 1024 * 1024,
+    deadline: float | None = None,
+) -> str:
     chunks = bytearray()
     fragmented = False
     while True:
-        header = _read_exact(sock, 2)
+        header = _read_exact(sock, 2, deadline=deadline)
         fin = bool(header[0] & 0x80)
         opcode = header[0] & 0x0F
         masked = bool(header[1] & 0x80)
@@ -157,11 +168,11 @@ def _read_text_message(sock: socket.socket, *, max_message_bytes: int = 2 * 1024
         if masked:
             raise CdpProbeError("CDP server-to-client frames must not be masked")
         if length == 126:
-            length = struct.unpack("!H", _read_exact(sock, 2))[0]
+            length = struct.unpack("!H", _read_exact(sock, 2, deadline=deadline))[0]
             if length < 126:
                 raise CdpProbeError("CDP WebSocket frame uses a non-minimal length")
         elif length == 127:
-            length = struct.unpack("!Q", _read_exact(sock, 8))[0]
+            length = struct.unpack("!Q", _read_exact(sock, 8, deadline=deadline))[0]
             if length < 65536 or length & (1 << 63):
                 raise CdpProbeError("CDP WebSocket frame has an invalid extended length")
         is_control = opcode >= 8
@@ -169,8 +180,8 @@ def _read_text_message(sock: socket.socket, *, max_message_bytes: int = 2 * 1024
             raise CdpProbeError("CDP WebSocket control frame is malformed")
         if length > max_message_bytes or len(chunks) + length > max_message_bytes:
             raise CdpProbeError("CDP message exceeded 2 MiB")
-        mask = _read_exact(sock, 4) if masked else b""
-        data = _read_exact(sock, length)
+        mask = _read_exact(sock, 4, deadline=deadline) if masked else b""
+        data = _read_exact(sock, length, deadline=deadline)
         if masked:
             data = bytes(byte ^ mask[index % 4] for index, byte in enumerate(data))
         if opcode == 8:
@@ -218,8 +229,13 @@ def _evaluate_read_only(target: CdpTarget, timeout: float) -> dict[str, Any]:
             },
         }
         _send_frame(sock, json.dumps(command, separators=(",", ":")).encode("utf-8"))
+        deadline = time.monotonic() + timeout
         while True:
-            message = json.loads(_read_text_message(sock))
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise CdpProbeError("CDP Runtime.evaluate response deadline exceeded")
+            sock.settimeout(remaining)
+            message = json.loads(_read_text_message(sock, deadline=deadline))
             if not isinstance(message, dict) or message.get("id") != 1:
                 continue
             if "error" in message:
