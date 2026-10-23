@@ -1,30 +1,21 @@
-# POI Page Health Gate — Initial Offline Test Stage
+# POI Page Health Gate — CDP Probe Stage
 
 ## Scope
 
-This stage adds a loopback-only Chromium DevTools target-discovery helper and a pure, fail-closed page-health policy. It does not connect to the DevTools WebSocket, evaluate the live document, read live Redux state, or perform gameplay actions.
+Adds a standard-library-only, loopback-restricted CDP WebSocket probe. It selects exactly one Poi renderer target and evaluates read-only document metadata: title, URL, document readiness, and a bounded body-text sample. It does not click, reload, call game APIs, or read/write Redux state.
 
-## Health policy
+## Security and failure behavior
 
-A page is considered healthy only when all of these are explicitly supplied and valid:
+- Accepts only credential-free `ws://` loopback endpoints from validated CDP target discovery.
+- Applies socket timeouts and a 2 MiB frame limit.
+- Uses only `Runtime.evaluate` with a fixed metadata expression.
+- Ambiguous targets, protocol errors, timeouts, invalid messages, and socket closure return no healthy evidence.
+- Error-page markers can be passed to the page-health policy; target discovery and document readiness alone do not establish state freshness.
 
-- A unique, verified Poi renderer target (target discovery must reject ambiguous matches).
-- A fresh probe timestamp.
-- Document readiness equal to `complete`.
-- No recognized Chromium connection-error marker in the title, URL, or supplied error text.
-- A fresh, timezone-aware valid game-state observation.
-- If a connection failure was recorded, the state observation timestamp must be strictly later than that failure.
+## Test limits
 
-Missing evidence is `UNKNOWN`, not healthy. A detected connection failure or missing target is `UNHEALTHY`. Both block the gate.
-
-## Limits
-
-The current page-health module is policy-only. It cannot detect a real `ERR_CONNECTION_CLOSED` until a CDP/runtime probe supplies evidence. Target discovery alone is not page-health verification. The next stage must implement the CDP probe with strict loopback validation and offline tests for protocol errors/timeouts before it can be used as a live health check.
-
-## Test coverage
-
-Offline unit tests cover connection-error markers, missing probes/targets, loading documents, stale/future observations, recovery requiring a post-failure state timestamp, and fail-closed gating. They do not constitute validation against a live Poi instance.
+Tests mock the CDP socket and verify the command shape and loopback restriction. They are offline tests, not a live Poi validation. The policy still requires a separately timestamped valid state observation, and a post-failure fresh observation is required after a connection error.
 
 ## Safety
 
-No game commands, clicks, page reloads, or live requests are issued by these modules. Real gameplay remains disabled.
+This probe is read-only. No real game actions are enabled.
