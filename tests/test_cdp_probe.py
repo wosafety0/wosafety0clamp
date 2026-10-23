@@ -29,6 +29,27 @@ class CdpProbeTests(unittest.TestCase):
                         _connect_websocket("ws://127.0.0.1:9222/devtools/page/x", timeout)
                     connect.assert_not_called()
 
+    def test_invalid_probe_timeout_types_rejected_before_network(self):
+        target = CdpTarget(
+            "1", "Poi", "app://poi", "ws://127.0.0.1:9222/devtools/page/1"
+        )
+        for timeout in (True, False, None, "1", [], {}, complex(1, 0)):
+            with self.subTest(timeout=timeout):
+                with patch(
+                    "kancollebot.adapters.poi.cdp_probe.socket.create_connection"
+                ) as connect:
+                    with self.assertRaisesRegex(ValueError, "finite and positive"):
+                        _connect_websocket(target.websocket_url, timeout)
+                    with self.assertRaisesRegex(ValueError, "finite and positive"):
+                        _evaluate_read_only(target, timeout)
+                    connect.assert_not_called()
+                with patch(
+                    "kancollebot.adapters.poi.cdp_probe.list_page_targets"
+                ) as discover:
+                    with self.assertRaisesRegex(ValueError, "finite and positive"):
+                        probe_poi_page(timeout=timeout)
+                    discover.assert_not_called()
+
     def test_invalid_message_size_limit_rejected(self):
         class FakeSocket:
             def recv(self, size):
