@@ -64,7 +64,7 @@ class FakeClient:
         self.initialize_calls = 0
 
     def health(self):
-        return {"status": "ok", "storeReady": self.store_ready}
+        return {"name": "poi-nanodesu-mcp", "status": "ok", "storeReady": self.store_ready}
 
     def initialize(self):
         self.initialize_calls += 1
@@ -118,6 +118,20 @@ class PoiExpeditionReaderTests(unittest.TestCase):
 
         with self.assertRaisesRegex(PoiMcpError, "normalization failed closed"):
             reader.read_fleets()
+
+    def test_wrong_bridge_identity_stops_before_mcp_initialization(self):
+        class WrongIdentityClient(FakeClient):
+            def health(self):
+                return {"name": "another-service", "status": "ok", "storeReady": True}
+
+        client = WrongIdentityClient()
+        reader = PoiExpeditionReader(client=client, clock=lambda: NOW)
+
+        with self.assertRaisesRegex(PoiMcpError, "identity"):
+            reader.read_fleets()
+
+        self.assertEqual(client.initialize_calls, 0)
+        self.assertEqual(client.calls, [])
 
     def test_store_not_ready_stops_before_mcp_initialization(self):
         client = FakeClient(store_ready=False)
