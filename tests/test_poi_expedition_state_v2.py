@@ -10,6 +10,16 @@ class PoiStateV2Tests(unittest.TestCase):
         self.assertEqual(state.payload[0].mission_id, 2)
         self.assertIsNone(state.payload[0].return_at)
 
+    def test_boolean_max_hp_is_rejected(self):
+        with self.assertRaisesRegex(PoiStateError, "unknown HP fields"):
+            normalize_poi_fleets(
+                [{"api_id": 1, "api_ship": [101], "api_mission": [0, 0, 0, 0]}],
+                {"101": {"api_ship_id": 11, "api_nowhp": 1, "api_maxhp": True,
+                         "api_fuel": 10, "api_bull": 10}},
+                {"11": {"api_fuel": 10, "api_bull": 10}},
+                observed_at=NOW,
+            )
+
     def test_out_of_range_hp_is_rejected(self):
         for current_hp in (-1, 11):
             with self.subTest(current_hp=current_hp):
