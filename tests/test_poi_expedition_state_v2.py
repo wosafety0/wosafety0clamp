@@ -10,6 +10,25 @@ class PoiStateV2Tests(unittest.TestCase):
         self.assertEqual(state.payload[0].mission_id, 2)
         self.assertIsNone(state.payload[0].return_at)
 
+    def test_missing_mission_data_is_rejected(self):
+        with self.assertRaisesRegex(PoiStateError, "api_mission has an unknown shape"):
+            normalize_poi_fleets(
+                [{"api_id": 1, "api_ship": [101]}],
+                {"101": {"api_ship_id": 11, "api_nowhp": 10, "api_maxhp": 10,
+                         "api_fuel": 10, "api_bull": 10}},
+                {"11": {"api_fuel": 10, "api_bull": 10}},
+                observed_at=NOW,
+            )
+
+    def test_missing_fleet_id_is_rejected(self):
+        with self.assertRaisesRegex(PoiStateError, "missing api_id"):
+            normalize_poi_fleets(
+                [{"api_ship": [], "api_mission": [0, 0, 0, 0]}],
+                {},
+                {},
+                observed_at=NOW,
+            )
+
     def test_boolean_max_hp_is_rejected(self):
         with self.assertRaisesRegex(PoiStateError, "unknown HP fields"):
             normalize_poi_fleets(
