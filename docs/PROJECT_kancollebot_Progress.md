@@ -297,3 +297,14 @@
 - GitHub reports the failed check as job `test` with two annotations, but the available log/annotation retrieval paths did not expose the failure details in this session. Root cause is therefore **UNKNOWN**; do not claim tests pass.
 - The branch head at the time of this note is `c07c4790aff7e52e8063fec5f91c8096edbe4dd2`. The source and test files were successfully written remotely and fetched back, but require CI failure diagnosis before the implementation can be accepted.
 - Next: retrieve the two check annotations or job logs through a supported GitHub endpoint, identify the exact failing assertion/import/test, make a minimal fix, then confirm a green CI run. Do not run live dispatch. Local runtime verification of the modified reader, login-state proof, freshness proof, and end-to-end expedition closure remain outstanding.
+
+
+### 2026-10-24 CI failure retrieval attempt (follow-up)
+
+- Re-queried both failed workflow jobs via the GitHub Actions job-summary endpoint:
+  - Run `40069110427`, job `120798507550`: `conclusion=failure`; step-summary endpoint returned an empty list.
+  - Run `40069142123`, job `120798593159`: `conclusion=failure`; step-summary endpoint returned an empty list.
+- The job-list endpoint confirms both runs contain a single failed `test` job, but the connector returns `steps=null`; the step-summary wrapper also returns `steps=[]`. Job-log download previously returned `BlobNotFound`, and the annotations endpoint was rejected by the connector URL allowlist. Thus no failing step name, traceback, annotation text, or assertion has been retrieved.
+- Re-read the remote reader and test source for static inspection. No uniquely proven CI root cause emerged from this review; any code edit now would be speculative. **CI remains FAIL / root cause UNKNOWN.** No rerun was triggered to avoid spending Actions minutes without a diagnosis.
+- Next: obtain the run's failing annotation/log through a supported route, then make the smallest evidence-based fix and verify one CI run. Until then, the targeted lookup reader remains unaccepted for CI despite the successful separate local lookup smoke test.
+- No source or test code was modified in this follow-up. This entry records a remote documentation update only; it does not synchronize the local working tree. Live game actions remain disabled.
