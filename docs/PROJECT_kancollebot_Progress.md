@@ -38,3 +38,43 @@
 4. 在证据不足处对照 KCA，明确标记 KCV 已证实、KCA 独有或自研策略。
 5. 验证 POI 实际支持的状态读取方式。
 6. 扩展纯 Python 状态模型、策略函数和离线模拟测试；真实操作默认关闭。
+
+## 2026-10-24 — POI Nanodesu MCP 静态契约复核
+
+### 本次检查范围
+
+- GitHub 分支：`dev/expedition-closed-loop-mvp`。
+- 检查文件：`src/kancollebot/adapters/poi/mcp_client.py`、`expedition_reader.py`、`expedition_state_v2.py`、`src/kancollebot/expeditions/runner.py`、`tools/verify_poi_bridge.py` 及相关离线测试。
+- Nanodesu 插件的 `index.ts`、`server.ts`、`tools.ts`、`query.ts`、`serialize.ts`、`paths.ts` 是在本次对话中由用户提供的源码片段；结论属于静态源码分析，不是本机运行结果。
+
+### 已确认
+
+- MCP 客户端默认连接 `http://127.0.0.1:12450/mcp`，默认拒绝非 loopback 主机，只允许调用 `poi_describe`、`poi_get`、`poi_lookup`；写入工具 `poi_hensei_save` 不在允许列表中。
+- 客户端使用标准库，设置超时和响应大小上限；读取器要求 health 返回 `status == "ok"` 且 `storeReady is True`，随后检查必要工具是否存在。
+- Nanodesu 查询层的集合结果结构（`kind`、`items`、`total`、`returned`、`truncated`）与读取器预期的数组/对象映射封装基本一致。序列化层在因字节上限丢弃条目时会设置截断标志，读取器会拒绝明确标记为截断的数据。
+- 状态归一化要求 `info.fleets` 为数组，`info.ships` 和 `const.$ships` 为数字 ID 键对象；会拒绝缺失舰船、缺失主数据、异常 HP 和未知任务数组形状。
+- 任务返回时间未被猜测；`return_at` 仍为 `None`。这是保守处理，不代表已具备准确的远征完成时间预测。
+- `runner.py` 具备安全策略前置检查、重复尝试拦截、可选持久化 journal，以及派遣后的二次读取确认；适配器调用成功本身不会被直接当成服务器已接受。
+
+### 发现的验证缺口与待处理项
+
+1. **只读验证器覆盖不足：** `tools/verify_poi_bridge.py` 的 Nanodesu 路径目前探测 `info.fleets` 和 `info.ships`，没有探测读取器必需的 `const.$ships`。因此验证器报告成功也不能证明 `PoiExpeditionReader.read_fleets()` 所需的三条路径都可用。后续应补充该路径的结构摘要与离线测试。
+2. **端点校验不一致：** `verify_poi_bridge.py` 会拒绝 URL 内嵌用户名/密码；`PoiMcpClient.__init__()` 当前没有相同检查。建议统一策略，在 MCP 客户端构造时也拒绝 URL 凭据。
+3. **本地时间戳不等于游戏数据新鲜度：** `ObservedState.observed_at` 是读取时生成的观察时间。即使每次读取时间更新，也不能单凭它证明 POI Redux 数据来自当前登录会话或刚发生的游戏状态变化。必须独立验证登录/母港证据及状态刷新信号；未验证时禁止真实派遣。
+4. **测试证据有限：** 现有状态归一化测试使用合成 payload；它们验证代码路径，不证明真实 POI 数据字段或插件版本兼容性。
+5. **任务时间字段仍待证据：** `api_mission` 的任务 ID 解析有合成测试支持，但任务时间槽位与单位尚未通过当前版本的真实数据确认，不能据此推算 `return_at`。
+
+### 当前结论
+
+- **静态接口契约：基本匹配，尚有验证器覆盖与 URL 凭据校验改进项。**
+- **离线测试：只能证明合成数据和模拟协议行为。**
+- **Windows / Poi 12.0.1 运行时兼容、真实舰队 payload、登录有效性和数据新鲜度：尚未验证。**
+- 本次检查未发起本机 MCP 请求、未执行游戏操作、未安装插件、未修改本地文件。此文档更新只代表远程 GitHub 文档写入，不代表本地同步。
+
+### 下一步
+
+1. 修正 Nanodesu 只读验证器：增加 `const.$ships` 探测，并测试缺失/错误形状。
+2. 统一 MCP 客户端和验证器的 URL 凭据拒绝规则，增加离线测试。
+3. 运行 GitHub Actions，记录对应提交的实际 CI 结果。
+4. 在用户现有 Poi 实例上进行只读预检；确认目标插件、端口和健康状态后，再由用户授权执行本机只读探测。
+5. 捕获最小化且脱敏的真实 payload，验证三条路径、字段形状和数据刷新；在这些证据成立前，真实游戏派遣保持关闭。
