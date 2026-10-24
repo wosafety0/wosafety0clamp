@@ -7,7 +7,7 @@ explicit reconciliation transitions the record out of an unresolved state.
 from __future__ import annotations
 
 import sqlite3
-from contextlib import closing
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,8 +21,7 @@ class ExpeditionActionJournal:
 
     def __init__(self, path: str | Path) -> None:
         self.path = str(path)
-        with closing(self._connect()) as db:
-            with db:
+        with self._connection() as db:
             db.execute(
                 """CREATE TABLE IF NOT EXISTS expedition_actions (
                     action_key TEXT PRIMARY KEY,
@@ -40,6 +39,15 @@ class ExpeditionActionJournal:
         db.execute("PRAGMA busy_timeout = 5000")
         return db
 
+    @contextmanager
+    def _connection(self):
+        db = self._connect()
+        try:
+            with db:
+                yield db
+        finally:
+            db.close()
+
     @staticmethod
     def make_key(fleet_id: int, mission_id: int, observed_at: datetime) -> str:
         if fleet_id < 1 or mission_id < 1:
@@ -52,7 +60,7 @@ class ExpeditionActionJournal:
         """Atomically reserve an observation; returns False for any prior record."""
         key = self.make_key(fleet_id, mission_id, observed_at)
         now = datetime.now(timezone.utc).isoformat()
-        with self._connect() as db:
+        with self._connection() as db:
             db.execute("BEGIN IMMEDIATE")
             unresolved = db.execute(
                 """SELECT 1 FROM expedition_actions
@@ -81,7 +89,7 @@ class ExpeditionActionJournal:
             raise ValueError("detail must not be empty")
         key = self.make_key(fleet_id, mission_id, observed_at)
         now = datetime.now(timezone.utc).isoformat()
-        with self._connect() as db:
+        with self._connection() as db:
             cursor = db.execute(
                 """UPDATE expedition_actions SET state = ?, detail = ?, updated_at = ?
                    WHERE action_key = ?""",
@@ -92,7 +100,7 @@ class ExpeditionActionJournal:
 
     def get(self, fleet_id: int, mission_id: int, observed_at: datetime):
         key = self.make_key(fleet_id, mission_id, observed_at)
-        with self._connect() as db:
+        with self._connection() as db:
             row = db.execute(
                 "SELECT state, detail, updated_at FROM expedition_actions WHERE action_key = ?",
                 (key,),
