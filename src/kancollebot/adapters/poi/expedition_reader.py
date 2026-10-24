@@ -57,6 +57,8 @@ class PoiExpeditionReader:
 
     def _ensure_ready(self) -> None:
         health = self._client.health()
+        if health.get("name") != "poi-nanodesu-mcp":
+            raise PoiMcpError("Poi bridge identity is not poi-nanodesu-mcp")
         if health.get("status") != "ok" or health.get("storeReady") is not True:
             raise PoiMcpError("Poi bridge is unhealthy or its Redux store is not ready")
         if not self._initialized:
