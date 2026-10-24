@@ -418,3 +418,11 @@
 - The candidate does not contain `05_Docs\PROJECT_RULES.md`. This is consistent with a differently structured historical GitHub sync copy; it does not satisfy the local project rule-file requirement by itself.
 - Next: inspect Git branch/status and commit identity read-only, and check only root/docs for any candidate rules file. Do not reveal credentials from remote configuration, read source files, modify files, run tests, or access `D:\KancolleBot\Source` before resolving the applicable rules.
 - No local modifications, network requests, game actions, or test execution occurred. This is a remote progress-doc update only; live dispatch remains disabled.
+
+
+### 2026-10-24 Next preflight authorized: candidate Git metadata and rules-name discovery
+
+- User authorized continuation with `1`.
+- Next local step is metadata-only inspection of the historical sync candidate: Git top-level, current branch, short worktree status, HEAD hash/subject, remote names only (no remote URLs), and immediate root/docs filenames matching rule-related names.
+- No source content is to be read, no tests run, no network operations, and no changes made. If a plausible rule file is found, read and validate it before proceeding to tests or code changes. If none is found, pause and ask for the authoritative rules location rather than assuming the remote progress document substitutes for local project rules.
+- Live expedition dispatch remains disabled. This plan note is a remote documentation update only.
