@@ -345,3 +345,13 @@
 - Workflow configuration remains ordinary `ubuntu-latest` with checkout, Python 3.12 setup, compileall, and unittest steps. No Python step has been shown to execute in these failed runs.
 - Conclusion: a repository/account/Actions runner-start restriction or infrastructure problem is now a stronger lead than a code-level test failure. Exact cause remains **UNKNOWN** because check annotations and logs are still inaccessible through the available read-only connector routes. Do not assert that billing/budget is the cause without a GitHub UI message.
 - Decision: do not edit application code or trigger another run. Inspect the latest run's UI annotations and repository/account Actions usage/billing restrictions before retrying. This is a remote documentation update only; no local sync, source modification, workflow rerun, game action, or system/proxy change was performed.
+
+### 2026-10-24 CI runner allocation comparison (attempt 6)
+
+- Compared raw job metadata from recent failing run [40071865003](https://github.com/wosafety0/KancolleBot/actions/runs/40071865003) with earlier successful runs.
+- Latest failing job 120806843621 completed in about three seconds with conclusion=failure, runner_id=0, empty runner_name, and steps=[].
+- Earlier successful run [40067331235](https://github.com/wosafety0/KancolleBot/actions/runs/40067331235) used runner_id=1000001830 and executed the normal sequence: Set up job, checkout, Python setup, compileall, unit tests, and cleanup. Another successful run [40066923707](https://github.com/wosafety0/KancolleBot/actions/runs/40066923707) used runner 1000001811 and completed all five main steps.
+- This comparison strengthens the conclusion that recent failures occur before runner allocation/step execution, rather than showing a Python test regression. It still does not identify the exact platform error or prove a billing/budget cause.
+- CI configuration is unchanged: ubuntu-latest, Python 3.12, compileall, then unittest. No source-level fix is justified by the currently available failure evidence.
+- Decision: keep application source/tests unchanged and do not trigger further Actions runs until the GitHub UI exposes the job-level failure message or Actions service/account restrictions are verified.
+- This entry is a remote progress-document update only. No local worktree synchronization, source edit, workflow rerun, live game action, or system/proxy modification was performed.
