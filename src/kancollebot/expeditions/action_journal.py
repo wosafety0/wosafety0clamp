@@ -1,8 +1,8 @@
 """Durable action journal for at-most-once expedition dispatch attempts.
 
 The journal records intent and outcome locally. It does not send game actions.
-Ambiguous or unfinished records remain blocked until a fresh observation
-explicitly reconciles them.
+Ambiguous or unfinished records block further attempts for that fleet until an
+explicit reconciliation transitions the record out of an unresolved state.
 """
 from __future__ import annotations
 
@@ -52,6 +52,15 @@ class ExpeditionActionJournal:
         now = datetime.now(timezone.utc).isoformat()
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            unresolved = db.execute(
+                """SELECT 1 FROM expedition_actions
+                   WHERE fleet_id = ? AND state IN ('reserved', 'submitted', 'unknown')
+                   LIMIT 1""",
+                (fleet_id,),
+            ).fetchone()
+            if unresolved is not None:
+                db.execute("COMMIT")
+                return False
             cursor = db.execute(
                 """INSERT OR IGNORE INTO expedition_actions
                    (action_key, fleet_id, mission_id, observed_at, state, detail, updated_at)
