@@ -208,3 +208,38 @@
 - 上游公开源码和夹具支持部分字段契约判断，但不等于本机运行证据。
 - 尚未确认本机 Nanodesu health / 实际 `tools/list` / 三条实时路径 / 登录信号 / 数据新鲜度。当前状态均不得标记为实机 PASS。
 - 此次仅更新 GitHub 远程文档；未修改或同步本地工作树。
+
+
+### 2026-10-24 POI 12.0.1 本机只读运行时预检结果
+
+#### 实际执行证据
+
+- 用户在本机 PowerShell 5.1.26100.9711 执行只读预检，报告时间为 `2026-10-24 13:52:15 +08:00` 至 `13:52:28 +08:00`。
+- 检查目标为 `127.0.0.1:12450`。报告明确记录：未执行游戏操作、未调用写入工具、未修改配置/文件、未改变代理或系统设置。
+- `GET /health` 成功：`name=poi-nanodesu-mcp`、`status=ok`、`storeReady=True`；health 字段只有 `name, port, status, storeReady, version`，没有明显登录状态字段。身份检查 PASS。
+- MCP 初始化成功，协议版本 `2025-03-26`，服务器名 `poi-nanodesu-mcp`、版本 `0.1.0`；`tools/list` 返回 5 个工具：`poi_battle`、`poi_describe`、`poi_get`、`poi_hensei_save`、`poi_lookup`。所需只读工具 `poi_describe` 与 `poi_get` 存在。仅列出工具，不代表调用了写入/战斗工具。
+- `poi_describe(info.fleets)` 成功，返回 `kind=array`，并报告路径 `info.fleets`。
+- `info.fleets`：PASS，`kind=array`，3 条记录，`truncated=False`；样本字段包括 `api_member_id, api_id, api_name, api_name_id, api_mission, api_flagship, api_ship`。
+- `info.ships`：PASS，`kind=object-map`，91 条记录，`truncated=False`。
+- `const.$ships`：FAIL，读取器检测到响应 `truncated=True`，因此按 fail-closed 规则拒绝该路径。此处是本轮主要阻塞项；尚不能确认截断是数据本身、序列化字节/条目限制还是查询参数导致，需要结合 Nanodesu 的查询/序列化实现继续静态检查，并在不扩大读取范围的前提下设计安全验证。
+- 10 秒间隔复读中，`info.fleets` 和 `info.ships` 的 SHA-256 均保持不变；这只能证明该时间窗口内返回内容未变，不能证明数据陈旧，也不能证明刷新机制正常。由于 `const.$ships` 首次检查失败，没有可比较的成功基线。
+- 登录状态：UNKNOWN。health 没有明显登录字段，`storeReady=True` 仅证明插件认为 Redux store 可用，不能证明当前已登录或处于母港。
+
+#### 本轮结论
+
+- 服务健康、MCP 握手、工具枚举和两条运行时路径已获得本机实测 PASS 证据。
+- 数据路径完整性为 2/3；`const.$ships` 的截断使当前读取器无法完成舰船主数据归一化。不得绕过截断检查或把部分主数据当作完整数据。
+- 数据新鲜度与登录信号尚未验证；10 秒哈希不变不能单独作正面或负面判断。
+- **MVP 实机兼容性仍未通过**：核心阻塞从“完全没有本机运行证据”缩小为“主数据路径截断 + 登录/新鲜度证据缺失”。远征闭环仍未验证。
+
+#### 下一步
+
+1. 只读检查当前 Nanodesu 上游/本机实现中的 `const.$ships` 查询投影、序列化条目上限与字节上限，确认 `truncated` 的具体触发条件；优先通过现有 GitHub 源码和测试研究，不要求用户再次上传整份插件目录。
+2. 设计最小化的只读分段查询/字段投影验证，前提是插件公开 API 明确支持且每段都能检测完整性；不允许通过忽略 `truncated` 标志来“修复”。
+3. 继续寻找可靠登录/母港信号；若不存在可验证信号，明确把登录态作为未解决前置条件，不开放真实派遣。
+4. 对每次新的运行时结果继续按项目规则归档，并明确区分本机实测、静态分析、CI 与远程文档写入。
+
+#### 证据来源与边界
+
+- 运行时数值、哈希和状态来自用户在本对话提供的本机预检报告；未由助手直接连接用户电脑。
+- 本次文档记录属于 GitHub 远程更新，不代表本地工作树已同步。
