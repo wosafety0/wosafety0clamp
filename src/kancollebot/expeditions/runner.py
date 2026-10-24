@@ -123,7 +123,7 @@ class ExpeditionRunner:
                 if not self._journal.reserve(fleet_id, mission_id, state.observed_at):
                     return ExpeditionCycleResult(
                         "duplicate_blocked", rotation, fleet_id,
-                        "Durable journal already contains this observation.",
+                        "An unresolved journal record already blocks this fleet or this observation.",
                     )
             except (OSError, sqlite3.Error, JournalError) as exc:
                 return ExpeditionCycleResult(
