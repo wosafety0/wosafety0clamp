@@ -178,3 +178,5 @@
 - **上游待验证边缘情况：** `withTimeout()` 只让等待方超时，并不会取消原始启动 Promise。如果底层 server 启动在超时后才完成，外层可能已丢弃返回的 handle，存在 listener 未被正常关闭的可能。当前没有复现证据；这属于上游生命周期风险，不代表本机已经发生。
 - 上游来源：[index.ts](https://github.com/momocow/poi-plugin-nanodesu-mcp/blob/main/index.ts)、[server.ts](https://github.com/momocow/poi-plugin-nanodesu-mcp/blob/main/src/server.ts)、[timeout.ts](https://github.com/momocow/poi-plugin-nanodesu-mcp/blob/main/src/timeout.ts)。
 - 身份校验对应代码提交：`2f58ae3bfa93665b8a9710ac1df195ef288fec8f`。紧邻的纯代码提交因测试尚未同步新 health 契约而失败；后续测试更新提交通过。
+
+- 最新身份校验测试提交 `2f58ae3bfa93665b8a9710ac1df195ef288fec8f` 的完整单元测试共 **94 项通过**（`Ran 94 tests ... OK`）。
