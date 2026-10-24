@@ -58,24 +58,24 @@
 
 ### 发现的验证缺口与待处理项
 
-1. **只读验证器覆盖不足：** `tools/verify_poi_bridge.py` 的 Nanodesu 路径目前探测 `info.fleets` 和 `info.ships`，没有探测读取器必需的 `const.$ships`。因此验证器报告成功也不能证明 `PoiExpeditionReader.read_fleets()` 所需的三条路径都可用。后续应补充该路径的结构摘要与离线测试。
-2. **端点校验不一致：** `verify_poi_bridge.py` 会拒绝 URL 内嵌用户名/密码；`PoiMcpClient.__init__()` 当前没有相同检查。建议统一策略，在 MCP 客户端构造时也拒绝 URL 凭据。
+1. **已修复只读验证器覆盖不足：** Nanodesu 路径现已探测 `info.fleets`、`info.ships` 和 `const.$ships`，并对 `poi_describe` 明确使用 `info.fleets`；相关回归测试及 CI 已通过。
+2. **已修复端点安全策略不一致：** MCP 客户端与验证器均拒绝 URL 内嵌凭据，并禁止自动跟随 HTTP 重定向，以免 loopback 请求被 3xx 引导至其他主机；相关回归测试及 CI 已通过。
 3. **本地时间戳不等于游戏数据新鲜度：** `ObservedState.observed_at` 是读取时生成的观察时间。即使每次读取时间更新，也不能单凭它证明 POI Redux 数据来自当前登录会话或刚发生的游戏状态变化。必须独立验证登录/母港证据及状态刷新信号；未验证时禁止真实派遣。
 4. **测试证据有限：** 现有状态归一化测试使用合成 payload；它们验证代码路径，不证明真实 POI 数据字段或插件版本兼容性。
 5. **任务时间字段仍待证据：** `api_mission` 的任务 ID 解析有合成测试支持，但任务时间槽位与单位尚未通过当前版本的真实数据确认，不能据此推算 `return_at`。
 
 ### 当前结论
 
-- **静态接口契约：基本匹配，尚有验证器覆盖与 URL 凭据校验改进项。**
+- **静态接口契约：基本匹配；验证器路径覆盖、URL 凭据校验和重定向边界已修复并通过 CI。**
 - **离线测试：只能证明合成数据和模拟协议行为。**
 - **Windows / Poi 12.0.1 运行时兼容、真实舰队 payload、登录有效性和数据新鲜度：尚未验证。**
 - 本次检查未发起本机 MCP 请求、未执行游戏操作、未安装插件、未修改本地文件。此文档更新只代表远程 GitHub 文档写入，不代表本地同步。
 
 ### 下一步
 
-1. 修正 Nanodesu 只读验证器：增加 `const.$ships` 探测，并测试缺失/错误形状。
-2. 统一 MCP 客户端和验证器的 URL 凭据拒绝规则，增加离线测试。
-3. 运行 GitHub Actions，记录对应提交的实际 CI 结果。
+1. 在用户现有 Poi 实例上执行只读预检，先确认目标插件、端口和健康状态。
+2. 在明确授权后，捕获最小化且脱敏的真实 payload，验证三条路径、字段形状与数据刷新。
+3. 独立确认登录/母港状态和数据新鲜度；缺少证据时保持真实派遣关闭。
 4. 在用户现有 Poi 实例上进行只读预检；确认目标插件、端口和健康状态后，再由用户授权执行本机只读探测。
 5. 捕获最小化且脱敏的真实 payload，验证三条路径、字段形状和数据刷新；在这些证据成立前，真实游戏派遣保持关闭。
 
@@ -89,7 +89,7 @@
   - [Nanodesu 主数据路径探测](https://github.com/wosafety0/KancolleBot/actions/runs/40066348061)
   - [凭据拒绝回归测试](https://github.com/wosafety0/KancolleBot/actions/runs/40066365407)
   - [主数据路径回归测试](https://github.com/wosafety0/KancolleBot/actions/runs/40066370136)
-- 当前代码提交：`f983910a2dec913003c793bf19fe9cc05f29a6b3)。以上 CI 结果证明 GitHub Actions 中的自动化检查通过，不代表 Windows / Poi 12.0.1 运行时验证通过。
+- 当前第一轮修复代码提交：`f983910a2dec913003c793bf19fe9cc05f29a6b3`。CI 通过证明 GitHub Actions 中的自动化检查通过，不代表 Windows / Poi 12.0.1 运行时验证通过。
 - 未进行本机 HTTP/MCP 请求、未触发游戏操作、未安装软件；本次代码和文档修改发生在 GitHub 远程分支，不能视为本地工作树已同步。
 
 ### 2026-10-24 第二轮安全与探测覆盖修复
@@ -102,4 +102,13 @@
   - [验证器 loopback 与路径修复](https://github.com/wosafety0/KancolleBot/actions/runs/40066500191)
   - [MCP 重定向回归测试](https://github.com/wosafety0/KancolleBot/actions/runs/40066504528)
   - [舰队描述路径回归测试](https://github.com/wosafety0/KancolleBot/actions/runs/40066507173)
-- 本轮代码测试对应提交 `6bbd34a635fe2e1b03bca9dd3885526a610fd476)。CI 通过仅表示远程自动测试通过；本机 POI 实际兼容性和游戏会话新鲜度仍未验证。
+- 本轮代码测试对应提交：`6bbd34a635fe2e1b03bca9dd3885526a610fd476`。CI 通过仅表示远程自动测试通过；本机 POI 实际兼容性和游戏会话新鲜度仍未验证。
+
+
+### 2026-10-24 状态归一化边界校验
+
+- 复核 `expedition_state_v2.py` 时发现 HP 校验此前没有拒绝负当前 HP 或当前 HP 大于最大 HP；布尔值最大 HP 也可能因 Python 中 `bool` 是 `int` 子类而通过类型检查。
+- 已增加 fail-closed 校验：拒绝越界当前 HP，并显式拒绝布尔值最大 HP。
+- 新增回归测试覆盖当前 HP 为负数、超过最大值，以及最大 HP 为布尔值。
+- 对应 GitHub Actions CI 通过：[越界 HP 回归测试](https://github.com/wosafety0/KancolleBot/actions/runs/40066596931)、[布尔最大 HP 回归测试](https://github.com/wosafety0/KancolleBot/actions/runs/40066630335)。
+- 最新相关代码/测试提交：`0659f8a573b939bd133c83cbc990271a45c56aaa`。这些测试验证输入校验逻辑；真实 POI payload 的字段范围仍须通过只读运行时捕获确认。
