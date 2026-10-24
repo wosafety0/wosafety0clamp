@@ -410,3 +410,11 @@
 - The currently observed path `D:\Project_KancolleBot` itself contains only `Cloud` and is not a Git worktree. The child `Cloud\KancolleBot-dev-poi-page-health-gate-20261023` remains a candidate historical sync copy; its internal structure and Git metadata have not yet been inspected.
 - Plan: shallowly inspect that candidate's first-level entries and expected project markers, then read its project rules before any source/test work. Do not overwrite it, clone into it, or assume it is current merely from the name. No recursive search, file changes, network requests, game actions, or access to `D:\KancolleBot\Source` are authorized/performed by this note.
 - Remote progress-document update only. Live expedition dispatch remains disabled.
+
+
+### 2026-10-24 Historical sync candidate confirmed as project-shaped Git checkout
+
+- User-provided shallow inventory at 15:15:28 +08:00 confirms candidate `D:\Project_KancolleBot\Cloud\KancolleBot-dev-poi-page-health-gate-20261023` contains `.git`, `.github`, `data`, `docs`, `src`, `tests`, `upload`, `.gitignore`, `pyproject.toml`, and `README.md`; expected CI workflow and `docs\PROJECT_kancollebot_Progress.md` exist.
+- The candidate does not contain `05_Docs\PROJECT_RULES.md`. This is consistent with a differently structured historical GitHub sync copy; it does not satisfy the local project rule-file requirement by itself.
+- Next: inspect Git branch/status and commit identity read-only, and check only root/docs for any candidate rules file. Do not reveal credentials from remote configuration, read source files, modify files, run tests, or access `D:\KancolleBot\Source` before resolving the applicable rules.
+- No local modifications, network requests, game actions, or test execution occurred. This is a remote progress-doc update only; live dispatch remains disabled.
