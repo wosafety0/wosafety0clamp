@@ -80,7 +80,7 @@ def normalize_poi_fleets(
                 raise PoiStateError(f"fleet {fleet_id} references missing ship {ship_id}")
             now_hp = ship.get("api_nowhp")
             max_hp = ship.get("api_maxhp")
-            if not isinstance(now_hp, int) or isinstance(now_hp, bool) or not isinstance(max_hp, int) or max_hp < 1:
+            if not isinstance(now_hp, int) or isinstance(now_hp, bool) or not isinstance(max_hp, int) or isinstance(max_hp, bool) or max_hp < 1:
                 raise PoiStateError(f"ship {ship_id} has unknown HP fields")
             if now_hp < 0 or now_hp > max_hp:
                 raise PoiStateError(f"ship {ship_id} has out-of-range HP fields")
