@@ -308,3 +308,12 @@
 - Re-read the remote reader and test source for static inspection. No uniquely proven CI root cause emerged from this review; any code edit now would be speculative. **CI remains FAIL / root cause UNKNOWN.** No rerun was triggered to avoid spending Actions minutes without a diagnosis.
 - Next: obtain the run's failing annotation/log through a supported route, then make the smallest evidence-based fix and verify one CI run. Until then, the targeted lookup reader remains unaccepted for CI despite the successful separate local lookup smoke test.
 - No source or test code was modified in this follow-up. This entry records a remote documentation update only; it does not synchronize the local working tree. Live game actions remain disabled.
+
+
+### 2026-10-24 CI evidence retrieval attempt 2
+
+- Checked both failed runs for downloadable artifacts: neither run exposes any artifacts.
+- Queried combined commit status for the source/test commit and the two subsequent documentation commits; the status endpoint returned no legacy status entries. This does not override the failed Actions job conclusions already recorded.
+- Available GitHub connector inventory exposes job logs, step summaries, run jobs, and artifacts, but no dedicated check-run annotation retrieval tool. Current job-step summaries are empty, run-job payloads expose `steps=null`, and log download previously returned `BlobNotFound`.
+- The exact CI failure remains unavailable through these supported paths. No source change or workflow rerun was made; speculative edits would be unsafe and a rerun would consume Actions usage without clarifying the existing failure.
+- Next practical evidence path: inspect the failed job details/logs in GitHub Actions UI, or provide the failing annotation/traceback text; then repair based on the actual error and verify one run. Existing remote source/test commits remain unaccepted until CI is green.
