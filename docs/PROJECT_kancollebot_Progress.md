@@ -169,3 +169,12 @@
 - GitHub Actions CI 已通过：[durable journal requirement tests](https://github.com/wosafety0/KancolleBot/actions/runs/40067331235)。该提交的完整单元测试共 **93 项通过**，日志显示 `Ran 93 tests ... OK`。
 - 测试提交：`160c1ea9233d6561cbf2ada1793b10f696133ac8`。紧邻的纯代码提交因既有测试尚未同步到新安全契约而失败；随后的测试更新提交通过。
 - 真实游戏操作仍默认关闭；此改动只加强未来启用操作时的前置条件，不代表真实派遣已实现或验证。
+
+
+### 2026-10-24 Bridge 身份与生命周期复核
+
+- 读取器现要求 `GET /health` 的 `name` 必须为 `poi-nanodesu-mcp`，再检查 `status` 与 `storeReady`；错误服务即使返回通用 `status: ok` 也会被拒绝。对应测试已通过：[bridge identity test](https://github.com/wosafety0/KancolleBot/actions/runs/40067608925)。
+- 对公开上游 `index.ts` / `src/server.ts` 的静态复核确认：插件只在 POI 主窗口启动，启动上限为 15 秒，启动错误会显示在状态面板；服务默认绑定 `127.0.0.1`，端口占用时不自动切换端口，卸载时关闭 server；health 的 `storeReady` 只检查 store 是否含 `info`，不代表已登录或数据新鲜。
+- **上游待验证边缘情况：** `withTimeout()` 只让等待方超时，并不会取消原始启动 Promise。如果底层 server 启动在超时后才完成，外层可能已丢弃返回的 handle，存在 listener 未被正常关闭的可能。当前没有复现证据；这属于上游生命周期风险，不代表本机已经发生。
+- 上游来源：[index.ts](https://github.com/momocow/poi-plugin-nanodesu-mcp/blob/main/index.ts)、[server.ts](https://github.com/momocow/poi-plugin-nanodesu-mcp/blob/main/src/server.ts)、[timeout.ts](https://github.com/momocow/poi-plugin-nanodesu-mcp/blob/main/src/timeout.ts)。
+- 身份校验对应代码提交：`2f58ae3bfa93665b8a9710ac1df195ef288fec8f`。紧邻的纯代码提交因测试尚未同步新 health 契约而失败；后续测试更新提交通过。
