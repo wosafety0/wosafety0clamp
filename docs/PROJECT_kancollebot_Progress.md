@@ -498,3 +498,10 @@
 - Safety state: no package installation, no game actions, `LIVE_DISPATCH=DISABLED`, and legacy source directory not accessed.
 - This result does not establish whether the SQLite fix passes or fails. Next step: perform read-only local Git/worktree/remote configuration checks and retry synchronization only after connectivity is available; do not alter proxy or system settings.
 - Clipboard verification failed and was ignored per user preference.
+
+## 2026-10-24 16:43 +08:00 — Local sync precondition false negative
+
+- The scoped-proxy fetch succeeded earlier: `origin/dev/expedition-closed-loop-mvp` advanced from `e5237f5dc1efe6c890ca6124c99e013a96c3faf7` to `b8f3860c041671d08c774954ec32707e1e60168a`.
+- The local sync-and-test script then skipped fast-forward because it compared Git's slash-separated repository root (`D:/KancolleBot-Worktrees/expedition-closed-loop-mvp-20261024`) to a backslash-separated target string. This is a script path-normalization defect, not evidence of a Git merge conflict or test failure.
+- At the time of the report, local HEAD remained `e5237f5dc1efe6c890ca6124c99e013a96c3faf7`, the branch was `dev/expedition-closed-loop-mvp`, and the worktree was clean. No merge or tests were performed in that attempt.
+- Next: normalize repository paths before comparison; re-check clean status and `git rev-list --left-right --count HEAD...origin/dev/expedition-closed-loop-mvp`; only fast-forward when local ahead count is zero; then read the project rules and run compileall plus unittest. `LIVE_DISPATCH` remains disabled; no game actions or package installation.
