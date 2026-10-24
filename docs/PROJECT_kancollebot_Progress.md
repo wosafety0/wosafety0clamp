@@ -38,3 +38,12 @@
 4. 在证据不足处对照 KCA，明确标记 KCV 已证实、KCA 独有或自研策略。
 5. 验证 POI 实际支持的状态读取方式。
 6. 扩展纯 Python 状态模型、策略函数和离线模拟测试；真实操作默认关闭。
+
+## 2026-10-24 — POI MCP HTTP bridge source findings
+
+- Read-only inspection of the installed `poi-plugin-mcp` v0.2.29 identified the default bridge port `17777` in `lib/settings.js`.
+- The generated DevTools injection script in `mcp-server.js` defines `/fleets` and `/ships` handlers that serialize POI store values `st.info.fleets` and `st.info.ships`. The plugin entry `index.js` wires telemetry and a bridge controller; the active controller/bridge path still needs tracing to distinguish it from the standalone injection path.
+- Source scan evidence shows ship instance IDs (`api_id`) and master ship IDs (`api_ship_id`) are distinct. Fleet `api_ship` references should be resolved against ship instance IDs.
+- No explicit `flagship` keyword was found in the scanned plugin source. `api_flagship` semantics and any replacement flagship-selection rule remain unverified; do not assume the first `api_ship` slot is flagship.
+- Detailed evidence, source locations, limitations, and next read-only checks: [POI MCP HTTP Bridge Findings](research/POI_MCP_HTTP_BRIDGE_FINDINGS.md).
+- Safety status of the local scan report: read-only; no network/HTTP requests, game actions, process termination, or plugin file modifications.
