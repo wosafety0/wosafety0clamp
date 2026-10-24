@@ -1,10 +1,13 @@
 """Offline tests for the expedition cycle coordinator."""
 
 import sqlite3
+import tempfile
 import unittest
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 from kancollebot.core.observed_state import ObservedState
+from kancollebot.expeditions.action_journal import ExpeditionActionJournal
 from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
 from kancollebot.expeditions.runner import ExpeditionRunner
 from kancollebot.safety.policy import SafetyPolicy
@@ -65,16 +68,27 @@ class ExpeditionRunnerTests(unittest.TestCase):
 
     def test_confirmed_fresh_state_dispatches_once(self):
         adapter = FakeAdapter(confirm_dispatch=True)
-        runner = ExpeditionRunner(adapter)
-        kwargs = dict(
-            mission_id=1, now=NOW, max_state_age=timedelta(seconds=30),
-            policy=self.policy(), confirmed=True,
-        )
-        first = runner.run_once(**kwargs)
-        second = runner.run_once(**kwargs)
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ExpeditionActionJournal(Path(directory) / "actions.sqlite")
+            runner = ExpeditionRunner(adapter, journal=journal)
+            kwargs = dict(
+                mission_id=1, now=NOW, max_state_age=timedelta(seconds=30),
+                policy=self.policy(), confirmed=True,
+            )
+            first = runner.run_once(**kwargs)
+            second = runner.run_once(**kwargs)
         self.assertEqual(first.status, "dispatch_confirmed")
         self.assertEqual(second.status, "no_ready_fleet")
         self.assertEqual(adapter.dispatches, [(2, 1)])
+
+    def test_live_dispatch_requires_durable_journal(self):
+        adapter = FakeAdapter(confirm_dispatch=True)
+        result = ExpeditionRunner(adapter).run_once(
+            mission_id=1, now=NOW, max_state_age=timedelta(seconds=30),
+            policy=self.policy(), confirmed=True,
+        )
+        self.assertEqual(result.status, "journal_unavailable")
+        self.assertEqual(adapter.dispatches, [])
 
     def test_sqlite_reservation_error_blocks_dispatch(self):
         class BrokenJournal:
@@ -120,13 +134,15 @@ class ExpeditionRunnerTests(unittest.TestCase):
 
     def test_ambiguous_adapter_failure_blocks_same_observation_retry(self):
         adapter = FakeAdapter(fail_dispatch=True)
-        runner = ExpeditionRunner(adapter)
-        kwargs = dict(
-            mission_id=1, now=NOW, max_state_age=timedelta(seconds=30),
-            policy=self.policy(), confirmed=True,
-        )
-        first = runner.run_once(**kwargs)
-        second = runner.run_once(**kwargs)
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ExpeditionActionJournal(Path(directory) / "actions.sqlite")
+            runner = ExpeditionRunner(adapter, journal=journal)
+            kwargs = dict(
+                mission_id=1, now=NOW, max_state_age=timedelta(seconds=30),
+                policy=self.policy(), confirmed=True,
+            )
+            first = runner.run_once(**kwargs)
+            second = runner.run_once(**kwargs)
         self.assertEqual(first.status, "dispatch_outcome_unknown")
         self.assertEqual(second.status, "duplicate_blocked")
         self.assertEqual(len(adapter.dispatches), 1)
