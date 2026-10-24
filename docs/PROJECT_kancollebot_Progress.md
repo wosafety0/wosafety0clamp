@@ -317,3 +317,12 @@
 - Available GitHub connector inventory exposes job logs, step summaries, run jobs, and artifacts, but no dedicated check-run annotation retrieval tool. Current job-step summaries are empty, run-job payloads expose `steps=null`, and log download previously returned `BlobNotFound`.
 - The exact CI failure remains unavailable through these supported paths. No source change or workflow rerun was made; speculative edits would be unsafe and a rerun would consume Actions usage without clarifying the existing failure.
 - Next practical evidence path: inspect the failed job details/logs in GitHub Actions UI, or provide the failing annotation/traceback text; then repair based on the actual error and verify one run. Existing remote source/test commits remain unaccepted until CI is green.
+
+
+### 2026-10-24 CI failure source review (attempt 3)
+
+- Repeated the log retrieval through the GitHub connector for failed job `120798593159`; it again returned `BlobNotFound`. The run's jobs endpoint confirms one failed `test` job and no exposed step records.
+- Direct fetch of the check-run annotations/check-run detail endpoints was rejected by the connector's URL allowlist. The run artifact endpoint returned `total_count=0`.
+- Re-fetched the branch's `src/kancollebot/adapters/poi/expedition_reader.py` (blob `289cb4388ef22522cfc088a791b04720a7c78d6d`), `tests/test_poi_expedition_reader.py` (blob `9ef299371a4fb2033a0395d1aa3361f5f5df5c25`), `expedition_state_v2.py` (blob `d2ec4502c9d221d3b3b7cea0ff20a778d1bfaa6a`), and `.github/workflows/ci.yml` (blob `c4ac259d0186d6937c7e3a41e4a9b5ffd1bc48d5`) for static review. This confirms the files are retrievable but does not identify the failing CI step or root cause.
+- Decision: **no speculative source/test edit and no CI rerun**. CI remains FAIL / root cause UNKNOWN; the targeted lookup implementation is not accepted until the actual failure is retrieved and a green run is observed.
+- This is a progress-document-only remote update. It does not prove local worktree synchronization. No live game action, configuration change, proxy/system change, or workflow rerun was performed.
