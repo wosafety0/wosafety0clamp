@@ -326,3 +326,13 @@
 - Re-fetched the branch's `src/kancollebot/adapters/poi/expedition_reader.py` (blob `289cb4388ef22522cfc088a791b04720a7c78d6d`), `tests/test_poi_expedition_reader.py` (blob `9ef299371a4fb2033a0395d1aa3361f5f5df5c25`), `expedition_state_v2.py` (blob `d2ec4502c9d221d3b3b7cea0ff20a778d1bfaa6a`), and `.github/workflows/ci.yml` (blob `c4ac259d0186d6937c7e3a41e4a9b5ffd1bc48d5`) for static review. This confirms the files are retrievable but does not identify the failing CI step or root cause.
 - Decision: **no speculative source/test edit and no CI rerun**. CI remains FAIL / root cause UNKNOWN; the targeted lookup implementation is not accepted until the actual failure is retrieved and a green run is observed.
 - This is a progress-document-only remote update. It does not prove local worktree synchronization. No live game action, configuration change, proxy/system change, or workflow rerun was performed.
+
+
+### 2026-10-24 CI runner-start evidence review (attempt 4)
+
+- Retrieved the raw workflow-run and job JSON directly from the GitHub REST endpoints, which exposed evidence not present in the connector's summarized job wrapper.
+- Run `40069110427` / job `120798507550`: created `2026-10-24T06:10:00Z`, completed `06:10:03Z`, `conclusion=failure`, `runner_id=0`, empty `runner_name`, and `steps=[]`.
+- Run `40069142123` / job `120798593159`: created `2026-10-24T06:10:25Z`, completed `06:10:27Z`, `conclusion=failure`, `runner_id=0`, empty `runner_name`, and `steps=[]`.
+- The log-download endpoint returns `BlobNotFound`; the workflow-run log URL returns an empty body; the check-run detail/annotation URLs remain blocked by the connector allowlist. The failure therefore appears to occur **before a runner executes any workflow step**, rather than being a demonstrated Python test assertion failure. This is a strong inference from metadata, not a confirmed GitHub failure message; exact cause remains UNKNOWN.
+- Decision: do not edit source/tests or rerun Actions based on this evidence. First inspect the GitHub Actions UI's job/check annotations or account Actions/billing/usage restrictions. The previous account context reported Actions budget blocking, which is a plausible lead but is not proven by these job records.
+- Remote documentation-only update. No source changes, rerun, live game action, local worktree sync, or system/proxy modification was performed.
