@@ -93,18 +93,18 @@ def normalize_poi_fleets(
             master = masters.get(str(master_id))
             if not isinstance(master, dict):
                 raise PoiStateError(f"master ship record {master_id} is missing")
-            fuel, fuel_cost = ship.get("api_fuel"), master.get("api_fuel")
-            ammo, ammo_cost = ship.get("api_bull"), master.get("api_bull")
+            fuel, fuel_max = ship.get("api_fuel"), master.get("api_fuel_max")
+            ammo, ammo_max = ship.get("api_bull"), master.get("api_bull_max")
             if (
                 not isinstance(fuel, int) or isinstance(fuel, bool)
-                or not isinstance(fuel_cost, int) or isinstance(fuel_cost, bool)
-                or fuel < 0 or fuel_cost < 0 or fuel > fuel_cost or fuel < fuel_cost
+                or not isinstance(fuel_max, int) or isinstance(fuel_max, bool)
+                or fuel < 0 or fuel_max < 0 or fuel > fuel_max or fuel < fuel_max
             ):
                 fuel_ready = False
             if (
                 not isinstance(ammo, int) or isinstance(ammo, bool)
-                or not isinstance(ammo_cost, int) or isinstance(ammo_cost, bool)
-                or ammo < 0 or ammo_cost < 0 or ammo > ammo_cost or ammo < ammo_cost
+                or not isinstance(ammo_max, int) or isinstance(ammo_max, bool)
+                or ammo < 0 or ammo_max < 0 or ammo > ammo_max or ammo < ammo_max
             ):
                 ammo_ready = False
 
