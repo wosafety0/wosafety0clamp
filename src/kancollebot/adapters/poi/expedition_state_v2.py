@@ -45,7 +45,9 @@ def normalize_poi_fleets(
     for index, fleet in enumerate(fleets_payload):
         if not isinstance(fleet, dict):
             raise PoiStateError(f"fleet entry {index} must be an object")
-        fleet_id = _int(fleet.get("api_id", index + 1), "fleet api_id", 1)
+        if "api_id" not in fleet:
+            raise PoiStateError(f"fleet entry {index} is missing api_id")
+        fleet_id = _int(fleet["api_id"], "fleet api_id", 1)
         raw_ids = fleet.get("api_ship")
         if not isinstance(raw_ids, list) or len(raw_ids) > 6:
             raise PoiStateError(f"fleet {fleet_id} has an invalid api_ship array")
@@ -64,12 +66,11 @@ def normalize_poi_fleets(
 
         mission_id = None
         raw_mission = fleet.get("api_mission")
-        if raw_mission is not None:
-            if not isinstance(raw_mission, list) or len(raw_mission) < 4:
-                raise PoiStateError(f"fleet {fleet_id} api_mission has an unknown shape")
-            status = _int(raw_mission[0], "mission status")
-            if status > 0:
-                mission_id = _int(raw_mission[1], "mission ID", 1)
+        if not isinstance(raw_mission, list) or len(raw_mission) < 4:
+            raise PoiStateError(f"fleet {fleet_id} api_mission has an unknown shape")
+        status = _int(raw_mission[0], "mission status")
+        if status > 0:
+            mission_id = _int(raw_mission[1], "mission ID", 1)
 
         damaged = []
         fuel_ready = bool(ship_ids)
