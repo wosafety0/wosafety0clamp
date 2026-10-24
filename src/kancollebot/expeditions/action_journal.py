@@ -7,6 +7,7 @@ explicit reconciliation transitions the record out of an unresolved state.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,7 +21,8 @@ class ExpeditionActionJournal:
 
     def __init__(self, path: str | Path) -> None:
         self.path = str(path)
-        with self._connect() as db:
+        with closing(self._connect()) as db:
+            with db:
             db.execute(
                 """CREATE TABLE IF NOT EXISTS expedition_actions (
                     action_key TEXT PRIMARY KEY,
