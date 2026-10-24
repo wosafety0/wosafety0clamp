@@ -489,3 +489,12 @@
 - Verification status: **source change committed and remote readback verified; local compile/tests after the fix are still pending**. Do not infer test success from the source diff. The user's local checkout is still at the previously tested commit until it is safely fast-forwarded.
 - Next: in the existing checkout, verify the expected branch and clean status, fast-forward only to the current remote branch (never reset or overwrite local work), re-read the current master rules, then rerun `python -m compileall -q src tests` and `PYTHONPATH=src python -m unittest discover -s tests -v` with Python >=3.11. Record exact exit codes and test counts. If the worktree is not clean or fast-forward is not possible, stop before modifying anything.
 - No packages were installed and no game action was performed. Live dispatch remains disabled. This is a remote GitHub code/document update; it is not evidence of local synchronization or a passing local test run.
+
+
+### 2026-10-24 SQLite fix offline retest blocked by GitHub connectivity
+- Local retest target: `D:\\KancolleBot-Worktrees\\expedition-closed-loop-mvp-20261024`.
+- Timestamp reported by the local PowerShell run: 2026-10-24 16:29:17 +08:00.
+- Outcome: FAILED before tests started. `git fetch` could not connect to `github.com:443` (connection failure after 21253 ms); fast-forward sync was false, project rules were not read, Python version was not checked, and compileall/unittest were not run.
+- Safety state: no package installation, no game actions, `LIVE_DISPATCH=DISABLED`, and legacy source directory not accessed.
+- This result does not establish whether the SQLite fix passes or fails. Next step: perform read-only local Git/worktree/remote configuration checks and retry synchronization only after connectivity is available; do not alter proxy or system settings.
+- Clipboard verification failed and was ignored per user preference.
