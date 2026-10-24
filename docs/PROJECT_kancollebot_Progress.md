@@ -140,3 +140,11 @@
 - 已将归一化器改为读取 `api_fuel_max` / `api_bull_max`，并更新测试数据；现有补给就绪测试能验证当前弹药与主数据弹药上限相等时为就绪。
 - 更新后的测试提交 `0631f2a9ecff2c2d61af92964944a195fa5754df` 的 GitHub Actions CI 已通过：[CI run](https://github.com/wosafety0/KancolleBot/actions/runs/40066923707)。紧邻的纯代码提交 `ecc07142dd79f9d451e2542e69c806462371a92e` 在测试夹具尚未同步更新时失败；该中间提交失败原因已从 CI 日志确认，后续测试更新提交通过。
 - 上游夹具是静态样本而非用户本机实时数据；字段名依据现有公开证据修正，但最终仍需在本机只读捕获中复核。
+
+
+### 2026-10-24 读取器端到端离线契约测试
+
+- 新增 `tests/test_poi_expedition_reader.py`，使用合成 MCP 文本响应覆盖 `PoiExpeditionReader` 的主要边界：正确的三条数据路径、主数据补给上限字段、截断响应拒绝、缺失任务字段 fail-closed、store 未就绪时停止，以及缺少必需工具时停止。
+- GitHub Actions CI 已通过：[reader contract tests](https://github.com/wosafety0/KancolleBot/actions/runs/40067026502)。
+- 测试提交：`b1a9384891f8b49ae4ed69db167ea1d7be691cf2`。
+- 这些仍是离线合成响应测试；尚未证明 MCP 会话与用户本机 Nanodesu 插件能够完成真实握手，也没有证明本机 Redux store 的字段/刷新行为与上游夹具完全相同。
