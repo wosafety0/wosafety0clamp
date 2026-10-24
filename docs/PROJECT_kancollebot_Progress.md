@@ -402,3 +402,11 @@
 - No recursion, file-content reads, file modifications, network requests, game actions, or access to `D:\KancolleBot\Source` occurred.
 - The child name suggests a candidate working copy/snapshot but does not prove it is a Git checkout or authoritative project. Next step is a shallow inventory of that child's immediate entries and existence checks for `.git`, `05_Docs\PROJECT_RULES.md`, `src`, `tests`, and the CI workflow. Do not read source/rules contents, run tests, clone, or modify until the candidate is identified and the authoritative project rules can be read.
 - Remote progress documentation only; no local changes or live game actions are claimed. Live dispatch remains disabled.
+
+
+### 2026-10-24 User clarified Cloud is a historical GitHub sync directory
+
+- User clarified that `D:\Project_KancolleBot\Cloud` contains a directory previously synchronized locally from the GitHub repository; it is not an arbitrary unknown directory.
+- The currently observed path `D:\Project_KancolleBot` itself contains only `Cloud` and is not a Git worktree. The child `Cloud\KancolleBot-dev-poi-page-health-gate-20261023` remains a candidate historical sync copy; its internal structure and Git metadata have not yet been inspected.
+- Plan: shallowly inspect that candidate's first-level entries and expected project markers, then read its project rules before any source/test work. Do not overwrite it, clone into it, or assume it is current merely from the name. No recursive search, file changes, network requests, game actions, or access to `D:\KancolleBot\Source` are authorized/performed by this note.
+- Remote progress-document update only. Live expedition dispatch remains disabled.
