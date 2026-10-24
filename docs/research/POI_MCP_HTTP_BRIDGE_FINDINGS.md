@@ -56,3 +56,21 @@ The supplied output does not include the controller's complete `load()` implemen
 
 If stronger attribution is needed, capture the complete `load()` method and adjacent lifecycle methods from `lib/bridge-controller.js`, plus `pluginDidLoad()` from `index.js`, with line numbers. Do not send HTTP requests or perform game actions.
 
+## 2026-10-24 plugin lifecycle call-chain confirmation
+
+The latest local read-only output closes the previously missing source-level lifecycle link:
+
+- `index.js` creates the controller with `createBridgeController(...)` (reported lines 1–18).
+- `pluginDidLoad()` registers the `game.response` telemetry listener and invokes `controller.load()`; startup errors are logged (reported lines 21–28).
+- `bridge-controller.js` `load()` enqueues initialization, reloads settings, and calls `ensureStarted()` when `settings.enabled` is true (reported lines 169–176).
+- `ensureStarted()` creates the bridge through `createCurrentBridge()` if needed and awaits `bridge.start()` (reported lines 81–85).
+- `createCurrentBridge()` supplies `settings.port` and `settings.inputEnabled` to the factory (reported lines 28–53 in the prior targeted output).
+- The factory implementation in `lib/poi-http-bridge.js` creates the HTTP server and binds it to `127.0.0.1` at `configuredPort`; the same source maps `/fleets` and `/ships` to the POI info state (reported lines 871–875 and 941–955 in the prior targeted output).
+- `pluginWillUnload()` removes the telemetry event listener and calls `controller.unload()`; the controller unload path stops the recorder and bridge (reported `index.js` lines 30–37 and controller lines 178–183).
+
+### Updated conclusion
+
+The source-level call chain is now demonstrated end-to-end in the supplied excerpts: `pluginDidLoad()` → `controller.load()` → settings check → `ensureStarted()` → `createCurrentBridge()` → `bridge.start()`; the bridge source creates and listens with the Node HTTP server. Combined with the earlier listener snapshot showing POI renderer PID `21168` listening on `127.0.0.1:17777`, this provides strong evidence that the installed `poi-plugin-mcp` bridge is the source of the `17777` service. The script did not make a runtime HTTP request, so response behavior was not independently tested during this check.
+
+Port `12450` remains unexplained: the snapshot proves only that the same POI renderer process owns that listening socket, not which component created it. The report states zero errors and no network/HTTP requests, game actions, or file modifications. Clipboard verification was intentionally not performed by the shortened read-only script.
+
