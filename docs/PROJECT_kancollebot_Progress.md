@@ -287,3 +287,13 @@
 - CI status: not yet confirmed. The workflow-run lookup returned no PR-triggered runs for these commits; do not interpret that as a passing test run. Follow up by inspecting the branch's actual Actions runs or running the test workflow through an available verified path.
 - Runtime status: this code change is based on a successful local `poi_lookup` smoke check for 12 referenced IDs, but the modified reader has not yet been executed against the user's live Poi instance. Login-state evidence and data freshness remain UNKNOWN; end-to-end expedition closure remains unverified; live dispatch stays disabled.
 - Scope: GitHub remote files were changed and read back successfully. No claim is made that the user's local working tree was updated. No local machine access, game actions, write tools, configuration changes, or system/proxy changes were performed by the assistant.
+
+
+### 2026-10-24 Targeted lookup CI failure follow-up
+
+- The GitHub Actions CI runs for test commit `4d15e3c3e5aef20825009dadb7f4b03f40a0090c` and subsequent progress-document commit `c07c4790aff7e52e8063fec5f91c8096edbe4dd2` both completed with **failure**:
+  - [Test commit CI](https://github.com/wosafety0/KancolleBot/actions/runs/40069110427)
+  - [Latest branch CI](https://github.com/wosafety0/KancolleBot/actions/runs/40069142123)
+- GitHub reports the failed check as job `test` with two annotations, but the available log/annotation retrieval paths did not expose the failure details in this session. Root cause is therefore **UNKNOWN**; do not claim tests pass.
+- The branch head at the time of this note is `c07c4790aff7e52e8063fec5f91c8096edbe4dd2`. The source and test files were successfully written remotely and fetched back, but require CI failure diagnosis before the implementation can be accepted.
+- Next: retrieve the two check annotations or job logs through a supported GitHub endpoint, identify the exact failing assertion/import/test, make a minimal fix, then confirm a green CI run. Do not run live dispatch. Local runtime verification of the modified reader, login-state proof, freshness proof, and end-to-end expedition closure remain outstanding.
