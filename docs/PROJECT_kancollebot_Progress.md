@@ -426,3 +426,17 @@
 - Next local step is metadata-only inspection of the historical sync candidate: Git top-level, current branch, short worktree status, HEAD hash/subject, remote names only (no remote URLs), and immediate root/docs filenames matching rule-related names.
 - No source content is to be read, no tests run, no network operations, and no changes made. If a plausible rule file is found, read and validate it before proceeding to tests or code changes. If none is found, pause and ask for the authoritative rules location rather than assuming the remote progress document substitutes for local project rules.
 - Live expedition dispatch remains disabled. This plan note is a remote documentation update only.
+
+
+### 2026-10-24 Local candidate metadata checked; current branch mismatch and policy gate
+
+- User-provided read-only metadata report for `D:\Project_KancolleBot\Cloud\KancolleBot-dev-poi-page-health-gate-20261023`:
+  - Git top-level resolves to that candidate path.
+  - Local branch: `dev/poi-page-health-gate-20261023`.
+  - HEAD: `4df92ddef35ac4b28a473b16c1eea957251292e4`, subject `docs: record GitHub-only project directory policy`.
+  - `git status --short` returned no entries (clean worktree).
+  - Remote name is `origin`; its URL was intentionally not printed.
+  - No rule-related filenames were found at candidate root or immediate `docs` level.
+- Read the repository's `docs/PROJECT_kancollebot_MASTER.md` from the candidate branch (blob `2921d78cf0abd8e25c12c8dd57526d4fe82c1cca`). It states that GitHub is the authoritative project directory, local copies were deleted, and Windows work must use a separate new directory cloned from the specified GitHub repository/branch without overwriting existing paths, then verify HEAD and required files. It also reiterates no access to `D:\KancolleBot\Source`.
+- Compared with active development branch `dev/expedition-closed-loop-mvp`, whose master document blob is `91186c1e8520c92d9999bef4a98172a6eb24aae6`; that branch's master document does not yet include the local-copy policy paragraph. The inspected local candidate is therefore a clean historical branch, not the current expedition branch.
+- Decision: do not run tests against the historical candidate. To run the active branch locally, the next step requires explicit authorization to create a separate, new directory and clone the exact branch; no existing path will be overwritten. No local changes, tests, game actions, or access to `D:\KancolleBot\Source` occurred. Remote documentation update only; live dispatch remains disabled.
