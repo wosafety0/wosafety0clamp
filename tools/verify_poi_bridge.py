@@ -25,6 +25,13 @@ DEFAULT_NANODESU_ENDPOINT = "http://127.0.0.1:12450/mcp"
 DEFAULT_PLUGIN_MCP_ENDPOINT = "http://127.0.0.1:17777"
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Do not let a loopback probe follow a redirect to another host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def validate_loopback_url(url: str) -> str:
     """Validate an HTTP URL with a literal loopback IP or localhost hostname."""
     parsed = urllib.parse.urlsplit(url)
@@ -75,7 +82,8 @@ def http_get_json(url: str, timeout: float = 3.0) -> Any:
     validate_loopback_url(url)
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        opener = urllib.request.build_opener(_NoRedirectHandler())
+        with opener.open(request, timeout=timeout) as response:
             body = response.read(MAX_RESPONSE_BYTES + 1)
             status = response.status
     except urllib.error.HTTPError as exc:
@@ -165,7 +173,7 @@ def run_nanodesu(endpoint: str, timeout: float) -> dict[str, Any]:
     }
     if not {"poi_describe", "poi_get"}.issubset(names):
         raise RuntimeError("Required read tools poi_describe and poi_get are missing")
-    describe = client.call_read_tool("poi_describe", {})
+    describe = client.call_read_tool("poi_describe", {"path": "info.fleets"})
     report["checks"]["describe"] = {"status": "PASS", "summary": summarize_mcp_result(describe)}
     for label, path in (
         ("fleets", "info.fleets"),
