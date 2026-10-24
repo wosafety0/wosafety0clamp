@@ -479,3 +479,13 @@
 - Likely correction: ensure each SQLite connection is closed after its transaction/context exits (for example, combine `contextlib.closing` with the connection context manager). Re-run the full offline suite after applying the fix. Do not mark the tests as passing until a new local execution report confirms it.
 - Verification remains partial: compileall passed, unit tests failed. No packages were installed, no network request or game action was performed by the local test run, live dispatch remains disabled, and the prohibited legacy source directory was not accessed.
 - This entry is a remote progress-document update only; it does not mean the user's local checkout was modified or synchronized. A source-file write attempt through the available GitHub tool was blocked before any write result was returned; therefore no source fix is claimed as applied.
+
+
+### 2026-10-24 SQLite connection lifetime fix committed; local rerun pending
+
+- Following the Windows offline test report (98 tests, 7 errors from `PermissionError: [WinError 32]` deleting temporary `actions.sqlite` files), updated `src/kancollebot/expeditions/action_journal.py` on the active GitHub branch.
+- The journal now uses a private `_connection()` context manager: it enters the sqlite3 connection context for transaction handling and closes the connection in a `finally` block. The constructor, `reserve`, `transition`, and `get` use this helper, so connection lifetime is explicit and temporary database files should no longer remain open after each operation.
+- Remote source update commit: `e3a3c4a941e9115d64902d9725fb81c73e7bf4e5`; source blob SHA `3cc882e58be1d50016b8cb0fcfd978502c3618a9`. GitHub readback exactly matched the written source content and confirmed all four database call sites use the helper.
+- Verification status: **source change committed and remote readback verified; local compile/tests after the fix are still pending**. Do not infer test success from the source diff. The user's local checkout is still at the previously tested commit until it is safely fast-forwarded.
+- Next: in the existing checkout, verify the expected branch and clean status, fast-forward only to the current remote branch (never reset or overwrite local work), re-read the current master rules, then rerun `python -m compileall -q src tests` and `PYTHONPATH=src python -m unittest discover -s tests -v` with Python >=3.11. Record exact exit codes and test counts. If the worktree is not clean or fast-forward is not possible, stop before modifying anything.
+- No packages were installed and no game action was performed. Live dispatch remains disabled. This is a remote GitHub code/document update; it is not evidence of local synchronization or a passing local test run.
