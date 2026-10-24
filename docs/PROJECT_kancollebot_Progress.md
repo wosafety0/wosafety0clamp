@@ -91,3 +91,15 @@
   - [主数据路径回归测试](https://github.com/wosafety0/KancolleBot/actions/runs/40066370136)
 - 当前代码提交：`f983910a2dec913003c793bf19fe9cc05f29a6b3)。以上 CI 结果证明 GitHub Actions 中的自动化检查通过，不代表 Windows / Poi 12.0.1 运行时验证通过。
 - 未进行本机 HTTP/MCP 请求、未触发游戏操作、未安装软件；本次代码和文档修改发生在 GitHub 远程分支，不能视为本地工作树已同步。
+
+### 2026-10-24 第二轮安全与探测覆盖修复
+
+- MCP 客户端与只读验证器均已禁用 HTTP 自动重定向，避免 loopback URL 的请求被 3xx 响应引导到其他主机。
+- Nanodesu 验证器的 `poi_describe` 现在明确查询 `info.fleets`，与 `PoiExpeditionReader` 使用的路径一致。
+- 新增回归测试，覆盖重定向拒绝及指定舰队描述路径。
+- 对应 GitHub Actions CI 均通过：
+  - [阻止 MCP 重定向](https://github.com/wosafety0/KancolleBot/actions/runs/40066496214)
+  - [验证器 loopback 与路径修复](https://github.com/wosafety0/KancolleBot/actions/runs/40066500191)
+  - [MCP 重定向回归测试](https://github.com/wosafety0/KancolleBot/actions/runs/40066504528)
+  - [舰队描述路径回归测试](https://github.com/wosafety0/KancolleBot/actions/runs/40066507173)
+- 本轮代码测试对应提交 `6bbd34a635fe2e1b03bca9dd3885526a610fd476)。CI 通过仅表示远程自动测试通过；本机 POI 实际兼容性和游戏会话新鲜度仍未验证。
