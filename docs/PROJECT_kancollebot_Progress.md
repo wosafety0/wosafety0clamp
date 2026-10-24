@@ -112,3 +112,13 @@
 - 新增回归测试覆盖当前 HP 为负数、超过最大值，以及最大 HP 为布尔值。
 - 对应 GitHub Actions CI 通过：[越界 HP 回归测试](https://github.com/wosafety0/KancolleBot/actions/runs/40066596931)、[布尔最大 HP 回归测试](https://github.com/wosafety0/KancolleBot/actions/runs/40066630335)。
 - 最新相关代码/测试提交：`0659f8a573b939bd133c83cbc990271a45c56aaa`。这些测试验证输入校验逻辑；真实 POI payload 的字段范围仍须通过只读运行时捕获确认。
+
+
+### 2026-10-24 Nanodesu 上游源码交叉检查
+
+- 直接读取了公开仓库 [momocow/poi-plugin-nanodesu-mcp](https://github.com/momocow/poi-plugin-nanodesu-mcp) 的 `main` 分支；当时指向提交 [`2ba0a461ee44d64bf9d19b3467cf7565ad51b943`](https://github.com/momocow/poi-plugin-nanodesu-mcp/commit/2ba0a461ee44d64bf9d19b3467cf7565ad51b943)，提交时间为 2026-09-22。
+- 上游 `package.json` 标记版本为 `0.1.0`，默认 MCP 端口为 `12450`。上游 `index.ts` 的生命周期逻辑包含主窗口检查、限时启动、状态面板错误报告和卸载时关闭 server。
+- 上游 `server.ts` 默认绑定 `127.0.0.1`，提供 `GET /health` 和 `POST /mcp`，限制请求体大小，并验证 Host；health 测试明确覆盖空 store 时 `status: ok` 但 `storeReady: false`，因此 health 成功不能单独证明游戏数据已就绪。
+- 上游测试还覆盖了无 CORS 头、端口文件权限/清理、端口绑定失败、路径解析、查询筛选和序列化截断。它们是上游测试证据，不等于用户本机安装版本已运行通过。
+- 上游 Git tree 中 `src/server.ts` 和 `src/tools.ts` 的 blob 大小分别为 21,564 和 17,947 字节，与此前本机只读报告中的这两个文件大小一致；这只能作为版本线索，不能替代逐字节哈希比较，也不能证明所有本地文件都与上游一致。
+- 当前结论仍为：上游源码与用户提供的核心实现片段总体一致；本机插件的完整版本身份和 Windows / Poi 12.0.1 运行兼容性仍未通过本地运行证据确认。没有发起本机 HTTP/MCP 请求，也没有执行游戏操作。
