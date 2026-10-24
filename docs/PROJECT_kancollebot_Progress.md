@@ -148,3 +148,13 @@
 - GitHub Actions CI 已通过：[reader contract tests](https://github.com/wosafety0/KancolleBot/actions/runs/40067026502)。
 - 测试提交：`b1a9384891f8b49ae4ed69db167ea1d7be691cf2`。
 - 这些仍是离线合成响应测试；尚未证明 MCP 会话与用户本机 Nanodesu 插件能够完成真实握手，也没有证明本机 Redux store 的字段/刷新行为与上游夹具完全相同。
+
+
+### 2026-10-24 持久化重复派遣保护
+
+- 审查发现 journal 原先只按 `fleet_id + mission_id + observed_at` 判断重复。由于 `observed_at` 是每次读取时生成的本地时间，即使 Redux 缓存未变化，重启后也可能得到新的键，无法可靠阻止结果不明后的重试。
+- 已修改 `ExpeditionActionJournal.reserve()`：在原子事务中，若同一舰队存在 `reserved`、`submitted` 或 `unknown` 记录，就拒绝新的预约，不再依赖新观察时间来绕过未决记录。
+- `runner.py` 的阻止原因已改为明确说明存在未决 journal 记录；新增测试覆盖未决记录跨观察时间、跨任务 ID 的阻止，以及已确认记录允许后续新观察。
+- GitHub Actions CI 已通过：[journal retry protection tests](https://github.com/wosafety0/KancolleBot/actions/runs/40067141815)。
+- 测试提交：`9d534af977efcb4053f0b7a4ed967289a1031c1b`。
+- 当前限制：未决记录会 fail-closed 阻止该舰队后续尝试；自动核对和清除未决记录的流程尚未实现，不能把“状态时间戳变新”当作自动解除条件。真实派遣仍保持关闭。
