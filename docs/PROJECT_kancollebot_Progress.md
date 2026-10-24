@@ -47,3 +47,12 @@
 - No explicit `flagship` keyword was found in the scanned plugin source. `api_flagship` semantics and any replacement flagship-selection rule remain unverified; do not assume the first `api_ship` slot is flagship.
 - Detailed evidence, source locations, limitations, and next read-only checks: [POI MCP HTTP Bridge Findings](research/POI_MCP_HTTP_BRIDGE_FINDINGS.md).
 - Safety status of the local scan report: read-only; no network/HTTP requests, game actions, process termination, or plugin file modifications.
+
+## 2026-10-24 — POI active bridge call-chain correlation
+
+- Targeted local source output confirms `lib/bridge-controller.js` imports `createPoiDataBridge`, passes the configured port into its factory, and `ensureStarted()` calls `bridge.start()`.
+- `lib/poi-http-bridge.js` creates an HTTP server, binds to `127.0.0.1` using the configured port, and serves `/fleets` from `info.fleets` and `/ships` from `info.ships`.
+- The local listener snapshot showed POI renderer PID `21168` listening on both `127.0.0.1:17777` and `127.0.0.1:12450`. This strongly correlates the `17777` listener with the plugin bridge implementation but does not prove the complete lifecycle call chain end-to-end; the owner of port `12450` remains unexplained.
+- The targeted check was read-only, reported zero errors, and performed no HTTP/network requests, game actions, process termination, or file modifications. Clipboard verification was not part of this shortened check.
+- Detailed source excerpts and evidence limitations: [POI MCP HTTP Bridge Findings](research/POI_MCP_HTTP_BRIDGE_FINDINGS.md).
+
