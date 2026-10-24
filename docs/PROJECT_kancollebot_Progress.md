@@ -243,3 +243,22 @@
 
 - 运行时数值、哈希和状态来自用户在本对话提供的本机预检报告；未由助手直接连接用户电脑。
 - 本次文档记录属于 GitHub 远程更新，不代表本地工作树已同步。
+
+
+### 2026-10-24 主数据截断根因定位：Nanodesu 提供定向查询接口
+
+#### 上游源码证据
+
+- 收到本机运行时报告后，复查公开上游 momocow/poi-plugin-nanodesu-mcp 的 src/tools.ts、src/query.ts、src/serialize.ts 与 src/paths.ts。当前上游 main 对应文件 blob：tools.ts b757db4d91e4a52d169c2496f3983920e90a717b；serialize.ts 25e4e4150284e8d4d97c4daa2743102ca9ffbcd7；paths.ts 4da5270a4fd15c6f6f6416ddf30b3ab1343cf369。
+- poi_get 默认 limit=200、maxBytes=65536，硬上限为 262144 字节；超出字节预算时会返回 truncated=true 的部分集合。上游注释明确指出 const.$ships 整表约 1.6 MB，远大于允许的最大响应体，因此直接 poi_get(path="const.$ships") 整表读取不可能在默认接口限制内完整返回。
+- 上游提供 poi_lookup 专用主数据查询：kind="ships" 映射到 const.$ships，参数为显式 ids，每次最多 200 个 ID，并可通过 select 只返回需要的字段。此接口返回以 ID 为键的记录对象，而不是 poi_get 的 kind/items/truncated 集合封装。
+- poi_get 的 select 是逐记录字段投影；但当前读取器需要的只是舰队实际引用的主数据记录，优先评估 poi_lookup(kind="ships", ids=..., select=["api_fuel_max","api_bull_max"])，而不是提高全表字节上限或忽略截断标志。
+- info.ships 的舰船实例字段 api_ship_id 可用来确定主数据 ID；应从 info.fleets.api_ship 引用的舰船实例中收集去重后的 api_ship_id，只查询当前舰队所需主数据。缺少 ID、缺少返回记录或字段缺失时继续 fail-closed。
+- 以上根因定位来自上游静态源码。尚未在用户本机调用 poi_lookup 验证当前安装版本的实际响应形状，因此不能将修复或本机兼容性标为完成。
+
+#### 实施建议与安全边界
+
+1. 修改 PoiExpeditionReader：先读取舰队与舰船实例，再从实际被舰队引用的舰船中收集唯一主数据 ID，调用只读 poi_lookup 获取对应主数据；不再对整张 const.$ships 调用 poi_get。
+2. 为 lookup 结果建立独立严格校验：返回值必须是数值 ID 键对象；每个被引用的主数据 ID 必须存在；所需燃料/弹药上限字段必须存在且类型有效。
+3. 增加离线回归测试覆盖 ID 去重、缺失主数据、错误响应形状与最小字段投影；之后先由 CI 验证，再通过用户本机只读验证器确认实际 poi_lookup 兼容性。
+4. 不调用 poi_battle 或 poi_hensei_save；不提高全表响应限制，不绕过 truncated 检查，不执行游戏操作。
