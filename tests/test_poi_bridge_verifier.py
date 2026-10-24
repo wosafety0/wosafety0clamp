@@ -51,6 +51,7 @@ class PoiBridgeVerifierTests(unittest.TestCase):
 
         self.assertIn("master_ships", report["checks"])
         self.assertIn(("poi_get", {"path": "const.$ships"}), instances[0].calls)
+        self.assertIn(("poi_describe", {"path": "info.fleets"}), instances[0].calls)
 
     def test_summarize_dict_does_not_copy_values(self):
         result = summarize({"ships": [{"name": "private-value", "id": 3}], "status": "ok"})
