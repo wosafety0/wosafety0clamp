@@ -1,0 +1,145 @@
+"""Offline contract tests for the read-only Poi expedition reader."""
+
+import json
+import unittest
+from datetime import datetime, timezone
+
+from kancollebot.adapters.poi.expedition_reader import PoiExpeditionReader
+from kancollebot.adapters.poi.mcp_client import PoiMcpError, McpTool
+
+
+NOW = datetime(2026, 10, 24, 12, 0, tzinfo=timezone.utc)
+
+
+def sample_payloads():
+    return {
+        "info.fleets": {
+            "kind": "array",
+            "total": 1,
+            "returned": 1,
+            "truncated": False,
+            "items": [
+                {
+                    "api_id": 1,
+                    "api_ship": [101],
+                    "api_mission": [0, 0, 0, 0],
+                }
+            ],
+        },
+        "info.ships": {
+            "kind": "object-map",
+            "total": 1,
+            "returned": 1,
+            "truncated": False,
+            "items": {
+                "101": {
+                    "api_ship_id": 11,
+                    "api_nowhp": 10,
+                    "api_maxhp": 10,
+                    "api_fuel": 10,
+                    "api_bull": 10,
+                }
+            },
+        },
+        "const.$ships": {
+            "kind": "object-map",
+            "total": 1,
+            "returned": 1,
+            "truncated": False,
+            "items": {
+                "11": {
+                    "api_fuel_max": 10,
+                    "api_bull_max": 10,
+                }
+            },
+        },
+    }
+
+
+class FakeClient:
+    def __init__(self, *, store_ready=True, payloads=None):
+        self.store_ready = store_ready
+        self.payloads = payloads or sample_payloads()
+        self.calls = []
+        self.initialize_calls = 0
+
+    def health(self):
+        return {"status": "ok", "storeReady": self.store_ready}
+
+    def initialize(self):
+        self.initialize_calls += 1
+        return {"name": "fake-poi"}
+
+    def list_tools(self):
+        return (McpTool("poi_describe"), McpTool("poi_get"))
+
+    def call_read_tool(self, name, arguments):
+        self.calls.append((name, arguments))
+        if name == "poi_describe":
+            payload = {"kind": "array", "path": arguments.get("path")}
+        else:
+            payload = self.payloads[arguments["path"]]
+        return {
+            "content": [
+                {"type": "text", "text": json.dumps(payload)}
+            ]
+        }
+
+
+class PoiExpeditionReaderTests(unittest.TestCase):
+    def test_reads_fleet_with_confirmed_master_supply_fields(self):
+        client = FakeClient()
+        reader = PoiExpeditionReader(client=client, clock=lambda: NOW)
+
+        observed = reader.read_fleets()
+
+        self.assertEqual(observed.observed_at, NOW)
+        self.assertEqual(len(observed.payload), 1)
+        self.assertEqual(observed.payload[0].fleet_id, 1)
+        self.assertTrue(observed.payload[0].fuel_ready)
+        self.assertTrue(observed.payload[0].ammo_ready)
+        self.assertEqual(
+            [args["path"] for name, args in client.calls if name == "poi_get"],
+            ["info.fleets", "info.ships", "const.$ships"],
+        )
+
+    def test_rejects_truncated_fleet_payload(self):
+        payloads = sample_payloads()
+        payloads["info.fleets"]["truncated"] = True
+        reader = PoiExpeditionReader(client=FakeClient(payloads=payloads), clock=lambda: NOW)
+
+        with self.assertRaisesRegex(PoiMcpError, "truncated"):
+            reader.read_fleets()
+
+    def test_missing_mission_data_fails_closed(self):
+        payloads = sample_payloads()
+        del payloads["info.fleets"]["items"][0]["api_mission"]
+        reader = PoiExpeditionReader(client=FakeClient(payloads=payloads), clock=lambda: NOW)
+
+        with self.assertRaisesRegex(PoiMcpError, "normalization failed closed"):
+            reader.read_fleets()
+
+    def test_store_not_ready_stops_before_mcp_initialization(self):
+        client = FakeClient(store_ready=False)
+        reader = PoiExpeditionReader(client=client, clock=lambda: NOW)
+
+        with self.assertRaisesRegex(PoiMcpError, "store is not ready"):
+            reader.read_fleets()
+
+        self.assertEqual(client.initialize_calls, 0)
+        self.assertEqual(client.calls, [])
+
+    def test_missing_required_read_tool_fails_closed(self):
+        class MissingToolClient(FakeClient):
+            def list_tools(self):
+                return (McpTool("poi_describe"),)
+
+        client = MissingToolClient()
+        reader = PoiExpeditionReader(client=client, clock=lambda: NOW)
+
+        with self.assertRaisesRegex(PoiMcpError, "missing required"):
+            reader.read_fleets()
+
+
+if __name__ == "__main__":
+    unittest.main()
