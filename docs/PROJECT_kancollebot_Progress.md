@@ -355,3 +355,19 @@
 - CI configuration is unchanged: ubuntu-latest, Python 3.12, compileall, then unittest. No source-level fix is justified by the currently available failure evidence.
 - Decision: keep application source/tests unchanged and do not trigger further Actions runs until the GitHub UI exposes the job-level failure message or Actions service/account restrictions are verified.
 - This entry is a remote progress-document update only. No local worktree synchronization, source edit, workflow rerun, live game action, or system/proxy modification was performed.
+
+
+### 2026-10-24 Expedition closed-loop readiness and next plan
+
+- User-facing status: the real in-game expedition closed loop is **not ready to run yet**. Existing code and prior offline-test evidence do not establish live Poi compatibility or a successful dispatch/confirmation cycle.
+- Verified/previously reported foundations: Poi MCP health and read-only tool discovery passed; `info.fleets` and `info.ships` returned data; a targeted `poi_lookup(kind="ships")` smoke check returned 12 referenced master records with no missing/invalid required fields. The updated `PoiExpeditionReader` itself has not been validated against the live Poi instance.
+- Outstanding gates, in order:
+  1. Restore a trustworthy offline verification path: inspect the latest GitHub Actions UI failure detail or run the existing tests locally. Recent Actions failures show no runner allocation and no steps; the exact platform/account cause remains unknown, so do not attribute them to code or billing without evidence.
+  2. Run the branch's unit tests and fix only evidence-backed failures; do not trigger more Actions runs until the runner-start restriction is understood.
+  3. Against the live Poi MCP, read only: verify tool schemas/response shapes, execute the updated reader, validate fleet/ship/master-data joins, and fail closed on truncation or missing data.
+  4. Establish a reliable in-port/login signal and data-freshness signal; a successful health check or unchanged snapshot alone is insufficient.
+  5. Inspect and verify the CDP target/WebSocket path and the exact dispatch UI interaction contract without clicking or submitting in the game.
+  6. Add/verify post-dispatch readback and confirmation handling, including timeout/unknown-result behavior and persistent action-journal reconciliation. If the outcome is uncertain, stop rather than retry blindly.
+  7. Only after all prior gates pass, request explicit user authorization for a tightly bounded single-fleet live test; then confirm the result by re-reading game state. Keep live dispatch disabled until that authorization and verification.
+- Current decision: continue with offline tests and read-only integration checks first. No real expedition was run; no game action, local machine change, proxy/system change, or local worktree sync is claimed by this documentation update.
+- CI and live-runtime blockers are separate: a blocked Actions runner does not itself prove the expedition code is wrong, and a green offline CI run would not by itself prove the live expedition loop works.
