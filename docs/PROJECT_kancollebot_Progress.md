@@ -262,3 +262,16 @@
 2. 为 lookup 结果建立独立严格校验：返回值必须是数值 ID 键对象；每个被引用的主数据 ID 必须存在；所需燃料/弹药上限字段必须存在且类型有效。
 3. 增加离线回归测试覆盖 ID 去重、缺失主数据、错误响应形状与最小字段投影；之后先由 CI 验证，再通过用户本机只读验证器确认实际 poi_lookup 兼容性。
 4. 不调用 poi_battle 或 poi_hensei_save；不提高全表响应限制，不绕过 truncated 检查，不执行游戏操作。
+
+
+### 2026-10-24 POI lookup runtime check
+
+- User-provided local PowerShell 5.1 report: 13:57:37-13:57:39 +08:00; endpoint 127.0.0.1:12450.
+- Read-only boundary held: no game actions, write tools, file/config changes, proxy/system changes, or full master-table read. No master IDs or field values printed.
+- Health precondition and MCP initialization passed; protocol 2025-03-26. Read tools poi_get and poi_lookup were present.
+- Runtime counts: 3 fleets, 91 ship instances, 12 fleet-referenced ship instances and 12 unique master IDs.
+- poi_lookup for those IDs with select api_fuel_max and api_bull_max returned an object map with 12 records, 0 missing records and 0 invalid required fields. Result PASS.
+- This confirms the installed instance supports the targeted lookup call and response shape for these 12 references. The reader code has not yet been changed; broad compatibility is not yet proven.
+- Current runtime evidence: health, MCP handshake/tool list, info.fleets, info.ships and targeted master lookup pass. Login state remains UNKNOWN. No changes across a 10-second observation window does not establish freshness. End-to-end expedition closure remains unverified.
+- Next: update PoiExpeditionReader to derive and deduplicate referenced api_ship_id values and use poi_lookup; add tests for duplicate/empty IDs, missing records, wrong shapes and invalid required fields; run CI. Continue investigating login/home-port signal and refresh evidence. Do not enable live dispatch until these gates are established.
+- Evidence was supplied by the user from local execution; assistant did not directly access the user's computer. This entry is a remote GitHub documentation update only and does not sync the local worktree.
