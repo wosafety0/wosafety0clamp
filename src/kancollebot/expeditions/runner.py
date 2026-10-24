@@ -116,6 +116,12 @@ class ExpeditionRunner:
                 "blocked_by_preflight", rotation, fleet_id, str(exc)
             )
 
+        if policy.allow_live_actions and self._journal is None:
+            return ExpeditionCycleResult(
+                "journal_unavailable", rotation, fleet_id,
+                "A durable action journal is required for live dispatch.",
+            )
+
         # Reserve before any external action. A failed journal write must block
         # dispatch, and an ambiguous attempt must never be retried automatically.
         if self._journal is not None:
