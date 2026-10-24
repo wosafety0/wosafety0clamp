@@ -136,6 +136,7 @@
 ### 2026-10-24 上游夹具揭示的主数据字段不匹配
 
 - 从上游公开夹具 `test/fixtures/store.json` 解析到：舰船实例 `info.ships` 使用 `api_fuel` / `api_bull`；主数据 `const.$ships` 使用 `api_fuel_max` / `api_bull_max`。
+- 该夹具的结构检查结果：2 个舰队均含 `api_id` 和至少 4 项的 `api_mission`；35 条舰船实例对应 35 条主数据记录，主数据引用均可解析；舰船 HP/当前燃料/当前弹药与主数据燃料/弹药上限字段均为数值。此统计仅描述上游静态夹具。
 - 原归一化器错误地从主数据读取 `api_fuel` / `api_bull`，与上游夹具字段不符，会将实际有弹药的舰船误判为补给不足。此前合成测试沿用了错误字段名，未能发现此问题。
 - 已将归一化器改为读取 `api_fuel_max` / `api_bull_max`，并更新测试数据；现有补给就绪测试能验证当前弹药与主数据弹药上限相等时为就绪。
 - 更新后的测试提交 `0631f2a9ecff2c2d61af92964944a195fa5754df` 的 GitHub Actions CI 已通过：[CI run](https://github.com/wosafety0/KancolleBot/actions/runs/40066923707)。紧邻的纯代码提交 `ecc07142dd79f9d451e2542e69c806462371a92e` 在测试夹具尚未同步更新时失败；该中间提交失败原因已从 CI 日志确认，后续测试更新提交通过。
