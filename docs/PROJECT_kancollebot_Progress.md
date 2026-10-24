@@ -459,3 +459,13 @@
 - GitHub branch metadata currently reports `dev/expedition-closed-loop-mvp` at `e5237f5dc1efe6c890ca6124c99e013a96c3faf7`, a documentation-only commit whose parent is the previously pinned `b7a74e8773c4cde00bf0b7761681939770e6b86d`. The earlier script's expected HEAD is now stale for the branch tip.
 - No tests ran; project rules were not read locally; no package was installed; no game action, global setting change, historical Cloud copy modification, or access to `D:\\KancolleBot\\Source` is reported. Clipboard verification is non-blocking per user preference.
 - This entry is a remote progress-document update only; it does not establish any local filesystem change or successful clone. Live expedition dispatch remains disabled.
+
+
+### 2026-10-24 Clone target inspection resolves the clone outcome
+
+- User-provided read-only inspection at 15:40:25 +08:00 confirms `D:\\KancolleBot-Worktrees\\expedition-closed-loop-mvp-20261024` is a valid Git worktree with the expected branch `dev/expedition-closed-loop-mvp`, HEAD `e5237f5dc1efe6c890ca6124c99e013a96c3faf7`, and successful `rev-parse`, branch, and status commands.
+- The directory contains `.git`, `.github`, `docs`, `src`, `tests`, `tools`, `.gitignore`, `pyproject.toml`, and `README.md`. The reported status command exited 0; its output was empty, consistent with a clean worktree.
+- Conclusion: the earlier clone did in fact complete. The first script aborted while processing Git's `Cloning into ...` stderr output under Windows PowerShell 5.1, before it set its internal `cloneCreated` flag or recorded the native exit code. This is strongly consistent with a PowerShell error-handling issue; the report does not show a Git clone failure. No reclone or deletion is needed.
+- The inspected HEAD matches the currently reported GitHub branch tip `e5237f5dc1efe6c890ca6124c99e013a96c3faf7`; this supersedes the earlier pinned parent commit `b7a74e8773c4cde00bf0b7761681939770e6b86d`.
+- Next: use the existing checkout only after reading its `docs/PROJECT_kancollebot_MASTER.md`, re-check branch/HEAD/clean status, and then run the existing offline compile and unittest commands. The test script must handle native stderr without treating it as a terminating PowerShell exception and must preserve any pre-existing process-level `PYTHONPATH` and `PYTHONDONTWRITEBYTECODE` values.
+- This update is remote documentation only. At the time of this note, project rules have not yet been read locally and tests have not yet been started. No package installation, game action, global settings change, historical Cloud copy modification, or access to `D:\\KancolleBot\\Source` occurred. Live dispatch remains disabled.
