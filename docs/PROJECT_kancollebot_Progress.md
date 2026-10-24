@@ -78,3 +78,16 @@
 3. 运行 GitHub Actions，记录对应提交的实际 CI 结果。
 4. 在用户现有 Poi 实例上进行只读预检；确认目标插件、端口和健康状态后，再由用户授权执行本机只读探测。
 5. 捕获最小化且脱敏的真实 payload，验证三条路径、字段形状和数据刷新；在这些证据成立前，真实游戏派遣保持关闭。
+
+### 2026-10-24 跟进修复与 CI 结果
+
+- 已修复 `tools/verify_poi_bridge.py`：Nanodesu 只读验证现在也会请求 `const.$ships`，报告中单独列出 `master_ships` 结构摘要。
+- 已修复 `PoiMcpClient.__init__()`：拒绝带用户名或密码的 endpoint URL，与只读验证器的规则保持一致。
+- 新增回归测试：覆盖 MCP endpoint 凭据拒绝，以及 Nanodesu 验证器确实查询 `const.$ships`。
+- 对应 GitHub Actions CI 已通过：
+  - [MCP endpoint 凭据校验](https://github.com/wosafety0/KancolleBot/actions/runs/40066344757)
+  - [Nanodesu 主数据路径探测](https://github.com/wosafety0/KancolleBot/actions/runs/40066348061)
+  - [凭据拒绝回归测试](https://github.com/wosafety0/KancolleBot/actions/runs/40066365407)
+  - [主数据路径回归测试](https://github.com/wosafety0/KancolleBot/actions/runs/40066370136)
+- 当前代码提交：`f983910a2dec913003c793bf19fe9cc05f29a6b3)。以上 CI 结果证明 GitHub Actions 中的自动化检查通过，不代表 Windows / Poi 12.0.1 运行时验证通过。
+- 未进行本机 HTTP/MCP 请求、未触发游戏操作、未安装软件；本次代码和文档修改发生在 GitHub 远程分支，不能视为本地工作树已同步。
