@@ -371,3 +371,16 @@
   7. Only after all prior gates pass, request explicit user authorization for a tightly bounded single-fleet live test; then confirm the result by re-reading game state. Keep live dispatch disabled until that authorization and verification.
 - Current decision: continue with offline tests and read-only integration checks first. No real expedition was run; no game action, local machine change, proxy/system change, or local worktree sync is claimed by this documentation update.
 - CI and live-runtime blockers are separate: a blocked Actions runner does not itself prove the expedition code is wrong, and a green offline CI run would not by itself prove the live expedition loop works.
+
+
+### 2026-10-24 Local test preflight blocked by unexpected project path
+
+- User-provided Windows PowerShell 5.1 read-only report at 2026-10-24 15:10:48 +08:00:
+  - `D:\Project_KancolleBot` exists.
+  - `D:\Project_KancolleBot\05_Docs` does not exist; expected `PROJECT_RULES.md` was not found.
+  - No `PROJECT_RULES.md` candidate was found in the root or expected docs directory.
+  - Git reports: `fatal: not a git repository (or any of the parent directories): .git`.
+  - No file modifications, network requests, game actions, or access to the prohibited legacy source directory occurred.
+- Result: **local offline tests were not started**. This report does not establish that project files were deleted; the specified path may be an incomplete directory, moved checkout, or wrong location. The cause remains unknown.
+- Next step: perform a strictly shallow, read-only inventory of the project root and its immediate parent, including hidden entries and the presence of `.git`; do not recursively search the drive, recreate directories, clone over the path, or access `D:\KancolleBot\Source`. Locate the authoritative checkout and `05_Docs\PROJECT_RULES.md` before reading rules or running tests.
+- Remote documentation update only. This does not modify or synchronize the local machine. Live expedition dispatch remains disabled.
