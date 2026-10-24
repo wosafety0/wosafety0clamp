@@ -56,3 +56,12 @@
 - The targeted check was read-only, reported zero errors, and performed no HTTP/network requests, game actions, process termination, or file modifications. Clipboard verification was not part of this shortened check.
 - Detailed source excerpts and evidence limitations: [POI MCP HTTP Bridge Findings](research/POI_MCP_HTTP_BRIDGE_FINDINGS.md).
 
+## 2026-10-24 — POI plugin lifecycle source chain completed
+
+- The latest local read-only source excerpts confirm `index.js` calls `controller.load()` from `pluginDidLoad()`; `bridge-controller.js` reloads settings and, when `settings.enabled` is true, calls `ensureStarted()`; `ensureStarted()` creates the bridge if necessary and awaits `bridge.start()`.
+- The bridge factory receives the configured port and its implementation creates a Node HTTP server bound to `127.0.0.1`; its routes serve `/fleets` from `info.fleets` and `/ships` from `info.ships`.
+- Together with the previously supplied listener snapshot (POI renderer PID `21168` listening on `127.0.0.1:17777`), the source call chain strongly supports attribution of the `17777` service to `poi-plugin-mcp`. No live HTTP request was made in this verification.
+- Port `12450` remains unexplained; PID ownership alone does not identify which component created that listener.
+- The local check reported zero errors and no HTTP/network requests, game actions, or file modifications. Clipboard verification was intentionally not performed.
+- Details and caveats: [POI MCP HTTP Bridge Findings](research/POI_MCP_HTTP_BRIDGE_FINDINGS.md).
+
