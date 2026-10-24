@@ -5,7 +5,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from kancollebot.expeditions.action_journal import ExpeditionActionJournal
+from kancollebot.expeditions.action_journal import ExpeditionActionJournal, JournalError
 
 
 NOW = datetime(2026, 10, 24, 12, 0, tzinfo=timezone.utc)
@@ -43,7 +43,7 @@ class ExpeditionActionJournalTests(unittest.TestCase):
     def test_transition_requires_a_prior_reservation(self):
         with tempfile.TemporaryDirectory() as directory:
             journal = self.make_journal(directory)
-            with self.assertRaisesRegex(Exception, "not reserved"):
+            with self.assertRaisesRegex(JournalError, "not reserved"):
                 journal.transition(2, 1, NOW, state="unknown", detail="No reservation")
 
 
