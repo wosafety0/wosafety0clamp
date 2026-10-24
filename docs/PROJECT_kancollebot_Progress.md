@@ -275,3 +275,15 @@
 - Current runtime evidence: health, MCP handshake/tool list, info.fleets, info.ships and targeted master lookup pass. Login state remains UNKNOWN. No changes across a 10-second observation window does not establish freshness. End-to-end expedition closure remains unverified.
 - Next: update PoiExpeditionReader to derive and deduplicate referenced api_ship_id values and use poi_lookup; add tests for duplicate/empty IDs, missing records, wrong shapes and invalid required fields; run CI. Continue investigating login/home-port signal and refresh evidence. Do not enable live dispatch until these gates are established.
 - Evidence was supplied by the user from local execution; assistant did not directly access the user's computer. This entry is a remote GitHub documentation update only and does not sync the local worktree.
+
+
+### 2026-10-24 POI targeted master lookup implementation
+
+- Runtime evidence from the user's local read-only report established that `poi_lookup(kind="ships", ids=[...], select=["api_fuel_max","api_bull_max"])` returned all 12 requested master records with no missing records and no invalid required fields.
+- Updated `src/kancollebot/adapters/poi/expedition_reader.py` to require the read-only `poi_lookup` tool, derive unique master IDs from fleet-referenced ship instances, request only the two required master fields, and fail closed on missing records, malformed object-map responses, or invalid required field values. It no longer requests the full `const.$ships` table through `poi_get`.
+- Source commit: `b1433606f8472227338a44715a21ec26dee468af`. The remote file was fetched back and verified at blob `289cb4388ef22522cfc088a791b04720a7c78d6d`.
+- Updated `tests/test_poi_expedition_reader.py` to cover targeted lookup, deduplication of repeated master IDs, missing records, wrong lookup shape, invalid required fields, missing lookup tool, and truncated fleet/ship responses.
+- Test commit: `4d15e3c3e5aef20825009dadb7f4b03f40a0090c`. The remote test file was fetched back and verified at blob `9ef299371a4fb2033a0395d1aa3361f5f5df5c25`.
+- CI status: not yet confirmed. The workflow-run lookup returned no PR-triggered runs for these commits; do not interpret that as a passing test run. Follow up by inspecting the branch's actual Actions runs or running the test workflow through an available verified path.
+- Runtime status: this code change is based on a successful local `poi_lookup` smoke check for 12 referenced IDs, but the modified reader has not yet been executed against the user's live Poi instance. Login-state evidence and data freshness remain UNKNOWN; end-to-end expedition closure remains unverified; live dispatch stays disabled.
+- Scope: GitHub remote files were changed and read back successfully. No claim is made that the user's local working tree was updated. No local machine access, game actions, write tools, configuration changes, or system/proxy changes were performed by the assistant.
