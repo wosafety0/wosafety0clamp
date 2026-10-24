@@ -158,3 +158,13 @@
 - GitHub Actions CI 已通过：[journal retry protection tests](https://github.com/wosafety0/KancolleBot/actions/runs/40067141815)。
 - 测试提交：`9d534af977efcb4053f0b7a4ed967289a1031c1b`。
 - 当前限制：未决记录会 fail-closed 阻止该舰队后续尝试；自动核对和清除未决记录的流程尚未实现，不能把“状态时间戳变新”当作自动解除条件。真实派遣仍保持关闭。
+
+
+### 2026-10-24 真实操作的持久化 journal 强制门槛
+
+- 发现 runner 在 `allow_live_actions=True` 且显式确认的情况下，仍允许 `journal=None`；这会使跨进程重复保护退化为单实例内存集合。
+- 已增加 fail-closed 门槛：只要策略允许真实操作，必须注入持久化 journal；没有 journal 时返回 `journal_unavailable`，不调用 adapter 的派遣方法。
+- 更新 runner 测试：成功派遣和结果不明场景使用临时 SQLite journal；新增无 journal 时禁止派遣的回归测试。
+- GitHub Actions CI 已通过：[durable journal requirement tests](https://github.com/wosafety0/KancolleBot/actions/runs/40067331235)。
+- 测试提交：`160c1ea9233d6561cbf2ada1793b10f696133ac8`。紧邻的纯代码提交因既有测试尚未同步到新安全契约而失败；随后的测试更新提交通过。
+- 真实游戏操作仍默认关闭；此改动只加强未来启用操作时的前置条件，不代表真实派遣已实现或验证。
