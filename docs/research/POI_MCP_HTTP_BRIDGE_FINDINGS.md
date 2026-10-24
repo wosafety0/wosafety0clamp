@@ -33,3 +33,26 @@
 - Trace `lib/bridge-controller.js` from `controller.load()` to the active HTTP bridge start function.
 - Inspect `lib/settings.js` and the route-registration section of `lib/poi-http-bridge.js` to distinguish the active plugin bridge from the standalone `mcp-server.js` injection/fallback path.
 - If flagship selection is needed, trace the POI fleet state/model and the meaning of the relevant fields before implementing a rule. Keep game actions disabled.
+
+## 2026-10-24 targeted active-bridge trace
+
+The next local read-only report supplied the following additional source and runtime evidence:
+
+- `lib/bridge-controller.js` imports `createPoiDataBridge` from `./poi-http-bridge` (reported line 2).
+- `createBridgeController()` uses the configured settings path and initializes settings (reported lines 11–16). Its `createCurrentBridge()` passes `settings.port` and `settings.inputEnabled` into the bridge factory (reported lines 28–53).
+- `ensureStarted()` creates the bridge if absent and calls `await bridge.start()` (reported lines 81–85). `stopCurrentBridge()` calls `runningBridge.stop()` (reported lines 98–104).
+- `lib/poi-http-bridge.js` declares `DEFAULT_PORT = 17777` (reported line 28). Its request handler maps `/fleets` to `info.fleets || []` and `/ships` to `info.ships || {}` (reported lines 871–875).
+- The bridge implementation creates the HTTP server with `http.createServer(handleRequest)` and calls `server.listen(configuredPort, '127.0.0.1', ...)`; it records the actual bound port in a port file (reported lines 941–955).
+- The local listener snapshot reported both `127.0.0.1:17777` and `127.0.0.1:12450` owned by POI renderer PID `21168`, executable `D:\\Games\\poi\\poi.exe`, with the Electron renderer command line. This correlates the configured bridge port with a listener inside the POI renderer process.
+- The targeted script reported `ERROR_COUNT: 0`, no HTTP/network requests, no game actions, no process termination, and no file modifications. Clipboard verification was deliberately not performed by that script.
+
+### Updated interpretation
+
+The active bridge implementation is no longer supported only by the standalone `mcp-server.js` injection-script evidence: the controller imports the `createPoiDataBridge` factory, passes its configured port, and has a start path that invokes `bridge.start()`; the bridge source contains the actual HTTP server and route handlers. The listener snapshot is consistent with this bridge running inside the POI renderer.
+
+The supplied output does not include the controller's complete `load()` implementation or the full `index.js` lifecycle context in this particular report, so the final conditional path from `pluginDidLoad()` through settings enablement to `ensureStarted()` has not been shown end-to-end in one captured excerpt. PID ownership alone cannot distinguish multiple servers in the same renderer, and it does not identify which component owns port `12450`. Therefore, classify the active `17777` bridge attribution as **strongly correlated, not end-to-end runtime-proven**; `12450` remains unexplained.
+
+### Next read-only check
+
+If stronger attribution is needed, capture the complete `load()` method and adjacent lifecycle methods from `lib/bridge-controller.js`, plus `pluginDidLoad()` from `index.js`, with line numbers. Do not send HTTP requests or perform game actions.
+
