@@ -167,7 +167,11 @@ def run_nanodesu(endpoint: str, timeout: float) -> dict[str, Any]:
         raise RuntimeError("Required read tools poi_describe and poi_get are missing")
     describe = client.call_read_tool("poi_describe", {})
     report["checks"]["describe"] = {"status": "PASS", "summary": summarize_mcp_result(describe)}
-    for label, path in (("fleets", "info.fleets"), ("ships", "info.ships")):
+    for label, path in (
+        ("fleets", "info.fleets"),
+        ("ships", "info.ships"),
+        ("master_ships", "const.$ships"),
+    ):
         value = client.call_read_tool("poi_get", {"path": path})
         report["checks"][label] = {"status": "PASS", "summary": summarize_mcp_result(value)}
     report["checks"]["session_validity"] = {
