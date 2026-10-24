@@ -505,3 +505,17 @@
 - The local sync-and-test script then skipped fast-forward because it compared Git's slash-separated repository root (`D:/KancolleBot-Worktrees/expedition-closed-loop-mvp-20261024`) to a backslash-separated target string. This is a script path-normalization defect, not evidence of a Git merge conflict or test failure.
 - At the time of the report, local HEAD remained `e5237f5dc1efe6c890ca6124c99e013a96c3faf7`, the branch was `dev/expedition-closed-loop-mvp`, and the worktree was clean. No merge or tests were performed in that attempt.
 - Next: normalize repository paths before comparison; re-check clean status and `git rev-list --left-right --count HEAD...origin/dev/expedition-closed-loop-mvp`; only fast-forward when local ahead count is zero; then read the project rules and run compileall plus unittest. `LIVE_DISPATCH` remains disabled; no game actions or package installation.
+
+
+### 2026-10-25 真实远征派遣验收门槛与当前状态
+
+- 用户询问何时可以进行真实派遣。当前不批准直接开启真实派遣；采用分阶段验收，不要求整个项目全部完成后才进入真实派遣准备。
+- 当前已知阻塞：Windows 本地 checkout 的 SQLite 修复后离线复测尚未收到结果。上次报告因路径格式比较错误跳过快进同步，仍停留在旧 HEAD；因此修复后的 compileall 和完整 unittest 均未验证。
+- 进入真实派遣前必须满足以下门槛：
+  1. 本地分支快进同步至已审查的远程提交，工作区干净，项目规则读取成功。
+  2. compileall 与完整离线单元测试通过；对 SQLite journal 的关闭、跨进程重复派遣阻止、未知结果 fail-closed 等保护有回归测试证据。
+  3. 在用户现有 Poi 实例上完成只读桥接预检：确认插件身份、健康状态、storeReady、登录/母港证据、舰队与任务字段形状，以及数据刷新/新鲜度；禁止在此阶段发出操作请求。
+  4. 完成不触碰真实游戏的模拟/假 adapter 验收，覆盖派遣前置条件失败、重复提交、超时或结果未知、状态复核失败、停止条件与审计日志。
+  5. 真实操作开关保持关闭，直到用户单独明确授权一次受控真实派遣；首次只允许一项明确的远征任务，派遣后立即只读复核状态，结果不明则停止，不自动重试或扩展批量操作。
+- 只有前四项通过并获得第 5 项单独授权后，才可执行首次受控真实派遣。离线测试通过不代表 Poi 实机接口或实时游戏状态已验证。
+- 当前状态：SQLite 修复后本地测试待复验；Poi 运行时数据新鲜度与登录状态尚未验证；真实派遣保持禁用。没有执行游戏操作或修改用户本地文件。
