@@ -941,3 +941,14 @@
 - Report states the root path and safety conditions, with `ERRORS: NONE`; however, it contains no directory-existence results, direct-file counts, filenames, sizes, or SHA-256 hashes. Therefore it does not establish whether the inventory loop ran or what files exist.
 - No code execution, network/MCP requests, WebSocket, game actions, file changes, or system/proxy changes were reported. `SESSION_VALIDITY=NOT_VERIFIED`; `LIVE_DISPATCH=DISABLED`.
 - **Next diagnostic:** avoid another broad script. Use a minimal direct listing of only the known `index.ts` and `src\server.ts` paths, reporting each path's existence and byte size. If this still produces summary-only output, treat it as a report/rendering issue and ask for the actual PowerShell console output rather than infer file state.
+
+### 2026-10-25 — Nanodesu two-file existence and hash check
+
+- Task: `KANCOLLEBOT_NANODESU_TWO_FILE_CHECK_V1`.
+- Local root reported by user: `C:\Users\QuirrellRevess\AppData\Roaming\poi\plugins\node_modules\poi-plugin-nanodesu-mcp`.
+- Read-only file check confirmed `index.ts` exists; size **4,772 bytes**; SHA-256 `82ECFB964ADD4209C440D63A389C0AE530CC69E0B813DA62F2A5EB66969732B1`.
+- Read-only file check confirmed `src\server.ts` exists; size **21,564 bytes**; SHA-256 `D90C13A3C75CB32EE99003D519AF90701549897250BA2C76386B3875BBD837FF`.
+- Scope limitation: existence and hashes are verified from the user-provided PowerShell report; this result does **not** establish that either source file's logic has been reviewed.
+- Reported safety state: no network requests, MCP requests, game actions, or file modifications; `LIVE_DISPATCH=DISABLED`; `SESSION_VALIDITY=NOT_VERIFIED`.
+- Next step: retrieve the relevant source excerpts locally in read-only mode (especially server initialization, tool registration/handlers, request routing, and any dispatch-capable paths); review before considering any execution or live integration.
+
