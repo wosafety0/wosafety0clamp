@@ -126,3 +126,13 @@ Perform a separate, explicitly read-only local loopback health/initialization/de
 - **Overall run:** `FINAL_STATUS: FAILED` because the temporary-script cleanup check did not pass. Do not call the full run an unqualified PASS.
 - **Verified milestone:** The live MCP `poi_get` data retrieval and structural parsing path is now verified for one limited record from each of the two paths. This does not establish full dataset integrity, freshness, active game-session validity, or end-to-end game behavior.
 - **Next step:** Fix and independently verify temporary-script lifecycle/cleanup in a minimal local harness; do not repeat the already-passing data calls unless needed to verify that fix. Keep all game actions disabled.
+
+
+## Temporary Probe Script Cleanup Verification — 2026-10-25
+
+- **Task:** `KANCOLLEBOT_POI_TEMP_SCRIPT_CLEANUP`
+- **Timestamp:** 2026-10-25 20:55:07 +08:00
+- **Scope:** temporary-file cleanup only; Poi endpoint was not contacted and no game actions were executed.
+- **Result:** PASS. One matching diagnostic script was found and removed; zero operation failures; zero matching files remained after the scan.
+- **Combined milestone:** Both limited `poi_get` calls from the preceding diagnostic run passed structural parsing, and the matching temporary script has now been independently cleaned up and verified absent. The data retrieval plus cleanup sequence is therefore closed for this narrow read-only probe.
+- **Limits:** This does not validate active game-session status, data freshness, full fleet/ship contents, or end-to-end game automation. No write/action tools were called.
