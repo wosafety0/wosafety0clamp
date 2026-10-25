@@ -981,3 +981,24 @@
 - `src/poi.ts` reads Poi globals including `isMain`, `getStore`, `dispatch`, `config`, and `APPDATA_PATH`. `resolveGetStore` and `resolveDispatch` throw when their required globals are absent. `readPortConfig` validates ports in the range 1–65535 and falls back on invalid/unavailable configuration. `writeConfig` can persist a setting through Poi's config API; it was not called. Source-level capability does not establish current runtime configuration.
 - Safety remains `LIVE_DISPATCH=DISABLED` and `SESSION_VALIDITY=NOT_VERIFIED`. No MCP endpoint should be called for this review.
 - Next read-only review: inspect `src/paths.ts`, `src/query.ts`, `src/serialize.ts`, `src/validator.ts` if present, and `src/hensei.ts` to assess path traversal protections, query/selection behavior, serialization bounds, schema validation, and persistence semantics. Compare registered tool schemas to handler contracts without sending requests.
+
+
+## 2026-10-25 — Nanodesu path/query/serialization boundary review V2
+
+- User-provided local read-only report completed at 2026-10-25 18:16:01 +08:00 for installed package `poi-plugin-nanodesu-mcp@0.2.0`. Root: `%APPDATA%\\poi\\plugins\\node_modules\\poi-plugin-nanodesu-mcp`.
+- Source identity from the report:
+  - `src/paths.ts`: 14,391 bytes; SHA-256 `74B4FFE37347A3118A86355FC7FA6856D39871FB6C44C47B33CE6BBF8F0D7D81`.
+  - `src/query.ts`: 16,464 bytes; SHA-256 `12741D8BCE824DBDB1CEF714BEC85B95A2711B9C946BFBBC996618FF3A9F7F27`.
+  - `src/serialize.ts`: 4,096 bytes; SHA-256 `6231F938C5372DA767BACF2FD150705951DE83D575F214C17906D7751C1B1DE2`.
+  - `src/hensei.ts`: 6,087 bytes; SHA-256 `4440FF8C85CDBFE4A2FDC8DC85197A45AB2AF299BD05905A8DEBC8711DE87C11`.
+  - `src/validator.ts`: 1,793 bytes; SHA-256 `8DAB2F723B806D8E4C7D3A1E91BAFBDF1D38FEF08DD6540721B4DFF6AB79E180`.
+  - `src/server.ts`: 21,564 bytes; SHA-256 `D90C13A3C75CB32EE99003D519AF90701549897250BA2C76386B3875BBD837FF`.
+  - `index.ts`: 4,772 bytes; SHA-256 `82ECFB964ADD4209C440D63A389C0AE530CC69E0B813DA62F2A5EB66969732B1`.
+  - `package.json`: 746 bytes; SHA-256 `40215403960E8B3BE81DFE52DF627C9FD1000E1B597811CAEE6FA80798A670C1`.
+- Static path policy: `src/paths.ts` exposes a fixed set of store roots and an explicit allowlist of plugin state under `ext`. Whole `ext`, `config`, `layout`, `plugins`, `ui` and arbitrary `ext` plugin state are denied. Battle Detail is narrowed to `_.indexes` because a sibling field contains an Immutable.js List.
+- Static query behavior: `where` is parsed into a restricted expression grammar; `select` projects requested paths; `limit` truncates the matched result set. In `applyQuery`, arrays and object maps are filtered before slicing to the requested limit, so `limit` caps returned rows but does not cap the number of entries scanned.
+- Static serialization behavior: `toJsonSafe` defaults to depth 16, omits functions/symbols/undefined object fields, converts non-finite numbers to null, stringifies bigint, and marks cycles/depth overflow. `fitToBytes` rejects oversized scalar/object values and trims collection results to the largest prefix that fits the byte cap, updating `returned` and `truncated`.
+- Potential path-boundary issue to investigate, not yet a confirmed vulnerability: path traversal uses ordinary property access and `key in container` checks. A dedicated offline test should check inherited-property names such as `constructor` and `__proto__`, including behavior of `resolveStorePath` and query/select field paths. No exploit was run and no runtime request was made.
+- Write semantics: `src/hensei.ts` builds action `@@HENSEI_SAVE_DATA` for `poi-plugin-hensei-nikki`; the handler path dispatches the action, and the companion plugin's observer is documented as persisting its state to a JSON file. This remains a write-capable operation and must not be invoked during read-only validation. The local runtime registration branch remains unverified.
+- Source review report stated: no code execution, network/MCP requests, WebSocket use, game actions, file modifications, or system/proxy changes. Safety gate remains `SESSION_VALIDITY=NOT_VERIFIED`; `LIVE_DISPATCH=DISABLED`.
+- Next step: read the complete `src/validator.ts` and the relevant tool schemas/handlers around `poi_get`, `poi_describe`, and `poi_hensei_save`; design a pure offline path test for inherited-property edge cases without contacting Poi or dispatching actions. Do not treat source-level review as runtime validation.
