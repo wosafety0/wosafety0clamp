@@ -64,3 +64,18 @@ Inspected `src/kancollebot/adapters/poi/mcp_client.py`, `tests/test_poi_mcp_clie
 ## Updated next step
 
 Run the offline test suite in the local checkout with the project's existing Python environment. Capture the exact command, exit code, test count, and failures. Only if the suite passes should a read-only loopback health/describe probe be considered. Keep `poi_battle` excluded from the client allowlist until a separately reviewed change and regression tests are approved.
+
+
+## Offline test execution result (2026-10-25)
+
+- Tested commit: `f61292ae79e20a3af79dd65d825abef623dd2f71` on `dev/sparkling-planner-mvp`; the fetched commit matched the expected reviewed commit.
+- Test command: `python -m unittest discover -s tests -p 'test_poi*.py' -v`.
+- Environment correction: the first attempt failed during test-module import because the repository's `src` directory was not on Python's import path. This was an invocation/environment issue (`ModuleNotFoundError: No module named 'kancollebot'`), not a failing assertion.
+- Rerun set `PYTHONPATH` to the temporary worktree's `src` directory for that test process only. Package import succeeded and all 13 discovered tests passed (exit code 0, unittest summary `Ran 13 tests`, `OK`).
+- Coverage included endpoint loopback validation, credential and empty-userinfo rejection, remote endpoint rejection, MCP initialization notification, write-tool and unknown-tool rejection, tool errors, and verifier payload redaction/shape summaries.
+- Isolation: temporary detached worktree only; temporary worktree cleanup passed. The original worktree remained clean and unmodified. No dependencies were installed, no Poi runtime was contacted, and no game actions were issued.
+- This confirms the selected offline tests on the tested commit only. It does not verify live Poi connectivity, current game-session validity, data freshness, or end-to-end game behavior.
+
+## Revised next step
+
+Perform a separate, explicitly read-only local loopback health/initialization/describe probe only after confirming the user's Poi runtime is available and the endpoint is listening. Do not invoke game actions or `poi_hensei_save`; keep `poi_battle` excluded from the Python client's allowlist unless separately reviewed and tested.
