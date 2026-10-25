@@ -573,3 +573,10 @@
 - User-reported read-only source review at local HEAD `ec6a18879a80c0a6786296eb76de7e5ea5f234b6` on `dev/expedition-closed-loop-mvp`: all five files present; `SOURCE_INSPECTION: PASS`, `ISSUE_COUNT: 0`.
 - `cdp_targets.py` is discovery-only; `expedition_state.py` and `_v2.py` normalize fleet data; `observed_state.py` checks freshness. `cdp_input.py` has `Input.dispatchMouseEvent` and must not be invoked during read-only validation.
 - Source review did not execute code or prove state retrieval. Next inspect target selection and normalization contracts before a read-only snapshot. `LIVE_DISPATCH=DISABLED`; no local files modified.
+
+
+### 2026-10-25 CDP target and fleet contract review
+- User supplied full read-only contract review for `cdp_targets.py`, `expedition_state_v2.py`, and `observed_state.py` at local HEAD `ec6a18879a80c0a6786296eb76de7e5ea5f234b6`.
+- Important mismatch: `list_page_targets()` filters `type == "page"`, but observed KanColle game target is `webview`; default `select_poi_renderer(title_hint="poi")` selects Poi UI, not the game. Do not assume current selector can read the game renderer.
+- `normalize_poi_fleets()` expects `info.fleets` array, numeric-key `info.ships` and `const.$ships`, timezone-aware observed_at; missing/inconsistent records fail closed. Any HP below maximum is conservatively marked damaged; mission return time remains unknown (`None`). `ObservedState` rejects future/stale observations.
+- Next: inspect read-only CDP target metadata without logging debugger URLs/IDs, then design explicit game webview selection and verify Redux field shapes; no input commands, no live dispatch. Source inspection only; no runtime snapshot confirmed.
