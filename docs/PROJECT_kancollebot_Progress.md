@@ -536,3 +536,11 @@
 - `pyproject.toml` 声明 `requires-python = ">=3.11"`、`dependencies = []`；没有 requirements/lock 文件；`.gitignore` 已忽略 `.venv/`，且目标 `.venv` 尚不存在。检测到 Python 3.13 与 3.15 的安装路径，但版本探测命令自身在 PowerShell 传参时丢失了 Python 字符串引号，导致 `TypeError`，退出码 1。因此预检总体 FAILED，不是 Python 安装损坏的证据。
 - 后续建议使用 Python 3.13，先修复版本检查脚本，再决定创建本地 `.venv`；不安装第三方依赖或修改全局配置。当前本地 HEAD 仍是旧提交，SQLite 修复后的离线复测必须先安全快进同步。
 - 本轮未创建环境、未安装包、未修改本地文件或执行游戏操作；`LIVE_DISPATCH` 仍禁用。本条仅是 GitHub 远程文档更新，不代表本地已同步。
+
+
+### 2026-10-25 Python 3.13 与 Git 快进同步验证
+
+- 用户提供 2026-10-25 14:52:31 +08:00 Windows PowerShell 5.1 报告：Python 3.13.16 验证通过，项目规则已读取，本地工作区同步前后均干净，目标 `.venv` 不存在。
+- 对 `dev/expedition-closed-loop-mvp` 执行带命令级代理的 `git fetch` 成功（exit 0）；同步前 ahead/behind 为 `0 11`；`git merge --ff-only` 成功（exit 0）；本地 HEAD 从 `e5237f5dc1efe6c890ca6124c99e013a96c3faf7` 更新为 `ec6a18879a80c0a6786296eb76de7e5ea5f234b6`，与该次 fetch 的远程跟踪 HEAD 一致。
+- 结论：**本地 Git 快进同步 PASS**；尚未创建虚拟环境、安装依赖或运行 SQLite 修复后的离线测试。下一步在现有 checkout 创建 Python 3.13 `.venv`，运行编译与完整 unittest，记录准确结果。
+- 本次本地 Git 同步已发生；本条另行记录于 GitHub 远程进度文档。未执行游戏操作，`LIVE_DISPATCH` 继续禁用。
