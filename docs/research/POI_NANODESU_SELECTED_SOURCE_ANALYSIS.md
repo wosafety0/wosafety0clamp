@@ -186,3 +186,19 @@ Scope: GitHub source-only inspection; no local runtime access, code changes, tes
 Decision: Do not implement a guessed normalizer or synthetic substitute for a required observed fixture. Next actionable step is a user-side read-only capture that emits only selected field names/types and safe scalar type/range metadata (never raw game values), followed by an offline fixture-based normalizer and regression tests. Keep `poi_battle` and `poi_hensei_save` excluded; no game actions.
 
 Result: fixture readiness check complete; no implementation or runtime operation performed.
+
+
+## Live Fleet-to-Ship Reference Validation — 2026-10-25
+
+- **Task:** `POI_FLEET_SHIP_REFERENCE_VALIDATION`
+- **Timestamp:** 2026-10-25 21:14:30 +08:00
+- **Endpoint:** `http://127.0.0.1:12450/mcp`; local Poi process; loopback only.
+- **Transport correction:** the MCP server accepted `Accept: application/json, text/event-stream` and negotiated protocol `2025-03-26`. Initialization, initialized notification, and `tools/list` passed. Five tools were advertised: `poi_get`, `poi_lookup`, `poi_battle`, `poi_describe`, and `poi_hensei_save`.
+- **Safety boundary:** only `poi_describe` and bounded `poi_get` reads were used. `poi_battle` and `poi_hensei_save` were not called. No game actions were executed; raw game values and actual identifiers were not emitted.
+- **Described collection shapes:** `info.fleets` is an array with total 3 and seven sampled field names; `info.ships` is an object-map with total 91 and 31 sampled field names.
+- **Bounded-read behavior:** `poi_get` returns a wrapper containing `kind`, `total`, `returned`, `truncated`, `items`, and `hint`. Fleet `items` is an array; ship `items` is an object-map. The selected fields were restricted and each response was parsed locally into structural metadata only.
+- **Completeness:** all 3 fleet records and all 91 ship records were returned with `truncated=False`.
+- **Reference validation:** 3 fleet records had the expected `api_id` and `api_ship` fields. Across 18 fleet reference slots, 14 were positive numeric references and 4 were non-positive values. All 14 positive references matched both a ship object-map key and the corresponding ship record's `api_id`; there were zero unmatched positive references. All 91 ship records had `api_id`, and there were zero object-map-key / `api_id` mismatches.
+- **Result:** structural reference checks passed for this live snapshot. This validates the observed join rule for positive `api_ship` references against `info.ships` keys and record `api_id` values; it does not establish the semantic meaning of non-positive placeholders, session validity, data freshness over time, or end-to-end gameplay behavior.
+- **Next step:** use the observed structure to design a minimal fixture-free metadata normalizer only if all mapped semantics are explicitly supported; for domain fields such as ship name and HP, first obtain safe evidence for field meaning and required values. Keep the client allowlist restricted to `poi_describe`, `poi_get`, and `poi_lookup`; continue excluding battle/write tools.
+- **Local/remote distinction:** this entry was archived directly to GitHub. No local project files were changed by this archive operation.
