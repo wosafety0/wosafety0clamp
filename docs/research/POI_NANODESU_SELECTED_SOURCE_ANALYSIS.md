@@ -36,3 +36,15 @@ Scope: the eight selected files under `research/poi-plugin-nanodesu-mcp/selected
 ## Next step
 
 Inspect the local read-only Python MCP client and its tests, then compare its HTTP/session/error handling against this source contract. Only after offline tests pass should a local loopback health/describe probe be considered; do not dispatch actions.
+
+
+## Python client cross-check (source inspection, 2026-10-25)
+
+Inspected `src/kancollebot/adapters/poi/mcp_client.py`, `tests/test_poi_mcp_client.py`, `tools/verify_poi_bridge.py`, and `tests/test_poi_bridge_verifier.py` on this branch.
+
+- The client uses only the Python standard library, defaults to `http://127.0.0.1:12450/mcp`, negotiates MCP initialization, sends `notifications/initialized`, caps MCP responses at 2 MiB, and caps health responses at 64 KiB.
+- Its current explicit tool allowlist is exactly `poi_describe`, `poi_get`, and `poi_lookup`. It rejects `poi_hensei_save` and unknown tools. **`poi_battle` is not currently callable through this client**, despite being a read-only tool exposed by the bridge; keep this exclusion until a separate change adds it with tests.
+- Offline tests cover loopback rejection, the default endpoint, write-tool rejection, initialization notification, tool-level errors, unknown-tool rejection, and redacted structural summaries.
+- The verifier probes health, MCP initialization, tool listing, `poi_describe`, and `info.fleets` / `info.ships`; it deliberately marks session validity `NOT_VERIFIED` and summarizes structure instead of printing raw game payload values.
+- Review note for a future hardening pass: the client constructor checks loopback by default but does not explicitly reject URL userinfo (username/password), unlike the bridge verifier's URL validator. This is not evidence of credential exposure in current use, but aligning both validators would remove an avoidable inconsistency. Do not change it without a separate targeted patch and offline tests.
+- No Python tests were executed during this GitHub source inspection; the statements above describe test coverage visible in source, not a test run result.
