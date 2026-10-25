@@ -148,3 +148,26 @@ The MCP client implements bounded transport and an explicit read-tool allowlist,
 Targeted paths src/kancollebot/adapters/poi/state.py, src/kancollebot/adapters/poi/normalizer.py, tests/test_poi_state_normalizer.py, and the two legacy 03_Integrations/state_fetcher paths returned 404 on this branch. GitHub code searches for PoiReadOnlyAdapter, normalize fleet ships, and state_fetcher returned no indexed results; search indexing is not proof of absence across all branches/history. No tests were executed during this source-only preflight.
 
 Decision: Do not implement a speculative normalizer yet. First inspect the current branch tree and canonical state contracts, then define a minimal read model from observed field semantics. Keep raw game values out of logs, separate session validity/freshness from collection counts, and preserve the current allowlist; do not enable poi_battle or poi_hensei_save. Preflight complete; implementation intentionally not started.
+
+## Canonical State Contract and Branch Tree Preflight — 2026-10-25
+
+Task: KANCOLLEBOT_POI_CANONICAL_STATE_CONTRACT_PREFLIGHT
+Branch: dev/sparkling-planner-mvp
+Scope: GitHub read-only inspection only; no local changes, runtime calls, or game actions.
+
+### Repository tree findings
+- The current branch has src/kancollebot/core/models.py and src/kancollebot/core/observed_state.py. These are the canonical state contracts already present; the previous check missed them because it targeted only adapter-local filenames.
+- src/kancollebot/adapters/poi/ currently exposes __init__.py and mcp_client.py. No dedicated normalizer or concrete state adapter is present in the inspected directory listing.
+- Existing tests include tests/test_core.py, tests/test_poi_mcp_client.py, and tests/test_poi_bridge_verifier.py. No normalizer-specific test module appears in the listed tests directory.
+
+### Canonical contract
+- ShipState is a frozen dataclass with ship_id, name, hp, and max_hp. It rejects negative IDs, blank names, negative HP/max HP, and hp greater than max_hp.
+- FleetState is a frozen dataclass with fleet_id, ship_ids, and optional mission_id. It requires a positive fleet ID, at most six unique ship IDs, and a non-negative mission ID when present.
+- ObservedState wraps a payload with timezone-aware observed_at and a non-empty source. Freshness checks reject naive current times, negative max_age, stale observations, and future-dated observations.
+- The PoiReadOnlyAdapter Protocol only defines get_status() -> dict[str, object], described as a sanitized status snapshot without credentials/raw cookies. It does not yet define a typed return contract for ShipState/FleetState or distinguish bridge health, active-session evidence, and observation freshness.
+- docs/research/POI_NANODESU_MCP_INTEGRATION.md explicitly says normalization should use actual captured payload fixtures and should not guess mission/return-time fields. It also treats bridge/store readiness, active game session, freshness, and payload shape/completeness as separate signals.
+
+### Design decision
+Do not add new duplicate domain models. A future normalization layer should map only fixture-verified source fields into existing ShipState/FleetState and wrap the result in ObservedState. Until an actual sanitized payload fixture and session/freshness evidence are available, any mapping beyond confirmed structural fields is speculative. Keep the client allowlist unchanged (poi_describe, poi_get, poi_lookup); do not call poi_battle or poi_hensei_save. No tests were run during this GitHub-only preflight.
+
+Result: preflight complete; no implementation change made.
