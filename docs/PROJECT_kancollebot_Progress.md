@@ -647,3 +647,13 @@
 - This does not prove a project import failure; the script's stderr capture/pipeline handling is insufficient.
 - Next step: capture Python stdout and stderr separately in memory via .NET process redirection, preserve exit code, and report a sanitized traceback tail. Do not initialize MCP or read live fleet data during diagnosis.
 - `LIVE_DISPATCH=DISABLED`; no files or game state changed.
+
+
+### 2026-10-25 Python import diagnostic V2 passed
+
+- User-reported local diagnostic time: 2026-10-25 15:23:57 +08:00.
+- Worktree: `D:\\KancolleBot-Worktrees\\expedition-closed-loop-mvp-20261024`; branch `dev/expedition-closed-loop-mvp`; HEAD `ec6a18879a80c0a6786296eb76de7e5ea5f234b6`; worktree clean.
+- Python 3.13.16 launched successfully. Import probe exit code was 0; `kancollebot`, `kancollebot.adapters.poi.mcp_client`, `kancollebot.adapters.poi.expedition_state_v2`, and `kancollebot.adapters.poi.expedition_reader` all imported successfully; no Python stderr was present.
+- This rules out import-time failure in these four modules for this environment, but does not yet identify why the earlier snapshot attempt failed. MCP session initialization and fleet reading were not performed in this diagnostic.
+- Safety: no files modified, no WebSocket connection, no fleet data read, no game actions; `LIVE_DISPATCH=DISABLED`.
+- Next step: isolate the failure with a separate read-only MCP protocol/session probe that captures HTTP status, JSON-RPC error details, and sanitized response metadata. Only use the existing allowlisted read tools; do not call dispatch/write tools. If initialization succeeds, test the smallest read-only query before attempting the full fleet snapshot.
