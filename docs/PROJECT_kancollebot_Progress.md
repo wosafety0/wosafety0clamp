@@ -913,3 +913,15 @@
 - Clipboard: reported `FAILED`; not investigated, per user preference.
 - Next step: read the installed Nanodesu package metadata and source as text only to identify its plugin entry/lifecycle and read-only data path. Do not execute plugin code, contact local endpoints, or enable live dispatch.
 
+
+
+## 2026-10-25 — Installed Poi MCP plugin entrypoint review V1
+
+- Task: `KANCOLLEBOT_POI_PLUGIN_ENTRYPOINT_REVIEW_V1`; user-provided local report timestamp 2026-10-25 17:30:46 +08:00; read-only static inspection only.
+- Nanodesu package path: `%APPDATA%\\poi\\plugins\\node_modules\\poi-plugin-nanodesu-mcp`; manifest reports `poi-plugin-nanodesu-mcp@0.2.0`, `main=index.ts`, Poi metadata id `poi_nanodesu_mcp`, title `なのです`, and description “Expose live game state to agents over MCP”.
+- Its `index.ts` imports the POI store resolver, dispatch resolver, server, settings/status panels, battle reader, and related helpers. `pluginDidLoad()` checks for the main window, resolves `window.getStore`, reads port configuration, and starts the MCP server; the reported source contains a log template for listening on `http://127.0.0.1:<port>/mcp`. This is static source evidence only, not proof that the plugin is currently loaded or listening.
+- A separate package exists at `%APPDATA%\\poi\\plugins\\node_modules\\poi-plugin-mcp`. Its manifest text reports `poi-plugin-mcp@0.2.29`, main `index.js`, and metadata describing a local Poi state/WebView capture bridge with opt-in authenticated input. The reported manifest could not be parsed by the local PowerShell JSON parser due to malformed/encoding-corrupted text; treat its displayed fields as text evidence, not validated JSON metadata. Its source references port 17777, a `~/.poi-mcp/port` file, and local HTTP routes. Do not conflate this package with Nanodesu.
+- The separate `poi-plugin-mcp` source includes input-capable code paths and an `inputEnabled: false` default in `lib/settings.js`; this does not establish actual runtime configuration or prove the input paths are unreachable. Do not call its endpoints or enable input as part of this review.
+- Reported safety: no code execution, network requests, MCP requests, WebSocket use, game actions, file modifications, or system/proxy changes. `SESSION_VALIDITY=NOT_VERIFIED`; `LIVE_DISPATCH=DISABLED`. Clipboard copy reported failed and was not investigated.
+- **Conclusion:** two distinct MCP-related plugin packages are present on disk. Nanodesu's entrypoint is statically identified, but neither package's loaded state, active port, runtime compatibility, authenticated session state, nor game-data freshness is verified.
+- **Next step:** continue bounded read-only inspection of Nanodesu's server/tool implementation and the installed source's relevant read-only paths; do not execute code or contact local endpoints. Keep live dispatch disabled unless a separately authorized safety gate is established.
