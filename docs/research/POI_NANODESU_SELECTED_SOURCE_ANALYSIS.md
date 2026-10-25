@@ -95,3 +95,18 @@ Perform a separate, explicitly read-only local loopback health/initialization/de
 - Temporary probe script cleanup passed.
 - **Scope limitation:** This verifies that the local loopback endpoint, MCP initialization/tool listing, and `poi_describe` call worked during this probe. It does not establish game-session validity, data freshness, or end-to-end gameplay behavior.
 - **Next step:** Preserve the read-only boundary. If further validation is needed, inspect only documented read-only data paths and continue to avoid write/game-action tools unless separately authorized and tested.
+
+
+## Read-Only Data Path Describe Probe — 2026-10-25
+
+- **Task:** `KANCOLLEBOT_POI_READ_ONLY_PATH_DESCRIBE`
+- **Timestamp:** 2026-10-25 20:34:53 +08:00
+- **Endpoint:** `http://127.0.0.1:12450/mcp`
+- **MCP initialization:** PASS; protocol `2024-11-05`; initialized notification and tool listing passed; `poi_describe` was available.
+- **`info.fleets`:** describe returned an array with total 3. Sample field names included `api_member_id`, `api_id`, `api_name`, `api_name_id`, `api_mission`, `api_flagship`, and `api_ship`.
+- **`info.ships`:** describe returned an object-map with total 91. Sample field names included `api_id`, `api_ship_id`, `api_lv`, `api_nowhp`, `api_maxhp`, `api_slot`, `api_fuel`, `api_bull`, and `api_cond`.
+- Only schema/shape summaries were emitted; raw game payload logging was disabled. No game actions were executed; `poi_hensei_save` and `poi_battle` were not called.
+- **Probe result:** Python probe exit code 0 and both path describe calls returned responses.
+- **Cleanup/report caveat:** The supplied report says `TEMP_SCRIPT_CLEANUP: NOT_RUN`; therefore temporary-script cleanup was not verified. Its outer `FINAL_STATUS: FAILED` reflects that cleanup check not passing, despite the read-only MCP/path checks themselves succeeding. Do not relabel the entire script run as an unqualified PASS.
+- **Interpretation limit:** These results confirm that both paths are discoverable and describe their collection shapes at probe time. They do not verify every record, freshness, semantic correctness, or the validity of the active game session.
+- **Next safe step:** If needed, issue a narrowly scoped `poi_get` request with explicit field selection and a small result limit, then report only counts/types and whether the response is an error. Do not dump ship/fleet payloads or call write/action tools.
