@@ -770,3 +770,14 @@
 - No raw payload or account values were emitted. No WebSocket, game actions, or project-file modifications were reported. `LIVE_DISPATCH=DISABLED`.
 - Next safe step: fix only the temporary diagnostic harness (not project source) to avoid catching `SystemExit`: call `code = main()` and then `sys.exit(code)` outside the `except Exception` handler; use `except Exception`, not `BaseException`; ensure stdout contains exactly one JSON record; capture and verify child exit code via a robust process wait/poll path. Before further live reads, the wrapper/field-name finding is already sufficient; any additional probe should be limited to sanitized presence/type indicators and not print values.
 - Provenance: this entry records the user-provided local report and remote source review; it does not claim the assistant executed the local probe.
+
+
+### 2026-10-25 Read-only envelope inspection V3 — reads passed, process result unverified
+
+- User-reported local run time: 2026-10-25 16:11:34 +08:00; worktree `D:\\KancolleBot-Worktrees\\expedition-closed-loop-mvp-20261024`.
+- Reported checks: process started; JSON valid; health, MCP initialize, read tools, fleets, ships, and master ships all PASS. Session validity remains NOT_VERIFIED.
+- The wrapper report nevertheless states `OVERALL_RESULT=FAILED`, gives only a generic criterion failure, and leaves `PYTHON_EXIT_CODE=UNVERIFIED`. These fields do not identify a failing MCP read. Do not reinterpret them as proof that the bridge reads failed, but do not claim the verifier process completed successfully either.
+- Remote source review of `tools/verify_poi_bridge.py` shows its normal Nanodesu success path emits one JSON object with `overall=PASS_WITH_SESSION_UNVERIFIED` and returns exit code 0 when no check has status FAIL. Its exception path emits `overall=FAILED` and returns 2. The user-facing V3 summary does not preserve the underlying verifier JSON/exit code, so the mismatch is in the diagnostic wrapper/result-capture path until proven otherwise.
+- Safety: report says no WebSocket, no game actions, no project files modified; `LIVE_DISPATCH=DISABLED`. Clipboard status is `UNAVAILABLE_IGNORED`, which is non-blocking per user preference.
+- Next step: stop repeating MCP reads for now. If process status must be closed out, make one minimal local check of the existing captured stdout/stderr and `Process.ExitCode` (without issuing additional MCP calls); otherwise continue using the already confirmed sanitized payload shapes as partial evidence. Keep session validity/freshness unverified and dispatch disabled.
+- Provenance: this entry records the user-provided local report and a remote read-only review of the verifier source; it does not claim direct local execution or local file modification.
