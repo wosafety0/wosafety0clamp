@@ -110,3 +110,19 @@ Perform a separate, explicitly read-only local loopback health/initialization/de
 - **Cleanup/report caveat:** The supplied report says `TEMP_SCRIPT_CLEANUP: NOT_RUN`; therefore temporary-script cleanup was not verified. Its outer `FINAL_STATUS: FAILED` reflects that cleanup check not passing, despite the read-only MCP/path checks themselves succeeding. Do not relabel the entire script run as an unqualified PASS.
 - **Interpretation limit:** These results confirm that both paths are discoverable and describe their collection shapes at probe time. They do not verify every record, freshness, semantic correctness, or the validity of the active game session.
 - **Next safe step:** If needed, issue a narrowly scoped `poi_get` request with explicit field selection and a small result limit, then report only counts/types and whether the response is an error. Do not dump ship/fleet payloads or call write/action tools.
+
+
+## Live Read-Only `poi_get` Diagnostic Retry — 2026-10-25
+
+- **Task:** `KANCOLLEBOT_POI_GET_DIAGNOSTIC_RETRY`
+- **Timestamp:** 2026-10-25 20:37:07 +08:00
+- **Endpoint:** `http://127.0.0.1:12450/mcp`
+- **MCP transport:** initialization, protocol negotiation (`2024-11-05`), initialized notification, and tool listing passed. `poi_get` was advertised.
+- **`info.fleets` read:** PASS. Parsed as a direct data object; kind `array`; total 3; returned 1; selected field names observed: `api_id`, `api_name`, `api_ship`.
+- **`info.ships` read:** PASS. Parsed as a direct data object; kind `object-map`; total 91; returned 1; selected field names observed: `api_id`, `api_lv`, `api_ship_id`.
+- Raw values were not emitted. `poi_battle` and `poi_hensei_save` were not called. The report states no game actions were executed.
+- **Python result:** exit code 0; `PYTHON_STATUS: PASS`. Both narrow `poi_get` calls passed and structural summaries were produced.
+- **Temporary-file cleanup:** FAILED / unverified. The report says `TEMP_SCRIPT_CLEANUP: NOT_RUN` and `TEMP_SCRIPT_EXISTS_AFTER_CLEANUP: True`. The prior generated probe script was matched and removed (`ORPHAN_CLEANUP: PASS`, one matching file removed), but this does not establish cleanup of the current diagnostic script.
+- **Overall run:** `FINAL_STATUS: FAILED` because the temporary-script cleanup check did not pass. Do not call the full run an unqualified PASS.
+- **Verified milestone:** The live MCP `poi_get` data retrieval and structural parsing path is now verified for one limited record from each of the two paths. This does not establish full dataset integrity, freshness, active game-session validity, or end-to-end game behavior.
+- **Next step:** Fix and independently verify temporary-script lifecycle/cleanup in a minimal local harness; do not repeat the already-passing data calls unless needed to verify that fix. Keep all game actions disabled.
