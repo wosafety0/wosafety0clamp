@@ -933,3 +933,11 @@
 - **Important limitation:** the returned report contains only task/root/safety/error summary lines. It does not include any per-file existence, size, hash, line count, or source-match sections, so it provides no new evidence about the contents of `src/server.ts`, tool definitions, write-capable operations, request limits, or read-only data paths. A zero error count cannot be interpreted as proof that those files were inspected.
 - Safety reported: no code execution, network/MCP requests, WebSocket, game actions, file modifications, or system/proxy changes. `SESSION_VALIDITY=NOT_VERIFIED`; `LIVE_DISPATCH=DISABLED`.
 - **Decision:** do not infer server/tool behavior from this incomplete output. Re-run a smaller read-only inventory that lists only actual files directly under the installed Nanodesu package and its immediate `src` directory, including file names, byte sizes, and SHA-256; then inspect only confirmed-existing target files as text. Do not execute code or contact local endpoints.
+
+
+## 2026-10-25 — Nanodesu file inventory V1 (report incomplete)
+
+- User-provided `KANCOLLEBOT_NANODESU_FILE_INVENTORY_V1` report timestamp: 2026-10-25 17:31:59 +08:00.
+- Report states the root path and safety conditions, with `ERRORS: NONE`; however, it contains no directory-existence results, direct-file counts, filenames, sizes, or SHA-256 hashes. Therefore it does not establish whether the inventory loop ran or what files exist.
+- No code execution, network/MCP requests, WebSocket, game actions, file changes, or system/proxy changes were reported. `SESSION_VALIDITY=NOT_VERIFIED`; `LIVE_DISPATCH=DISABLED`.
+- **Next diagnostic:** avoid another broad script. Use a minimal direct listing of only the known `index.ts` and `src\server.ts` paths, reporting each path's existence and byte size. If this still produces summary-only output, treat it as a report/rendering issue and ask for the actual PowerShell console output rather than infer file state.
