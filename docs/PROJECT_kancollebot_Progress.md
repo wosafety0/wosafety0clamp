@@ -698,3 +698,12 @@
 - Interpretation/limits: this validates the reader's current normalized output, not that the data is fresh for the currently logged-in game session or that the player is at homeport. The timestamp is the observation time, not independent freshness proof. Do not dispatch.
 - Next gate: read-only validate game session/homeport and freshness using supported Poi state/metadata, without WebSocket connection or gameplay actions. Keep dispatch disabled until all runtime and safety gates are separately accepted.
 
+### 2026-10-25 Read-only session/homeport path discovery
+
+- User-reported local run time: 2026-10-25 15:28:55 +08:00.
+- Independent environment confirmed: `D:\\KancolleBot-Worktrees\\expedition-closed-loop-mvp-20261024\\.venv`; interpreter `...\\.venv\\Scripts\\python.exe`; Python 3.13.16. Branch `dev/expedition-closed-loop-mvp`, HEAD `ec6a18879a80c0a6786296eb76de7e5ea5f234b6`, clean worktree.
+- Read-only MCP checks passed: health identified `poi-nanodesu-mcp`, `status=ok`, `storeReady=true`; required tools `poi_describe`, `poi_get`, and `poi_lookup` were present; MCP initialize succeeded.
+- `poi_describe` succeeded for `info`, `info.basic`, `info.fleets` (array), and `info.ships` (object-map). Probes for `api_port`, `api_basic`, `api_member`, `api_world`, `api_data`, and `api_start2` returned expected unknown-root errors because Nanodesu exposes roots such as `info`, `const`, `fcd`, `battle`, `sortie`, and `timers`, rather than raw KanColle API root names. These errors do not indicate bridge failure.
+- This probe only inspected path descriptors and field names; no game-state values were read. It did not establish a login/session indicator, homeport indicator, or independent Redux refresh/freshness signal.
+- Safety: no WebSocket connection, no files modified, no gameplay actions; `LIVE_DISPATCH=DISABLED`.
+- Next step: use only supported `info`/plugin roots in a bounded, sanitized descriptor search for session/homeport/freshness candidates; inspect actual data values only after identifying a relevant documented path. Do not infer freshness from `ObservedState.observed_at`, and do not dispatch before the gate is independently validated.
