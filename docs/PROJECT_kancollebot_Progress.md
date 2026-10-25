@@ -38,3 +38,18 @@
 4. 在证据不足处对照 KCA，明确标记 KCV 已证实、KCA 独有或自研策略。
 5. 验证 POI 实际支持的状态读取方式。
 6. 扩展纯 Python 状态模型、策略函数和离线模拟测试；真实操作默认关闭。
+
+
+### 2026-10-25 — Verified uploaded Nanodesu source archive
+
+- User provided the uploaded source path on branch `dev/sparkling-planner-mvp`: `research/poi-plugin-nanodesu-mcp/src`.
+- Remote directory read succeeded. All four selected files are present and readable on GitHub; reported byte sizes match the user's local export report:
+  - `paths.ts`: 14,391 bytes; Git blob `4da5270a4fd15c6f6f6416ddf30b3ab1343cf369`.
+  - `query.ts`: 16,464 bytes; Git blob `7db96bb38fb4a40b1d6fc9eb6ffce1ede79cebed`.
+  - `serialize.ts`: 4,096 bytes; Git blob `25e4e4150284e8d4d97c4daa2743102ca9ffbcd7`.
+  - `server.ts`: 21,564 bytes; Git blob `1cf0360ad6fbbcb36db21b16a9339a5d46c2a929`.
+- Source-of-truth rule: use these uploaded local-version files as authoritative for future analysis. Public upstream is historical/context only.
+- Scope note: the uploaded set contains four selected files only; it does not include `hensei.ts`, `tools.ts`, or `poi.ts` from the broader seven-file static review. Do not assume those files are archived in this path.
+- Verification was remote file/directory read plus byte-size agreement against the prior local export report. Git blob SHAs are recorded; SHA-256 was not recalculated from downloaded raw bytes in this check, so do not describe this as a full SHA-256 equality check.
+- Safety: no plugin execution, MCP/network/WebSocket dispatch, game action, local file modification, or system/proxy change was performed.
+- Next: analyze the uploaded files directly from this branch, starting with the read-only query/path boundaries and serialization limits; record findings and evidence before proposing any runtime test.
