@@ -561,3 +561,9 @@
 - `CDP_HTTP_RESULT: FAILED` is **inconclusive** because the check used unsupported PowerShell 5.1 `Invoke-RestMethod -NoProxy`. Do not diagnose CDP as broken from this result.
 - Next: repeat a localhost-only HTTP GET using PowerShell 5.1-compatible .NET `HttpWebRequest` with `Proxy = $null`; inspect `/json/version` and `/json/list` metadata only, no WebSocket execution or game actions.
 - No local files modified by this preflight, no live dispatch. Remote documentation commit does not imply local worktree sync.
+
+
+### 2026-10-25 CDP HTTP recheck verified
+- User-reported read-only localhost CDP HTTP recheck: `/json/version` PASS (`Chrome/152.0.7977.54`, protocol `1.3`); `/json/list` PASS with 3 targets: KanColle `webview`, Poi `page`, DMM `service_worker`.
+- Previous CDP HTTP failure was due to an incompatible PowerShell 5.1 check, not demonstrated CDP unavailability.
+- No files modified or game actions; `LIVE_DISPATCH=DISABLED`. Next: inspect existing Poi bridge read-only contracts and validate game login/homeport and state snapshot without invoking dispatch or mutating APIs. This is user-reported local execution, not independently executed on their machine.
