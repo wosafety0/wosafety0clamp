@@ -845,3 +845,12 @@
 - **Decision:** do not modify the plugin or add event capture now. Record the current bridge as lacking independently exposed API-response freshness evidence. Keep `session_validity=NOT_VERIFIED` and `LIVE_DISPATCH=DISABLED`; do not infer a valid session/homeport from `storeReady`, `api_active_flag`, or an all-false `sortieStatus`.
 - **Next safe option:** perform a local, read-only version/provenance check of the installed Poi and Nanodesu plugin files (paths and hashes only, no MCP requests) to establish whether the reviewed upstream source matches the actual runtime. Then decide whether a separately approved minimal read-only metadata extension is worth designing; do not implement it without explicit approval.
 - Safety: public upstream source only; no local files changed, no MCP requests, no WebSocket, no game actions, no installations or system/proxy changes. Installed runtime equivalence remains unverified.
+
+
+### 2026-10-25 Local Poi provenance preflight — executable identified, plugin path unresolved
+
+- User-provided read-only preflight report identifies the running Poi executable at `D:\\Games\\poi\\poi.exe`, product/file version `12.0.1`, SHA-256 `A41664FB46DB3AB49B38D4CEF2D6DC482E35EE0C30D3681DD744CE4E0D4870C5`. The main process PID was 20680 with remote debugging port 9222; child renderer/utility processes were also present.
+- The preflight's limited directory candidates did not find a directory matching `nanodesu` or `mcp`. This is **not proof the plugin is absent**: discovery only checked selected likely roots and directory names. The actual MCP endpoint had been observed in earlier user-provided context, but no live request was made in this pass.
+- Local worktree report: `dev/expedition-closed-loop-mvp`, HEAD `ec6a18879a80c0a6786296eb76de7e5ea5f234b6`, clean. This is a local observation and does not imply the local branch includes the newest remote progress-document commits.
+- **Decision:** runtime/source equivalence remains unverified because the installed plugin directory, manifest version, and source hashes were not located. Continue with a bounded read-only directory/package-manifest inventory under the Poi data root and installed app resources; do not inspect secrets/config values, modify files, issue MCP requests, use WebSocket, or perform game actions.
+- Safety state unchanged: `SESSION_VALIDITY=NOT_VERIFIED`, `LIVE_DISPATCH=DISABLED`. No network/MCP/WebSocket/game actions, local project edits, installations, or system/proxy changes were reported in the submitted preflight.
