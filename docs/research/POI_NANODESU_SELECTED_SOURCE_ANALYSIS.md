@@ -51,3 +51,16 @@ Inspected `src/kancollebot/adapters/poi/mcp_client.py`, `tests/test_poi_mcp_clie
 - The verifier probes health, MCP initialization, tool listing, `poi_describe`, and `info.fleets` / `info.ships`; it deliberately marks session validity `NOT_VERIFIED` and summarizes structure instead of printing raw game payload values.
 - Review note for a future hardening pass: the client constructor checks loopback by default but does not explicitly reject URL userinfo (username/password), unlike the bridge verifier's URL validator. This is not evidence of credential exposure in current use, but aligning both validators would remove an avoidable inconsistency. Do not change it without a separate targeted patch and offline tests.
 - No Python tests were executed during this GitHub source inspection; the statements above describe test coverage visible in source, not a test run result.
+
+
+## Endpoint credential validation hardening (2026-10-25)
+
+- Updated `src/kancollebot/adapters/poi/mcp_client.py` to reject endpoint URLs containing username/password userinfo, including empty userinfo, before accepting the endpoint.
+- Added two offline regression tests in `tests/test_poi_mcp_client.py`: one with `user:secret@127.0.0.1` and one with `@127.0.0.1`.
+- Source and test file changes were committed and then fetched back from GitHub to verify the new code is present.
+- **Execution status:** tests have not been run in a Python environment during this turn. Do not interpret the presence of tests as a passing test run.
+- No local checkout was modified; no Poi runtime was contacted; no game actions were issued.
+
+## Updated next step
+
+Run the offline test suite in the local checkout with the project's existing Python environment. Capture the exact command, exit code, test count, and failures. Only if the suite passes should a read-only loopback health/describe probe be considered. Keep `poi_battle` excluded from the client allowlist until a separately reviewed change and regression tests are approved.
