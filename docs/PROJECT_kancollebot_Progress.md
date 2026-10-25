@@ -854,3 +854,11 @@
 - Local worktree report: `dev/expedition-closed-loop-mvp`, HEAD `ec6a18879a80c0a6786296eb76de7e5ea5f234b6`, clean. This is a local observation and does not imply the local branch includes the newest remote progress-document commits.
 - **Decision:** runtime/source equivalence remains unverified because the installed plugin directory, manifest version, and source hashes were not located. Continue with a bounded read-only directory/package-manifest inventory under the Poi data root and installed app resources; do not inspect secrets/config values, modify files, issue MCP requests, use WebSocket, or perform game actions.
 - Safety state unchanged: `SESSION_VALIDITY=NOT_VERIFIED`, `LIVE_DISPATCH=DISABLED`. No network/MCP/WebSocket/game actions, local project edits, installations, or system/proxy changes were reported in the submitted preflight.
+
+## 2026-10-25 — Bounded Poi plugin manifest discovery V2
+
+- User-provided read-only report completed at 2026-10-25 16:42:04 +08:00. Searched roots: `%APPDATA%\poi` (1,632 directories), `%APPDATA%\poi\plugins` (1,591 directories), and `D:\Games\poi\resources\app.asar.unpacked` (20 directories). `%APPDATA%\poi\node_modules`, `D:\Games\poi\resources\app`, and `D:\Games\poi\plugins` were absent.
+- No matching `package.json` manifest for Nanodesu MCP was found in the bounded search. This does **not** prove the plugin is absent: code may be bundled in `app.asar`, use a different package/directory name, or be outside the searched roots.
+- The user reported no network/MCP requests, WebSocket, game actions, file modifications, or system/proxy changes. The script reported no errors.
+- **Decision:** installed plugin identity/version and source equivalence remain unverified. Do not claim the plugin is absent or identical to the public source. A further step, if needed, should be a separately approved, bounded, read-only inspection of package/archive metadata only; avoid extracting or modifying the installed app.
+- Safety gate unchanged: `SESSION_VALIDITY=NOT_VERIFIED`; `LIVE_DISPATCH=DISABLED`. No MCP request, WebSocket use, or game action is authorized by this result.
