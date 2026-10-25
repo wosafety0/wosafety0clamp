@@ -967,3 +967,17 @@
 - Safety: source was reviewed from user-provided text only. No source was executed; no network/MCP/WebSocket requests, game actions, or file modifications were performed. Maintain `LIVE_DISPATCH=DISABLED` and `SESSION_VALIDITY=NOT_VERIFIED`.
 - Next read-only review: inspect `src/tools.ts`, `src/poi.ts`, `src/validator.ts`, `src/battles.ts`, and relevant tests/package scripts. Determine exact path filtering, serialization/size bounds, argument validation, and the write handler's guards without calling the MCP server.
 
+
+
+### 2026-10-25 — Nanodesu tool boundary review V1
+
+- Task `KANCOLLEBOT_NANODESU_TOOL_BOUNDARY_REVIEW_V1`; user supplied a read-only source dump dated 2026-10-25 18:14:55 +08:00. The report states that no code was executed, no network/MCP/WebSocket requests or game actions occurred, and no files or system/proxy settings were changed.
+- Source identity: `src/tools.ts`, 17,947 bytes / 566 lines, SHA-256 `2E6E600466815AFC10342A77B1511B72EC99D127DDCA9A7D70D35C88ACCA8016`; `src/poi.ts`, 4,962 bytes / 149 lines, SHA-256 `A4F5E3179980F8F5927BF244C9CE2DC343AA7B76715BEC640CBDDD86577BE77F`.
+- `poi_get` reads store data through `resolveStorePath`, applies query/select/limit and byte bounds. Defaults: 200 rows and 65,536 bytes; hard maximum 262,144 bytes. Path protections in `src/paths.ts` remain to be reviewed.
+- `poi_lookup` uses a fixed allowlist of 13 master-data kinds, requires explicit IDs, and caps a call at 200 IDs.
+- `poi_battle` reads saved battle records through an injected reader, caps each call at 50 IDs, and applies output byte bounds.
+- `poi_describe` describes data structure and collection time ranges. Its path safety also depends on `resolveStorePath`.
+- `poi_hensei_save` is write-capable. It requires a Hensei calculator and Poi dispatch function, checks that the destination state exists, requires exactly one of `decks` or `code`, rejects empty compositions, and refuses a duplicate title unless `overwrite: true`. At `src/tools.ts:494`, it calls `dispatch(buildSaveAction(...))`; source comments state that Hensei Nikki persists the resulting record. Do not call this tool in read-only verification.
+- `src/poi.ts` reads Poi globals including `isMain`, `getStore`, `dispatch`, `config`, and `APPDATA_PATH`. `resolveGetStore` and `resolveDispatch` throw when their required globals are absent. `readPortConfig` validates ports in the range 1–65535 and falls back on invalid/unavailable configuration. `writeConfig` can persist a setting through Poi's config API; it was not called. Source-level capability does not establish current runtime configuration.
+- Safety remains `LIVE_DISPATCH=DISABLED` and `SESSION_VALIDITY=NOT_VERIFIED`. No MCP endpoint should be called for this review.
+- Next read-only review: inspect `src/paths.ts`, `src/query.ts`, `src/serialize.ts`, `src/validator.ts` if present, and `src/hensei.ts` to assess path traversal protections, query/selection behavior, serialization bounds, schema validation, and persistence semantics. Compare registered tool schemas to handler contracts without sending requests.
