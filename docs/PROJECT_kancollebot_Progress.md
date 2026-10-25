@@ -881,3 +881,16 @@
 - Gate state remains `SESSION_VALIDITY=NOT_VERIFIED` and `LIVE_DISPATCH=DISABLED`.
 - Interpretation limit: this only rules out matching path names in the inspected `app.asar` index; it does not prove the plugin is absent from external plugin directories or under other names.
 
+
+
+## 2026-10-25 — Poi plugin source discovery V1 (user-reported local read-only scan)
+
+- User-provided report completed at 2026-10-25 17:27:06 +08:00. Roots scanned: `%APPDATA%\poi\plugins` (10,887 files enumerated) and `D:\Games\poi\resources\app.asar.unpacked` (77 files enumerated); 277 `package.json` files were counted.
+- **Direct local manifest evidence:** `poi-plugin-nanodesu-mcp` version `0.2.0`, entry `index.ts`, found at `%APPDATA%\poi\plugins\node_modules\poi-plugin-nanodesu-mcp\package.json`. Its nested `@modelcontextprotocol/sdk` dependency is version `1.32.1`.
+- **Additional MCP plugin evidence:** source-string matches identify `%APPDATA%\poi\plugins\node_modules\poi-plugin-mcp\mcp-server.js`, `lib\poi-http-bridge.js`, `lib\settings-view.js`, and `lib\settings.js`; its package manifest text reports name `poi-plugin-mcp`, version `0.2.29`, main `index.js`, and bin `poi-mcp`. This manifest was among those the PowerShell 5.1 JSON parser reported as malformed, so the metadata is based on the visible manifest text and should be revalidated with an encoding-aware/raw bounded read if needed.
+- Source scan reported 5,395 files scanned, 149 matching files, 7 large files skipped, and no enumeration-limit roots. Many matches are SDK examples/type declarations or unrelated numeric occurrences; these are leads, not 149 independent plugin findings.
+- Four package manifests failed JSON parsing because the displayed author/title text contained malformed or mojibake bytes: `poi-plugin-anchorage-repair`, `poi-plugin-item-info`, `poi-plugin-mcp`, and `poi-plugin-ship-info`. These errors do not indicate that the plugins failed to load; they indicate the scan could not parse those manifest contents as JSON.
+- Clipboard copy reported `FAILED`; per user preference, clipboard failure is non-blocking and was not debugged.
+- Safety reported: no network/MCP/WebSocket/game actions, no file modifications, and no system/proxy changes. `SESSION_VALIDITY=NOT_VERIFIED`; `LIVE_DISPATCH=DISABLED`.
+- **Conclusion:** unlike the earlier bounded search, this report positively locates a Nanodesu MCP package directory and also finds a separate `poi-plugin-mcp` implementation. This establishes on-disk package presence, not that either plugin is currently loaded, listening, or compatible with the running Poi build. Do not send MCP requests or enable dispatch as part of this discovery.
+- **Next step:** perform a narrowly scoped, read-only provenance check on just these two package directories: read their package manifests and entry-file metadata/hashes (no source-wide recursion), compare with public upstream only if needed, and inspect configuration only for non-secret endpoint/port fields. Keep live dispatch disabled and session validity unverified.
