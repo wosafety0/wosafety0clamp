@@ -133,3 +133,12 @@ No plugin execution, MCP request, network/WebSocket dispatch, game action, local
 
 - The repository-side source search is exhausted for this branch: the missing plugin entry point and handler files are not present in the uploaded source directory. To continue the plugin-side static review, add only the selected files needed to verify startup wiring and handlers (`index.ts`/entry point, `tools.ts`, `hensei.ts`, plus any directly imported validator/handler file). Until then, treat write-tool registration and handler safeguards as unknown.
 - No source execution, plugin startup, MCP request, game action, local file modification, or system/proxy change was performed.
+
+
+### 2026-10-25 — Cross-branch source availability check
+
+- Followed up by inspecting repository branch metadata and recursive Git trees for the current review branch, `research/poi-plugin-bridge-20261023`, `dev/local-source-reuse-review-20261022`, `dev/poi-mcp-endpoint-hardening-20261022`, `dev/poi-mcp-protocol-tests-20261022`, and `main`.
+- No additional Nanodesu plugin source files were found in those checked branch trees. The only plugin source directory remains the four-file upload on `dev/sparkling-planner-mvp`; other branches contain at most the integration research document.
+- This does not establish that the files are absent from the user's local Poi plugin installation or from uninspected branches/repositories. It only records the branches and trees checked above.
+- No local machine access, plugin startup, MCP request, game action, or system/proxy change was performed.
+- Next action is blocked on access to the remaining selected source files. Do not substitute upstream source for the user's uploaded version, since the user explicitly designated the uploaded version as authoritative.
