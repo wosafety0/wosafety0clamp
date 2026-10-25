@@ -35,7 +35,10 @@ Scope: the eight selected files under `research/poi-plugin-nanodesu-mcp/selected
 
 ## Next step
 
-Inspect the local read-only Python MCP client and its tests, then compare its HTTP/session/error handling against this source contract. Only after offline tests pass should a local loopback health/describe probe be considered; do not dispatch actions.
+1. Run the existing offline Python test suite in the local checkout before changing client behavior.
+2. Make a small, isolated hardening change to reject URL userinfo in `PoiMcpClient`, add a regression test, and rerun the offline tests.
+3. Decide separately whether `poi_battle` belongs in the read-only client allowlist; it is not currently enabled.
+4. Only after offline tests pass, consider a local loopback health/describe probe. Do not dispatch actions.
 
 
 ## Python client cross-check (source inspection, 2026-10-25)
