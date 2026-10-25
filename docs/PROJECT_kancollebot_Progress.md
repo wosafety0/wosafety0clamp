@@ -685,3 +685,16 @@
 - `mission_id=null` for fleets 1 and 2 is consistent with the normalizer: mission ID is only set when `api_mission[0] > 0`. Fleet 3's `mission_id=2` indicates the active mission field was populated.
 - Correct follow-up: rerun a strictly read-only summary using `len(fleet.ship_ids)`, `fleet.ship_ids` (IDs only), `fleet.fuel_ready`, `fleet.ammo_ready`, `fleet.damaged_ship_ids`, `fleet.mission_id`, and `fleet.return_at`. Do not invent a `status` field. Still no dispatch; login/homeport/freshness evidence remains a separate gate.
 
+### 2026-10-25 Read-only fleet summary V2 passed
+
+- Local report time: 2026-10-25 15:27:22 +08:00; observed timestamp reported by the reader: `2026-10-25T07:27:22.198235+00:00` (same instant in UTC).
+- Execution context: `D:\KancolleBot-Worktrees\expedition-closed-loop-mvp-20261024`, branch `dev/expedition-closed-loop-mvp`, HEAD `ec6a18879a80c0a6786296eb76de7e5ea5f234b6`, clean worktree, Python 3.13.16.
+- `PoiExpeditionReader.read_fleets()`: PASS; Python exit code 0; 3 normalized fleet snapshots; no exception or traceback.
+- Fleet 1: 6 ship instances `[13,73,70,10,40,62]`; no active mission ID reported; fuel/ammo readiness both true; no damaged ships reported.
+- Fleet 2: 4 ship instances `[1,3,4,43]`; no active mission ID reported; fuel/ammo readiness both false; no damaged ships reported. Treat as not ready for expedition planning until the live fuel/ammo values and normalization semantics are independently verified.
+- Fleet 3: 4 ship instances `[12,7,33,2]`; mission ID `2`; fuel/ammo readiness both true; no damaged ships reported.
+- All snapshots currently report `return_at=null`; this remains intentional because mission timing slots/units have not been confirmed.
+- Safety: no WebSocket connection, no files modified, no gameplay actions; `LIVE_DISPATCH=DISABLED`.
+- Interpretation/limits: this validates the reader's current normalized output, not that the data is fresh for the currently logged-in game session or that the player is at homeport. The timestamp is the observation time, not independent freshness proof. Do not dispatch.
+- Next gate: read-only validate game session/homeport and freshness using supported Poi state/metadata, without WebSocket connection or gameplay actions. Keep dispatch disabled until all runtime and safety gates are separately accepted.
+
