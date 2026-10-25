@@ -544,3 +544,13 @@
 - 对 `dev/expedition-closed-loop-mvp` 执行带命令级代理的 `git fetch` 成功（exit 0）；同步前 ahead/behind 为 `0 11`；`git merge --ff-only` 成功（exit 0）；本地 HEAD 从 `e5237f5dc1efe6c890ca6124c99e013a96c3faf7` 更新为 `ec6a18879a80c0a6786296eb76de7e5ea5f234b6`，与该次 fetch 的远程跟踪 HEAD 一致。
 - 结论：**本地 Git 快进同步 PASS**；尚未创建虚拟环境、安装依赖或运行 SQLite 修复后的离线测试。下一步在现有 checkout 创建 Python 3.13 `.venv`，运行编译与完整 unittest，记录准确结果。
 - 本次本地 Git 同步已发生；本条另行记录于 GitHub 远程进度文档。未执行游戏操作，`LIVE_DISPATCH` 继续禁用。
+
+
+### 2026-10-25 Python 3.13 独立环境与 98 项离线测试通过
+
+- 用户提供 Windows PowerShell 5.1 本地执行报告，时间 2026-10-25 14:53:24 +08:00，目标 `D:\KancolleBot-Worktrees\expedition-closed-loop-mvp-20261024`，测试时本地 HEAD 为 `ec6a18879a80c0a6786296eb76de7e5ea5f234b6`，分支/规则/工作区/依赖声明预检 PASS。
+- 已在本地创建 `.venv`（创建退出码 0），解释器 `.venv\Scripts\python.exe` 为 Python 3.13.16，虚拟环境验证 PASS。采用 `--without-pip`，未引导 pip，也未安装第三方依赖。
+- 在独立环境中运行 `python -m compileall -q src tests`：exit 0；运行 `python -m unittest discover -s tests -v`（`PYTHONPATH=src`）：exit 0，`Ran 98 tests in 2.130s`，`OK`。
+- 结论：**独立 Python 环境创建成功，98/98 离线测试通过**；此前 Windows SQLite 临时数据库占用错误未在本轮复现，修复后的本地离线回归验收通过。此结论仅覆盖本次测试运行的代码，不证明 Poi 实机/实时状态/真实派遣可用。
+- 没有执行游戏操作，`LIVE_DISPATCH=DISABLED`。下一步：在用户现有 Poi 实例上进行严格只读桥接与数据新鲜度预检，之后再完成模拟派遣验收；真实派遣需另行明确授权。
+- 此条为远程 GitHub 进度归档；本地测试及虚拟环境由用户执行，不能将此文档提交视为本地已再次同步至最新远程 HEAD。
