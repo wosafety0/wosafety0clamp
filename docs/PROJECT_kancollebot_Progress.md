@@ -1031,3 +1031,12 @@
 - The next code review needs the complete `src/paths.ts` and `src/query.ts` contents; `src/serialize.ts` and `src/server.ts` are useful secondary context. Do not upload the whole plugin package or its dependencies. Keep the repository private and use a separate research branch; exclude credentials, runtime data, caches, and all unrelated plugin files.
 - Upload is not yet performed or claimed. Earlier project policy says not to copy full POI/KCA source trees without separate approval; this request concerns a narrowly scoped set of installed plugin source files only. Await explicit confirmation before uploading those files.
 - Network access for GitHub repository reads succeeded through the connected GitHub integration during this turn; this does not verify local Clash connectivity or authorize any system/proxy changes. No local files were accessed directly or modified.
+
+## 2026-10-25 — Upstream Nanodesu repository identified
+
+- Identified the upstream public repository: `momocow/poi-plugin-nanodesu-mcp` (https://github.com/momocow/poi-plugin-nanodesu-mcp).
+- GitHub API readback confirms the repository is public, TypeScript, and uses `main` as its default branch.
+- Upstream `main` package metadata currently reports version `0.1.0`; the local installed package was reported as `0.2.0` during the read-only preflight.
+- Decision: use the upstream repository directly as the public baseline; do not re-upload upstream files unnecessarily. The four local files may still be valuable because the local package version differs, but their source-level differences must be established before deciding whether to archive them in this private research repository.
+- No source files were uploaded in this round; no local files, Poi runtime, game state, or system proxy were changed.
+- Next step: inspect upstream source and history, then compare local version-specific findings using the previously recorded local SHA-256 values. Keep all analysis read-only.
