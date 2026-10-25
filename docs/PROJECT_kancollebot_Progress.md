@@ -1049,3 +1049,13 @@
 - Do not claim the suggested destination URL exists until files are actually committed and remotely read back. Before a future direct upload, use an isolated temporary clone and stage only the four authorized files plus this progress document; stop on any destination conflict or authentication failure.
 - Selected local files and SHA-256 values remain recorded in the conversation's V4 export report. No local files, POI runtime, game state, or system proxy were modified by this GitHub inspection.
 - Next step: avoid uploading the ZIP to chat; use the user's local direct-upload workflow only if the user still wants a private copy. Otherwise continue reviewing the public upstream repository `momocow/poi-plugin-nanodesu-mcp` directly.
+
+
+### 2026-10-25 — Source-of-truth correction: local Nanodesu version is authoritative
+
+- User clarified that the public upstream code is old; future implementation analysis must use the user's locally exported Nanodesu source as the source of truth.
+- Authoritative local export: `Nanodesu_SelectedSource_20261025_182202.zip`, locally verified per the user's report. Selected files and SHA-256: `src/paths.ts` 74B4FFE37347A3118A86355FC7FA6856D39871FB6C44C47B33CE6BBF8F0D7D81; `src/query.ts` 12741D8BCE824DBDB1CEF714BEC85B95A2711B9C946BFBBC996618FF3A9F7F27; `src/serialize.ts` 6231F938C5372DA767BACF2FD150705951DE83D575F214C17906D7751C1B1DE2; `src/server.ts` D90C13A3C75CB32EE99003D519AF90701549897250BA2C76386B3875BBD837FF.
+- The archive report says local archive contents were verified, but GitHub upload was not performed. Do not treat the four files as present in this repository until a direct upload and remote readback are confirmed.
+- The public repository `momocow/poi-plugin-nanodesu-mcp` may be used only for historical/contextual comparison, clearly labeled as upstream and not authoritative for the user's installed version.
+- Safety boundary unchanged: source review remains static/read-only; do not execute plugin handlers, trigger MCP/network/WebSocket/game actions, or invoke `poi_hensei_save`.
+- Next step: use the locally exported four files as the analysis baseline. If access to their actual contents is required, upload those selected files directly to the private repository and verify the exact remote paths and hashes before proceeding; do not ask the user to upload the ZIP to chat unless direct upload is unavailable.
