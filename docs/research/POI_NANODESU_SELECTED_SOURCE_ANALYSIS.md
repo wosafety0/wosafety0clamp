@@ -79,3 +79,19 @@ Run the offline test suite in the local checkout with the project's existing Pyt
 ## Revised next step
 
 Perform a separate, explicitly read-only local loopback health/initialization/describe probe only after confirming the user's Poi runtime is available and the endpoint is listening. Do not invoke game actions or `poi_hensei_save`; keep `poi_battle` excluded from the Python client's allowlist unless separately reviewed and tested.
+
+
+## Live Poi Read-Only Loopback Probe — 2026-10-25
+
+- **Task:** `KANCOLLEBOT_POI_READ_ONLY_PROBE`
+- **Timestamp:** 2026-10-25 20:30:16 +08:00
+- **Endpoint:** `http://127.0.0.1:12450`
+- **Result:** PASS; probe process exit code 0.
+- TCP preflight passed. The health endpoint returned HTTP 200.
+- MCP initialization passed with protocol version `2024-11-05`; server-info was present, and the initialized notification passed.
+- `tools/list` passed and reported five server tools: `poi_battle`, `poi_describe`, `poi_get`, `poi_hensei_save`, and `poi_lookup`.
+- The read-only `poi_describe` call passed with no tool error. One text content item was returned; only its length (208 characters) was logged. Raw game payload logging remained disabled.
+- Safety boundary: `poi_hensei_save` and `poi_battle` were not called; no game actions were executed. Project files and the Windows global proxy were not modified.
+- Temporary probe script cleanup passed.
+- **Scope limitation:** This verifies that the local loopback endpoint, MCP initialization/tool listing, and `poi_describe` call worked during this probe. It does not establish game-session validity, data freshness, or end-to-end gameplay behavior.
+- **Next step:** Preserve the read-only boundary. If further validation is needed, inspect only documented read-only data paths and continue to avoid write/game-action tools unless separately authorized and tested.
