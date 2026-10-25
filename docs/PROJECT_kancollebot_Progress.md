@@ -870,3 +870,14 @@
 - Reported safety state: no network/MCP requests, WebSocket use, game actions, file modifications, or system/proxy setting changes; no script errors.
 - **Decision:** if continuing, inspect only the ASAR archive header/index metadata in a bounded, read-only manner; do not extract files or modify the installation. Do not assume Nanodesu MCP is present based on the archive's existence.
 - Safety gate unchanged: `SESSION_VALIDITY=NOT_VERIFIED`; `LIVE_DISPATCH=DISABLED`.
+
+## 2026-10-25 — Poi app.asar index read-only preflight V4
+
+- Result: `JSON_PARSE=PASS`; the read-only parser located the JSON index at byte offset 16.
+- Archive metadata: `D:\Games\poi\resources\app.asar`; length 121,224,523 bytes.
+- Header fields: pickle size 4; header size 7,816,984; string size 7,816,980; JSON size 7,816,973.
+- Traversal: 34,968 index entries visited; 0 paths matched `nanodesu`, `poi-plugin-nanodesu-mcp`, or `mcp`.
+- Safety: archive not extracted or modified; no network, MCP, WebSocket, or game actions; no project files or system/proxy settings changed.
+- Gate state remains `SESSION_VALIDITY=NOT_VERIFIED` and `LIVE_DISPATCH=DISABLED`.
+- Interpretation limit: this only rules out matching path names in the inspected `app.asar` index; it does not prove the plugin is absent from external plugin directories or under other names.
+
