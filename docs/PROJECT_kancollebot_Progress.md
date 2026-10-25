@@ -616,3 +616,14 @@
 - No WebSocket connection, fleet read, file modification, or game action occurred. `LIVE_DISPATCH=DISABLED`.
 - Next step: read-only path discovery, then validate repository root, branch, HEAD, clean/dirty state, venv interpreter, and health endpoint against the discovered actual worktree. Only after those checks pass, retry the read-only live fleet snapshot.
 - Do not treat this path error as a Poi MCP or snapshot-reader failure; those checks were not reached.
+
+
+### 2026-10-25 Worktree path rediscovered; snapshot retry unblocked
+
+- Time: 2026-10-25 15:13 +08:00.
+- Read-only path discovery passed. Actual worktree: `D:\\KancolleBot-Worktrees\\expedition-closed-loop-mvp-20261024`.
+- Branch: `dev/expedition-closed-loop-mvp`.
+- HEAD: `ec6a18879a80c0a6786296eb76de7e5ea5f234b6`.
+- Worktree: clean (0 status lines). `.venv\\Scripts\\python.exe` exists.
+- The previously attempted path without the `-20261024` suffix does not exist; the earlier snapshot attempt failed before health or snapshot checks.
+- Next step: rerun the read-only health check and live fleet snapshot against the confirmed worktree. No game actions or file modifications occurred; `LIVE_DISPATCH=DISABLED`.
