@@ -1,0 +1,31 @@
+{
+  "name": "poi-plugin-nanodesu-mcp",
+  "version": "0.2.0",
+  "description": "Expose poi's live game state to agents over MCP",
+  "main": "index.ts",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.21.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsx": "^4.20.7",
+    "typescript": "^5.9.3"
+  },
+  "poiPlugin": {
+    "title": "なのです",
+    "description": "Expose live game state to agents over MCP",
+    "icon": "fa/plug",
+    "priority": 100,
+    "id": "poi_nanodesu_mcp"
+  },
+  "author": {
+    "name": "MomoCow",
+    "url": "https://github.com/momocow"
+  }
+}
