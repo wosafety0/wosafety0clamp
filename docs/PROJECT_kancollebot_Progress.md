@@ -637,3 +637,13 @@
 - Fleet snapshot did not produce a usable result: `SNAPSHOT_READ=NOT_RUN`, `FLEET_COUNT=0`; report captured only `Traceback (most recent call last):`, with no traceback details.
 - No WebSocket connection, project file modification, or gameplay action was reported. `LIVE_DISPATCH=DISABLED`.
 - Next step: read-only diagnosis only—verify the venv interpreter/version and imports, then reproduce only the failure with sanitized exception class and final traceback lines. Do not retry the live snapshot until the cause is identified.
+
+
+### 2026-10-25 Python diagnostic output capture needs correction
+
+- Time: 2026-10-25 15:22 +08:00.
+- Read-only diagnostic confirmed Python 3.13.16 starts and the Git worktree is clean.
+- The diagnostic itself failed while invoking the import probe: PowerShell reported `System.Management.Automation.RemoteException` and only retained `Traceback (most recent call last):`.
+- This does not prove a project import failure; the script's stderr capture/pipeline handling is insufficient.
+- Next step: capture Python stdout and stderr separately in memory via .NET process redirection, preserve exit code, and report a sanitized traceback tail. Do not initialize MCP or read live fleet data during diagnosis.
+- `LIVE_DISPATCH=DISABLED`; no files or game state changed.
