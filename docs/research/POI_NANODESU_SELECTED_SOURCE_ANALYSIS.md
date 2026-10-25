@@ -136,3 +136,15 @@ Perform a separate, explicitly read-only local loopback health/initialization/de
 - **Result:** PASS. One matching diagnostic script was found and removed; zero operation failures; zero matching files remained after the scan.
 - **Combined milestone:** Both limited `poi_get` calls from the preceding diagnostic run passed structural parsing, and the matching temporary script has now been independently cleaned up and verified absent. The data retrieval plus cleanup sequence is therefore closed for this narrow read-only probe.
 - **Limits:** This does not validate active game-session status, data freshness, full fleet/ship contents, or end-to-end game automation. No write/action tools were called.
+
+
+## Adapter and Normalization Preflight — 2026-10-25
+
+Task: KANCOLLEBOT_POI_ADAPTER_NORMALIZATION_PREFLIGHT
+Scope: GitHub source inspection only. No local changes, Poi endpoint calls, or game actions.
+
+The MCP client implements bounded transport and an explicit read-tool allowlist, but returns the MCP result envelope rather than a normalized fleet/ship model. The adapter package currently exposes only a get_status protocol contract for sanitized status; it does not specify fleet/ship domain fields or session freshness semantics.
+
+Targeted paths src/kancollebot/adapters/poi/state.py, src/kancollebot/adapters/poi/normalizer.py, tests/test_poi_state_normalizer.py, and the two legacy 03_Integrations/state_fetcher paths returned 404 on this branch. GitHub code searches for PoiReadOnlyAdapter, normalize fleet ships, and state_fetcher returned no indexed results; search indexing is not proof of absence across all branches/history. No tests were executed during this source-only preflight.
+
+Decision: Do not implement a speculative normalizer yet. First inspect the current branch tree and canonical state contracts, then define a minimal read model from observed field semantics. Keep raw game values out of logs, separate session validity/freshness from collection counts, and preserve the current allowlist; do not enable poi_battle or poi_hensei_save. Preflight complete; implementation intentionally not started.
