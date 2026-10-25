@@ -53,3 +53,29 @@
 - Verification was remote file/directory read plus byte-size agreement against the prior local export report. Git blob SHAs are recorded; SHA-256 was not recalculated from downloaded raw bytes in this check, so do not describe this as a full SHA-256 equality check.
 - Safety: no plugin execution, MCP/network/WebSocket dispatch, game action, local file modification, or system/proxy change was performed.
 - Next: analyze the uploaded files directly from this branch, starting with the read-only query/path boundaries and serialization limits; record findings and evidence before proposing any runtime test.
+
+### 2026-10-25 — Static review of uploaded Nanodesu source (read-only)
+
+Source of truth: the four uploaded files under `research/poi-plugin-nanodesu-mcp/src` on `dev/sparkling-planner-mvp`. This review reads the uploaded branch only; public upstream is not used to fill gaps.
+
+#### Confirmed design boundaries
+
+- `paths.ts` lines 19–31 defines an explicit allowlist of store roots and denies `layout`, `plugins`, `ext` as a whole, `config`, and `ui` (lines 36–42). Plugin state is allowlisted by package name; battle-detail is narrowed to `_.indexes` (lines 48–103).
+- `resolveStorePath` (lines 258 onward) enforces the root allowlist and plugin subpath restrictions before walking a requested store path. Wildcard `[]` is rejected for root paths and reserved for projections.
+- `query.ts` implements a small lexer/parser/evaluator rather than evaluating arbitrary JavaScript (lexer lines 97 onward, parser from line 240, comparison/evaluation around lines 408–482). Ordering comparisons only work for matching number/number or string/string types; missing fields compare false. Projection is explicit through `select`.
+- `serialize.ts` sets a default depth cap of 16 (line 5), drops functions/symbols/undefined object fields, converts BigInt to strings, non-finite numbers to null, and marks cycles/depth overflow (lines 15–65). `fitToBytes` enforces a serialized-size cap by dropping collection elements from the end; a too-large scalar/object returns an error (lines 78 onward).
+- `server.ts` defaults to loopback `127.0.0.1` (line 397) and caps request bodies at 1 MiB (line 39 and `readBody` around line 390). It registers four read-oriented tools in the visible builder (`poi_get`, `poi_lookup`, `poi_battle`, `poi_describe`). The only visible write tool, `poi_hensei_save`, is conditionally registered only when both `dispatch` and `hensei` are supplied (around lines 295–365); this does not establish whether the plugin entry point supplies them.
+
+#### Hardening observations (not confirmed exploits)
+
+- `paths.ts` uses JavaScript's `in` operator for presence checks (e.g. line 359), and `getByPath` directly indexes objects (lines 226–255). This includes inherited property names such as `constructor` / `__proto__`; consider rejecting prototype-related path segments and requiring own-property checks. Static review alone does not demonstrate a practical data-exposure or code-execution exploit.
+- `server.ts` has no CORS headers and enables DNS-rebinding protection with a loopback allowed-host list (around lines 425–440). The default loopback bind is a meaningful boundary, but CORS alone is not authentication; other local processes can still attempt requests to a loopback service. Confirm the real bind address and client trust assumptions from the missing entry-point/configuration code before judging exposure.
+- The HTTP error path returns an exception stack in the response body (around lines 466–476). That may disclose local implementation paths to a caller able to trigger a server error; prefer a generic external error with detailed logging kept local.
+- The request body size limit is present, but the oversize branch destroys the request after rejecting (around lines 390–404); error-response behavior under that condition has not been tested.
+- Serialization depth/byte caps reduce response size, but this static pass did not execute adversarial cyclic/proxy/getter inputs or measure CPU/memory behavior. Treat them as untested edge cases, not defects established by testing.
+
+#### Coverage gaps / next steps
+
+- The uploaded directory contains only four selected files. `server.ts` imports `battles.ts`, `hensei.ts`, `request-log.ts`, `tools.ts`, and `validator.ts`, and the entry point that constructs `ServerOptions` is not in this uploaded set. Consequently, tool handler validation, actual size-limit constants, live store wiring, and whether write-capable options are passed remain unverified.
+- Next safe step: upload/locate only the missing project-owned integration files needed to close these static gaps, then inspect the entry point and handler implementations. Do not start the plugin, send MCP requests, dispatch actions, or perform game actions as part of this review.
+- No source execution, network/WebSocket dispatch, game action, local file modification, or system/proxy change was performed.
