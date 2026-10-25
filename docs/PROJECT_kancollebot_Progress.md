@@ -707,3 +707,16 @@
 - This probe only inspected path descriptors and field names; no game-state values were read. It did not establish a login/session indicator, homeport indicator, or independent Redux refresh/freshness signal.
 - Safety: no WebSocket connection, no files modified, no gameplay actions; `LIVE_DISPATCH=DISABLED`.
 - Next step: use only supported `info`/plugin roots in a bounded, sanitized descriptor search for session/homeport/freshness candidates; inspect actual data values only after identifying a relevant documented path. Do not infer freshness from `ObservedState.observed_at`, and do not dispatch before the gate is independently validated.
+
+### 2026-10-25 Read-only session/homeport field discovery V2
+
+- User-reported local run time: 2026-10-25 15:29:50 +08:00. Independent environment: `D:\\KancolleBot-Worktrees\\expedition-closed-loop-mvp-20261024\\.venv`, Python 3.13.16; branch `dev/expedition-closed-loop-mvp`, HEAD `ec6a18879a80c0a6786296eb76de7e5ea5f234b6`, worktree clean.
+- Poi MCP health/readiness, session initialization, and allowlisted read-tool discovery passed. Descriptor discovery returned:
+  - `info.basic` keys include `api_active_flag`, `api_member_id`, `api_nickname`, `api_level`, `api_tutorial`, and `api_tutorial_progress`; these are potential account/basic-state indicators but do not by themselves prove the current page is at homeport or that data is fresh.
+  - `info.fleets`: array, total 3, sample fields include `api_id`, `api_mission`, `api_ship`, and `api_flagship`.
+  - `info.ships`: object-map, total 91, sample fields include `api_id`, `api_ship_id`, `api_fuel`, `api_bull`, and `api_nowhp`.
+  - `sortie` exposes `sortieStatus`, `sortieMapId`, `currentNode`, and related fields; `battle` exposes `_status` and `result`; `timers` exposes `cond`.
+  - `misc` only exposes `canNotify`; `const` exposes master-data maps; `wctf`/ `fcd` expose plugin state and metadata.
+- Raw API roots such as `api_port` and `api_basic` are not Nanodesu roots. `questline` and several plugin branches are unavailable because their providers are not installed or have not stored state; do not install plugins for this task.
+- This was descriptor-only discovery: no state values were read, no WebSocket connection, no files modified, no game actions; `LIVE_DISPATCH=DISABLED`.
+- Next safe step: read only a small sanitized set of existing values from `info.basic`, `info.fleets`, and `sortie` using `poi_get`, if its schema supports path arguments. Report only presence/type/boolean and numeric IDs needed to assess basic account data and active sortie state; never expose member ID, nickname, or other personal values. This may establish basic-state presence and sortie indicators, but still does not prove homeport or freshness unless an explicit trustworthy field supports it.
