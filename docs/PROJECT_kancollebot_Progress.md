@@ -554,3 +554,10 @@
 - 结论：**独立 Python 环境创建成功，98/98 离线测试通过**；此前 Windows SQLite 临时数据库占用错误未在本轮复现，修复后的本地离线回归验收通过。此结论仅覆盖本次测试运行的代码，不证明 Poi 实机/实时状态/真实派遣可用。
 - 没有执行游戏操作，`LIVE_DISPATCH=DISABLED`。下一步：在用户现有 Poi 实例上进行严格只读桥接与数据新鲜度预检，之后再完成模拟派遣验收；真实派遣需另行明确授权。
 - 此条为远程 GitHub 进度归档；本地测试及虚拟环境由用户执行，不能将此文档提交视为本地已再次同步至最新远程 HEAD。
+
+
+### 2026-10-25 Poi CDP read-only preflight
+- User-reported local preflight at HEAD `ec6a18879a80c0a6786296eb76de7e5ea5f234b6`: clean worktree; Python 3.13.16 venv; seven Poi processes; TCP port 9222 listening; Poi adapter source files found; plugin directory exists.
+- `CDP_HTTP_RESULT: FAILED` is **inconclusive** because the check used unsupported PowerShell 5.1 `Invoke-RestMethod -NoProxy`. Do not diagnose CDP as broken from this result.
+- Next: repeat a localhost-only HTTP GET using PowerShell 5.1-compatible .NET `HttpWebRequest` with `Proxy = $null`; inspect `/json/version` and `/json/list` metadata only, no WebSocket execution or game actions.
+- No local files modified by this preflight, no live dispatch. Remote documentation commit does not imply local worktree sync.
