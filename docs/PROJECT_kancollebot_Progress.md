@@ -862,3 +862,11 @@
 - The user reported no network/MCP requests, WebSocket, game actions, file modifications, or system/proxy changes. The script reported no errors.
 - **Decision:** installed plugin identity/version and source equivalence remain unverified. Do not claim the plugin is absent or identical to the public source. A further step, if needed, should be a separately approved, bounded, read-only inspection of package/archive metadata only; avoid extracting or modifying the installed app.
 - Safety gate unchanged: `SESSION_VALIDITY=NOT_VERIFIED`; `LIVE_DISPATCH=DISABLED`. No MCP request, WebSocket use, or game action is authorized by this result.
+
+## 2026-10-25 — Poi app.asar read-only metadata preflight
+
+- User-provided report completed at 2026-10-25 17:02:59 +08:00. `D:\\Games\\poi\\resources\\app.asar` exists as a 121,224,523-byte file; reported last-write time `2026-10-19 16:21:45`; SHA-256 `0B8F90E489F400A3659DAEB639800CDFED85C93171C40FA7FCE9EDB364CB5D0A`.
+- `D:\\Games\\poi\\resources\\app.asar.unpacked` exists; `D:\\Games\\poi\\resources\\app` was not found. This is metadata-only evidence; archive contents have not been inspected, extracted, or modified, and it does not establish the installed MCP plugin's identity/version.
+- Reported safety state: no network/MCP requests, WebSocket use, game actions, file modifications, or system/proxy setting changes; no script errors.
+- **Decision:** if continuing, inspect only the ASAR archive header/index metadata in a bounded, read-only manner; do not extract files or modify the installation. Do not assume Nanodesu MCP is present based on the archive's existence.
+- Safety gate unchanged: `SESSION_VALIDITY=NOT_VERIFIED`; `LIVE_DISPATCH=DISABLED`.
