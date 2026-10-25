@@ -567,3 +567,9 @@
 - User-reported read-only localhost CDP HTTP recheck: `/json/version` PASS (`Chrome/152.0.7977.54`, protocol `1.3`); `/json/list` PASS with 3 targets: KanColle `webview`, Poi `page`, DMM `service_worker`.
 - Previous CDP HTTP failure was due to an incompatible PowerShell 5.1 check, not demonstrated CDP unavailability.
 - No files modified or game actions; `LIVE_DISPATCH=DISABLED`. Next: inspect existing Poi bridge read-only contracts and validate game login/homeport and state snapshot without invoking dispatch or mutating APIs. This is user-reported local execution, not independently executed on their machine.
+
+
+### 2026-10-25 Poi bridge source review
+- User-reported read-only source review at local HEAD `ec6a18879a80c0a6786296eb76de7e5ea5f234b6` on `dev/expedition-closed-loop-mvp`: all five files present; `SOURCE_INSPECTION: PASS`, `ISSUE_COUNT: 0`.
+- `cdp_targets.py` is discovery-only; `expedition_state.py` and `_v2.py` normalize fleet data; `observed_state.py` checks freshness. `cdp_input.py` has `Input.dispatchMouseEvent` and must not be invoked during read-only validation.
+- Source review did not execute code or prove state retrieval. Next inspect target selection and normalization contracts before a read-only snapshot. `LIVE_DISPATCH=DISABLED`; no local files modified.
