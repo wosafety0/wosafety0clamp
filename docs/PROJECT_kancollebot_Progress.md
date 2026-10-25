@@ -894,3 +894,22 @@
 - Safety reported: no network/MCP/WebSocket/game actions, no file modifications, and no system/proxy changes. `SESSION_VALIDITY=NOT_VERIFIED`; `LIVE_DISPATCH=DISABLED`.
 - **Conclusion:** unlike the earlier bounded search, this report positively locates a Nanodesu MCP package directory and also finds a separate `poi-plugin-mcp` implementation. This establishes on-disk package presence, not that either plugin is currently loaded, listening, or compatible with the running Poi build. Do not send MCP requests or enable dispatch as part of this discovery.
 - **Next step:** perform a narrowly scoped, read-only provenance check on just these two package directories: read their package manifests and entry-file metadata/hashes (no source-wide recursion), compare with public upstream only if needed, and inspect configuration only for non-secret endpoint/port fields. Keep live dispatch disabled and session validity unverified.
+
+## 2026-10-25 — Poi independent plugin source discovery
+
+- Task: `KANCOLLEBOT_POI_PLUGIN_SOURCE_DISCOVERY_V1`
+- Mode: `READ_ONLY`; local report timestamp: 2026-10-25 17:29:05–17:29:33 +08:00.
+- Search roots:
+  - `%APPDATA%\poi\plugins`: exists; 10,887 files enumerated.
+  - `D:\Games\poi\resources\app.asar.unpacked`: exists; 77 files enumerated.
+  - No enumeration limit was hit.
+- Manifest discovery: 277 `package.json` files encountered. Two relevant manifests identified:
+  - `poi-plugin-nanodesu-mcp`, version `0.2.0`, declared main `index.ts`, at `%APPDATA%\poi\plugins\node_modules\poi-plugin-nanodesu-mcp\package.json`.
+  - `@modelcontextprotocol/sdk`, version `1.32.1`, nested under the Nanodesu package.
+- Source scan: 8,451 files scanned; 154 matching files reported; 11 large files skipped. The Nanodesu package `index.ts` matched `McpServer` and `poi-plugin-nanodesu-mcp`. Separate `poi-plugin-mcp` package source matched `17777` and `tools/list`; do not conflate the two packages.
+- Manifest parsing errors: four manifests failed parsing due to malformed/encoding-corrupted text in local files: `poi-plugin-anchorage-repair`, `poi-plugin-item-info`, `poi-plugin-mcp`, and `poi-plugin-ship-info`. This does not invalidate the two positively identified package manifests, but means not every manifest was parsed successfully.
+- Verified conclusion: the Nanodesu MCP package exists in the independent Poi user plugin tree. This does not establish that Poi currently loads it, that its service is running, or that its game-state data is fresh/valid.
+- Safety: no network requests, MCP requests, WebSocket use, game actions, file modifications, or system/proxy changes were reported. `SESSION_VALIDITY=NOT_VERIFIED`; `LIVE_DISPATCH=DISABLED`.
+- Clipboard: reported `FAILED`; not investigated, per user preference.
+- Next step: read the installed Nanodesu package metadata and source as text only to identify its plugin entry/lifecycle and read-only data path. Do not execute plugin code, contact local endpoints, or enable live dispatch.
+
