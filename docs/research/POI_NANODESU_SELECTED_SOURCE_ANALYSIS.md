@@ -171,3 +171,18 @@ Scope: GitHub read-only inspection only; no local changes, runtime calls, or gam
 Do not add new duplicate domain models. A future normalization layer should map only fixture-verified source fields into existing ShipState/FleetState and wrap the result in ObservedState. Until an actual sanitized payload fixture and session/freshness evidence are available, any mapping beyond confirmed structural fields is speculative. Keep the client allowlist unchanged (poi_describe, poi_get, poi_lookup); do not call poi_battle or poi_hensei_save. No tests were run during this GitHub-only preflight.
 
 Result: preflight complete; no implementation change made.
+
+## Payload Fixture Readiness Check — 2026-10-25
+
+Task: KANCOLLEBOT_POI_PAYLOAD_FIXTURE_READINESS
+Scope: GitHub source-only inspection; no local runtime access, code changes, tests, or game actions.
+
+- Re-read the current MCP client, canonical models, adapter protocol, and relevant offline tests on `dev/sparkling-planner-mvp`.
+- The client returns the MCP result envelope and permits only `poi_describe`, `poi_get`, and `poi_lookup`. The adapter protocol still exposes only a sanitized `get_status()` contract.
+- Existing core models can represent ship ID/name/HP and fleet ID/ship IDs/optional mission ID, but current tests do not define the mapping from Poi's `api_*` fields into those domain fields.
+- Prior live diagnostics recorded collection shape/counts and selected field names only (`info.fleets`: array, 3 entries; `info.ships`: object-map, 91 entries). They intentionally did not retain a sanitized record fixture. Repository searches for a committed `poi_get` payload fixture returned no matches; this is a scoped search result, not proof that no fixture exists in every branch/history.
+- This environment exposes GitHub repository tools but no direct execution channel to the user's Windows Poi loopback endpoint. Therefore a fresh runtime fixture cannot be captured from this turn.
+
+Decision: Do not implement a guessed normalizer or synthetic substitute for a required observed fixture. Next actionable step is a user-side read-only capture that emits only selected field names/types and safe scalar type/range metadata (never raw game values), followed by an offline fixture-based normalizer and regression tests. Keep `poi_battle` and `poi_hensei_save` excluded; no game actions.
+
+Result: fixture readiness check complete; no implementation or runtime operation performed.
