@@ -748,3 +748,13 @@
 - Safety report: no raw payload/account values emitted, no CDP WebSocket, no game actions, no project files modified, `LIVE_DISPATCH=DISABLED`.
 - Next safe step: inspect the read-only `poi_get` response envelope and the MCP client's result-unwrapping code, using key names and types only. Specifically determine how the `kind/value` wrapper is represented and whether `value` itself is another typed object; avoid invoking methods on null, do not print raw values, and capture the child process exit code reliably. Keep live dispatch disabled.
 - Provenance: this entry records the user-provided local diagnostic report; it does not claim direct local execution by the assistant.
+
+### 2026-10-25 Read-only source review — MCP result envelope handling
+
+- Read the current branch versions of `src/kancollebot/adapters/poi/mcp_client.py`, `src/kancollebot/adapters/poi/expedition_reader.py`, and `src/kancollebot/adapters/poi/expedition_state_v2.py` through GitHub; this was a remote source review, not a local worktree check or modification.
+- `PoiMcpClient.call_read_tool()` returns the complete MCP `tools/call` result dictionary after JSON-RPC validation. It does not unwrap `structuredContent` or `content`.
+- `expedition_reader._tool_value()` returns `structuredContent` directly whenever it is non-null; otherwise it parses exactly one text content item as JSON. It does not unwrap a nested `{kind, value}` wrapper. The reader's collection validation expects `kind` plus `items` at the outer level, which matches the reported `info.fleets` shape but not the reported `info.basic`/`sortie` wrappers.
+- The `api_mission` normalizer interprets slot 0 as status and slot 1 as mission ID only when status > 0; this assumption is present in source but still requires authoritative confirmation of the provider's schema before operational use. `return_at` intentionally remains `None`.
+- Source review alone cannot establish the exact nested contents of live `structuredContent.value` or explain the local Null method exception. Next step: a bounded live read-only probe should report only response envelope types/key names, `structuredContent` type/key names, text-item JSON shape, and safe nested type/key summaries for `info.basic`, `info.fleets`, and `sortie`; it must avoid calling methods on null and must capture the Python process exit code reliably.
+- No source files changed, no dependencies installed, no local game actions or WebSocket activity. `LIVE_DISPATCH=DISABLED` remains required.
+- Provenance: source contents were fetched from the remote branch and reviewed; this entry does not claim local execution.
