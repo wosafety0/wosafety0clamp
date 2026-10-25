@@ -586,3 +586,9 @@
 - User-reported local read-only WebView discovery produced `TARGET_COUNT: 1`, combined `TYPE=webview page`, `HOST=INVALID_URL`, and zero game matches, although prior CDP `/json/list` returned three distinct targets.
 - Most likely PowerShell 5.1 JSON-array enumeration/wrapping bug in the diagnostic script (`@($reader.ReadToEnd() | ConvertFrom-Json)`), not proof the game webview disappeared. Recheck by assigning `ConvertFrom-Json` result to a variable and enumerating with `@($parsed)`; validate each target individually.
 - No WebSocket connection, files modified, or game actions. `LIVE_DISPATCH=DISABLED`. Next: corrected metadata-only recheck, then plan explicit game webview target selection.
+
+
+### 2026-10-25 Game WebView target discovery verified
+- User-reported corrected PowerShell 5.1 metadata-only check: exactly one game target matched (`type=webview`, host `play.games.dmm.com`, path `/game/kancolle`), debugger endpoint present; Poi `page` target was separately identified.
+- `GAME_WEBVIEW_DISCOVERY=PASS`; WebSocket was not connected, files were not modified, no game actions; `LIVE_DISPATCH=DISABLED`.
+- Next: inspect existing read-only snapshot implementations and tests; do not open a WebSocket or evaluate game JavaScript until a separately reviewed, strictly read-only transport is available.
