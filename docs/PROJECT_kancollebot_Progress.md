@@ -781,3 +781,13 @@
 - Safety: report says no WebSocket, no game actions, no project files modified; `LIVE_DISPATCH=DISABLED`. Clipboard status is `UNAVAILABLE_IGNORED`, which is non-blocking per user preference.
 - Next step: stop repeating MCP reads for now. If process status must be closed out, make one minimal local check of the existing captured stdout/stderr and `Process.ExitCode` (without issuing additional MCP calls); otherwise continue using the already confirmed sanitized payload shapes as partial evidence. Keep session validity/freshness unverified and dispatch disabled.
 - Provenance: this entry records the user-provided local report and a remote read-only review of the verifier source; it does not claim direct local execution or local file modification.
+
+
+### 2026-10-25 V3 artifact preflight — verifier artifacts not captured
+
+- User-reported local preflight time: 2026-10-25 16:13:07 +08:00; mode READ_ONLY.
+- Two temporary roots were found and one candidate file matched: `kcb_envelope_c52d4ee5441b46e6b44babce47c4ea5a.py`, last written at 16:04:43, size 4,556 bytes. The candidate is the diagnostic script itself; the preflight did not report captured stdout, stderr, JSON result, or a stored process exit code.
+- Exit status remains unrecoverable unless it was persisted in an artifact. Do not repeat MCP reads merely to recover this historical process status; the available V3 report already records health, initialize, read tools, fleets, ships, and master ships as PASS, while overall result and Python exit code remain unresolved.
+- Safety: no MCP requests, no WebSocket, no game actions, no project files modified; `LIVE_DISPATCH=DISABLED`. Clipboard check is intentionally ignored per user preference.
+- Conclusion: artifact inspection completed, but it did not recover process-exit evidence. Treat the read results as partial evidence only; session validity and data freshness remain unverified, and dispatch stays disabled.
+- Provenance: this entry records the user-provided local preflight report. It does not claim assistant-side local execution or local filesystem changes.
