@@ -678,3 +678,10 @@
 - Safety: no WebSocket connection, no files modified, no gameplay actions; `LIVE_DISPATCH=DISABLED`.
 - Next step: inspect the declared dataclass/model fields and emit only type, field names, list lengths, and sanitized identifiers; then correct the summary projection or investigate normalization if the expected fields are genuinely absent. Continue to defer dispatch until freshness/login/homeport and safety gates are separately verified.
 
+### 2026-10-25 Snapshot summary projection corrected against model schema
+
+- Follow-up source review of `src/kancollebot/adapters/poi/expedition_state_v2.py` confirms each `ExpeditionFleetSnapshot` is constructed with `fleet_id`, `ship_ids`, `mission_id`, `return_at`, `fuel_ready`, `ammo_ready`, and `damaged_ship_ids`.
+- The previous report's `status` and `ships`/derived `ship_count` fields were not fields on the snapshot model, so their null values are a report-projection mismatch, not evidence that the reader omitted ship data.
+- `mission_id=null` for fleets 1 and 2 is consistent with the normalizer: mission ID is only set when `api_mission[0] > 0`. Fleet 3's `mission_id=2` indicates the active mission field was populated.
+- Correct follow-up: rerun a strictly read-only summary using `len(fleet.ship_ids)`, `fleet.ship_ids` (IDs only), `fleet.fuel_ready`, `fleet.ammo_ready`, `fleet.damaged_ship_ids`, `fleet.mission_id`, and `fleet.return_at`. Do not invent a `status` field. Still no dispatch; login/homeport/freshness evidence remains a separate gate.
+
