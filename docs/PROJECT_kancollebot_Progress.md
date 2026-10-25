@@ -627,3 +627,13 @@
 - Worktree: clean (0 status lines). `.venv\\Scripts\\python.exe` exists.
 - The previously attempted path without the `-20261024` suffix does not exist; the earlier snapshot attempt failed before health or snapshot checks.
 - Next step: rerun the read-only health check and live fleet snapshot against the confirmed worktree. No game actions or file modifications occurred; `LIVE_DISPATCH=DISABLED`.
+
+
+### 2026-10-25 Snapshot attempt reached health pass but failed before usable result
+
+- Time: 2026-10-25 15:21 +08:00.
+- Confirmed local preflight: correct worktree `D:\\KancolleBot-Worktrees\\expedition-closed-loop-mvp-20261024`, branch `dev/expedition-closed-loop-mvp`, HEAD `ec6a18879a80c0a6786296eb76de7e5ea5f234b6`, clean worktree.
+- Poi MCP health check passed.
+- Fleet snapshot did not produce a usable result: `SNAPSHOT_READ=NOT_RUN`, `FLEET_COUNT=0`; report captured only `Traceback (most recent call last):`, with no traceback details.
+- No WebSocket connection, project file modification, or gameplay action was reported. `LIVE_DISPATCH=DISABLED`.
+- Next step: read-only diagnosis only—verify the venv interpreter/version and imports, then reproduce only the failure with sanitized exception class and final traceback lines. Do not retry the live snapshot until the cause is identified.
