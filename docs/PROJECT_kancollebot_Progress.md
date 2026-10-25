@@ -599,3 +599,9 @@
 - Reader checks bridge identity/health/store readiness, tool availability, rejects truncated or malformed payloads, requests only referenced master ship fuel/ammo maxima, and fails closed during normalization. Offline tests cover targeted lookup and malformed/truncated payload cases.
 - Source review only; no runtime MCP health check or live snapshot request was performed. Existing user report shows CDP game WebView discovery passes, but that does not establish MCP bridge availability.
 - Next step should be a separate read-only HTTP health endpoint check (`/health`) against the configured loopback MCP port; only if healthy, consider a snapshot read via the existing reader, without calling any non-allowlisted tools. Keep live dispatch disabled.
+
+
+### 2026-10-25 Poi MCP health preflight passed
+- User-provided local report confirms `GET http://127.0.0.1:12450/health` returned HTTP 200; bridge identity `poi-nanodesu-mcp`, status `ok`, and `storeReady=True`. Listener was present.
+- This was a health-only request: MCP session was not initialized, fleet data was not read, no WebSocket was connected, no files were modified, and game actions remained disabled.
+- Next validation may use the existing `PoiExpeditionReader` through its loopback-only MCP client. Restrict calls to the existing read-tool allowlist (`poi_describe`, `poi_get`, `poi_lookup`), print only a sanitized fleet snapshot, and do not dispatch gameplay actions.
