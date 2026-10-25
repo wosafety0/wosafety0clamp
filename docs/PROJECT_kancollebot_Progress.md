@@ -667,3 +667,14 @@
 - This establishes that the live loopback MCP endpoint can initialize a session, list tools, and describe the fleet path. It does not yet establish that fleet/ship payload retrieval and normalization succeed; no fleet instance data was read in this probe.
 - Safety: no WebSocket connection, no files modified, no gameplay action; `LIVE_DISPATCH=DISABLED`.
 - Next: run the existing `PoiExpeditionReader.read_fleets()` in a separate read-only step. Emit only a sanitized summary (fleet count, fleet IDs/status/mission IDs and ship counts; no names or sensitive session data), and preserve the exception class and traceback tail on failure. Do not invoke any write or dispatch method. If it fails, stop and diagnose before retrying.
+
+### 2026-10-25 Read-only fleet snapshot returned three fleet objects
+
+- Local report time: 2026-10-25 15:25:25 +08:00.
+- Read-only execution context: `D:\KancolleBot-Worktrees\expedition-closed-loop-mvp-20261024`, branch `dev/expedition-closed-loop-mvp`, HEAD `ec6a18879a80c0a6786296eb76de7e5ea5f234b6`, clean worktree, Python 3.13.16.
+- `PoiExpeditionReader.read_fleets()`: PASS; returned 3 fleet objects; no exception or traceback.
+- Sanitized projection: fleet 1 `mission_id=null`; fleet 2 `mission_id=null`; fleet 3 `mission_id=2`. All three projected `status` and `ship_count` values were null.
+- Interpretation: the read path returned fleet objects, but the reported null fields mean the summary projection has not yet demonstrated status or ship-list extraction. Do not claim full snapshot validation or infer that fleets are empty. Inspect the actual snapshot model fields and raw object shape using a bounded, read-only diagnostic.
+- Safety: no WebSocket connection, no files modified, no gameplay actions; `LIVE_DISPATCH=DISABLED`.
+- Next step: inspect the declared dataclass/model fields and emit only type, field names, list lengths, and sanitized identifiers; then correct the summary projection or investigate normalization if the expected fields are genuinely absent. Continue to defer dispatch until freshness/login/homeport and safety gates are separately verified.
+
