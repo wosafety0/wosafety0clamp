@@ -580,3 +580,9 @@
 - Important mismatch: `list_page_targets()` filters `type == "page"`, but observed KanColle game target is `webview`; default `select_poi_renderer(title_hint="poi")` selects Poi UI, not the game. Do not assume current selector can read the game renderer.
 - `normalize_poi_fleets()` expects `info.fleets` array, numeric-key `info.ships` and `const.$ships`, timezone-aware observed_at; missing/inconsistent records fail closed. Any HP below maximum is conservatively marked damaged; mission return time remains unknown (`None`). `ObservedState` rejects future/stale observations.
 - Next: inspect read-only CDP target metadata without logging debugger URLs/IDs, then design explicit game webview selection and verify Redux field shapes; no input commands, no live dispatch. Source inspection only; no runtime snapshot confirmed.
+
+
+### 2026-10-25 WebView discovery PowerShell array parsing failure
+- User-reported local read-only WebView discovery produced `TARGET_COUNT: 1`, combined `TYPE=webview page`, `HOST=INVALID_URL`, and zero game matches, although prior CDP `/json/list` returned three distinct targets.
+- Most likely PowerShell 5.1 JSON-array enumeration/wrapping bug in the diagnostic script (`@($reader.ReadToEnd() | ConvertFrom-Json)`), not proof the game webview disappeared. Recheck by assigning `ConvertFrom-Json` result to a variable and enumerating with `@($parsed)`; validate each target individually.
+- No WebSocket connection, files modified, or game actions. `LIVE_DISPATCH=DISABLED`. Next: corrected metadata-only recheck, then plan explicit game webview target selection.
