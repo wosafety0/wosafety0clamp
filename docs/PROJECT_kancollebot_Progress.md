@@ -79,3 +79,31 @@ Source of truth: the four uploaded files under `research/poi-plugin-nanodesu-mcp
 - The uploaded directory contains only four selected files. `server.ts` imports `battles.ts`, `hensei.ts`, `request-log.ts`, `tools.ts`, and `validator.ts`, and the entry point that constructs `ServerOptions` is not in this uploaded set. Consequently, tool handler validation, actual size-limit constants, live store wiring, and whether write-capable options are passed remain unverified.
 - Next safe step: upload/locate only the missing project-owned integration files needed to close these static gaps, then inspect the entry point and handler implementations. Do not start the plugin, send MCP requests, dispatch actions, or perform game actions as part of this review.
 - No source execution, network/WebSocket dispatch, game action, local file modification, or system/proxy change was performed.
+
+### 2026-10-25 — Second-pass boundary review and prioritized follow-up
+
+This pass inspected the full relevant sections of the four uploaded files on the authoritative branch. No code was executed and no runtime requests were sent.
+
+#### Additional verified observations
+
+- `query.ts` uses recursive-descent parsing with precedence `not` > `and` > `or`; evaluation short-circuits `and`/`or`. Unknown fields yield `undefined`, and comparisons involving `undefined` return false. This is safer than dynamic expression evaluation, but no explicit query-length, token-count, or AST-depth cap is visible in the reviewed file.
+- `applySelect` resolves requested fields with `getByPath` and does not apply the store-root allowlist to each selected field. This is expected for projection within an already-resolved record, but means prototype-related property names should be explicitly considered at the field-path layer too.
+- `resolveStorePath` uses `plugin in ALLOWED_EXT_PLUGINS`, and several store-presence checks use `in`; inherited property names can therefore pass presence/membership tests on ordinary JavaScript objects. No practical exploit was demonstrated, and JSON-safe conversion may remove function-valued results. Treat this as a hardening defect candidate, not a confirmed exploit.
+- `poi_get` schema requires a positive integer `limit`; `maxBytes` is positive and documents a maximum. `poi_lookup` and `poi_battle` schemas describe capped IDs, but their actual handler enforcement lives in missing `tools.ts` and cannot be verified from the uploaded set.
+- `server.ts` binds to `127.0.0.1` by default, permits a configurable host, accepts only POST `/mcp` (plus GET `/health`), uses DNS-rebinding protection with an allowed-host list, and creates a fresh stateless MCP server/transport per request. These controls reduce exposure but are not authentication and do not prove what host the real plugin entry point configures.
+- The request handler writes an exception stack to the HTTP 500 response as well as logging it. This is a concrete information-disclosure hardening concern for any caller that can reach the listener; replacing the response body with a generic error is recommended.
+- The oversized-body path rejects and destroys the request. Since no runtime test was performed, whether clients receive a clean error response remains unknown.
+
+#### Priority order for future review
+
+1. **P1 — Verify actual startup wiring:** obtain the project-owned plugin entry point and confirm configured host/port, `getStore`, `dispatch`, and `hensei`. This decides whether the write tool is registered and whether the listener is strictly loopback.
+2. **P1 — Review write-handler safeguards before any use:** obtain `tools.ts` and `hensei.ts`; inspect title collision/overwrite handling, deck validation, import parsing, and action construction statically. Never call the save handler during this review.
+3. **P2 — Harden property-path traversal:** consider rejecting `__proto__`, `prototype`, and `constructor` segments where not needed; use own-property checks for allowlist and object-key membership.
+4. **P2 — Reduce externally visible diagnostics:** return a generic HTTP 500 body and retain detailed stack traces only in local logs.
+5. **P3 — Add offline tests when the complete source is available:** path parser edge cases, inherited properties, query length/depth, cycles and getters, byte caps, oversized HTTP bodies, and tool-ID cap enforcement. Tests should use synthetic objects and must not connect to POI or dispatch actions.
+
+#### Current coverage status
+
+The uploaded source path contains only `paths.ts`, `query.ts`, `serialize.ts`, and `server.ts`. Attempts to fetch `tools.ts`, `hensei.ts`, `battles.ts`, `request-log.ts`, `validator.ts`, `index.ts`, and `package.json` from this path returned 404; this establishes only that those paths are absent from this uploaded directory, not that the files do not exist locally or elsewhere in the repository.
+
+No plugin execution, MCP request, network/WebSocket dispatch, game action, local file modification, or system/proxy change was performed.
