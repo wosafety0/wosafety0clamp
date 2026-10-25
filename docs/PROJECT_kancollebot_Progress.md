@@ -791,3 +791,14 @@
 - Safety: no MCP requests, no WebSocket, no game actions, no project files modified; `LIVE_DISPATCH=DISABLED`. Clipboard check is intentionally ignored per user preference.
 - Conclusion: artifact inspection completed, but it did not recover process-exit evidence. Treat the read results as partial evidence only; session validity and data freshness remain unverified, and dispatch stays disabled.
 - Provenance: this entry records the user-provided local preflight report. It does not claim assistant-side local execution or local filesystem changes.
+
+
+### 2026-10-25 Follow-up after artifact preflight — keep session gate closed
+
+- After the V3 artifact preflight, performed remote read-only source review only; no local process was launched and no additional Poi MCP request was made.
+- Current `PoiExpeditionReader` validates bridge identity/readiness and normalizes fleet/ship/master data, but it does not establish login validity, homeport state, or payload freshness. Its `ObservedState.observed_at` timestamp is generated locally at read time and is not an independent source freshness signal.
+- Current `tools/verify_poi_bridge.py` deliberately records `session_validity=NOT_VERIFIED`; its PASS result covers bridge protocol/read calls and structural summaries, not active game session or data freshness. The V3 wrapper's generic overall failure and missing process exit code remain unresolved historical capture issues; do not repeat reads just to recover them.
+- The previously confirmed `info.basic` and `sortie` field names only establish that those fields exist in response payload shape. Without a verified field contract and trustworthy refresh/change signal, they cannot yet be used to authorize dispatch.
+- Next work should be a source/schema-only investigation of a documented session/homeport indicator and a reliable Redux refresh/freshness signal. If no authoritative indicator exists, record the gate as unavailable rather than inferring from field presence, health status, or a newly generated observation timestamp.
+- Safety remains: no WebSocket, no game actions, no local project file changes, and `LIVE_DISPATCH=DISABLED`.
+- Provenance: GitHub source files were fetched read-only; this entry records source review and the user's artifact-preflight report, not local execution.
