@@ -528,3 +528,11 @@
 - 预检通过后才创建虚拟环境；不安装软件或依赖，除非后续检查明确证明需要且得到相应授权。优先使用标准库和现有依赖声明，不猜测或凭空生成锁定清单；不修改系统 PATH、全局 Python、Windows 代理或其他系统设置。
 - 在独立环境中重跑项目规定的编译与完整离线单元测试，并记录解释器版本、实际命令、退出码和测试数量。环境创建成功不等于测试通过，也不等于 Poi 实机兼容性已验证。
 - 本条是方案/决策记录；目前尚未执行本地预检、创建 `.venv` 或安装任何依赖。首次真实派遣仍须满足既有验收门槛并取得用户单独授权，真实操作开关保持关闭。
+
+
+### 2026-10-25 独立环境只读预检结果
+
+- 用户在 Windows PowerShell 5.1 于 2026-10-25 14:51:20 +08:00 执行只读预检，目标 `D:\KancolleBot-Worktrees\expedition-closed-loop-mvp-20261024`；Git root 验证通过，分支为 `dev/expedition-closed-loop-mvp`，本地 HEAD `e5237f5dc1efe6c890ca6124c99e013a96c3faf7`，工作区干净，项目规则文件存在并已读取。
+- `pyproject.toml` 声明 `requires-python = ">=3.11"`、`dependencies = []`；没有 requirements/lock 文件；`.gitignore` 已忽略 `.venv/`，且目标 `.venv` 尚不存在。检测到 Python 3.13 与 3.15 的安装路径，但版本探测命令自身在 PowerShell 传参时丢失了 Python 字符串引号，导致 `TypeError`，退出码 1。因此预检总体 FAILED，不是 Python 安装损坏的证据。
+- 后续建议使用 Python 3.13，先修复版本检查脚本，再决定创建本地 `.venv`；不安装第三方依赖或修改全局配置。当前本地 HEAD 仍是旧提交，SQLite 修复后的离线复测必须先安全快进同步。
+- 本轮未创建环境、未安装包、未修改本地文件或执行游戏操作；`LIVE_DISPATCH` 仍禁用。本条仅是 GitHub 远程文档更新，不代表本地已同步。
