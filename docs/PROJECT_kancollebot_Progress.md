@@ -657,3 +657,13 @@
 - This rules out import-time failure in these four modules for this environment, but does not yet identify why the earlier snapshot attempt failed. MCP session initialization and fleet reading were not performed in this diagnostic.
 - Safety: no files modified, no WebSocket connection, no fleet data read, no game actions; `LIVE_DISPATCH=DISABLED`.
 - Next step: isolate the failure with a separate read-only MCP protocol/session probe that captures HTTP status, JSON-RPC error details, and sanitized response metadata. Only use the existing allowlisted read tools; do not call dispatch/write tools. If initialization succeeds, test the smallest read-only query before attempting the full fleet snapshot.
+
+
+### 2026-10-25 Read-only MCP session probe passed
+
+- User-reported local run time: 2026-10-25 15:24:47 +08:00.
+- Worktree: `D:\\KancolleBot-Worktrees\\expedition-closed-loop-mvp-20261024`; branch `dev/expedition-closed-loop-mvp`; HEAD `ec6a18879a80c0a6786296eb76de7e5ea5f234b6`; worktree clean; Python 3.13.16.
+- Read-only probe results: health PASS; MCP initialize PASS; tools/list PASS; `poi_describe(info.fleets)` PASS; required allowlisted tools present; no reported error.
+- This establishes that the live loopback MCP endpoint can initialize a session, list tools, and describe the fleet path. It does not yet establish that fleet/ship payload retrieval and normalization succeed; no fleet instance data was read in this probe.
+- Safety: no WebSocket connection, no files modified, no gameplay action; `LIVE_DISPATCH=DISABLED`.
+- Next: run the existing `PoiExpeditionReader.read_fleets()` in a separate read-only step. Emit only a sanitized summary (fleet count, fleet IDs/status/mission IDs and ship counts; no names or sensitive session data), and preserve the exception class and traceback tail on failure. Do not invoke any write or dispatch method. If it fails, stop and diagnose before retrying.
