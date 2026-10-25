@@ -1040,3 +1040,12 @@
 - Decision: use the upstream repository directly as the public baseline; do not re-upload upstream files unnecessarily. The four local files may still be valuable because the local package version differs, but their source-level differences must be established before deciding whether to archive them in this private research repository.
 - No source files were uploaded in this round; no local files, Poi runtime, game state, or system proxy were changed.
 - Next step: inspect upstream source and history, then compare local version-specific findings using the previously recorded local SHA-256 values. Keep all analysis read-only.
+
+### 2026-10-25 — Correction: Nanodesu archive destination was not created
+
+- A user-reported 404 exposed that the previously suggested path `research/poi-plugin-nanodesu-mcp/src` did not exist on `dev/expedition-closed-loop-mvp` at the time checked.
+- Read-only GitHub branch inspection confirmed the branch root contains `.github`, `docs`, `src`, `tests`, and `tools`; there is no root-level `research` directory.
+- The local export report for `Nanodesu_SelectedSource_20261025_182202.zip` says `ARCHIVE_CONTENT_VERIFIED: True` and `GITHUB_UPLOAD: NOT PERFORMED`. Therefore the four files remain local; no remote source archive was created by that export.
+- Do not claim the suggested destination URL exists until files are actually committed and remotely read back. Before a future direct upload, use an isolated temporary clone and stage only the four authorized files plus this progress document; stop on any destination conflict or authentication failure.
+- Selected local files and SHA-256 values remain recorded in the conversation's V4 export report. No local files, POI runtime, game state, or system proxy were modified by this GitHub inspection.
+- Next step: avoid uploading the ZIP to chat; use the user's local direct-upload workflow only if the user still wants a private copy. Otherwise continue reviewing the public upstream repository `momocow/poi-plugin-nanodesu-mcp` directly.
