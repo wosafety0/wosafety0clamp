@@ -592,3 +592,10 @@
 - User-reported corrected PowerShell 5.1 metadata-only check: exactly one game target matched (`type=webview`, host `play.games.dmm.com`, path `/game/kancolle`), debugger endpoint present; Poi `page` target was separately identified.
 - `GAME_WEBVIEW_DISCOVERY=PASS`; WebSocket was not connected, files were not modified, no game actions; `LIVE_DISPATCH=DISABLED`.
 - Next: inspect existing read-only snapshot implementations and tests; do not open a WebSocket or evaluate game JavaScript until a separately reviewed, strictly read-only transport is available.
+
+
+### 2026-10-25 Read-only Poi MCP snapshot path source review
+- Remote source review confirms `PoiExpeditionReader` and `PoiMcpClient` already implement a read-only snapshot path using loopback HTTP MCP at `http://127.0.0.1:12450/mcp`; allowed tool names are limited to `poi_describe`, `poi_get`, and `poi_lookup`.
+- Reader checks bridge identity/health/store readiness, tool availability, rejects truncated or malformed payloads, requests only referenced master ship fuel/ammo maxima, and fails closed during normalization. Offline tests cover targeted lookup and malformed/truncated payload cases.
+- Source review only; no runtime MCP health check or live snapshot request was performed. Existing user report shows CDP game WebView discovery passes, but that does not establish MCP bridge availability.
+- Next step should be a separate read-only HTTP health endpoint check (`/health`) against the configured loopback MCP port; only if healthy, consider a snapshot read via the existing reader, without calling any non-allowlisted tools. Keep live dispatch disabled.
