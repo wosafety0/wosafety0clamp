@@ -605,3 +605,14 @@
 - User-provided local report confirms `GET http://127.0.0.1:12450/health` returned HTTP 200; bridge identity `poi-nanodesu-mcp`, status `ok`, and `storeReady=True`. Listener was present.
 - This was a health-only request: MCP session was not initialized, fleet data was not read, no WebSocket was connected, no files were modified, and game actions remained disabled.
 - Next validation may use the existing `PoiExpeditionReader` through its loopback-only MCP client. Restrict calls to the existing read-tool allowlist (`poi_describe`, `poi_get`, `poi_lookup`), print only a sanitized fleet snapshot, and do not dispatch gameplay actions.
+
+
+### 2026-10-25 Live fleet snapshot blocked by worktree path mismatch
+
+- Time: 2026-10-25 15:10 +08:00.
+- Read-only snapshot attempt result: FAILED before Git metadata, MCP health, or fleet snapshot checks.
+- Exact error: expected path `D:\\KancolleBot-Worktrees\\expedition-closed-loop-mvp` does not exist.
+- Previously confirmed actual worktree path: `D:\\KancolleBot-Worktrees\\expedition-closed-loop-mvp-20261024`; branch previously observed as `dev/expedition-closed-loop-mvp`. These are historical observations and must be revalidated locally before use.
+- No WebSocket connection, fleet read, file modification, or game action occurred. `LIVE_DISPATCH=DISABLED`.
+- Next step: read-only path discovery, then validate repository root, branch, HEAD, clean/dirty state, venv interpreter, and health endpoint against the discovered actual worktree. Only after those checks pass, retry the read-only live fleet snapshot.
+- Do not treat this path error as a Poi MCP or snapshot-reader failure; those checks were not reached.
