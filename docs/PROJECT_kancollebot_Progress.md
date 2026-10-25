@@ -952,3 +952,18 @@
 - Reported safety state: no network requests, MCP requests, game actions, or file modifications; `LIVE_DISPATCH=DISABLED`; `SESSION_VALIDITY=NOT_VERIFIED`.
 - Next step: retrieve the relevant source excerpts locally in read-only mode (especially server initialization, tool registration/handlers, request routing, and any dispatch-capable paths); review before considering any execution or live integration.
 
+### 2026-10-25 — Nanodesu server source review
+
+- User-provided read-only source dump reviewed for `poi-plugin-nanodesu-mcp@0.2.0`.
+- Verified source identities from the supplied report:
+  - `index.ts`: 4,772 bytes; SHA-256 `82ECFB964ADD4209C440D63A389C0AE530CC69E0B813DA62F2A5EB66969732B1`.
+  - `src/server.ts`: 21,564 bytes; SHA-256 `D90C13A3C75CB32EE99003D519AF90701549897250BA2C76386B3875BBD837FF`.
+- MCP tools registered unconditionally in the reviewed server source: `poi_get`, `poi_lookup`, `poi_battle`, `poi_describe`.
+- Conditional write capability: `poi_hensei_save` is registered only when both `dispatch` and `hensei` are defined (`src/server.ts:332-385`). Its handler calls `poiHenseiSave({ store: getStore(), dispatch, calc: hensei }, args)`; it can change Poi live state and the Hensei Nikki plugin writes the record to disk immediately according to the tool description. Do not invoke this tool during read-only verification.
+- `index.ts:87-99` attempts to resolve Poi dispatch and load the Hensei calculator; failure to obtain either leaves the write tool unregistered. Source inspection alone does not establish which runtime branch is active.
+- Default server host is `127.0.0.1` and default port is `12450` (`src/server.ts:35-38, 407-410`); actual port is configuration-driven at plugin entry.
+- `GET /health` reports `storeReady` when the store is an object containing `info` (`src/server.ts:415-441`). This is a shallow readiness check; it does not prove authenticated game session validity or data freshness.
+- `POST /mcp` is the MCP route; the server creates a fresh stateless transport per request. Request body limit is 1 MiB (`src/server.ts:39, 443-495`).
+- Safety: source was reviewed from user-provided text only. No source was executed; no network/MCP/WebSocket requests, game actions, or file modifications were performed. Maintain `LIVE_DISPATCH=DISABLED` and `SESSION_VALIDITY=NOT_VERIFIED`.
+- Next read-only review: inspect `src/tools.ts`, `src/poi.ts`, `src/validator.ts`, `src/battles.ts`, and relevant tests/package scripts. Determine exact path filtering, serialization/size bounds, argument validation, and the write handler's guards without calling the MCP server.
+
