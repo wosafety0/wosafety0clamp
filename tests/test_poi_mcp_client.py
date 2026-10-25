@@ -15,6 +15,14 @@ class PoiMcpClientTests(unittest.TestCase):
         client = PoiMcpClient()
         self.assertEqual(client.endpoint, "http://127.0.0.1:12450/mcp")
 
+    def test_rejects_credentials_in_loopback_endpoint(self):
+        with self.assertRaisesRegex(ValueError, "must not contain credentials"):
+            PoiMcpClient("http://user:secret@127.0.0.1:12450/mcp")
+
+    def test_rejects_empty_userinfo_in_loopback_endpoint(self):
+        with self.assertRaisesRegex(ValueError, "must not contain credentials"):
+            PoiMcpClient("http://@127.0.0.1:12450/mcp")
+
     def test_rejects_action_tool(self):
         client = PoiMcpClient()
         with self.assertRaises(ValueError):
