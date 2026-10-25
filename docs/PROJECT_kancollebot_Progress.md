@@ -107,3 +107,29 @@ This pass inspected the full relevant sections of the four uploaded files on the
 The uploaded source path contains only `paths.ts`, `query.ts`, `serialize.ts`, and `server.ts`. Attempts to fetch `tools.ts`, `hensei.ts`, `battles.ts`, `request-log.ts`, `validator.ts`, `index.ts`, and `package.json` from this path returned 404; this establishes only that those paths are absent from this uploaded directory, not that the files do not exist locally or elsewhere in the repository.
 
 No plugin execution, MCP request, network/WebSocket dispatch, game action, local file modification, or system/proxy change was performed.
+
+
+### 2026-10-25 — Repository coverage and Python client static review
+
+#### Repository coverage confirmed
+
+- Read the full recursive Git tree for `dev/sparkling-planner-mvp` at commit `8abc450e10a0cecc9d5c43b14fdb0e666951f634`.
+- The uploaded Nanodesu directory contains exactly the four selected files (`paths.ts`, `query.ts`, `serialize.ts`, `server.ts`); no other files are present beneath that directory in this branch. This is a branch/path fact only, not a claim about the user's local installation or other branches.
+- The repo does contain the separate integration document, Python adapter, and offline client tests. Reviewed:
+  - `docs/research/POI_NANODESU_MCP_INTEGRATION.md`
+  - `src/kancollebot/adapters/poi/mcp_client.py`
+  - `tests/test_poi_mcp_client.py`
+
+#### Python MCP client observations
+
+- Positive controls: standard-library-only transport; rejects non-loopback endpoint hosts by default; has connection timeout and response-size caps; negotiates MCP before tool calls; allowlists only `poi_describe`, `poi_get`, and `poi_lookup`; rejects tool-level `isError`; offline tests cover endpoint rejection, action-tool denial, initialization notification, and tool errors.
+- Hardening candidate: `urllib.request.urlopen` uses the default redirect handling. The code validates the initial hostname but does not explicitly revalidate redirect destinations. Consider disabling redirects or validating every redirect target as loopback before following it.
+- Hardening candidate: the constructor validates scheme/host/path and loopback status, but does not constrain the port to the expected bridge port or reject URL user-info/query/fragment components. The default endpoint is safe by construction; stricter endpoint validation would reduce configuration mistakes.
+- Coverage gap: the checked-in tests are focused unit tests and mock the transport; they do not prove interoperability against the actual uploaded plugin version. No runtime network call was made in this review.
+- The Python client allowlist does not include `poi_battle`, even though the inspected server registers that read-oriented tool. This is conservative, not a defect; only expand the allowlist if the adapter actually needs it and the handler contract is reviewed.
+- The integration document correctly leaves Poi 12.0.1 compatibility, actual store freshness/session evidence, and end-to-end operation pending. No claim of runtime compatibility is made here.
+
+#### Next step
+
+- The repository-side source search is exhausted for this branch: the missing plugin entry point and handler files are not present in the uploaded source directory. To continue the plugin-side static review, add only the selected files needed to verify startup wiring and handlers (`index.ts`/entry point, `tools.ts`, `hensei.ts`, plus any directly imported validator/handler file). Until then, treat write-tool registration and handler safeguards as unknown.
+- No source execution, plugin startup, MCP request, game action, local file modification, or system/proxy change was performed.
