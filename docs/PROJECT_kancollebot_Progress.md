@@ -142,3 +142,14 @@ No plugin execution, MCP request, network/WebSocket dispatch, game action, local
 - This does not establish that the files are absent from the user's local Poi plugin installation or from uninspected branches/repositories. It only records the branches and trees checked above.
 - No local machine access, plugin startup, MCP request, game action, or system/proxy change was performed.
 - Next action is blocked on access to the remaining selected source files. Do not substitute upstream source for the user's uploaded version, since the user explicitly designated the uploaded version as authoritative.
+
+
+### 2026-10-26 — Offline Poi state-shape boundary
+
+- Added `src/kancollebot/adapters/poi/state_shape.py` with collection-container, integer ship-ID, and positive fleet-reference checks. No undocumented game semantics are inferred.
+- Snapshot output deep-copies validated fleet/ship structures to avoid aliasing nested mutable inputs.
+- Added `tests/test_poi_state_shape.py` with seven synthetic offline unit tests, including boolean-ID rejection and defensive-copy behavior.
+- GitHub source and test files were fetched back after updates. Latest implementation commit: `ec551f97f6de09234bb489d7a80fe7da39259b36`.
+- **Execution status: NOT_RUN**. The user's ChatGPT data-analysis execution quota is exhausted; no local checkout or GitHub Actions was used. Source readback is not a passing test run.
+- **Integration status: NOT_CONNECTED**. The validator is not yet wired to live `poi_get` response parsing. Current MCP client allowlist remains `poi_describe`, `poi_get`, `poi_lookup` only. Game actions remain disabled.
+- Next: inspect existing response parser and add a strictly offline, explicit conversion boundary only if the actual `poi_get` payload shape is supported by recorded evidence. Run tests when an execution environment is available; do not fabricate PASS.
