@@ -1301,3 +1301,13 @@
 - Important corrections to the supplied sample design: do not scan fleets `[2, 3, 4]`; keep the fixed fleet/mission. Do not rely on `sleep(30)` as the duplicate-action guard. Do not assume mission state value `2` alone proves the result is claimable. Avoid `min([])` when no valid completion timestamp exists. A persistent WebSocket must match each response to its request ID.
 - Execution order: (1) read-only inspect the actual branch/files and current implementation; (2) select the shortest verified client-mediated action path; (3) implement only the minimum dispatch/verification path; (4) execute one authorized real cycle and collect evidence; (5) record outcome; (6) add low-overhead long-running optimizations after the cycle is demonstrated.
 - Current status: **planning/decision recorded; no code implementation or performance benchmark is claimed.** The concrete dispatch/claim adapter and real expedition loop remain unverified. No game action was performed for this documentation entry; no local files were changed; GitHub Actions were not used.
+
+
+## 2026-10-26 — Anti-cat recovery recorded; MVP scope unchanged
+
+- User decision: record anti-cat / network-recovery capability as a core KancolleBot requirement, without changing or delaying the current MVP scope.
+- Scope boundary: the active MVP remains one fixed fleet + one fixed expedition, completing the verified cycle: read state → dispatch → verify underway → wait for completion → claim/handle result → verify the fleet is idle and dispatchable again.
+- Deferred capability: after network/connectivity failure, pause game actions and keep attempting safe client-mediated reconnection/recovery; once reconnected, re-read and reconcile the actual game state before resuming. Never blindly repeat a potentially completed click/action.
+- Safety behavior: if the client/session is unavailable, the server rejects the operation, or the current game state remains ambiguous, fail closed and wait/report rather than continuing clicks. “Keep retrying recovery” does not mean “keep retrying gameplay actions.”
+- Priority decision: anti-cat is recorded as a core future reliability requirement, but its implementation/research must not expand or displace the current expedition MVP. No implementation or runtime behavior is claimed by this record.
+- This update changes only this GitHub progress document. No local files, game state, Poi settings, or GitHub Actions were touched.
