@@ -1078,3 +1078,15 @@
 - Sortie read PASS; envelope kind/value; sortieStatus four booleans, sortieMapId integer and other sortie fields. Not evidence of expedition reward/dispatch semantics.
 - Python exit 0, read-only observation PASS. Clipboard verification FAILED_CLIPBOARD_ERROR, independently of MCP result.
 - Decision: no code changes based on zero-only state; dispatch remains disabled. Next evidence is one bounded passive before/after comparison around a separately authorized or manual real expedition. Tests NOT_RUN; real MVP loop NOT_VERIFIED.
+
+
+## 2026-10-26 19:09 +08:00 — Real expedition passive transition observed
+
+- User manually dispatched Fleet 2 on Expedition 1 (15-minute practice voyage), manually handled completion/reward; script performed read-only Poi `info.fleets` sampling, no game actions. Script's static TARGET_EXPEDITION_ID=2 is stale and must NOT be interpreted as the actual expedition.
+- BEFORE_DISPATCH 18:37:12: api_mission=[0,0,0,0].
+- AFTER_DISPATCH 18:37:36: api_mission=[1,1,1793011949741,0].
+- BEFORE_REWARD 19:09:12: api_mission=[2,1,1793011949741,0].
+- AFTER_REWARD 19:09:34: api_mission=[0,0,0,0].
+- Observed transitions support slot 0: 0 idle, 1 underway, 2 completed/pending reward; slot 1: mission ID 1 for this expedition; slot 2: 13-digit timestamp-like value, units/meaning not independently validated; slot 3: always 0, unknown.
+- Python four reads PASS; clipboard verification PASS. Actual reward receipt not independently checked; automated dispatch and automated reward collection NOT_TESTED. This is a successful manually operated real expedition state-transition observation, not autonomous MVP acceptance.
+- Next: minimally adapt existing expedition normalizer/guard to distinguish idle, underway, and pending reward; validate time slot before scheduling; never dispatch when slot 0 nonzero or unknown. Keep game writes disabled pending separate explicit authorization. No local code tests run in this observation.
