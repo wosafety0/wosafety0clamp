@@ -1185,3 +1185,12 @@
 - `index.js` wires telemetry into the bridge controller, but this report did not include the full HTTP bridge route registration or the telemetry internals needed to determine whether dynamic semantic targeting is available elsewhere.
 - Assessment: the existing input transport is real in source, but it currently requires coordinates. Do not create manual PNG/button-coordinate inventories yet. Next, inspect only existing telemetry/action-event and bridge route code for dynamic target identification. If no non-manual target locator exists and operation depends on manually labeling many coordinates, stop rather than expanding the approach.
 - No game actions, HTTP requests, settings changes, tests, or GitHub Actions were performed in this inspection. Clipboard verification in the user's report failed; it is not a PASS.
+
+
+## 2026-10-26 21:38 +08:00 — Telemetry and HTTP route feasibility assessment
+
+- Read-only local source report inspected `poi-telemetry.js`, `bridge-controller.js`, and selected contexts from `poi-http-bridge.js`.
+- Confirmed HTTP observation endpoints include `/quest-list`, `/mission-board`, `/quest-action`, `/equipment-action`, `/equipment-selection`, `/unsetslot`, `/fleet-action`, `/action-events`, and `/action-events/wait`. These expose captured game/API telemetry and action-event history; the inspected excerpts do not establish a semantic UI-target-to-click locator.
+- Confirmed `/input` routes to the coordinate-based input executor and lease endpoints govern input ownership/authorization. `/debug/evaluate` is an arbitrary JavaScript WebView execution path, disabled by default and explicitly not to be used as a shortcut.
+- Feasibility: reuse of the existing input transport is plausible, but automatic dispatch/claim is not yet demonstrated. Dynamic semantic target identification is the missing evidence. Do not start manually producing large PNG/button-coordinate inventories. If the existing telemetry/action-event source cannot supply a non-manual locator, stop rather than expand into template labeling.
+- Current report was read-only: no HTTP requests, game actions, settings changes, tests, or GitHub Actions. User-reported clipboard verification was FAILED.
