@@ -1099,3 +1099,12 @@
 - Test file was created on GitHub and fetched back for inspection. Tests have NOT been executed: no cloud runner/Actions used, and no local test run performed. Code/test presence is not a test PASS.
 - Related normalizer commit: `aec2d4652f1e821cfebe8a99da54b2298fc0a1da`; test commit: `fea18431c12e92245a894de02031adf27f7facba`.
 - Next: inspect repository conventions and run this focused test in the existing local venv only if the user chooses a batched local test; no game actions.
+
+
+### 2026-10-26 — Focused test blocked by stale local worktree
+
+- User-reported read-only preflight checked the existing worktree at `D:\\KancolleBot-Worktrees\\expedition-closed-loop-mvp-20261024`; the expected `tests\\test_expedition_state_v2.py` was missing locally.
+- Result: `BLOCKED`; no tests were executed, no Git sync/pull was performed, and the script did not modify repository files or perform game actions.
+- Clipboard verification reported `FAILED`; this does not change the preflight result and no clipboard PASS is claimed.
+- Remote GitHub branch already contains the focused test file (commit `fea18431c12e92245a894de02031adf27f7facba`) and the normalizer change (commit `aec2d4652f1e821cfebe8a99da54b2298fc0a1da`). The local worktree must not be treated as synchronized with those remote commits.
+- Decision: do not repeat the same local test command against this stale worktree. Next step is to make the remote branch content available to an execution environment without GitHub Actions, or, if no such runner is available, stop claiming tests are executed and continue only with source-level review. Live dispatch and reward collection remain unimplemented/unverified; no game actions.
