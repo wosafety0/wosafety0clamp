@@ -1311,3 +1311,23 @@
 - Safety behavior: if the client/session is unavailable, the server rejects the operation, or the current game state remains ambiguous, fail closed and wait/report rather than continuing clicks. “Keep retrying recovery” does not mean “keep retrying gameplay actions.”
 - Priority decision: anti-cat is recorded as a core future reliability requirement, but its implementation/research must not expand or displace the current expedition MVP. No implementation or runtime behavior is claimed by this record.
 - This update changes only this GitHub progress document. No local files, game state, Poi settings, or GitHub Actions were touched.
+
+
+## 2026-10-27 — Kca POI interaction and expedition confirmation trace (read-only)
+
+### Source evidence
+- Reference repository: `XVs32/kcauto_custom`, branch `develop`, inspected source revision `d1160f166300e38050eefc778d738ee25f8d3317`.
+- `kcauto/util/poi_client.py`: `PoiClient` uses a loopback TCP socket, default port `38591`; packets have a 4-byte little-endian length prefix and a packet-type byte. JSON commands include `hello`, `ping`, `capture`, `click`, `hover`, `scroll`, `drag`, `refresh`, and `quest_stats`. Frame packets carry request ID, width, height, channel count, and BGRA bytes.
+- `kcauto/util/interaction_drivers.py`: `PoiDriver.connect()` checks required POI plugins, starts the API webhook listener, and connects to `PoiClient`; click/capture operations go through that local interaction service. Kca also has separate Direct Control and Chrome CDP drivers.
+- `kcauto/util/poi_plugins.py`: Kca expects `poi-plugin-forwarder`, `poi-plugin-noro6-exporter`, and `poi-plugin-interaction`; its forwarder minimum is 1.1.0. The checked-in install hint references a special forwarder branch. Do not install or change plugins without separate authorization.
+- `kcauto/api/api_listener.py`: receives webhook POSTs at `/webhook/kancolle`, filters forwarded KCSAPI/map-resource events, and queues them for consumers. This is an observer/response telemetry path, not evidence that Kca directly sends game-server API requests.
+- `kcauto/expedition/expedition_core.py`: after the client UI dispatch click, Kca waits for the observed `EXPEDITION_START` event before updating its local underway/return-time model. The observed response is a confirmation signal; the click itself is not treated as sufficient proof.
+- `kcauto/util/kca.py`: result collection clicks through the client UI, waits for port-state API observation and the next/result UI, and loops while result screens remain. Collection is a sequence with observation, not a single notification click.
+- `tests/test_poi_client.py` supplies a fake local server for protocol round-trip tests. These are protocol tests, not proof of compatibility with the user's installed POI runtime.
+
+### KancolleBot implications
+- The existing Nanodesu MCP endpoint `127.0.0.1:12450/mcp` is a distinct read-only interface; it is not the Kca interaction protocol and cannot be assumed to expose click/capture operations.
+- Reusing Kca's POI interaction route would require its matching interaction/forwarder plugin protocol and a verified installed service. Do not assume the already-installed Nanodesu MCP plugin satisfies this dependency.
+- Reusable design principles: keep UI input and API-response observation separate; wait for a matching observed dispatch event; verify each result-screen transition; reconcile live state after timeout/disconnect before any retry.
+- Do not copy the third-party implementation wholesale. Evaluate licensing and the current KancolleBot architecture before any code reuse. The current MVP remains one fixed fleet + one fixed expedition.
+- Status: static source review only. No local HTTP/TCP requests, plugin installs, config changes, game actions, or GitHub Actions were performed. Real POI protocol compatibility and the dispatch/claim closed loop remain NOT VERIFIED.
