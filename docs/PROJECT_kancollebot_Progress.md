@@ -1224,3 +1224,14 @@
 - MVP scope remains one fixed fleet + one fixed expedition, then observe dispatch, wait for completion, claim reward, and verify the fleet is dispatchable again. This checkpoint does not prohibit coordinate/template approaches; those options remain open for evidence-based evaluation.
 - Next action: verify the exact `poi-plugin-mcp` `/input` request schema and runtime input-enable status using read-only source/config inspection only; do not send an input request. Then implement only the smallest adapter supported by evidence, retaining live-action gates. No game actions, HTTP requests, local setting changes, or GitHub Actions were used for this checkpoint.
 - Status: code/source review only; real dispatch/claim loop remains NOT IMPLEMENTED and NOT VERIFIED.
+
+
+## 2026-10-26 — Cross-project rule ownership audit (UmaAI-Research / KancolleBot)
+
+- Mode: repository-backed documentation audit; no runtime or game interaction.
+- Reconfirmed this repository's own rule/progress sources on `dev/expedition-closed-loop-mvp`: `docs/PROJECT_kancollebot_MASTER.md` defines project rules and `docs/PROJECT_kancollebot_Progress.md` records progress, decisions, and corrections.
+- Rule ownership: the UmaAI-Research MVP-01 constraint against manual per-screen screenshots, bulk PNG template creation, and hand-labelled button coordinates is specific to UmaAI-Research. It must not be imported as a KancolleBot requirement.
+- The prior KancolleBot correction remains authoritative: the statement “Do not create manual PNG templates or a button-coordinate inventory” was assistant-added, not a verified KancolleBot rule or an explicit user decision for this repository. No semantic UI locator was demonstrated by the cited inspection; other targeting approaches remain unassessed, not prohibited.
+- Decision rule: evaluate any KancolleBot targeting approach using KancolleBot's own documented safety boundaries and evidence, cost, reliability, and implementation scope. Do not treat another project's constraints as binding unless the user explicitly adopts them for this project.
+- Evidence/limits: this conclusion comes from the current branch's MASTER and Progress documents and the corresponding UmaAI-Research branch's project progress and focused capture progress. This audit does not establish that any specific targeting approach is safe or feasible, and does not mean the expedition closed loop is complete.
+- No game actions, HTTP/input endpoint calls, local setting changes, or GitHub Actions were performed.
