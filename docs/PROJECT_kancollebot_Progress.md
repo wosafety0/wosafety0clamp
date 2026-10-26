@@ -1068,3 +1068,13 @@
 - The planner blocks a snapshot when it has a non-null mission ID but no trusted return time. However, if the status-slot assumption is wrong, an active expedition could be misclassified as no mission and potentially reach a readiness recommendation. Therefore the current normalized mission fields must not be used as a live-action authorization gate.
 - No code was changed in this review. No local observation report was received in this turn, so live Poi health, `sortie` shape, tests, and the real expedition loop remain unverified/not run.
 - Decision: avoid speculative code changes. Next evidence needed is one bounded read-only Poi observation of fleet mission slots and `sortie` shape; if static shape alone cannot establish transitions, compare passive observations before/after a manually operated expedition. No game actions from this workflow.
+
+
+## 2026-10-26 18:01 +08:00 — Live passive Poi observation
+
+- User-supplied local report: READ_ONLY; game actions DISABLED; local repository unchanged; no local GitHub sync.
+- Health PASS, MCP initialize PASS, read-only tools poi_describe/poi_get/poi_lookup available; fleet observation PASS, fleet count 3.
+- Each fleet api_mission has four integer slots; all three arrays were [0,0,0,0]. Single snapshot cannot validate slot semantics or expedition transitions.
+- Sortie read PASS; envelope kind/value; sortieStatus four booleans, sortieMapId integer and other sortie fields. Not evidence of expedition reward/dispatch semantics.
+- Python exit 0, read-only observation PASS. Clipboard verification FAILED_CLIPBOARD_ERROR, independently of MCP result.
+- Decision: no code changes based on zero-only state; dispatch remains disabled. Next evidence is one bounded passive before/after comparison around a separately authorized or manual real expedition. Tests NOT_RUN; real MVP loop NOT_VERIFIED.
