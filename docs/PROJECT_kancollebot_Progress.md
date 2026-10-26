@@ -1059,3 +1059,12 @@
 - The public repository `momocow/poi-plugin-nanodesu-mcp` may be used only for historical/contextual comparison, clearly labeled as upstream and not authoritative for the user's installed version.
 - Safety boundary unchanged: source review remains static/read-only; do not execute plugin handlers, trigger MCP/network/WebSocket/game actions, or invoke `poi_hensei_save`.
 - Next step: use the locally exported four files as the analysis baseline. If access to their actual contents is required, upload those selected files directly to the private repository and verify the exact remote paths and hashes before proceeding; do not ask the user to upload the ZIP to chat unless direct upload is unavailable.
+
+
+## 2026-10-26 — Fail-closed review of the existing expedition normalizer
+
+- Re-read `expedition_state_v2.py` and `expeditions/planner.py` from the target branch; this was a static GitHub source review only.
+- Confirmed the normalizer currently maps `api_mission[0]` to a status and `api_mission[1]` to a mission ID when status is positive, while intentionally leaving return time unknown. The field-slot semantics remain unverified by authoritative live observations.
+- The planner blocks a snapshot when it has a non-null mission ID but no trusted return time. However, if the status-slot assumption is wrong, an active expedition could be misclassified as no mission and potentially reach a readiness recommendation. Therefore the current normalized mission fields must not be used as a live-action authorization gate.
+- No code was changed in this review. No local observation report was received in this turn, so live Poi health, `sortie` shape, tests, and the real expedition loop remain unverified/not run.
+- Decision: avoid speculative code changes. Next evidence needed is one bounded read-only Poi observation of fleet mission slots and `sortie` shape; if static shape alone cannot establish transitions, compare passive observations before/after a manually operated expedition. No game actions from this workflow.
