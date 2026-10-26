@@ -1214,3 +1214,13 @@
 - Correct decision status: no semantic UI locator was demonstrated by that inspection; feasibility of other UI targeting approaches remains UNASSESSED. Choose the next step using KancolleBot's own rules, evidence, cost, reliability, and safety constraints—not constraints imported from another project.
 - No game actions, HTTP requests, input endpoint calls, or settings changes were performed for this correction. GitHub Actions were not used.
 - Audit note: this correction supersedes the prior entry only where it asserted a prohibition on manual templates/coordinate inventory. It does not erase the original inspection evidence or claim the expedition closed loop is complete.
+
+
+## 2026-10-26 — MVP checkpoint: concrete POI dispatch adapter remains missing
+
+- Reviewed the current branch's `src/kancollebot/expeditions/runner.py`, `src/kancollebot/adapters/poi/expedition_reader.py`, `src/kancollebot/adapters/poi/mcp_client.py`, `src/kancollebot/expeditions/planner.py`, `src/kancollebot/adapters/poi/expedition_state_v2.py`, and `src/kancollebot/safety/policy.py`.
+- Confirmed: `ExpeditionRunner` already has a dispatch protocol seam and fail-closed preflight/journal/post-observation checks; `PoiExpeditionReader` is read-only; `PoiMcpClient` only allows `poi_describe`, `poi_get`, and `poi_lookup`; mission timestamp slots are deliberately not interpreted as return times; `SafetyPolicy.allow_live_actions` defaults to false.
+- Concrete MVP blocker: no verified concrete adapter currently connects `dispatch_expedition(fleet_id, mission_id)` to a supported POI game-action interface. The separate `poi-plugin-mcp` input source inspected in local reports uses coordinates, and the supplied evidence does not establish its live runtime enablement or the exact safe dispatch sequence.
+- MVP scope remains one fixed fleet + one fixed expedition, then observe dispatch, wait for completion, claim reward, and verify the fleet is dispatchable again. This checkpoint does not prohibit coordinate/template approaches; those options remain open for evidence-based evaluation.
+- Next action: verify the exact `poi-plugin-mcp` `/input` request schema and runtime input-enable status using read-only source/config inspection only; do not send an input request. Then implement only the smallest adapter supported by evidence, retaining live-action gates. No game actions, HTTP requests, local setting changes, or GitHub Actions were used for this checkpoint.
+- Status: code/source review only; real dispatch/claim loop remains NOT IMPLEMENTED and NOT VERIFIED.
