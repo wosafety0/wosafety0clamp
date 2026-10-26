@@ -1127,3 +1127,15 @@
 - Compare the reward-screen snapshot with the post-collection snapshot. Where available, include only the relevant resource/reward counters before and after so collection can be corroborated independently; do not print sensitive or unrelated raw game data. The purpose is to establish which observable fields distinguish completed/pending reward from reward collected, not to claim reward receipt from `api_mission` alone.
 - No game interaction is authorized for the script. Manual click remains user-controlled; script remains read-only. Do not implement an automatic claim until the observation identifies a reliable state signal and a separately verified executor exists.
 - Status: experiment plan updated; new capture NOT_YET_PERFORMED. No tests run, no game actions performed by automation, no GitHub Actions used.
+
+
+## 2026-10-26 — Read-only per-screen Poi snapshot script
+
+- Added `scripts/poi_ui_snapshot.ps1`, a Windows PowerShell 5.1-compatible interactive collector. Start it once and press Enter at each game screen to append one JSONL snapshot; enter Q to exit.
+- It uses only the loopback Poi MCP endpoint and allowlists `poi_describe`, `poi_get`, and `poi_lookup`. Current snapshot captures observation time, all fleet IDs/names, each fleet's raw `api_mission`, ship-instance count, and per-fleet ship slots with instance/master ID, level, fuel, ammo, and condition when available. It does not hardcode a target fleet or expedition ID.
+- Log path is alongside the script: `scripts/poi-ui-snapshots.jsonl` when run from the repository script location. This local output file is expected to be created by the user running the script; no local machine was accessed from this cloud operation.
+- Safety: no game clicks, dispatches, reward claims, writes, software installs, proxy changes, or GitHub Actions. Script source was committed and fetched back from the target branch; this is source readback only, NOT a Windows PowerShell runtime test.
+- Clipboard report handling copies the candidate full report and verifies it by `Get-Clipboard -Raw`; runtime outcome remains untested until the user runs the script.
+- Commit: `f160fdd8c9b72da5cca8bf91158d5f5e2bf19342` (script added), then `24a069c05d82b3ce3e16f862b466ef09c0a8b6a5` (clipboard report verification refinement).
+- Status: script committed; PowerShell runtime NOT_RUN; real Poi capture NOT_YET_PERFORMED; game actions NONE; GitHub Actions NOT_USED.
+- Next: run the script with Poi MCP already available. Press Enter on idle, underway, completed/reward screen, and post-claim screens as applicable; then share `poi-ui-snapshots.jsonl` so the observed field transitions can be compared without guessing.
