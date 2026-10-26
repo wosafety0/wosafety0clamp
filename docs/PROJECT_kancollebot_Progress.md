@@ -1235,3 +1235,12 @@
 - Decision rule: evaluate any KancolleBot targeting approach using KancolleBot's own documented safety boundaries and evidence, cost, reliability, and implementation scope. Do not treat another project's constraints as binding unless the user explicitly adopts them for this project.
 - Evidence/limits: this conclusion comes from the current branch's MASTER and Progress documents and the corresponding UmaAI-Research branch's project progress and focused capture progress. This audit does not establish that any specific targeting approach is safe or feasible, and does not mean the expedition closed loop is complete.
 - No game actions, HTTP/input endpoint calls, local setting changes, or GitHub Actions were performed.
+
+
+## 2026-10-26 — Cross-project documentation entry order confirmed
+
+- User-confirmed operating rule: before KancolleBot work, read `docs/PROJECT_kancollebot_MASTER.md` and `docs/PROJECT_kancollebot_Progress.md` on branch `dev/expedition-closed-loop-mvp`.
+- Before UmaAI work, read `docs/PROJECT_UMAAI_Progress.md` on branch `analysis/qianye-reverse-engineering-20261025`, then the relevant topic-level `PROGRESS.md`.
+- If the actual branch differs, verify the branch and file tree before choosing paths; do not guess.
+- Project rules are isolated: do not move a rule from one project into another unless the user explicitly adopts it for the receiving project. Resolve uncertainty by checking that project's authoritative files and the rule's provenance.
+- No code or runtime configuration changes, game actions, or GitHub Actions were performed for this documentation update.
