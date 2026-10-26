@@ -1274,3 +1274,13 @@
 - Required next step: do not run this generated loop unchanged. First perform a read-only preflight on the actual local worktree and target CDP page; verify the exact paths and the installed dependencies/template. Then adapt the smallest path to a single fixed fleet + single fixed expedition, with explicit authorization before irreversible clicks, per-screen observation, a hard stop on uncertainty, and evidence of dispatch/result/redispatch. Do not expand into POI input-API research.
 - User-provided coordinates (`(301,374)`, `(1079,343)`, `(1037,668)`, `(987,671)`, notification `(969,52)`) are recorded as unverified user-supplied inputs, not independently calibrated evidence.
 - Status: static review only; no script execution, local file changes, game actions, or GitHub Actions. MVP real expedition cycle remains NOT VERIFIED.
+
+
+## 2026-10-26 — Automation boundary clarified: client-mediated actions allowed; direct game API requests prohibited
+
+- User decision: automation methods are acceptable provided they do **not bypass the game client by directly constructing and sending game-server API requests**, e.g. direct calls to `api_req_mission/start`.
+- Allowed routes include Poi/client-provided internal interfaces and plugins, CDP/UI automation, and simulated mouse/keyboard input, subject to evidence that the action is mediated by the running client rather than a direct game-server request.
+- This supersedes the overly narrow wording in the earlier CDP route note: CDP mouse clicks are a fallback, not the only permitted route. Do not assume that every plugin or internal method is safe; trace the actual call path and distinguish client-mediated input from direct protocol requests.
+- Resume targeted source tracing already discussed, rather than restarting broad research: non提助手 `AutoActionQueue -> ActExpedition -> ActFinishExpedition`, then compare the concrete expedition action path in `kcauto_custom`. Record source evidence for how each action is executed; feature descriptions alone are not proof.
+- Research must not block the MVP. Prefer a verified, reusable client-mediated action route if one is found promptly; otherwise return to the existing CDP/UI path and continue the single fixed-fleet + single fixed-expedition real loop.
+- MVP acceptance remains: dispatch, verify underway, wait for completion, collect/handle result, and verify the fleet is dispatchable again. No game action was performed by this documentation update; no local files were changed and GitHub Actions were not used.
