@@ -183,12 +183,21 @@ try {
 }
 
 try {
-    Set-Clipboard -Value $finalReport -ErrorAction Stop
+    $candidateReport = $finalReport + [Environment]::NewLine + 'CLIPBOARD_VERIFICATION: PASS'
+    Set-Clipboard -Value $candidateReport -ErrorAction Stop
     $clipboardReadback = Get-Clipboard -Raw -ErrorAction Stop
-    if ($clipboardReadback -cne $finalReport) { $finalReport += [Environment]::NewLine + 'CLIPBOARD_VERIFICATION: FAILED (content mismatch)' }
-    else { $finalReport += [Environment]::NewLine + 'CLIPBOARD_VERIFICATION: PASS' }
+    if ($clipboardReadback -ceq $candidateReport) {
+        $finalReport = $candidateReport
+    } else {
+        $finalReport = $finalReport + [Environment]::NewLine + 'CLIPBOARD_VERIFICATION: FAILED (content mismatch)'
+        Set-Clipboard -Value $finalReport -ErrorAction Stop
+        $failedReadback = Get-Clipboard -Raw -ErrorAction Stop
+        if ($failedReadback -cne $finalReport) {
+            $finalReport = $finalReport + [Environment]::NewLine + 'FINAL_REPORT_CLIPBOARD_READBACK: FAILED'
+        }
+    }
 } catch {
-    $finalReport += [Environment]::NewLine + "CLIPBOARD_VERIFICATION: FAILED ($($_.Exception.Message))"
+    $finalReport = $finalReport + [Environment]::NewLine + "CLIPBOARD_VERIFICATION: FAILED ($($_.Exception.Message))"
 }
 Clear-Host
 Write-Host $finalReport -ForegroundColor Magenta
