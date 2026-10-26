@@ -1139,3 +1139,16 @@
 - Commit: `f160fdd8c9b72da5cca8bf91158d5f5e2bf19342` (script added), then `24a069c05d82b3ce3e16f862b466ef09c0a8b6a5` (clipboard report verification refinement).
 - Status: script committed; PowerShell runtime NOT_RUN; real Poi capture NOT_YET_PERFORMED; game actions NONE; GitHub Actions NOT_USED.
 - Next: run the script with Poi MCP already available. Press Enter on idle, underway, completed/reward screen, and post-claim screens as applicable; then share `poi-ui-snapshots.jsonl` so the observed field transitions can be compared without guessing.
+
+
+## 2026-10-26 20:54 +08:00 — Follow-up passive expedition transition captures
+
+- User-provided PowerShell snapshot output from the existing read-only collector recorded 3 fleets and 91 ship instances per sample. The script did not click, dispatch, claim rewards, or modify game state.
+- Idle samples at 19:37:57, 19:38:33, and 19:38:42 showed all three `api_mission` arrays as `[0,0,0,0]`.
+- At 19:39:00, Fleet ID 2 showed `[1,1,1793015637180,0]`; at 19:39:10, Fleet ID 3 also showed `[1,2,1793016547786,0]`.
+- At 20:49:17, both were in status 2: Fleet ID 2 `[2,1,1793015637180,0]`, Fleet ID 3 `[2,2,1793016547786,0]`. At 20:49:28, Fleet ID 2 was idle while Fleet ID 3 remained status 2. At 20:49:39, both were idle. Additional samples through 20:49:48 remained idle.
+- User clarified that the game was on the expedition reward screen and pressing Enter to return was followed by `[0,0,0,0]`. This aligns with status 2 transitioning to idle during the user-operated reward-screen flow, but the collector did not capture resource/reward counters; reward receipt is not independently verified.
+- Fleet names appeared as mojibake in console output. Numeric `api_mission` fields remained readable; no encoding fix was attempted because it does not block this MVP decision.
+- Conclusion: live read-only observation now supports the transitions idle (status 0) → underway (status 1) → completed/pending handling (status 2) → idle after the manually operated reward-screen flow. The timestamp-like third slot remains uninterpreted. This is state-observation evidence only, not proof of autonomous dispatch or reward collection.
+- Implementation blocker reconfirmed from current branch source: `PoiMcpClient.call_read_tool()` allows only `poi_describe`, `poi_get`, and `poi_lookup`; `PoiExpeditionReader` is read-only and has no dispatch/claim methods. Do not guess a game API or repurpose `poi_hensei_save`, which writes Poi/Hensei plugin state rather than performing a verified expedition action.
+- Decision: do not add another reader or speculative executor. Keep live actions disabled. The next development step is to identify an existing, evidence-backed game executor or a verified game-request/UI mechanism; if none can be established, report the blocker rather than claim autonomous closure. No code tests were run in this turn; GitHub Actions were not used.
