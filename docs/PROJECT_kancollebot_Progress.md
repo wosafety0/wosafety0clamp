@@ -1244,3 +1244,13 @@
 - If the actual branch differs, verify the branch and file tree before choosing paths; do not guess.
 - Project rules are isolated: do not move a rule from one project into another unless the user explicitly adopts it for the receiving project. Resolve uncertainty by checking that project's authoritative files and the rule's provenance.
 - No code or runtime configuration changes, game actions, or GitHub Actions were performed for this documentation update.
+
+
+## 2026-10-26 — MVP delivery reset: stop analysis loops and prioritize the first real expedition cycle
+
+- User feedback: the project has spent too long without delivering the MVP. This criticism is valid: the repository still has only a dispatch protocol seam and read-only POI adapter; no concrete action adapter exists, and no real dispatch/claim loop has been demonstrated.
+- Scope is now explicitly limited to one fixed fleet and one fixed expedition: dispatch, verify underway, wait for completion, claim/handle the result, verify idle and dispatchable again.
+- Immediate engineering priority: implement the smallest concrete POI action adapter using the installed `poi-plugin-mcp` input route, after checking the exact local request contract and required lease/auth fields. Do not continue broad telemetry exploration or unrelated architecture work.
+- Do not invent request schemas, coordinates, tokens, or runtime state. If local source/config evidence is required, request one bounded read-only report from the user's Windows installation; no game-action request during preflight.
+- After adapter implementation, run focused offline tests for request construction, safety gates, ambiguous outcomes, and stop behavior. Then request explicit user authorization before one real game cycle. Never claim MVP acceptance until dispatch, result handling, and redispatch readiness are evidenced.
+- This is a priority/status correction only. No local code, runtime settings, game state, or gameplay actions were changed. GitHub Actions were not used.
