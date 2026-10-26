@@ -37,3 +37,12 @@
 - 状态数据经过输入校验。
 - 任何未来的操作适配器必须具备前置条件检查、明确停止方式和审计日志。
 - CI 通过仅代表当前自动检查通过，不代表游戏行为正确或可安全运行。
+
+
+## Cross-project documentation and rule isolation
+
+- Before KancolleBot work, read `docs/PROJECT_kancollebot_MASTER.md` and `docs/PROJECT_kancollebot_Progress.md` on branch `dev/expedition-closed-loop-mvp`.
+- If the actual branch differs, verify the current branch and file tree before choosing paths; never guess a path.
+- For UmaAI work, first read `docs/PROJECT_UMAAI_Progress.md` on `analysis/qianye-reverse-engineering-20261025`, then the relevant topic-level `PROGRESS.md`.
+- Do not transfer project-specific rules or constraints across repositories. Use the receiving project's own authoritative documents and explicit user decisions; if rule ownership is unclear, verify its source before treating it as binding.
+- These are workflow and documentation rules; they do not imply that code, runtime settings, or game state have been changed.
