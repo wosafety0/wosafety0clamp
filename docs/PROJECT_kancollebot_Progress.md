@@ -1194,3 +1194,14 @@
 - Confirmed `/input` routes to the coordinate-based input executor and lease endpoints govern input ownership/authorization. `/debug/evaluate` is an arbitrary JavaScript WebView execution path, disabled by default and explicitly not to be used as a shortcut.
 - Feasibility: reuse of the existing input transport is plausible, but automatic dispatch/claim is not yet demonstrated. Dynamic semantic target identification is the missing evidence. Do not start manually producing large PNG/button-coordinate inventories. If the existing telemetry/action-event source cannot supply a non-manual locator, stop rather than expand into template labeling.
 - Current report was read-only: no HTTP requests, game actions, settings changes, tests, or GitHub Actions. User-reported clipboard verification was FAILED.
+
+
+## 2026-10-26 — POI action-event/API-response static inspection: stop decision
+
+- Scope: read-only inspection of installed `poi-plugin-mcp` files `lib/poi-action-events.js` (12,477 bytes, 414 lines) and `lib/poi-api-responses.js` (4,836 bytes, 165 lines).
+- Evidence from the supplied local report: action events expose fields including `path` and `generation`; API responses capture `/kcsapi/` paths and support filtering by path/generation.
+- Assessment: this is evidence of API/action telemetry and response-history correlation, not evidence of a semantic UI target locator, scene hit-testing, or a mechanism mapping a stable action ID to a live button position.
+- Decision: stop further telemetry-route exploration unless new concrete source evidence appears. Do not create manual PNG templates or a button-coordinate inventory. Do not call input endpoints, send HTTP requests, change settings, or perform game actions.
+- MVP impact: the coordinate input channel may exist in the inspected package, but a reliable non-manual target-location mechanism and the real expedition dispatch/claim loop remain unproven. No claim of automation success.
+- Local report caveat: clipboard verification was left as `PENDING`; it is not a PASS.
+- GitHub Actions: not used.
