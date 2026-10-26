@@ -1090,3 +1090,12 @@
 - Observed transitions support slot 0: 0 idle, 1 underway, 2 completed/pending reward; slot 1: mission ID 1 for this expedition; slot 2: 13-digit timestamp-like value, units/meaning not independently validated; slot 3: always 0, unknown.
 - Python four reads PASS; clipboard verification PASS. Actual reward receipt not independently checked; automated dispatch and automated reward collection NOT_TESTED. This is a successful manually operated real expedition state-transition observation, not autonomous MVP acceptance.
 - Next: minimally adapt existing expedition normalizer/guard to distinguish idle, underway, and pending reward; validate time slot before scheduling; never dispatch when slot 0 nonzero or unknown. Keep game writes disabled pending separate explicit authorization. No local code tests run in this observation.
+
+
+## 2026-10-26 — Focused offline regression tests added
+
+- Added `tests/test_expedition_state_v2.py` with seven unittest cases covering observed idle `[0,0,0,0]`, underway `[1,1,timestamp,0]`, completed/pending reward `[2,1,timestamp,0]`, fail-closed unknown status, inconsistent idle slots, missing timestamp, and wrong slot count.
+- Both underway and pending-reward normalized snapshots are asserted to remain `BLOCKED_UNKNOWN_RETURN_TIME` in the existing planner; this avoids false dispatch readiness while timestamp semantics are not authoritative.
+- Test file was created on GitHub and fetched back for inspection. Tests have NOT been executed: no cloud runner/Actions used, and no local test run performed. Code/test presence is not a test PASS.
+- Related normalizer commit: `aec2d4652f1e821cfebe8a99da54b2298fc0a1da`; test commit: `fea18431c12e92245a894de02031adf27f7facba`.
+- Next: inspect repository conventions and run this focused test in the existing local venv only if the user chooses a batched local test; no game actions.
