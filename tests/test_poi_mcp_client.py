@@ -2,6 +2,8 @@
 
 import unittest
 from unittest.mock import patch
+import urllib.error
+import urllib.request
 
 from kancollebot.adapters.poi.mcp_client import PoiMcpClient, PoiMcpError
 
@@ -22,6 +24,21 @@ class PoiMcpClientTests(unittest.TestCase):
     def test_rejects_empty_userinfo_in_loopback_endpoint(self):
         with self.assertRaisesRegex(ValueError, "must not contain credentials"):
             PoiMcpClient("http://@127.0.0.1:12450/mcp")
+
+    def test_redirect_handler_rejects_remote_redirect(self):
+        from kancollebot.adapters.poi.mcp_client import _NoRedirectHandler
+        handler = _NoRedirectHandler()
+        request = urllib.request.Request("http://127.0.0.1:12450/mcp")
+        self.assertIsNone(handler.redirect_request(
+            request, None, 302, "Found", {}, "http://example.com/steal"
+        ))
+
+    def test_client_disables_environment_proxy(self):
+        client = PoiMcpClient()
+        proxy_handlers = [handler for handler in client._opener.handlers
+                          if isinstance(handler, urllib.request.ProxyHandler)]
+        self.assertEqual(len(proxy_handlers), 1)
+        self.assertEqual(proxy_handlers[0].proxies, {})
 
     def test_rejects_action_tool(self):
         client = PoiMcpClient()
