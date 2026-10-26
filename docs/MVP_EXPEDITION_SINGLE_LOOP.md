@@ -34,3 +34,10 @@ AI model comparisons, generalized Bot reverse engineering, multi-fleet schedulin
 
 ## Workflow
 Cloud GitHub first; no local checkout required. Read before write. Record verified commits and unresolved blockers; never claim unrun tests passed.
+
+## 2026-10-26 — Read-only evidence checkpoint
+- GitHub code search on the repository default-branch index for `api_mission`, `expedition`, and `poi_get` returned no matches. This search is not exhaustive for this development branch.
+- Mainline MCP client reviewed directly: `poi_get` is allowlisted; no dispatch or reward-collection tool is implemented.
+- No field-level observed before/after expedition evidence was established in this round.
+- Decision: do not infer expedition state from unverified field semantics. Next obtain minimal passive observations of the same fixed fleet before dispatch, after manual dispatch, and after manual reward collection. Capture only relevant status fields, redact identifiers/secrets, and do not issue game actions.
+- Test execution: NOT_RUN. Game actions: DISABLED. No local checkout required.
