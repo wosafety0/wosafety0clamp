@@ -1174,3 +1174,14 @@
 - Decision: a potentially reusable UI input path exists, so continue with one bounded static inspection of those input implementation files and the bridge's route registration only. Do not toggle settings, retrieve/print tokens, make HTTP requests, or send input. If the implementation requires hand-built screen templates or button coordinates, stop rather than create a manual labeling workflow.
 - User's report states clipboard verification FAILED due a Windows clipboard operation error; do not claim clipboard PASS. This is independent of the source-inspection finding.
 - Status: static source evidence only; no tests run; no game actions; no runtime settings changed; no GitHub Actions used.
+
+
+## 2026-10-26 21:27 +08:00 — Static input executor inspection
+
+- Read-only local report inspected `poi-plugin-mcp` files `lib/poi-input.js`, `lib/poi-input-lease.js`, `lib/writer-tokens.js`, and `index.js`.
+- `poi-input.js` confirms coordinate-based operations only in the inspected executor: move, click, drag, scroll, key, and text. Mouse coordinates are validated against a canonical 1200×720 canvas and scaled to current WebView dimensions. This is not evidence of semantic button targeting.
+- Input lease code enforces a short TTL (default 10 seconds, maximum 30 seconds), owner/run identity, action scope where applicable, and monotonically increasing input sequence numbers.
+- Writer-token registry supports expiring delegated tokens. The prior static inspection identified input as disabled by default; current runtime settings, token registration, and actual endpoint availability remain unverified.
+- `index.js` wires telemetry into the bridge controller, but this report did not include the full HTTP bridge route registration or the telemetry internals needed to determine whether dynamic semantic targeting is available elsewhere.
+- Assessment: the existing input transport is real in source, but it currently requires coordinates. Do not create manual PNG/button-coordinate inventories yet. Next, inspect only existing telemetry/action-event and bridge route code for dynamic target identification. If no non-manual target locator exists and operation depends on manually labeling many coordinates, stop rather than expanding the approach.
+- No game actions, HTTP requests, settings changes, tests, or GitHub Actions were performed in this inspection. Clipboard verification in the user's report failed; it is not a PASS.
