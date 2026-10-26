@@ -74,7 +74,7 @@ function Invoke-ReadTool {
     param([Parameter(Mandatory = $true)][string]$Name, [Parameter(Mandatory = $true)][hashtable]$Arguments)
     if ($Name -notin @('poi_describe', 'poi_get', 'poi_lookup')) { throw "Blocked non-read-only tool: $Name" }
     $result = Invoke-McpRequest -Method 'tools/call' -Params @{ name = $Name; arguments = $Arguments }
-    return Get-ToolValue -ToolResult $result -ToolName $Name
+    return (Get-ToolValue -ToolResult $result -ToolName $Name)
 }
 
 function Initialize-Poi {
