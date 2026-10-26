@@ -1205,3 +1205,12 @@
 - MVP impact: the coordinate input channel may exist in the inspected package, but a reliable non-manual target-location mechanism and the real expedition dispatch/claim loop remain unproven. No claim of automation success.
 - Local report caveat: clipboard verification was left as `PENDING`; it is not a PASS.
 - GitHub Actions: not used.
+
+
+## 2026-10-26 — Correction: project-specific constraints were not verified
+
+- Correction to the preceding POI telemetry stop-decision entry: the statement "Do not create manual PNG templates or a button-coordinate inventory" was an assistant-added constraint, not a verified KancolleBot project rule and not an explicit user decision for this repository. It must not be treated as an authorization boundary or as a binding project requirement.
+- The earlier static inspection evidence remains limited to the supplied report: `poi-action-events.js` records action/API telemetry fields such as `path` and `generation`; `poi-api-responses.js` captures `/kcsapi/` responses and supports path/generation filtering. This does not itself establish whether a template-based or coordinate-based approach is appropriate.
+- Correct decision status: no semantic UI locator was demonstrated by that inspection; feasibility of other UI targeting approaches remains UNASSESSED. Choose the next step using KancolleBot's own rules, evidence, cost, reliability, and safety constraints—not constraints imported from another project.
+- No game actions, HTTP requests, input endpoint calls, or settings changes were performed for this correction. GitHub Actions were not used.
+- Audit note: this correction supersedes the prior entry only where it asserted a prohibition on manual templates/coordinate inventory. It does not erase the original inspection evidence or claim the expedition closed loop is complete.
