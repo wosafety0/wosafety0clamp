@@ -5,6 +5,7 @@ This module performs no network access and never issues game actions.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -41,4 +42,4 @@ def validate_poi_collections(fleets: Any, ships: Any) -> PoiCollectionSnapshot:
                 ship = ships.get(str(reference))
                 if ship is None or ship.get("api_id") != reference:
                     raise PoiStateShapeError("positive ship reference has no matching ship entry")
-    return PoiCollectionSnapshot(tuple(dict(fleet) for fleet in fleets), {key: dict(ship) for key, ship in ships.items()})
+    return PoiCollectionSnapshot(tuple(deepcopy(fleet) for fleet in fleets), deepcopy(ships))
