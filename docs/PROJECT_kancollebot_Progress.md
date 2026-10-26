@@ -1284,3 +1284,20 @@
 - Resume targeted source tracing already discussed, rather than restarting broad research: non提助手 `AutoActionQueue -> ActExpedition -> ActFinishExpedition`, then compare the concrete expedition action path in `kcauto_custom`. Record source evidence for how each action is executed; feature descriptions alone are not proof.
 - Research must not block the MVP. Prefer a verified, reusable client-mediated action route if one is found promptly; otherwise return to the existing CDP/UI path and continue the single fixed-fleet + single fixed-expedition real loop.
 - MVP acceptance remains: dispatch, verify underway, wait for completion, collect/handle result, and verify the fleet is dispatchable again. No game action was performed by this documentation update; no local files were changed and GitHub Actions were not used.
+
+## 2026-10-26 — MVP deadline and low-overhead stability plan summarized
+
+- User set the immediate delivery target to **2026-10-27 around 22:00 China Standard Time (UTC+08:00)**, rather than the previous 48-hour window. This is a target, not a claim that completion is guaranteed.
+- MVP remains strictly one fixed fleet + one fixed expedition. Acceptance requires evidence for: read current state → dispatch through the running game client → verify underway → wait for completion → claim/handle result → verify the fleet is idle and dispatchable again.
+- Action boundary: do not bypass the game client by constructing/sending game-server API requests (for example, direct `api_req_mission/start`). Poi/client-mediated interfaces, CDP/UI, or simulated input remain candidates only when their actual execution path is verified.
+- No dependency on manually captured/annotated screenshots is desired for the chosen route. Prefer structured Poi/CDP state and runtime page inspection; use automatic visual inspection only if structured state cannot verify a required transition. This is a project direction, not evidence that semantic UI targeting is already available.
+- Stability/performance proposals accepted for design review:
+  1. State-driven scheduling and bounded sleep instead of high-frequency polling; cap sleep duration and handle missing/invalid completion timestamps safely.
+  2. Separate structured state reads from screenshots; capture images only when necessary.
+  3. Reuse CDP WebSocket connections where practical, correlate responses by request ID, and handle timeout/disconnect/target changes before reconnecting.
+  4. Use bounded rotating logs (proposed 5 MiB per file, 3 backups) and throttle repetitive messages.
+  5. Fail closed on unknown state, disconnects, cat/error screens, or ambiguous action outcomes. A failed/ambiguous dispatch must trigger state reconciliation, not an automatic repeated click.
+  6. Process supervision and 24/7 endurance work are deferred until the first real expedition cycle is proven.
+- Important corrections to the supplied sample design: do not scan fleets `[2, 3, 4]`; keep the fixed fleet/mission. Do not rely on `sleep(30)` as the duplicate-action guard. Do not assume mission state value `2` alone proves the result is claimable. Avoid `min([])` when no valid completion timestamp exists. A persistent WebSocket must match each response to its request ID.
+- Execution order: (1) read-only inspect the actual branch/files and current implementation; (2) select the shortest verified client-mediated action path; (3) implement only the minimum dispatch/verification path; (4) execute one authorized real cycle and collect evidence; (5) record outcome; (6) add low-overhead long-running optimizations after the cycle is demonstrated.
+- Current status: **planning/decision recorded; no code implementation or performance benchmark is claimed.** The concrete dispatch/claim adapter and real expedition loop remain unverified. No game action was performed for this documentation entry; no local files were changed; GitHub Actions were not used.
