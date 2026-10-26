@@ -1254,3 +1254,23 @@
 - Do not invent request schemas, coordinates, tokens, or runtime state. If local source/config evidence is required, request one bounded read-only report from the user's Windows installation; no game-action request during preflight.
 - After adapter implementation, run focused offline tests for request construction, safety gates, ambiguous outcomes, and stop behavior. Then request explicit user authorization before one real game cycle. Never claim MVP acceptance until dispatch, result handling, and redispatch readiness are evidenced.
 - This is a priority/status correction only. No local code, runtime settings, game state, or gameplay actions were changed. GitHub Actions were not used.
+
+
+
+## 2026-10-26 — CDP UI-click MVP route restored; supplied loop script static review
+
+- User supplied a proposed Windows PowerShell generator for a Python implementation under `D:\KancolleBot`, including CDP screenshot/click helpers, state reading through `window.getStore('info.fleets')`, action classes, a scheduler, and `tests/start_main_loop.py`.
+- Route decision: continue with **CDP UI clicks plus state observation** for this MVP. Do not make investigation of a POI plugin input API a prerequisite. State reads via `Runtime.evaluate/window.getStore` are page-state reads; the action route itself is CDP mouse input, not direct game API packet dispatch.
+- Static review only; the supplied generator was not executed, files were not created/overwritten, no local machine or game session was accessed, and no game actions were performed.
+- Blocking defects identified in the supplied code:
+  1. `get_ws()` selects a target with `type == "webview"` and URL containing `kancolle`, while `fetch_state()` independently selects `type == "page"` and title exactly `poi`. These selectors may resolve different targets or no target; the script does not validate that state and clicks refer to the same live game page.
+  2. `ActCollect.execute()` clicks the notification, then immediately returns if the home-menu template matches. This can report collection complete while still on the home screen, without proving the reward was collected.
+  3. The scheduler hardcodes `is_authorized=True` for both collect and dispatch, bypassing the guard's stated manual-approval requirement.
+  4. The scheduler scans every fleet ID in `[2, 3, 4]` and dispatches any idle one, rather than enforcing one fixed fleet and one fixed mission. `mission_id` is not used to select or verify the expedition; the mission selection click is a hardcoded coordinate.
+  5. The loop can enqueue real, irreversible clicks every second based on a single state read, but does not verify each intermediate screen/selection before proceeding or verify a server-confirmed dispatch state afterward.
+  6. After the start click, the code may click the back coordinate repeatedly without identifying the current screen. The home-template score alone is not sufficient proof that dispatch succeeded.
+  7. The state fetcher suppresses every exception and returns `None`, losing the reason for failure; the scheduler has no bounded timeout or visible fatal-stop path for persistent target/state failures.
+  8. The generated script does not preflight dependencies (`cv2`, `numpy`, `websocket-client`), target identity, template existence, viewport scaling, or coordinate calibration before entering the action loop.
+- Required next step: do not run this generated loop unchanged. First perform a read-only preflight on the actual local worktree and target CDP page; verify the exact paths and the installed dependencies/template. Then adapt the smallest path to a single fixed fleet + single fixed expedition, with explicit authorization before irreversible clicks, per-screen observation, a hard stop on uncertainty, and evidence of dispatch/result/redispatch. Do not expand into POI input-API research.
+- User-provided coordinates (`(301,374)`, `(1079,343)`, `(1037,668)`, `(987,671)`, notification `(969,52)`) are recorded as unverified user-supplied inputs, not independently calibrated evidence.
+- Status: static review only; no script execution, local file changes, game actions, or GitHub Actions. MVP real expedition cycle remains NOT VERIFIED.
