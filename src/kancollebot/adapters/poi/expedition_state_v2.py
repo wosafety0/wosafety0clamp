@@ -66,11 +66,21 @@ def normalize_poi_fleets(
 
         mission_id = None
         raw_mission = fleet.get("api_mission")
-        if not isinstance(raw_mission, list) or len(raw_mission) < 4:
+        if not isinstance(raw_mission, list) or len(raw_mission) != 4:
             raise PoiStateError(f"fleet {fleet_id} api_mission has an unknown shape")
         status = _int(raw_mission[0], "mission status")
-        if status > 0:
-            mission_id = _int(raw_mission[1], "mission ID", 1)
+        if status not in (0, 1, 2):
+            raise PoiStateError(f"fleet {fleet_id} has an unknown mission status")
+        mission_slot = _int(raw_mission[1], "mission ID slot")
+        timestamp_slot = _int(raw_mission[2], "mission timestamp slot")
+        reserved_slot = _int(raw_mission[3], "mission reserved slot")
+        if status == 0:
+            if mission_slot != 0 or timestamp_slot != 0 or reserved_slot != 0:
+                raise PoiStateError(f"fleet {fleet_id} has inconsistent idle mission slots")
+        else:
+            mission_id = _int(mission_slot, "mission ID", 1)
+            if timestamp_slot == 0:
+                raise PoiStateError(f"fleet {fleet_id} has no mission timestamp value")
 
         damaged = []
         fuel_ready = bool(ship_ids)
