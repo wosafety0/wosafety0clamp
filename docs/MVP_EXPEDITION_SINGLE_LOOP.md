@@ -41,3 +41,10 @@ Cloud GitHub first; no local checkout required. Read before write. Record verifi
 - No field-level observed before/after expedition evidence was established in this round.
 - Decision: do not infer expedition state from unverified field semantics. Next obtain minimal passive observations of the same fixed fleet before dispatch, after manual dispatch, and after manual reward collection. Capture only relevant status fields, redact identifiers/secrets, and do not issue game actions.
 - Test execution: NOT_RUN. Game actions: DISABLED. No local checkout required.
+
+## 2026-10-26 — Batched local verification workflow
+- User reports Poi is logged in.
+- Default workflow: continue cloud-side development and progress logging on `dev/expedition-closed-loop-mvp`; do not require a local repository unless a test specifically needs the Windows/Poi runtime.
+- Batch local checks only when they are necessary and ready; prefer passive/read-only observation. After the batch, return to the GitHub mainline, record actual outcomes, and verify remote readback.
+- Keep local test results, GitHub commits, and real-game validation as separate statuses. Never report a test as passed without execution evidence.
+- MVP scope remains unchanged: one fixed fleet, one fixed expedition, one complete loop. Poi login alone does not authorize game actions.
