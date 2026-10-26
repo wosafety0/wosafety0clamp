@@ -28,8 +28,8 @@ def validate_poi_collections(fleets: Any, ships: Any) -> PoiCollectionSnapshot:
     if not all(isinstance(key, str) and isinstance(ship, dict) for key, ship in ships.items()):
         raise PoiStateShapeError("ship map keys must be strings and values must be objects")
     for ship in ships.values():
-        if "api_id" not in ship:
-            raise PoiStateShapeError("ship entry is missing api_id")
+        if isinstance(ship.get("api_id"), bool) or not isinstance(ship.get("api_id"), int):
+            raise PoiStateShapeError("ship api_id must be an integer")
     for fleet in fleets:
         references = fleet.get("api_ship")
         if not isinstance(references, list):
@@ -41,4 +41,4 @@ def validate_poi_collections(fleets: Any, ships: Any) -> PoiCollectionSnapshot:
                 ship = ships.get(str(reference))
                 if ship is None or ship.get("api_id") != reference:
                     raise PoiStateShapeError("positive ship reference has no matching ship entry")
-    return PoiCollectionSnapshot(tuple(fleets), ships)
+    return PoiCollectionSnapshot(tuple(dict(fleet) for fleet in fleets), {key: dict(ship) for key, ship in ships.items()})
