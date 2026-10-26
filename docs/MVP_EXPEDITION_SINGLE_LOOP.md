@@ -48,3 +48,12 @@ Cloud GitHub first; no local checkout required. Read before write. Record verifi
 - Batch local checks only when they are necessary and ready; prefer passive/read-only observation. After the batch, return to the GitHub mainline, record actual outcomes, and verify remote readback.
 - Keep local test results, GitHub commits, and real-game validation as separate statuses. Never report a test as passed without execution evidence.
 - MVP scope remains unchanged: one fixed fleet, one fixed expedition, one complete loop. Poi login alone does not authorize game actions.
+
+## 2026-10-26 — Existing implementation found; avoid duplicate work
+- Mainline already contains `PoiExpeditionReader.read_fleets()` and `normalize_poi_fleets()`; do not create a second reader or another generic state-shape layer.
+- Existing reader fetches `info.fleets`, `info.ships`, and referenced ship-master fuel/ammo fields, then emits normalized fleet snapshots.
+- The normalizer currently assumes `api_mission[0]` is a status and `api_mission[1]` is a mission ID when status > 0. The progress log explicitly records that this slot interpretation is not yet authoritatively confirmed.
+- Historical sanitized observations show fleet 3 with positive values in the first three `api_mission` slots and zero in the fourth, but values/semantics were not confirmed; another report observed a different inferred mission ID. Do not use this to authorize an action.
+- Therefore the immediate blocker is not absence of a reader: it is confirming mission-field semantics and current-state transitions using one bounded, passive live observation batch.
+- Batch plan: read health/initialize, then only `info.fleets` and `sortie` (if supported), report sanitized key/type/slot-position shapes and numeric status/mission fields only if they are needed; do not print personal IDs, names, raw payloads, or secrets. No dispatch/write tools.
+- After the local batch, return to this GitHub branch, record the exact outcome, and continue the single-expedition MVP. Tests remain NOT_RUN unless actually executed.
