@@ -1560,3 +1560,23 @@ The Hand plugin's read-only probe reported:
 - The failed Canvas lookup means this run did not produce a complete inner geometry sample. It does not negate the earlier user-supplied observation that a Canvas existed; the nested frame/document may have changed, not loaded yet, or the traversal may be targeting a different document state. Re-check frame IDs, URLs with credential query parameters redacted, readiness, child-frame counts, and canvas counts per document before calculating coordinates.
 - No clicks or game-state changes were performed or evidenced by this probe. Do not repeat dispatch or interfere with the expedition already underway. The real expedition loop remains incomplete.
 - Evidence source: runtime log pasted by the user; not independently executed by the assistant. This GitHub record does not imply local filesystem synchronization.
+
+
+### 2026-10-27 — Hand plugin nested Canvas probe succeeded on first attempt
+
+#### Runtime evidence supplied by user
+
+- The closure-based bounded read-only probe completed successfully on attempt 1.
+- The outer DMM page reported `readyState=complete` and 15 iframes.
+- `game_frame` was accessible and reported a 1200 × 860 rectangle, with two child iframes.
+- The nested `htmlWrap` game iframe was accessible and reported `readyState=complete`, one Canvas, and a 1200 × 720 rectangle.
+- Canvas internal dimensions and client dimensions were all 1200 × 720; its bounding rectangle was left = 0, top = 0, width = 1200, height = 720 in the game iframe viewport.
+- The user-provided log included a credential-bearing `api_token` query parameter. It is deliberately not reproduced here. Treat it as exposed session material; do not repost it and reload/re-enter the game when practical to obtain a fresh session URL/token.
+
+#### Interpretation and limits
+
+- **Confirmed:** The Hand plugin can traverse the nested frame structure and read Canvas geometry in one attempt. The previous `this._probe is not a function` lifecycle issue is no longer present in this run.
+- The Canvas rectangle is relative to the game iframe viewport, not automatically Windows desktop coordinates. Although the iframe rectangles are top-left aligned in the supplied snapshot, this alone does not prove that `webview.sendInputEvent` accepts those coordinates or that the game responds to input.
+- No input event, click, dispatch, reward claim, or other game action was performed by this probe.
+- Next step remains a read-only coordinate-space validation; do not run a click test until the input coordinate origin and viewport clipping are independently established.
+- The expedition result/claim/redispatch closed loop remains **NOT VERIFIED**. This is a remote documentation update only; no local file synchronization is implied.
