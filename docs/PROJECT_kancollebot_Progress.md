@@ -1808,12 +1808,10 @@ The Hand plugin's read-only probe reported:
 - No page source was executed, no game function or getter was called, no game input was sent, no local files were changed, and no GitHub Actions workflow was run.
 - Archive state: script creation returned a remote commit SHA and a subsequent fetch confirmed the remote file/blob. Progress-document update must be independently read back before this round is considered fully archived.
 
+### 2026-10-27 — Hand sandbox CDP target enumeration
 
-
-### 2026-10-27 — Static extractor target-selection diagnostic
-
-- User ran `tools/hand_sandbox/static_decoder_extract_20261027.js` in Poi Hand sandbox. It returned `TARGET_ERROR`: zero targets matched the extractor's original combined conditions (target type exactly `webview`, page path `/kcs2/index.php`, and configured host hints).
-- This is a target-discovery failure only. The script did not reach `Debugger.enable` or request page source; no decoder extraction occurred. It does not establish that the game page or CDP endpoint is unavailable.
-- Updated the extractor to select by the game page path and WebSocket debugger availability without assuming a particular CDP target type or hostname. If zero or multiple matches remain, it now emits a bounded metadata-only diagnostic inventory (type, title, URL, WebSocket availability) for targets whose URL/title mentions Kancolle, KCS2, or DMM. No debugger WebSocket URL is emitted.
-- The updated script was written remotely in commit `18c83da041bde8ec1778f332b33c3ceffeec2f5c` and independently fetched back; verified blob SHA `81c18e4cfa77a9810b681cfde11b7f724f2accae`, length 13,808 characters. The target-type assumption is absent in the fetched content and the path-only candidate filter/diagnostic inventory are present.
-- The updated script has **not yet been run**. Runtime target discovery, source retrieval, and decoder extraction remain unverified. No page source was executed, no game function/getter was called, no game input was sent, no local worktree sync was performed, and no GitHub Actions workflow was run.
+- The read-only extractor successfully loaded and ran in the Hand sandbox after the local file's accidental leading text was removed.
+- The CDP target-list request returned six targets. The visible game-related top-level target is the DMM game launcher at `https://play.games.dmm.com/game/kancolle`, and its debugger WebSocket is available.
+- This confirms that the sandbox can enumerate CDP targets and that a debuggable launcher target is present. No game-page source was retrieved in this run.
+- Next: inspect the selected page's frame tree with the read-only CDP `Page.getFrameTree` command, reporting only frame names, URLs, and hierarchy. Do not evaluate page JavaScript or send game input.
+- No game functions or getters were called, no game input was sent, no local worktree sync was performed, and no GitHub Actions workflow was run.
