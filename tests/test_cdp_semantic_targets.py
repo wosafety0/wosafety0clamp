@@ -85,6 +85,11 @@ class SemanticTargetTests(unittest.TestCase):
         with self.assertRaisesRegex(SemanticTargetError, "outside"):
             locate_accessible_target(transport, name="Expedition")
 
+    def test_refuses_scrolled_viewport_coordinate_ambiguity(self):
+        transport = FakeTransport(page_x=1)
+        with self.assertRaisesRegex(SemanticTargetError, "Scrolled viewport"):
+            locate_accessible_target(transport, name="Expedition")
+
     def test_refuses_runtime_evaluate_transport_command(self):
         transport = CdpWebSocketTransport.__new__(CdpWebSocketTransport)
         transport._closed = False
