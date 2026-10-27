@@ -26,8 +26,11 @@ module.exports = function() {
   let selectedScriptId = null;
 
   const scripts = new Map();
-  const ENABLE_ID = 731;
-  const SOURCE_ID = 732;
+  const PAGE_ENABLE_ID = 730;
+  const FRAME_TREE_ID = 731;
+  const ENABLE_ID = 732;
+  const SOURCE_ID = 733;
+  const FRAME_TREE_SETTLE_MS = 1000;
 
   function cleanup(status, detail) {
     if (finished) return;
@@ -279,34 +282,52 @@ module.exports = function() {
       const candidates = targets.filter(function(target) {
         return !!target && typeof target.url === 'string' &&
           !!target.webSocketDebuggerUrl &&
-          safePath(target.url).indexOf('/kcs2/index.php') >= 0;
+          safePath(target.url).indexOf('/game/kancolle') >= 0 &&
+          /play\.games\.dmm\.com$/i.test((function() {
+            try { return new URL(target.url).hostname; } catch (_) { return ''; }
+          })());
       });
       if (candidates.length !== 1) {
-        const diagnosticTargets = targets.filter(function(target) {
-          if (!target || typeof target.url !== 'string') return false;
-          return /kancolle|kcs2|dmm/i.test(target.url + ' ' + (target.title || ''));
-        }).slice(0, 30).map(function(target) {
-          return {
-            type: typeof target.type === 'string' ? target.type : null,
-            title: typeof target.title === 'string' ? target.title : null,
-            url: target.url,
-            webSocketDebuggerAvailable: !!target.webSocketDebuggerUrl
-          };
-        });
-        return cleanup('TARGET_ERROR', JSON.stringify({
+        return cleanup('LAUNCHER_TARGET_ERROR', JSON.stringify({
           targetCount: targets.length,
-          gamePagePathMatchCount: candidates.length,
-          diagnosticTargets: diagnosticTargets,
-          hint: 'Target matching uses the game page path without assuming a particular CDP target type or host.'
+          launcherMatchCount: candidates.length,
+          hint: 'Expected exactly one debuggable DMM KanColle launcher target.'
         }));
       }
 
       const target = candidates[0];
+      let gameFrameCount = 0;
+      let gameFrameId = null;
+      let gameFrameUrl = '';
+      let enableSettleTimer = null;
+
+      function requestDebuggerEnable() {
+        if (finished) return;
+        console.log('[Sandbox] Game frame confirmed; enabling read-only debugger metadata.');
+        socket.send(JSON.stringify({ id: ENABLE_ID, method: 'Debugger.enable' }));
+      }
+
+      function requestSourceIfReady() {
+        if (finished || sourceRequested) return;
+        const candidates = Array.from(scripts.values());
+        if (candidates.length === 0) {
+          return cleanup('MAIN_SCRIPT_NOT_FOUND', 'No parsed script matched /kcs2/js/main.js after the metadata collection window. No source was evaluated.');
+        }
+        const chosen = candidates[candidates.length - 1];
+        selectedScriptId = chosen.scriptId;
+        sourceRequested = true;
+        socket.send(JSON.stringify({
+          id: SOURCE_ID,
+          method: 'Debugger.getScriptSource',
+          params: { scriptId: selectedScriptId }
+        }));
+      }
+
       socket = new WebSocket(target.webSocketDebuggerUrl);
       socket.onopen = function() {
         if (finished) return;
-        console.log('[Sandbox] CDP connected; requesting debugger script metadata only.');
-        socket.send(JSON.stringify({ id: ENABLE_ID, method: 'Debugger.enable' }));
+        console.log('[Sandbox] CDP connected; requesting frame metadata.');
+        socket.send(JSON.stringify({ id: PAGE_ENABLE_ID, method: 'Page.enable' }));
       };
       socket.onmessage = function(event) {
         if (finished) return;
@@ -318,27 +339,65 @@ module.exports = function() {
           const item = message.params;
           const path = safePath(item.url || '');
           if (path.endsWith(MAIN_PATH)) {
-            scripts.set(String(item.scriptId), { scriptId: String(item.scriptId), url: item.url || '', path });
+            scripts.set(String(item.scriptId), {
+              scriptId: String(item.scriptId),
+              url: item.url || '',
+              path: path
+            });
           }
           return;
         }
+
+        if (message.id === PAGE_ENABLE_ID) {
+          if (message.error) return cleanup('CDP_ERROR', message.error.message || 'Page.enable failed.');
+          socket.send(JSON.stringify({ id: FRAME_TREE_ID, method: 'Page.getFrameTree' }));
+          return;
+        }
+
+        if (message.id === FRAME_TREE_ID) {
+          if (message.error) return cleanup('CDP_ERROR', message.error.message || 'Page.getFrameTree failed.');
+          const frames = [];
+          function collectFrame(node) {
+            if (!node || !node.frame) return;
+            const frame = node.frame;
+            let path = '';
+            try { path = new URL(frame.url || '').pathname; } catch (_) {}
+            frames.push({
+              id: frame.id || '',
+              name: frame.name || '',
+              path: path,
+              parentId: frame.parentId || ''
+            });
+            (node.childFrames || []).forEach(collectFrame);
+          }
+          collectFrame(message.result && message.result.frameTree);
+          const gameFrames = frames.filter(function(frame) {
+            return frame.path === GAME_PAGE_PATH;
+          });
+          gameFrameCount = gameFrames.length;
+          if (gameFrameCount !== 1) {
+            return cleanup('GAME_FRAME_ERROR', JSON.stringify({
+              frameCount: frames.length,
+              gameFrameCount: gameFrameCount,
+              framePaths: frames.filter(function(frame) {
+                return /kcs2|kancolle/i.test(frame.path);
+              }).map(function(frame) { return { name: frame.name, path: frame.path }; })
+            }));
+          }
+          gameFrameId = gameFrames[0].id;
+          gameFrameUrl = gameFrames[0].path;
+          console.log('[Sandbox] Game frame found; frameId=' + gameFrameId + '; path=' + gameFrameUrl);
+          socket.send(JSON.stringify({ id: ENABLE_ID, method: 'Debugger.enable' }));
+          return;
+        }
+
         if (message.id === ENABLE_ID) {
           if (message.error) return cleanup('CDP_ERROR', message.error.message || 'Debugger.enable failed.');
-          const candidates = Array.from(scripts.values());
-          if (candidates.length === 0) {
-            return cleanup('MAIN_SCRIPT_NOT_FOUND', 'No parsed script matched /kcs2/js/main.js. No source was evaluated.');
-          }
-          const chosen = candidates[candidates.length - 1];
-          selectedScriptId = chosen.scriptId;
-          if (sourceRequested) return;
-          sourceRequested = true;
-          socket.send(JSON.stringify({
-            id: SOURCE_ID,
-            method: 'Debugger.getScriptSource',
-            params: { scriptId: selectedScriptId }
-          }));
+          if (enableSettleTimer) clearTimeout(enableSettleTimer);
+          enableSettleTimer = setTimeout(requestSourceIfReady, FRAME_TREE_SETTLE_MS);
           return;
         }
+
         if (message.id === SOURCE_ID) {
           if (message.error) return cleanup('SOURCE_ERROR', message.error.message || 'Debugger.getScriptSource failed.');
           const source = message.result && message.result.scriptSource;
@@ -346,7 +405,7 @@ module.exports = function() {
             return cleanup('EMPTY_SOURCE', 'Debugger returned empty source text.');
           }
           console.log('[Sandbox] Read-only source retrieved; length=' + source.length);
-          try { analyzeSource(source, target.url, selectedScriptId); }
+          try { analyzeSource(source, gameFrameUrl, selectedScriptId); }
           catch (error) { cleanup('ANALYSIS_ERROR', error && error.stack ? error.stack : String(error)); }
         }
       };
