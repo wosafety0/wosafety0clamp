@@ -18,8 +18,13 @@ from .cdp_input import CdpInput, CdpInputError
 
 
 _ALLOWED_METHODS = {
+    # Read-only accessibility and DOM geometry methods for semantic target discovery.
+    "Accessibility.getFullAXTree",
+    "DOM.pushNodesByBackendIdsToFrontend",
+    "DOM.getBoxModel",
     "Page.getLayoutMetrics",
     "Page.captureScreenshot",
+    # Mouse input remains the only enabled input method.
     "Input.dispatchMouseEvent",
 }
 _MAX_FRAME_BYTES = 8 * 1024 * 1024
