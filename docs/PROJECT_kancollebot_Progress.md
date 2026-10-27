@@ -1671,3 +1671,25 @@ The Hand plugin's read-only probe reported:
 - Next step: inspect the existing Hand plugin's debugger/target handling and, if needed, perform a bounded read-only check of the current process command line and CDP discovery metadata. Do not print WebSocket URLs, session query strings, cookies, local storage, or credentials. Keep game input disabled.
 - The expedition completion, result claim, and re-dispatch loop remains **NOT VERIFIED**.
 - This progress update is a remote GitHub write; no local filesystem synchronization is implied.
+
+
+### 2026-10-27 — Read-only CDP global metadata probe and static main.js extraction
+
+#### Evidence and actions
+
+- Connected through the existing local CDP endpoint on port 9222 and dynamically located the game WebView script `/kcs2/js/main.js`.
+- Retrieved the script source with `Debugger.getScriptSource`; the returned source length was **8,495,851 characters**. This was static source retrieval only: no page source was executed, no game function was called, and no game input was sent.
+- A separate bounded read-only global metadata probe observed the game page at origin `https://w14h.kancolle-server.com`, pathname `/kcs2/index.php`, with `readyState=complete` and one Canvas sized `1200 × 720`.
+- The probe found `window.PIXI`, `window.KCS`, and `window.createjs` as ordinary data-property objects. It did not find direct globals named `app`, `game`, `stage`, `renderer`, `application`, `scene`, or `SceneManager`.
+- The PIXI properties inspected (`Application`, `Container`, `DisplayObject`, `Sprite`, `Graphics`, `Stage`, `ticker`, and `utils`) were accessors with getters; the probe deliberately did not invoke those getters. `KCS` exposed only its own `init` function. The report marked `gettersInvoked=false`, `gameFunctionsCalled=false`, `recursiveTraversal=false`, and `gameInputSent=false`.
+- Static source inspection located `_0x466acb()` inside a module wrapper. It uses obfuscated property accesses to create a PIXI application/renderer-like object, sets logical dimensions using values `720` and `360`, appends its view to `document.body`, and initializes another module object.
+- **Correction recorded:** `_0x460358` is not itself the decoder definition; in the inspected wrapper it is an alias, `const _0x460358 = _0x3353`. The candidate decoder is `_0x3353`, which indexes the table returned by `_0x3f23()`, performs base64-style decoding followed by URI decoding, and caches decoded strings. The full `_0x3f23` table/rotation initialization and the exact decoded property names have not yet been extracted and verified.
+
+#### Current status
+
+- **VERIFIED:** source retrieval succeeded at 8,495,851 characters; the static inspection and global metadata probe remained read-only.
+- **NOT COMPLETED:** complete extraction of `_0x3353`, `_0x3f23` and its array-rotation initialization; offline decoding of the property indices used by `_0x466acb()`; identification of a reliable fleet-state object.
+- The presence of a Canvas and PIXI globals does not prove that a renderer/scene object is directly accessible or that fleet state can be read through those globals.
+- No game source was executed, no game function was called, and no input was sent. Do not repeat the already completed global scan; the next technical step is a bounded static extractor for the exact function/table definitions, followed by offline decoding.
+- The real expedition completion, reward claim, and re-dispatch loop remains **NOT VERIFIED**.
+- Evidence source: runtime reports and source-analysis results recorded in the conversation on 2026-10-27. This remote documentation update does not imply local filesystem synchronization.
