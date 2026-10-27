@@ -1393,3 +1393,11 @@
 - Commit: `b008123d08bc4a1b00899fc0ef3f5e3f4295302c`.
 - GitHub source read-back is the available verification in this session. The script has not been run against the user's PC; no local endpoint was contacted, no screenshot/input was sent, and no GitHub Actions workflow was triggered.
 - Next engineering gate: when a local Poi/CDP runtime is available, run this read-only preflight first; then validate the action targets and transitions before enabling any single dispatch. The real expedition/claim loop remains **NOT VERIFIED**.
+
+
+## 2026-10-27 — Private path mapping and public-release guard
+
+- Updated `docs/PROJECT_kancollebot_MASTER.md` with a fail-closed path-resolution order: inspect the live repository/branch/tree first, consult the private alias map for unresolved references, verify every mapped path, and stop on missing or ambiguous mappings.
+- Added a mandatory privacy-audit gate before changing repository visibility. No visibility change was made; repository metadata still reports `private`.
+- The mapping document was generated as a separate local artifact, but its upload to the ChatGPT Library was rejected by the Library's current upload quota limit. It is **not yet installed** at the path referenced by the rule. Until it is uploaded, the rule requires stopping rather than guessing if a path cannot be resolved.
+- The project master rules were read back from GitHub and the new policy was verified. The privacy audit is **not complete**: the existing project rules and repository history still contain identifying project terms, so the repository must not be made public yet.
