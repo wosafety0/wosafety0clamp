@@ -1796,3 +1796,15 @@ The Hand plugin's read-only probe reported:
 - Next: use a bounded static extraction to capture the complete `_0x3353` definition and `_0x3f23` string-table/rotation initializer, then decode offline outside the game page. Do not call page getters or game functions to resolve these names.
 - No game input or action was performed for this entry. The expedition completion/reward claim/re-dispatch loop remains **NOT VERIFIED**.
 - Archival state: this progress entry is being written to the remote repository branch; local worktree synchronization is not implied.
+
+### 2026-10-27 — Static decoder extraction script archived
+
+- Repository identity was verified by successful reads from `wosafety0/wosafety0clamp`; target branch: `dev/expedition-closed-loop-mvp`.
+- Read the project master rules and existing progress document before writing. The existing static probe is `tools/hand_sandbox/static_main_decoder_20261027.js`; it extracts bounded snippets and is not a replacement for the new targeted extractor.
+- Added `tools/hand_sandbox/static_decoder_extract_20261027.js` using the GitHub Contents API. Returned creation commit: `d4cc9c475a7e7aedd03b382dc0509f9b623d0074`.
+- Remote readback verified the new file at the target branch: blob SHA `7f8c31fa9ae5bbe770745004c3e4f6451872c68b`, length 13,252 characters. Marker checks passed for extraction targets `_0x3353`, `_0x3f23`, `_0x466acb`, CDP `Debugger.getScriptSource`, configured host `w14h.kancolle-server.com`, and the no-`Runtime.evaluate` / no-game-input safety flags.
+- The script is **archived remotely but not yet run by the user**. It is designed to retrieve source text only, report the decoder/table/factory definitions and bounded contexts around `_0x3f23` references, and list decoder calls in `_0x466acb`; it does not perform offline decoding itself.
+- **Not verified yet:** whether the lexical extraction boundaries capture all required source correctly; the actual string-table rotation logic and decoded property names; PIXI application/main-object construction path. These require inspecting the script's output offline after the user runs it.
+- No page source was executed, no game function or getter was called, no game input was sent, no local files were changed, and no GitHub Actions workflow was run.
+- Archive state: script creation returned a remote commit SHA and a subsequent fetch confirmed the remote file/blob. Progress-document update must be independently read back before this round is considered fully archived.
+
