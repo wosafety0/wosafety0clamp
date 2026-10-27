@@ -1739,3 +1739,15 @@ The Hand plugin's read-only probe reported:
 - Keep this as static/runtime diagnostic evidence only. No plugin installation, Poi configuration change, game input, or real expedition action is implied by this audit.
 - The real expedition completion, reward claim, and re-dispatch loop remains **NOT VERIFIED**.
 - This is a remote GitHub documentation update; it does not imply local filesystem synchronization.
+
+
+### 2026-10-27 — Real expedition dispatch confirmed; do not repeat
+
+#### User-confirmed runtime milestone
+
+- The user confirmed that one real expedition dispatch was initiated by the automation program, not manually. This is the first recorded evidence that the project reached an actual client-side dispatch action; it is not, by itself, proof that the full expedition closed loop works.
+- **Safety constraint:** do not send another dispatch and do not interfere with the expedition currently in progress. The next step is observation only: wait for the existing expedition to finish, detect the completion state, claim the result through the client, then read state again to verify the fleet can be dispatched again.
+- Acceptance remains incomplete until all of the following are observed and documented: the current expedition completes, the reward/result is claimed, and the same fleet is confirmed eligible for a subsequent dispatch. Do not infer completion from a timer alone or count the dispatch-start event as a closed loop.
+- The conversations available to this audit confirm the dispatch milestone, but did not return the literal complete source of the dispatching script in a retrievable form. No guessed or reconstructed dispatch code is committed by this entry.
+- No additional dispatch or game input was performed during this archival action.
+- This is a remote GitHub documentation update; it does not imply local filesystem synchronization.
