@@ -1420,3 +1420,14 @@
 - An earlier CI run exposed a mismatch in a test fixture for the fail-closed scroll guard, and another exposed an incorrect filter-test expectation. Both were corrected; the latest full run is green.
 - Cloud-side code and documentation are committed. No local runtime was contacted, no local files were changed, and no gameplay input was sent.
 - **MVP status remains NOT VERIFIED:** actual UI accessibility labels, live state transitions, dispatch, completion/result handling, reward collection, and redispatch readiness have not been observed end-to-end. The next required evidence is a bounded read-only scan against the user's running client; GitHub Actions cannot substitute for that local runtime observation.
+
+## 2026-10-27 — Read-only mission timestamp probe
+
+- Runtime evidence supplied from the client's read-only state snapshot; observation time: `2026-10-27T09:23:32.863Z`. No gameplay input or configuration change was made by this probe.
+- Three fleet records were observed. Record 1 had mission tuple `[0, 0, 0, 0]`. Records 2 and 3 had tuples `[2, 1, 1793090153208, 0]` and `[2, 2, 1793091065462, 0]`.
+- The third values convert as Unix millisecond timestamps to `2026-10-27T08:35:53.208Z` and `2026-10-27T08:51:05.462Z`; both are earlier than the observation time by approximately 47m 39.655s and 32m 27.401s, respectively.
+- Confirmed: the values are numeric and behave as millisecond-epoch timestamps. The time comparison alone does not establish whether the client has processed a result screen or whether a reward was collected.
+- Mission-state interpretation: both nonzero records have first value `2`. This is consistent with the known returned-state interpretation, but the current runtime's complete result-handling/claim state was not independently observed in this probe. Do not infer claim completion from the tuple alone.
+- Safety boundary: this was a read-only snapshot; no dispatch, result-claim action, configuration edit, or repeated action was performed. Do not disturb or re-dispatch either active/previously observed fleet while the real-cycle status is unresolved.
+- Current acceptance: Redux state access and timestamp conversion are verified; result handling, reward collection, and readiness for a subsequent dispatch remain **NOT VERIFIED**. The one-fleet/one-mission real closed loop is still not accepted.
+- Next step: inspect the client's own mission-state and result-screen handling definitions read-only, then use fresh state evidence to determine whether a result is pending. No game action until the state is unambiguous and the next action is separately authorized. No CI workflow was triggered.
