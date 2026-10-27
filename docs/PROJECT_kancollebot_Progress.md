@@ -1632,3 +1632,22 @@ The Hand plugin's read-only probe reported:
 - Avoid repeated clicking outside deliberate tests. Do not repeat dispatch or interfere with the expedition already underway.
 - Next: use this as the physical-input-path milestone; keep the next step narrowly scoped to read-only identification of the expedition UI/control and its coordinate frame before any expedition-related click. The actual expedition completion/result claim/re-dispatch loop remains **NOT VERIFIED**.
 - This is a remote GitHub progress update based on user-confirmed observations; no local filesystem synchronization is implied.
+
+
+### 2026-10-27 — CDP execution context mapped to the game htmlWrap frame
+
+#### Runtime evidence supplied by user
+
+- The read-only CDP discovery connected to the local debugger endpoint on port 9222 and successfully enabled the CDP Runtime domain.
+- The frame tree uniquely identified the game iframe named `htmlWrap`, with sanitized URL `https://w14h.kancolle-server.com/kcs2/index.php` and frame ID `4D4C916E7B825BBB208E594675BC3F33`.
+- CDP reported two execution contexts for that frame: context ID `73` with `isDefault=true`, and context ID `74` with `isDefault=false` and name `Electron Isolated Context`.
+- The probe reported `TARGET_CONTEXT_IDENTIFIED`; 38 execution-context events were observed overall.
+- The user-supplied report states that no game input was sent and `Runtime.evaluate` was not used.
+
+#### Interpretation and limits
+
+- **Confirmed for this session:** the CDP frame-to-context mapping is available. Context 73 is the default page context for the target frame; context 74 is an Electron isolated context. This identifies where a future, tightly bounded read-only inspection could be scoped.
+- No game-engine object, scene graph, expedition control, or expedition state has yet been identified by this result alone. Do not infer those capabilities merely from the existence of an execution context.
+- Next step: if continuing, use only a bounded read-only inspection against context 73, with no input dispatch and no game actions; inspect minimal metadata such as document/Canvas presence and safe global-property names, without dumping storage, cookies, tokens, or network credentials.
+- Do not use `Runtime.evaluate` until a separate inspection script and its exact read-only scope are agreed. The real expedition completion/result claim/re-dispatch loop remains **NOT VERIFIED**.
+- This is a remote GitHub progress update based on user-supplied runtime evidence; no local filesystem synchronization is implied.
