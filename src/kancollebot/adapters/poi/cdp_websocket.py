@@ -14,7 +14,7 @@ import struct
 import urllib.parse
 from typing import Any
 
-from .cdp_input import CdpInputError
+from .cdp_input import CdpInput, CdpInputError
 
 
 _ALLOWED_METHODS = {
@@ -200,6 +200,11 @@ class CdpPoiSession:
     def __init__(self, target, transport: CdpWebSocketTransport) -> None:
         self.target = target
         self.transport = transport
+
+    @property
+    def input(self) -> CdpInput:
+        """Return the input facade backed by this session's transport."""
+        return CdpInput(self.transport)
 
     def close(self) -> None:
         self.transport.close()
