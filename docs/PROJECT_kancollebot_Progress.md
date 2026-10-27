@@ -1834,3 +1834,12 @@ The Hand plugin's read-only probe reported:
 - **Verification:** The updated script was fetched back from the target branch and compared byte-for-byte with the submitted content. This verifies the remote file content, not runtime success. The user has not yet run this revision.
 - **Script commit:** `0b633d05c10dbaa76687f63fa5202f8edaaca415`.
 - No local worktree sync was performed; no GitHub Actions workflow was run.
+
+## 2026-10-27 — Successful read-only retrieval of game main.js
+
+- **Verified runtime result:** The embedded-frame-aware Hand sandbox connected to the DMM launcher target, found the unique game frame at pathname `/kcs2/index.php`, and retrieved the game script using CDP `Debugger.getScriptSource`.
+- **Source metadata:** scriptId `758`; source length `8,495,851` characters. The report explicitly states that page source was not executed.
+- **Safety report:** `Runtime.evaluate` unused; page source not executed; game functions not called; getters not invoked; no game input sent; no recursive object traversal.
+- **Useful extraction:** The report returned the `_0x3353` decoder definition (source offsets 317022–318153) and the `_0x3f23` string-table factory (source range begins at offset 0 and ends at 317022), providing the concrete static source needed for offline decoder analysis.
+- **Next useful step:** Improve the offline lexical-boundary handling for the `_0x466acb` definition, then validate extracted definitions against the retrieved source without evaluating page code.
+- No local worktree sync was performed; no GitHub Actions workflow was run.
