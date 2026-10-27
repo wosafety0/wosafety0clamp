@@ -1739,5 +1739,5 @@ The Hand plugin's read-only probe reported:
 - 本轮核查确认现有只读静态源码探测脚本已存在于 `tools/hand_sandbox/static_main_decoder_20261027.js`（远端 blob SHA: `c343c99c762836a9f2c0eccfdc1c618a562214d0`）；其历史用途和限制已在本进度文件前文记录，因此没有重复创建副本。
 - 本轮再次核对现有记录：原生 WebSocket/CDP execution-context 探测的完整原始脚本目前没有可验证的仓库文件；既有进度也明确指出对话检索未取得完整源码。为避免伪造历史代码，本轮不重建该脚本，也不把结果记录冒充源码归档。
 - 本次仅修改项目规则与进度文档；没有修改运行代码、安装依赖、执行游戏操作或触发 GitHub Actions。
-- 远端写入状态：项目规则文件已提交至分支 `dev/expedition-closed-loop-mvp`，commit `86651d2a7b63fe4559ccceb32880cbd1046709d3`。本进度条目的写入状态需以本次更新返回的 commit 与随后重新读取核验为准；本地工作树同步状态未检查。
+- 远端写入状态：项目规则文件已提交至分支 `dev/expedition-closed-loop-mvp`，commit `86651d2a7b63fe4559ccceb32880cbd1046709d3`；本进度文件更新已成功并经远端回读确认。具体进度文件更新 commit 以本次操作返回值为准；本地工作树同步状态未检查。
 - 下一步：对该分支的规则与进度文件执行远端回读核验；随后继续只归档能取回原始代码或有明确复用价值的成果，不重建无法验证的历史脚本。真实远征完成、领取结果、同舰队再次出击的闭环仍为 **NOT VERIFIED**。
