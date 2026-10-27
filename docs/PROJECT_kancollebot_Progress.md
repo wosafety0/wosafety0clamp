@@ -1843,3 +1843,11 @@ The Hand plugin's read-only probe reported:
 - **Useful extraction:** The report returned the `_0x3353` decoder definition (source offsets 317022–318153) and the `_0x3f23` string-table factory (source range begins at offset 0 and ends at 317022), providing the concrete static source needed for offline decoder analysis.
 - **Next useful step:** Improve the offline lexical-boundary handling for the `_0x466acb` definition, then validate extracted definitions against the retrieved source without evaluating page code.
 - No local worktree sync was performed; no GitHub Actions workflow was run.
+
+## 2026-10-27 — Decision: continue staged static analysis of obfuscated game source
+
+- **Decision:** Continue only as a staged, read-only investigation; do not attempt to deobfuscate the entire multi-megabyte bundle up front.
+- **Feasibility:** JavaScript obfuscation often preserves enough structure to recover string decoding, symbol relationships, function boundaries, and selected control/data flow. This does not guarantee recovery of original variable names, comments, or a complete original source tree.
+- **Stages:** (1) validate lexical extraction of the known decoder and string-table factory; (2) locate and extract the application wrapper/factory and local decoder alias as plain text; (3) derive strings offline without evaluating code in the game page; (4) trace only the functions needed for the automation research goal; (5) validate conclusions against independent static references and keep all live-game input disabled.
+- **Stop conditions:** Stop or reassess if the work requires executing page code, invoking game functions/getters, sending game input, or if a small targeted analysis does not produce actionable understanding.
+- **Current baseline:** Main script retrieved via `Debugger.getScriptSource`, length 8,495,851 characters; `_0x3353` and `_0x3f23` source text extracted. This is not yet a claim that the complete game logic has been reconstructed.
