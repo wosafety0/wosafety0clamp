@@ -1719,3 +1719,23 @@ The Hand plugin's read-only probe reported:
 - **Code archival limitation:** the historical conversation search returned a description of the full PowerShell probe but did not return its literal complete source text. To avoid fabricating or silently rewriting historical code, no reconstructed script is committed in this entry. The exact probe source should be archived as a code file only when its original code block is retrievable.
 - No game functions were called and no game input was sent during the documented read-only probe. The real expedition completion, reward claim, and re-dispatch loop remains **NOT VERIFIED**.
 - This is a remote GitHub documentation update; it does not imply local filesystem synchronization.
+
+
+### 2026-10-27 — KCAuto runtime failure and Poi 12.0.1 bridge boundary audit
+
+#### Verified findings from the backward audit
+
+- **KCAuto Custom v3.2.0 runtime check:** `kcauto_custom.exe` loaded its configuration and initialized, but exited with `No Kantai Collection tab found in Chrome` at `util\\kca.py:122 hook_chrome`. The observed CDP target list contained the game visual target as `type=webview` and the Poi main window as `type=page`; the expected API target URL containing `kcs2/index.php` was not present. Therefore this was a startup/target-discovery failure, **not** a successful automation run and not evidence of a real expedition action.
+- **Poi 12.0.1 source inspection:** `app.js` enables `webviewTag`, `nodeIntegration`, `contextIsolation:false`, and handles `did-attach-webview`. `views/kan-game-window-wrapper.js` creates `index-plugin.html?kangame`, locates its BrowserWindow, and invokes `handleWebviewPreloadHack`. `lib/ipc.js` is plugin IPC, not a verified game-input interface.
+- **Bridge boundary:** `assets/js/webview-preload.js` exposes `poiPreloadBridge`, validates methods and `/kcs*` paths, and forwards network events. `lib/game-api-broadcaster.js` emits request/response/error events and recognizes `/kcsapi`. The inspected bridge did **not** establish a click/input API; no claim is made that such an API cannot exist elsewhere in Poi.
+- **Installed plugin/port observations:** `poi-plugin-forwarder` v1.1.1 was present; its inspected `index.js` posts KCSAPI/map data to `http://localhost:9223/webhook/kancolle`, with an optional relay at `127.0.0.1:9224`. In that specific runtime check, the only verified listener among these candidates was Poi DevTools at `127.0.0.1:9222` (PID 17704). These observations do not prove that ports 9223/9224 were available or that webhook delivery was working.
+- **ASAR inspection limitation:** a follow-up WebView mount-source probe failed during ASAR JSON parsing. The recorded structural offsets were `JsonOffset=16`, `JsonLength=7,816,973`, and `DataSectionOffset=7,816,992`; the failed probe produced no new WebView conclusion. Do not present this failed attempt as a successful source inspection.
+- **Code archival boundary:** the available history contains findings and output, but not the complete literal source for the KCAuto runtime-check script or the ASAR mount-source probe. No reconstructed source files are committed here. Only the independently retrievable, user-provided static `main.js` probe is archived as a code artifact; the CDP context discovery results are documented in the preceding entry.
+
+#### Decision / next step
+
+- Do not adopt KCAuto's startup success as an acceptance criterion; its current target discovery failed against the observed Poi target topology.
+- Treat Poi plugin IPC, network-event forwarding, DevTools CDP, and any game-input mechanism as separate interfaces. Do not assume that `poiPreloadBridge` or `poi-plugin-forwarder` supplies a click/input API.
+- Keep this as static/runtime diagnostic evidence only. No plugin installation, Poi configuration change, game input, or real expedition action is implied by this audit.
+- The real expedition completion, reward claim, and re-dispatch loop remains **NOT VERIFIED**.
+- This is a remote GitHub documentation update; it does not imply local filesystem synchronization.
