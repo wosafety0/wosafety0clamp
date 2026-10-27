@@ -57,3 +57,9 @@ Cloud GitHub first; no local checkout required. Read before write. Record verifi
 - Therefore the immediate blocker is not absence of a reader: it is confirming mission-field semantics and current-state transitions using one bounded, passive live observation batch.
 - Batch plan: read health/initialize, then only `info.fleets` and `sortie` (if supported), report sanitized key/type/slot-position shapes and numeric status/mission fields only if they are needed; do not print personal IDs, names, raw payloads, or secrets. No dispatch/write tools.
 - After the local batch, return to this GitHub branch, record the exact outcome, and continue the single-expedition MVP. Tests remain NOT_RUN unless actually executed.
+
+## 2026-10-27 — Semantic target discovery implementation
+- Added a read-only CDP accessibility-tree locator that resolves an exact accessible name and role to current viewport coordinates through backend DOM node IDs and box geometry.
+- Added only read-only accessibility/DOM geometry methods to the CDP allowlist. Mouse input remains the only input method; arbitrary JavaScript evaluation remains blocked.
+- Ambiguous names, ignored nodes, missing DOM IDs, malformed geometry, and off-viewport targets fail closed. The locator itself sends no click.
+- GitHub Actions will verify the offline unit tests. This implementation does not prove the live game UI exposes useful accessible names, and it does not implement expedition dispatch or result collection.
