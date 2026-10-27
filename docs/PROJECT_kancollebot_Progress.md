@@ -1598,3 +1598,20 @@ The Hand plugin's read-only probe reported:
 - Canvas coordinates are document/viewport geometry, not verified desktop coordinates or proof that `sendInputEvent` uses the same origin. No physical-input behavior was tested in this run.
 - Do not issue another click based on this probe. Continue with read-only coordinate-space checks before any input experiment.
 - The real expedition result/claim/redispatch loop remains **NOT VERIFIED**. This is a GitHub progress record only; it does not imply local filesystem synchronization.
+
+
+### 2026-10-27 — Physical input test at (50, 50) correlated with visible UI change
+
+#### Runtime evidence supplied by user
+
+- The Hand plugin reported its readiness check passed, then waited 20 seconds before input.
+- It logged two click sequences at WebView coordinates `(50, 50)`, and logged completion after the second sequence.
+- The user observed a visible UI change after the two-click test.
+
+#### Interpretation and limits
+
+- **New evidence:** unlike the earlier send-only test, the user observed an actual UI change temporally associated with the input test. This supports that the input path can cause a visible interface effect at this tested setup/coordinate.
+- Because two clicks were issued before the observation, this run does not identify which click caused the change. The exact UI transition was not described, so avoid claiming that a particular hide/show control was definitively activated.
+- The result does not validate arbitrary coordinates, prove coordinate mapping in general, or establish the state guard's correctness. Do not use repeated clicks as a coordinate-search loop.
+- Keep game actions limited to the MVP. Do not repeat dispatch or interfere with an expedition already underway. The expedition completion/result claim/re-dispatch loop remains **NOT VERIFIED**.
+- This is a remote GitHub progress update based on user-supplied logs and observation; no local synchronization is implied.
