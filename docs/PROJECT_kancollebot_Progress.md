@@ -1401,3 +1401,12 @@
 - Added a mandatory privacy-audit gate before changing repository visibility. No visibility change was made; repository metadata still reports `private`.
 - The mapping document was generated as a separate local artifact, but its upload to the ChatGPT Library was rejected by the Library's current upload quota limit. It is **not yet installed** at the path referenced by the rule. Until it is uploaded, the rule requires stopping rather than guessing if a path cannot be resolved.
 - The project master rules were read back from GitHub and the new policy was verified. The privacy audit is **not complete**: the existing project rules and repository history still contain identifying project terms, so the repository must not be made public yet.
+
+
+## 2026-10-27 — Public-safe progress policy and current repository status
+
+- Live GitHub metadata now reports this repository as public. Older progress entries that describe it as private are historical records and must not be interpreted as current metadata.
+- From this entry forward, public progress records will use only approved opaque aliases. Do not record real project identities, executable filenames, invocation relationships, or alias-to-identity mappings in progress text, commit messages, issue/PR content, workflow logs, or generated reports.
+- The authoritative alias/path mapping remains in a separately authorized private index. This public repository records only whether the index was consulted and whether the live path was verified; it must not name the private index repository or reproduce its mappings.
+- This policy update does not remove identifiers from earlier commits, old branches, historical PR diffs, or prior progress entries. Historical exposure cleanup is a separate task and is not claimed complete.
+- MVP engineering status is unchanged by this documentation update: no verified live dispatch/claim/redispatch cycle is claimed. Continue cloud-first, use GitHub Actions for repository tests where available, and do not require local execution unless a test depends on the Windows/client runtime.
