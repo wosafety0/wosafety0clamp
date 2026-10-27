@@ -46,3 +46,13 @@
 - For UmaAI work, first read `docs/PROJECT_UMAAI_Progress.md` on `analysis/qianye-reverse-engineering-20261025`, then the relevant topic-level `PROGRESS.md`.
 - Do not transfer project-specific rules or constraints across repositories. Use the receiving project's own authoritative documents and explicit user decisions; if rule ownership is unclear, verify its source before treating it as binding.
 - These are workflow and documentation rules; they do not imply that code, runtime settings, or game state have been changed.
+
+
+## Path resolution and private alias mapping
+
+- Resolve paths in this order: inspect the current repository, branch, and file tree; read the applicable project rules; if a path, folder, module, or repository alias remains unresolved, consult the private path map at `/AGENTS/PROJECT_PATH_MAP.md` in the user's ChatGPT Library before asking the user to repeat details or guessing.
+- A map entry is only a lookup hint. Verify every resolved repository, branch, path, and file against the live source before reading or editing.
+- If the private map is unavailable, a mapping is missing/ambiguous, or the live tree contradicts it, stop and report the blocker. Do not invent paths or silently substitute similarly named files.
+- Never copy the private map, real project identities, or alias-to-identity relationships into a public repository, source comments, issues, pull requests, releases, workflow logs, commit messages, or public progress reports. Use only the approved opaque names in public-facing artifacts.
+- Before changing this repository to public, perform a privacy audit covering the repository name and description, all branches and commit history, paths and identifiers, source comments, documentation, workflow names, package metadata, URLs, issues/PRs, releases, and generated artifacts. Do not change visibility until the audit is explicitly completed and passes.
+- The private map must remain outside this repository and its Git history. A file rename or a new clean commit does not erase sensitive names from earlier commits.
