@@ -27,7 +27,9 @@ class AccessibleNodeFilterTests(unittest.TestCase):
             {"role": "button", "name": {"value": "Reward"}, "ignored": False},
             "not-an-object",
         ]
-        self.assertEqual(matching_accessible_nodes(nodes), ())
+        self.assertEqual(matching_accessible_nodes(nodes), (
+            {"role": "button", "name": "Mission"},
+        ))
 
     def test_custom_keywords_are_case_insensitive(self):
         nodes = [
