@@ -1580,3 +1580,21 @@ The Hand plugin's read-only probe reported:
 - No input event, click, dispatch, reward claim, or other game action was performed by this probe.
 - Next step remains a read-only coordinate-space validation; do not run a click test until the input coordinate origin and viewport clipping are independently established.
 - The expedition result/claim/redispatch closed loop remains **NOT VERIFIED**. This is a remote documentation update only; no local file synchronization is implied.
+
+
+### 2026-10-27 — Hand plugin joint read-only state and Canvas probe
+
+#### Runtime evidence supplied by user
+
+- The joint probe completed and printed its report without a reported probe exception.
+- The Poi-host-side store lookup returned fleet 1, named `第1艦隊`, with `api_mission = [0,0,0,0]`.
+- The nested WebView traversal returned Canvas geometry: bounding rectangle `x=0, y=0, width=1200, height=720`; intrinsic Canvas dimensions `1200 × 720`.
+- The probe log explicitly states that no input events were sent and no game state was modified by this probe.
+
+#### Interpretation and limits
+
+- **Confirmed for this snapshot:** the host-side state lookup returned fleet data, and the nested game document exposed Canvas geometry.
+- The observed mission array is `[0,0,0,0]`; this single observation does not independently establish the full semantics of each array element or prove the guard correct for all states. Treat missing, malformed, or ambiguous state as a hard stop.
+- Canvas coordinates are document/viewport geometry, not verified desktop coordinates or proof that `sendInputEvent` uses the same origin. No physical-input behavior was tested in this run.
+- Do not issue another click based on this probe. Continue with read-only coordinate-space checks before any input experiment.
+- The real expedition result/claim/redispatch loop remains **NOT VERIFIED**. This is a GitHub progress record only; it does not imply local filesystem synchronization.
