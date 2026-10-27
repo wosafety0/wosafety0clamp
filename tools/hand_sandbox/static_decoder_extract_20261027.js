@@ -11,7 +11,7 @@ module.exports = function() {
   console.log('[Sandbox] Starting read-only static decoder extraction.');
 
   const http = require('http');
-  const TARGET_HINTS = ['w14h.kancolle-server.com', '/kcs2/index.php'];
+  const GAME_PAGE_PATH = '/kcs2/index.php';
   const MAIN_PATH = '/kcs2/js/main.js';
   const TIMEOUT_MS = 45000;
   const MAX_TARGET_LIST_BYTES = 1024 * 1024;
@@ -276,18 +276,32 @@ module.exports = function() {
       try { targets = JSON.parse(body); }
       catch (error) { return cleanup('HTTP_PARSE_ERROR', error.message); }
 
-      const matches = targets.filter(function(target) {
-        if (!target || typeof target.url !== 'string' || !target.webSocketDebuggerUrl) return false;
-        const path = safePath(target.url);
-        return target.type === 'webview' &&
-          path.indexOf('/kcs2/index.php') >= 0 &&
-          TARGET_HINTS.some(function(hint) { return target.url.indexOf(hint) >= 0; });
+      const candidates = targets.filter(function(target) {
+        return !!target && typeof target.url === 'string' &&
+          !!target.webSocketDebuggerUrl &&
+          safePath(target.url).indexOf('/kcs2/index.php') >= 0;
       });
-      if (matches.length !== 1) {
-        return cleanup('TARGET_ERROR', 'Matching game WebView count: ' + matches.length + '; expected exactly one target matching configured hints.');
+      if (candidates.length !== 1) {
+        const diagnosticTargets = targets.filter(function(target) {
+          if (!target || typeof target.url !== 'string') return false;
+          return /kancolle|kcs2|dmm/i.test(target.url + ' ' + (target.title || ''));
+        }).slice(0, 30).map(function(target) {
+          return {
+            type: typeof target.type === 'string' ? target.type : null,
+            title: typeof target.title === 'string' ? target.title : null,
+            url: target.url,
+            webSocketDebuggerAvailable: !!target.webSocketDebuggerUrl
+          };
+        });
+        return cleanup('TARGET_ERROR', JSON.stringify({
+          targetCount: targets.length,
+          gamePagePathMatchCount: candidates.length,
+          diagnosticTargets: diagnosticTargets,
+          hint: 'Target matching uses the game page path without assuming a particular CDP target type or host.'
+        }));
       }
 
-      const target = matches[0];
+      const target = candidates[0];
       socket = new WebSocket(target.webSocketDebuggerUrl);
       socket.onopen = function() {
         if (finished) return;
