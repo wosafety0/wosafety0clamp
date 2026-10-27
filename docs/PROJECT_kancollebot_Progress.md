@@ -1651,3 +1651,23 @@ The Hand plugin's read-only probe reported:
 - Next step: if continuing, use only a bounded read-only inspection against context 73, with no input dispatch and no game actions; inspect minimal metadata such as document/Canvas presence and safe global-property names, without dumping storage, cookies, tokens, or network credentials.
 - Do not use `Runtime.evaluate` until a separate inspection script and its exact read-only scope are agreed. The real expedition completion/result claim/re-dispatch loop remains **NOT VERIFIED**.
 - This is a remote GitHub progress update based on user-supplied runtime evidence; no local filesystem synchronization is implied.
+
+
+### 2026-10-27 — CDP endpoint ownership preflight
+
+#### Runtime evidence supplied by user
+
+- Read-only PowerShell inspection found TCP port 9222 listening on loopback address 127.0.0.1, owned by Poi process PID 12612.
+- The CDP metadata endpoints `/json/version`, `/json/list`, and `/json` all returned HTTP 200. Browser reported as Chrome/152.0.7977.54 and protocol version 1.3.
+- Both target-list endpoints returned one target. Its type was reported as `page webview page service_worker worker worker`, and its URL was `devtools://devtools/bundled/devtools_app.html`; no game page was directly listed.
+- No debugger attachment, file change, or game input was performed by this preflight.
+- The user-supplied report marked clipboard verification FAILED.
+
+#### Interpretation and next step
+
+- **Confirmed:** port 9222 belongs to Poi PID 12612 and exposes responding CDP metadata endpoints.
+- The current `/json/list` result alone does not expose the game page as a target. This does not invalidate the earlier user-supplied discovery that identified the `htmlWrap` frame and contexts 73 (default page context) and 74 (Electron isolated context) during a separate Runtime-enabled discovery session.
+- Do not infer that the game frame is gone, and do not attach another debugger or restart Poi solely based on this target-list result.
+- Next step: inspect the existing Hand plugin's debugger/target handling and, if needed, perform a bounded read-only check of the current process command line and CDP discovery metadata. Do not print WebSocket URLs, session query strings, cookies, local storage, or credentials. Keep game input disabled.
+- The expedition completion, result claim, and re-dispatch loop remains **NOT VERIFIED**.
+- This progress update is a remote GitHub write; no local filesystem synchronization is implied.
