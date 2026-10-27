@@ -107,8 +107,11 @@ def locate_accessible_target(
         raise SemanticTargetError("CDP target box contains invalid coordinates")
 
     width, height, page_x, page_y = _viewport(transport)
-    x = sum(float(content[index]) for index in (0, 2, 4, 6)) / 4 - page_x
-    y = sum(float(content[index]) for index in (1, 3, 5, 7)) / 4 - page_y
+    # Refuse scroll offsets rather than risk mapping page coordinates to the wrong viewport point.
+    if page_x != 0 or page_y != 0:
+        raise SemanticTargetError("Scrolled viewport cannot be mapped safely")
+    x = sum(float(content[index]) for index in (0, 2, 4, 6)) / 4
+    y = sum(float(content[index]) for index in (1, 3, 5, 7)) / 4
     if not (0 <= x < width and 0 <= y < height):
         raise SemanticTargetError("Accessible target center is outside the current viewport")
 
