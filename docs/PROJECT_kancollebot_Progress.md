@@ -1860,3 +1860,17 @@ The Hand plugin's read-only probe reported:
 - **Expected hybrid design:** Use structured/read-only state observation for decision-making and verification where a supported, stable source exists; retain screenshots for visual confirmation and UI-only workflows. Any input mechanism remains separately gated and must not be assumed available merely because source code was understood.
 - **Validation criteria:** For each target workflow, measure whether source analysis provides (1) a stable state signal, (2) a clear success/failure predicate, (3) lower sensitivity to resolution/layout/timing, and (4) repeatable offline validation. Do not assume benefits until demonstrated.
 - **Priority for current investigation:** First map relevant state/data paths and read-only observability; only then decide whether to investigate action dispatch. Keep live game input disabled throughout static analysis.
+
+## 2026-10-27 — Cost-controlled investigation plan
+
+- **Purpose:** Decide whether source analysis improves KancolleBot automation enough to justify further effort, instead of pursuing deobfuscation as an end in itself.
+- **Initial budget:** Maximum 6 hours of active investigation, staged and not pre-authorized all at once; cash budget 0 using the existing environment. No new installations, paid services, or GitHub Actions.
+- **Stage 1 — 45 minutes:** Fix/validate lexical extraction of the known symbols (`_0x466acb`, `_0x460358`) using source text already captured. Deliver a reproducible static extractor and validated offsets/text, or stop if the target declarations cannot be identified reliably.
+- **Stage 2 — 90 minutes:** Map only the data paths relevant to fleet/ship/expedition state and compare them with existing Poi read-only tools. Deliver a short source map with exact identifiers and evidence, or stop if no actionable read-only path emerges.
+- **Stage 3 — 90 minutes:** Define a small offline state-verification prototype using saved/static fixtures or existing read-only responses; no live game input. Deliver repeatable checks and explicit success predicates.
+- **Stage 4 — 60 minutes:** Compare the prototype with screenshot/coordinate workflow on a small set of representative cases. Record observable differences such as ambiguity, dependency on screen geometry, and ability to prove outcome; do not claim improvement without measurements.
+- **Reserve — 75 minutes:** Only for resolving a specific blocker or strengthening a result that has already shown value. No open-ended deobfuscation.
+- **Go criteria:** Continue only if the work produces reusable code or a source-backed, independently verifiable state signal; can be tested without executing the game bundle; and is plausibly useful to a target workflow.
+- **Stop criteria:** Stop when the timebox expires without a validated artifact, when findings are only cosmetic deobfuscation, when the only proposed route requires unsafe/unsupported live execution, or when there is no clear advantage over existing Poi/visual methods.
+- **ROI metrics:** Reuse value of extracted artifacts; repeatability of state checks; ability to prove task outcomes; reduction in screen-layout dependency; maintenance burden. Compare before/after on the same small cases and do not assume a gain before measurement.
+- **Safety and cost boundaries:** No new software installation, no paid APIs/services, no Actions, no live game inputs. Archive successful reusable outcomes and decisions only; do not create progress entries for failed or no-progress attempts.
