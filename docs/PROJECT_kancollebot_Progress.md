@@ -1765,3 +1765,14 @@ The Hand plugin's read-only probe reported:
 - Next step, if resumed: read-only inspect the current plugin's loaded process and listener state on `38591`, plus the sanitized KCAuto interaction-mode/connection error. Do not reinstall or replace the same files again; do not perform gameplay actions or change global settings.
 - Provenance: this entry records the earlier conversation's user-reported local results and source-review findings; it is not a fresh local execution. No game action or GitHub Actions run was performed for this archival update.
 
+
+
+### 2026-10-27 — Original PowerShell CDP execution-context discovery script recovered and archived
+
+- The user supplied the full PowerShell script headed `Poi CDP Execution Context Discovery`. It queries the local Poi CDP target list on `127.0.0.1:9222`, enables `Runtime` event delivery, captures `Runtime.executionContextCreated`, maps observed contexts to the `htmlWrap` frame via `Page.getFrameTree`, and emits `TARGET_CONTEXT_IDENTIFIED` when its conditions are met.
+- The script explicitly states that it does not send game input and does not call `Runtime.evaluate`. This archive action did not execute the script or interact with the game.
+- Archived source file: `tools/hand_sandbox/cdp_context_discovery_20261027.ps1`.
+- Provenance limitation: the source text was recovered from the user's current message. It matches the target script's distinctive structure and status marker, but byte-for-byte identity with the historical chat message has not been independently established.
+- Remote verification: file was created on branch `dev/expedition-closed-loop-mvp` in repository `wosafety0/wosafety0clamp`, commit `0401e20a59638132a06485dbd4e6b77bf6a09dfd`; remote readback returned blob SHA `f335cbe4d09452731c97f4dc0f5ee8c23bd930cc` and confirmed the expected header, `Runtime.enable`, `TARGET_CONTEXT_IDENTIFIED`, and the `Runtime.evaluate: NOT USED` marker.
+- No local worktree synchronization was performed or verified. No GitHub Actions workflow was run.
+- Follow-up caution: this script waits for Runtime events after `Runtime.enable`; if the expected context events are not captured, that absence alone does not prove the contexts do not exist. The clipboard logic verifies the base report, then copies a final report but does not verify that final copy again.
