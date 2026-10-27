@@ -48,11 +48,11 @@
 - These are workflow and documentation rules; they do not imply that code, runtime settings, or game state have been changed.
 
 
-## Path resolution and private alias mapping
+## Path resolution and public-safe progress records
 
-- Resolve paths in this order: inspect the current repository, branch, and file tree; read the applicable project rules; if a path, folder, module, or repository alias remains unresolved, consult `PROJECT_PATH_MAP.md` in the separately authorized private index repository `wosafety0/KancolleBot-path-index` before asking the user to repeat details or guessing. This repository reference is internal-only and must be removed or generalized before any public release.
-- A map entry is only a lookup hint. Verify every resolved repository, branch, path, and file against the live source before reading or editing.
-- If the private map is unavailable, a mapping is missing/ambiguous, or the live tree contradicts it, stop and report the blocker. Do not invent paths or silently substitute similarly named files.
-- Never copy the private map, real project identities, or alias-to-identity relationships into a public repository, source comments, issues, pull requests, releases, workflow logs, commit messages, or public progress reports. Use only the approved opaque names in public-facing artifacts.
-- Before changing this repository to public, perform a privacy audit covering the repository name and description, all branches and commit history, paths and identifiers, source comments, documentation, workflow names, package metadata, URLs, issues/PRs, releases, and generated artifacts. Do not change visibility until the audit is explicitly completed and passes.
-- The private map must remain outside this repository and its Git history. A file rename or a new clean commit does not erase sensitive names from earlier commits.
+- Resolve paths in this order: inspect the current repository, branch, and file tree; read the applicable project rules; if a path, folder, module, or alias remains unresolved, consult the authorized private mapping index. The private index repository name and its location are intentionally not repeated in this public document.
+- Treat every mapping as a lookup hint only. Verify the resolved repository, branch, path, and file against the live source before reading or editing.
+- If the private index is unavailable, a mapping is missing/ambiguous, or the live tree contradicts the map, stop and report the blocker. Do not invent paths or silently substitute similarly named files.
+- Public progress entries, issues, PRs, commit messages, workflow logs, and generated reports must not disclose real project identities, executable filenames, invocation relationships, or alias-to-identity mappings. Use only approved opaque aliases and report functional outcomes, tests, commit hashes, blockers, and next steps.
+- Keep the mapping index outside this repository and its Git history. Never copy its contents or mappings into public artifacts.
+- Repository visibility is currently public according to live GitHub metadata. This is not a statement that the historical privacy audit has passed; older branches, commits, paths, documentation, and PR diffs may still contain identifying terms. Do not claim historical sanitization or privacy-audit completion without separate evidence.
