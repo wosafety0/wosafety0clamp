@@ -1384,3 +1384,12 @@
   - `ce94d1afc94fc4da351e0c8eb3c3ec2cba483360` — expose the guarded input facade.
 - GitHub read-back is being used to verify the saved source. No CI was triggered and no tests have been executed in a local worktree.
 - This makes target discovery and low-level input transport composable, but it still does not provide a game-specific expedition click sequence or prove screen transitions. No local CDP endpoint was contacted and no game action was performed. Real dispatch/claim/redispatch remains **NOT VERIFIED**.
+
+
+## 2026-10-27 — Read-only CDP session preflight command
+
+- Added `tools/verify_cdp_session.py` to compose the selected Poi target, loopback WebSocket transport, and a read-only `Page.getLayoutMetrics` request.
+- The report explicitly states whether mouse input, JavaScript evaluation, or gameplay actions were sent; a successful preflight does not mark the MVP accepted.
+- Commit: `b008123d08bc4a1b00899fc0ef3f5e3f4295302c`.
+- GitHub source read-back is the available verification in this session. The script has not been run against the user's PC; no local endpoint was contacted, no screenshot/input was sent, and no GitHub Actions workflow was triggered.
+- Next engineering gate: when a local Poi/CDP runtime is available, run this read-only preflight first; then validate the action targets and transitions before enabling any single dispatch. The real expedition/claim loop remains **NOT VERIFIED**.
