@@ -1741,3 +1741,27 @@ The Hand plugin's read-only probe reported:
 - 本次仅修改项目规则与进度文档；没有修改运行代码、安装依赖、执行游戏操作或触发 GitHub Actions。
 - 远端写入状态：项目规则文件已提交至分支 `dev/expedition-closed-loop-mvp`，commit `86651d2a7b63fe4559ccceb32880cbd1046709d3`；本进度文件更新已成功并经远端回读确认。具体进度文件更新 commit 以本次操作返回值为准；本地工作树同步状态未检查。
 - 下一步：对该分支的规则与进度文件执行远端回读核验；随后继续只归档能取回原始代码或有明确复用价值的成果，不重建无法验证的历史脚本。真实远征完成、领取结果、同舰队再次出击的闭环仍为 **NOT VERIFIED**。
+
+### 2026-10-27 — POI interaction-server branch replacement already tested; KCAuto connection still failing
+
+#### Confirmed historical findings
+
+- The locally installed `poi-plugin-forwarder@1.1.1` was reported to contain five files and **no** `interaction-server.js` or `protocol.js`. Its reported roles/ports were the webhook receiver target `127.0.0.1:9223` (route `/webhook/kancolle`) and relay `9224`; this installation did not provide the KCAuto interaction service on `38591`.
+- The upstream branch `XVs32/kcauto_custom` / `feature/poi-interaction-server`, commit `ac2aaa7f478701443a8d357f1ed0b8a4f28b8299`, was reported to contain `interaction-server.js` (8,927 bytes) and `protocol.js` (1,628 bytes), with package version `1.1.0` and a default interaction endpoint `127.0.0.1:38591`. This is a source-branch finding, not proof that the service was active locally.
+- The user explicitly reported that the feature-branch files had already been substituted into the local plugin and tested, but **KCAuto still could not connect to Poi**. A prior file-hash comparison reportedly matched six files to the target branch, while the active on-disk/load-state question remained unresolved.
+- Therefore, repeating the same branch-file replacement is not a valid next step. The unresolved issue is runtime/plugin loading and connection diagnostics, not merely whether the branch contains code for port `38591`.
+
+#### Port and protocol separation
+
+- `9222`: Poi Chromium remote-debugging/CDP endpoint; useful for target/context discovery, not the interaction-server TCP protocol itself.
+- `38591`: candidate local KCAuto↔Poi interaction-server TCP endpoint; branch source documents the framing/protocol, but the local listener/load state must be independently verified.
+- `9223` and `9224`: reported forwarder webhook/relay ports; they are not substitutes for the interaction-server endpoint.
+- The KCAuto source trace already recorded above identifies `kcauto/util/poi_client.py`, `kcauto/util/interaction_drivers.py`, and `kcauto/util/poi_plugins.py` as the source entry points for future read-only diagnosis. Do not upload or duplicate the third-party plugin source tree; retain only these references and the conclusions needed for the project.
+
+#### Status and next step
+
+- **Verified from historical user reports/source inspection:** the installed v1.1.1 file inventory lacked the two interaction-server files; the target feature branch contained them; replacing branch files did not restore KCAuto connectivity.
+- **Not verified:** whether the running Poi process loaded the replaced files, whether a listener was bound on `38591`, and the actual connection error after replacement.
+- Next step, if resumed: read-only inspect the current plugin's loaded process and listener state on `38591`, plus the sanitized KCAuto interaction-mode/connection error. Do not reinstall or replace the same files again; do not perform gameplay actions or change global settings.
+- Provenance: this entry records the earlier conversation's user-reported local results and source-review findings; it is not a fresh local execution. No game action or GitHub Actions run was performed for this archival update.
+
