@@ -1815,3 +1815,12 @@ The Hand plugin's read-only probe reported:
 - This confirms that the sandbox can enumerate CDP targets and that a debuggable launcher target is present. No game-page source was retrieved in this run.
 - Next: inspect the selected page's frame tree with the read-only CDP `Page.getFrameTree` command, reporting only frame names, URLs, and hierarchy. Do not evaluate page JavaScript or send game input.
 - No game functions or getters were called, no game input was sent, no local worktree sync was performed, and no GitHub Actions workflow was run.
+
+## 2026-10-27 — Read-only discovery of the embedded game frame
+
+- **Verified result:** The Hand sandbox successfully ran the read-only CDP `Page.getFrameTree` probe against the DMM launcher page.
+- **Frame discovery:** The frame tree contains exactly one frame whose URL path is `/kcs2/index.php`. It is nested under the `game_frame` gadget frame and is named `htmlWrap`; its host is `w14h.kancolle-server.com`.
+- **Root cause resolved:** The earlier target search inspected top-level CDP targets only. The game page is an embedded frame, so filtering top-level target URLs cannot discover it.
+- **Next step:** Use CDP target/session metadata to establish a read-only debugging route to the embedded game frame, then retrieve `/kcs2/js/main.js` via `Debugger.getScriptSource` only. Do not use `Runtime.evaluate`, invoke game functions/getters, send game input, or log full frame URLs containing session parameters.
+- **Safety:** The user-provided console output contained a URL with an `api_token` query parameter. This progress entry intentionally omits that value and the full parameterized URL. Avoid copying session tokens into future logs or reports.
+- No local worktree sync was performed; no GitHub Actions workflow was run.
