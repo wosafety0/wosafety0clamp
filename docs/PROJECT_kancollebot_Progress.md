@@ -1431,3 +1431,31 @@
 - Safety boundary: this was a read-only snapshot; no dispatch, result-claim action, configuration edit, or repeated action was performed. Do not disturb or re-dispatch either active/previously observed fleet while the real-cycle status is unresolved.
 - Current acceptance: Redux state access and timestamp conversion are verified; result handling, reward collection, and readiness for a subsequent dispatch remain **NOT VERIFIED**. The one-fleet/one-mission real closed loop is still not accepted.
 - Next step: inspect the client's own mission-state and result-screen handling definitions read-only, then use fresh state evidence to determine whether a result is pending. No game action until the state is unambiguous and the next action is separately authorized. No CI workflow was triggered.
+
+## 2026-10-27 — Poi Hand WebView read-only bridge breakthrough
+
+### Verified from user-provided live Poi DevTools output
+
+- Hand plugin entry point: `%APPDATA%\\poi\\plugins\\node_modules\\poi-plugin-hand\\index.js`.
+- `pluginDidLoad()` executed after Poi restart; log confirmed `[Hand] WebView read-only probe started`.
+- The Poi renderer document exposed exactly one `webview` element: `WebView count: 1`.
+- `webview.getWebContentsId()` returned `2`.
+- `typeof webview.executeJavaScript === 'function'` evaluated to `true`.
+- The call to `webview.executeJavaScript(...)` resolved successfully and returned:
+  - URL: `https://play.games.dmm.com/game/kancolle`
+  - Title: `艦隊これくしょん -艦これ- - DMM GAMES`
+  - `canvasCount: 0`
+
+### Conclusion
+
+- **Confirmed:** The Hand plugin's renderer context can locate the game WebView and execute a read-only JavaScript expression in its page context. This closes the previous gap between inspecting the Poi shell document and inspecting the actual game page.
+- **Not confirmed:** DOM-based game controls, clickable targets, input dispatch, reliable UI interaction, or any game action. A zero Canvas count does not establish that the game UI is absent; inspect DOM/iframe structure next.
+- The Electron `vm module is unsupported` warning appeared separately; the reported inspection promise still resolved. Do not attribute the warning to probe failure without additional evidence.
+- Plugin translation/update metadata warnings did not prevent this probe from succeeding.
+
+### Safety and MVP status
+
+- This was a read-only page inspection; no click, game API request, expedition dispatch, reward claim, or other game-state mutation was performed by this probe.
+- Do not dispatch again or interfere with the already-running expedition. The real expedition loop remains incomplete until result collection and safe re-dispatch readiness are verified.
+- Next step: inspect page structure read-only (iframe metadata, interactive element counts and limited element summaries) through the already-verified `webview.executeJavaScript` path. Do not add click logic until candidate controls and safe interaction semantics are established.
+- Evidence source classification: live runtime result pasted by the user from local Poi DevTools; not independently executed by the assistant. No local filesystem synchronization is implied by this GitHub record.
