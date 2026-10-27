@@ -1515,3 +1515,29 @@ The Hand plugin's nested-frame inspection returned a successful result:
 - Do not repeat dispatch or interfere with the already-running expedition. The real expedition loop remains incomplete until result collection and safe re-dispatch readiness are verified.
 - Because the pasted game URL included an `api_token` value, treat it as exposed session material: avoid sharing the unredacted URL again and reload/re-enter the game session when practical so a fresh session URL/token is issued. Do not attempt any direct API call with that token.
 - Evidence source: runtime log pasted by the user; not independently executed by the assistant. This GitHub update does not imply local filesystem synchronization.
+
+
+### 2026-10-27 — Canvas viewport geometry measured (read-only)
+
+#### Runtime evidence supplied by user
+
+The Hand plugin's zero-click Canvas metadata probe returned:
+
+- Canvas internal dimensions: 1200 × 720.
+- `getBoundingClientRect()`: left 0, top 0, width 1200, height 720.
+- Derived scale: x = 1, y = 1.
+- `canvas.onmousedown` and `parent.onmousedown` both evaluated false.
+
+#### Interpretation and limits
+
+- **Confirmed:** Within the game iframe's own viewport, Canvas internal coordinates match CSS display coordinates at a 1:1 scale for this observation.
+- The field was named `screenRect` by the probe, but `getBoundingClientRect()` reports coordinates relative to the current document's viewport. Since this Canvas is inside a nested iframe, left/top 0,0 are **not** Windows desktop screen coordinates. Mapping to the outer WebView or desktop still requires accounting for iframe offsets and the relevant browser/window metrics.
+- The two `onmousedown` checks being false do not prove that no listeners exist; listeners may be registered with `addEventListener` on the Canvas, ancestors, or other targets.
+- **Not confirmed:** Any input event being accepted by the game, CDP-to-screen coordinate mapping, reward collection, or expedition re-dispatch readiness.
+
+#### Safety and MVP status
+
+- This probe was zero-click/read-only; no game-state mutation is evidenced by the supplied log.
+- Do not repeat dispatch or interfere with the expedition already underway. The real expedition loop remains incomplete.
+- The Poi translation warning, Electron renderer `vm` warning, and `No quest tracking data!` message appeared in the same console output but do not by themselves invalidate the successful metadata result.
+- Evidence source: runtime log pasted by the user; not independently executed by the assistant. This GitHub record does not imply local filesystem synchronization.
