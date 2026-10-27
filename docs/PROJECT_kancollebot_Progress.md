@@ -1693,3 +1693,14 @@ The Hand plugin's read-only probe reported:
 - No game source was executed, no game function was called, and no input was sent. Do not repeat the already completed global scan; the next technical step is a bounded static extractor for the exact function/table definitions, followed by offline decoding.
 - The real expedition completion, reward claim, and re-dispatch loop remains **NOT VERIFIED**.
 - Evidence source: runtime reports and source-analysis results recorded in the conversation on 2026-10-27. This remote documentation update does not imply local filesystem synchronization.
+
+### 2026-10-27 — Archived historical Hand static main.js decoder probe
+
+#### Code artifact
+
+- Archived the user-provided historical sandbox script at [`tools/hand_sandbox/static_main_decoder_20261027.js`](../blob/dev/expedition-closed-loop-mvp/tools/hand_sandbox/static_main_decoder_20261027.js).
+- Purpose: use Poi's local CDP endpoint at `127.0.0.1:9222` to locate the game WebView, enable the CDP Debugger domain, retrieve the already-loaded `/kcs2/js/main.js` source with `Debugger.getScriptSource`, and print bounded source excerpts around selected obfuscated-symbol patterns.
+- Safety behavior declared by the script: it does not call `Runtime.evaluate`, execute retrieved source, invoke game functions, or send game input. It limits target-list size, has request/global timeouts, and strips URL query data from the displayed script path by using `URL.pathname`.
+- Historical result associated with this probe: the conversation records successful retrieval of `main.js` at **8,495,851 characters** and a `STATIC_SOURCE_ANALYSIS_SUCCESS` report. The historical report showed 10 excerpts. This result is sourced from the conversation's runtime report, not a fresh execution during archival.
+- Follow-up correction: the script searches for an `_0x460358` definition, but later static inspection established that `_0x460358` is an alias to `_0x3353` inside the relevant module wrapper. Therefore this script is a historical source-retrieval/excerpt probe, not a complete decoder extractor. It does not yet reliably extract the complete `_0x3353` definition or the `_0x3f23` table-rotation initialization.
+- Status: **code archived; historical source-read result documented; decoder extraction remains incomplete**. No fresh runtime test was run as part of this archival action. This remote write does not imply local filesystem synchronization.
