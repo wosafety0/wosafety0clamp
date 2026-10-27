@@ -1776,3 +1776,23 @@ The Hand plugin's read-only probe reported:
 - Remote verification: file was created on branch `dev/expedition-closed-loop-mvp` in repository `wosafety0/wosafety0clamp`, commit `0401e20a59638132a06485dbd4e6b77bf6a09dfd`; remote readback returned blob SHA `f335cbe4d09452731c97f4dc0f5ee8c23bd930cc` and confirmed the expected header, `Runtime.enable`, `TARGET_CONTEXT_IDENTIFIED`, and the `Runtime.evaluate: NOT USED` marker.
 - No local worktree synchronization was performed or verified. No GitHub Actions workflow was run.
 - Follow-up caution: this script waits for Runtime events after `Runtime.enable`; if the expected context events are not captured, that absence alone does not prove the contexts do not exist. The clipboard logic verifies the base report, then copies a final report but does not verify that final copy again.
+
+
+### 2026-10-27 — Read-only renderer/source reference probe
+
+#### Confirmed evidence from user-provided runtime output
+
+- The page was `https://w14h.kancolle-server.com/kcs2/index.php`, `readyState=complete`, with exactly one canvas at 1200×720 (client/offset size and bounding rectangle matched).
+- Global own-property inspection found data properties `PIXI`, `KCS`, and `createjs`; the names `app`, `game`, `stage`, `renderer`, `application`, `scene`, and `SceneManager` were absent as globals.
+- On the `PIXI` object, `Application`, `Container`, `DisplayObject`, `Sprite`, `Graphics`, `Stage`, `ticker`, and `utils` were accessor descriptors; the probe recorded getter presence but did not invoke getters. `loader` was a data property. `KCS.init` was a data property whose value type was function; it was not called.
+- The loaded `/kcs2/js/main.js` source was retrieved as text, length 8,495,851 characters. Static excerpts show `_0x466acb=()=>{...` inside a module wrapper, where `const _0x460358=_0x3353`. Thus `_0x460358` is a local alias for the string decoder `_0x3353`, not a separate decoder definition.
+- The focused excerpt shows `_0x466acb` setting PIXI dimensions to 720×360, constructing a PIXI application with options including `antialias:false`, `backgroundColor:0`, and a `forceCanvas` value read through the decoder, then appending its view and creating another object from a decoded constructor name. Exact property names remain undecoded.
+- User-provided probe output explicitly records: getters not invoked, game functions not called, no recursive traversal, and no game input sent. This entry is based on the supplied output; it is not a fresh execution by this archival action.
+
+#### Status and next step
+
+- **Verified from the supplied output:** read-only source retrieval and own-property descriptor inspection completed.
+- **Not yet verified:** decoded names for the renderer/application properties, the live application instance reference, or a usable fleet-state object.
+- Next: use a bounded static extraction to capture the complete `_0x3353` definition and `_0x3f23` string-table/rotation initializer, then decode offline outside the game page. Do not call page getters or game functions to resolve these names.
+- No game input or action was performed for this entry. The expedition completion/reward claim/re-dispatch loop remains **NOT VERIFIED**.
+- Archival state: this progress entry is being written to the remote repository branch; local worktree synchronization is not implied.
