@@ -1824,3 +1824,13 @@ The Hand plugin's read-only probe reported:
 - **Next step:** Use CDP target/session metadata to establish a read-only debugging route to the embedded game frame, then retrieve `/kcs2/js/main.js` via `Debugger.getScriptSource` only. Do not use `Runtime.evaluate`, invoke game functions/getters, send game input, or log full frame URLs containing session parameters.
 - **Safety:** The user-provided console output contained a URL with an `api_token` query parameter. This progress entry intentionally omits that value and the full parameterized URL. Avoid copying session tokens into future logs or reports.
 - No local worktree sync was performed; no GitHub Actions workflow was run.
+
+## 2026-10-27 — Embedded-frame-aware static extractor updated
+
+- **Verified repository change:** Updated `tools/hand_sandbox/static_decoder_extract_20261027.js` to connect to the DMM KanColle launcher target, call `Page.getFrameTree`, require exactly one frame with pathname `/kcs2/index.php`, and then enable CDP debugger metadata collection before requesting `/kcs2/js/main.js` through `Debugger.getScriptSource`.
+- **Race mitigation:** The extractor waits 1,000 ms after `Debugger.enable` succeeds before deciding whether a matching `Debugger.scriptParsed` event was observed.
+- **Output hygiene:** Frame diagnostics retain only frame name and path; the parameterized frame URL is not printed. The source analysis receives the sanitized pathname, not the session-bearing frame URL.
+- **Safety boundary:** The revised source contains no `Runtime.evaluate` command and does not execute page source, invoke game functions/getters, or send game input.
+- **Verification:** The updated script was fetched back from the target branch and compared byte-for-byte with the submitted content. This verifies the remote file content, not runtime success. The user has not yet run this revision.
+- **Script commit:** `0b633d05c10dbaa76687f63fa5202f8edaaca415`.
+- No local worktree sync was performed; no GitHub Actions workflow was run.
