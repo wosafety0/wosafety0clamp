@@ -1372,3 +1372,15 @@
 - No CDP endpoint was contacted, no WebSocket was opened, no screenshot was captured, and no mouse input or game action was sent.
 - The transport is a low-level primitive, not yet a concrete expedition adapter. The MVP still needs a verified target selection + recorded/validated action sequence + fresh state verification for dispatch, result handling, and return to idle. User-supplied coordinates remain unverified and must not be treated as calibrated.
 - Real expedition/claim closed loop remains **NOT VERIFIED**. The default live-action safety policy remains disabled.
+
+
+## 2026-10-27 — CDP target-to-input session wiring
+
+- Added `connect_poi_session()` to `cdp_websocket.py`: it composes the existing loopback-only target discovery/unique-title selection with the allowlisted WebSocket transport, and exposes a `CdpInput` facade through the session object.
+- Added offline test cases for successful wiring and refusing to open a WebSocket when target selection is ambiguous.
+- Remote commits:
+  - `9dd41b5a189d8d9352eeba2a78f36a479b5864fb` — connect selected Poi target.
+  - `2d2e44b300c4dc05939f6505953d1c56c90d8d1d` — session setup tests.
+  - `ce94d1afc94fc4da351e0c8eb3c3ec2cba483360` — expose the guarded input facade.
+- GitHub read-back is being used to verify the saved source. No CI was triggered and no tests have been executed in a local worktree.
+- This makes target discovery and low-level input transport composable, but it still does not provide a game-specific expedition click sequence or prove screen transitions. No local CDP endpoint was contacted and no game action was performed. Real dispatch/claim/redispatch remains **NOT VERIFIED**.
