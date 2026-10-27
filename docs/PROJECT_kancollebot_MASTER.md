@@ -56,3 +56,16 @@
 - Public progress entries, issues, PRs, commit messages, workflow logs, and generated reports must not disclose real project identities, executable filenames, invocation relationships, or alias-to-identity mappings. Use only approved opaque aliases and report functional outcomes, tests, commit hashes, blockers, and next steps.
 - Keep the mapping index outside this repository and its Git history. Never copy its contents or mappings into public artifacts.
 - Repository visibility is currently public according to live GitHub metadata. This is not a statement that the historical privacy audit has passed; older branches, commits, paths, documentation, and PR diffs may still contain identifying terms. Do not claim historical sanitization or privacy-audit completion without separate evidence.
+
+
+## 成果与进度持久化规则
+
+- **成果保护优先于聊天总结。** 聊天记录不得作为代码、验证证据或项目停点的唯一保存位置。
+- 对有长期复用价值的成果，保存实际产物（源码、探测脚本、补丁、测试或必要配置），并在本文件之外的既有权威进度文件中记录其仓库相对路径、用途、版本/commit、验证状态和下一步。
+- 关键结论应能追溯到实际代码与必要证据；证据只保留足以支持结论或复现的部分，不复制无关的大量日志或敏感数据。
+- **默认不记录普通失败和无进展测试。** 只有当失败排除了重要技术路线、揭示可复用根因、改变后续决策或构成持续阻塞时，才记录简短结论和必要证据。
+- 代码已产生但未验证时，仍应保存代码并标记“未验证”；不得因测试失败而丢弃有复用价值的产物，也不得把未验证写成成功。
+- 先使用项目现有的源码、工具、测试、证据目录与权威进度文件；新增文件仅在现有结构无法合理承载时才创建。不得为每轮对话重复建立报告。
+- 每轮工作在取得有价值成果后尽快保存，不等到任务结束；中断或结束前更新当前停点和下一步。
+- 归档状态必须分别核验：文件已保存、测试已验证、Git 已提交、远端已推送是不同状态。未实际验证的状态必须明确标为未验证/未归档；不得声称本地同步或远端更新成功。
+- 下一轮开始时，从项目规则、最新权威进度和实际仓库状态恢复工作；进度条目必须指向真实存在的产物。对关键成果定期抽查可恢复性。
