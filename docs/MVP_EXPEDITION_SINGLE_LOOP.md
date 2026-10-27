@@ -63,3 +63,9 @@ Cloud GitHub first; no local checkout required. Read before write. Record verifi
 - Added only read-only accessibility/DOM geometry methods to the CDP allowlist. Mouse input remains the only input method; arbitrary JavaScript evaluation remains blocked.
 - Ambiguous names, ignored nodes, missing DOM IDs, malformed geometry, and off-viewport targets fail closed. The locator itself sends no click.
 - GitHub Actions will verify the offline unit tests. This implementation does not prove the live game UI exposes useful accessible names, and it does not implement expedition dispatch or result collection.
+
+## 2026-10-27 — Local accessibility scan prepared
+- Added a bounded read-only diagnostic that connects to the selected local renderer, reads the accessibility tree, and prints only unique role/name pairs matching expedition-related terms.
+- The diagnostic sends no mouse input, performs no JavaScript evaluation, and makes no game-state changes. Output is capped and excludes page URL, account data, and unrelated accessible labels.
+- This tool is prepared in the cloud and must not be described as having run on the user's machine. Its purpose is to determine whether the current UI exposes stable semantic labels without manually annotating screenshots or coordinates.
+- If the live UI exposes no matching accessible labels, do not invent labels or fall back to a large manual coordinate/template inventory. Reassess the shortest supported client-mediated route based on evidence.
