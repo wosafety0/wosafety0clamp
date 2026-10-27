@@ -192,3 +192,40 @@ class CdpWebSocketTransport:
 
     def __exit__(self, exc_type, exc, traceback) -> None:
         self.close()
+
+
+class CdpPoiSession:
+    """A selected Poi renderer plus its allowlisted input transport."""
+
+    def __init__(self, target, transport: CdpWebSocketTransport) -> None:
+        self.target = target
+        self.transport = transport
+
+    def close(self) -> None:
+        self.transport.close()
+
+    def __enter__(self) -> "CdpPoiSession":
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        self.close()
+
+
+def connect_poi_session(
+    endpoint: str = "http://127.0.0.1:9222",
+    *,
+    title_hint: str = "poi",
+    url_hint: str = "",
+    timeout: float = 3.0,
+) -> CdpPoiSession:
+    """Select exactly one matching Poi page and open its loopback CDP channel.
+
+    This establishes a transport only. It does not send a click or enable a
+    gameplay loop. Callers must still verify fresh game state before each step.
+    """
+    from .cdp_targets import list_page_targets, select_poi_renderer
+
+    targets = list_page_targets(endpoint, timeout=min(timeout, 2.0))
+    target = select_poi_renderer(targets, title_hint=title_hint, url_hint=url_hint)
+    transport = CdpWebSocketTransport(target.websocket_url, timeout=timeout)
+    return CdpPoiSession(target, transport)
