@@ -1459,3 +1459,30 @@
 - Do not dispatch again or interfere with the already-running expedition. The real expedition loop remains incomplete until result collection and safe re-dispatch readiness are verified.
 - Next step: inspect page structure read-only (iframe metadata, interactive element counts and limited element summaries) through the already-verified `webview.executeJavaScript` path. Do not add click logic until candidate controls and safe interaction semantics are established.
 - Evidence source classification: live runtime result pasted by the user from local Poi DevTools; not independently executed by the assistant. No local filesystem synchronization is implied by this GitHub record.
+
+
+### 2026-10-27 — Nested game-frame read-only inspection
+
+#### Runtime evidence supplied by user
+
+The Hand plugin's read-only probe inspected the outer DMM game page and its iframe named `game_frame`:
+
+- Outer URL: `https://play.games.dmm.com/game/kancolle`; `readyState: complete`.
+- Outer page contains 15 iframes.
+- The matching `game_frame` is visible, reported as 1200 × 1200, and its `contentDocument` was accessible without an access error.
+- Its document URL is the DMM Gadget iframe URL whose encoded gadget target is `https://w00g.kancolle-server.com/gadget_html5.xml`.
+- Inner document `readyState: complete`, `bodyChildCount: 17`, `bodyTextLength: 0`, `canvasCount: 0`, `iframeCount: 1`, `buttonCount: 0`, `inputCount: 0`.
+- The probe therefore reached a nested iframe boundary, but did not yet inspect the nested iframe's own URL, document, or rendering elements.
+
+#### Interpretation
+
+- **Confirmed:** The outer page's `game_frame` document can be inspected from the verified Hand → WebView JavaScript path.
+- **Not confirmed:** The game canvas, actionable game controls, or any reliable game input mechanism. The zero Canvas/control counts apply only to the inspected Gadget document and must not be generalized to the nested iframe.
+- The next useful step is read-only inspection of the single nested iframe's metadata and access status (name, id, src, dimensions, visibility, and—only if accessible—document readiness, Canvas and interactive-element counts). Do not click, dispatch input, or issue game requests during this probe.
+- Poi log messages about missing plugin translation/update metadata did not prevent this inspection result from being returned. The Electron `vm module is unsupported` warning is separate and does not by itself prove this probe failed.
+
+#### Safety and MVP status
+
+- This probe was read-only; no game-state mutation is evidenced by this log.
+- Do not repeat dispatch or interfere with the already-running expedition. The real expedition loop remains incomplete until result collection and safe re-dispatch readiness are verified.
+- Evidence source: runtime log pasted by the user; not independently executed by the assistant. This GitHub update does not imply local filesystem synchronization.
