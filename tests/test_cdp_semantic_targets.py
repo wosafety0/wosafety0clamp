@@ -42,10 +42,10 @@ class FakeTransport:
 
 class SemanticTargetTests(unittest.TestCase):
     def test_locates_unique_exact_accessible_target(self):
-        transport = FakeTransport(page_x=20, page_y=10)
+        transport = FakeTransport()
         target = locate_accessible_target(transport, name="Expedition")
         self.assertEqual((target.backend_node_id, target.node_id), (41, 12))
-        self.assertEqual((target.x, target.y), (130.0, 60.0))
+        self.assertEqual((target.x, target.y), (150.0, 70.0))
         self.assertEqual(
             [call[0] for call in transport.calls],
             [
