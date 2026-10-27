@@ -1486,3 +1486,32 @@ The Hand plugin's read-only probe inspected the outer DMM game page and its ifra
 - This probe was read-only; no game-state mutation is evidenced by this log.
 - Do not repeat dispatch or interfere with the already-running expedition. The real expedition loop remains incomplete until result collection and safe re-dispatch readiness are verified.
 - Evidence source: runtime log pasted by the user; not independently executed by the assistant. This GitHub update does not imply local filesystem synchronization.
+
+
+### 2026-10-27 — Game canvas reached through nested iframe (read-only)
+
+#### Runtime evidence supplied by user
+
+The Hand plugin's nested-frame inspection returned a successful result:
+
+- Outer page: `https://play.games.dmm.com/game/kancolle`.
+- The DMM Gadget document was accessible and contained two child iframes.
+- The game iframe has id `htmlWrap`, targets the `w14h.kancolle-server.com/kcs2/index.php` page, and reported `documentAccess: accessible` and `readyState: complete`.
+- The game document title was `艦隊これくしょん - 艦これ -`.
+- The game document reported `canvasCount: 1`; the Canvas dimensions and client dimensions were all 1200 × 720.
+- The other child iframe was a news/message frame and reported no Canvas.
+- The pasted log contained a full game URL with an `api_token` query parameter. That credential-bearing URL is intentionally omitted from this record; do not copy it into logs, issues, commits, or reports.
+
+#### Interpretation
+
+- **Confirmed:** The read-only path from the Hand plugin through Poi's WebView and DMM Gadget frame reached the game document and read its Canvas metadata.
+- **Not confirmed:** Canvas input/click semantics, a reliable client-side interaction path, expedition result collection, or re-dispatch readiness. A Canvas being present does not prove that clicks work.
+- The earlier `canvasCount: 0` was from the outer Gadget document, not the actual game document.
+- Plugin translation/update metadata messages and the Electron renderer `vm` warning appeared in the same console output, but the inspection promise resolved with a successful result; these messages do not negate the observed Canvas result.
+
+#### Safety and MVP status
+
+- This was a read-only inspection; no click, dispatch, reward claim, or game API request is evidenced by this probe.
+- Do not repeat dispatch or interfere with the already-running expedition. The real expedition loop remains incomplete until result collection and safe re-dispatch readiness are verified.
+- Because the pasted game URL included an `api_token` value, treat it as exposed session material: avoid sharing the unredacted URL again and reload/re-enter the game session when practical so a fresh session URL/token is issued. Do not attempt any direct API call with that token.
+- Evidence source: runtime log pasted by the user; not independently executed by the assistant. This GitHub update does not imply local filesystem synchronization.
