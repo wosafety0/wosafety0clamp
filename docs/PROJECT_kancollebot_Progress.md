@@ -1615,3 +1615,20 @@ The Hand plugin's read-only probe reported:
 - The result does not validate arbitrary coordinates, prove coordinate mapping in general, or establish the state guard's correctness. Do not use repeated clicks as a coordinate-search loop.
 - Keep game actions limited to the MVP. Do not repeat dispatch or interfere with an expedition already underway. The expedition completion/result claim/re-dispatch loop remains **NOT VERIFIED**.
 - This is a remote GitHub progress update based on user-supplied logs and observation; no local synchronization is implied.
+
+
+### 2026-10-27 — Confirmed reversible UI toggle at (50, 50)
+
+#### User-confirmed visual result
+
+- The first click at `(50, 50)` hid the game UI.
+- The second click at the same coordinate restored the UI.
+- The two clicks were issued by the Hand plugin's test loop in the same session/layout.
+
+#### Conclusion and limits
+
+- **Confirmed for the tested session/layout:** the `(50, 50)` input sequence triggered a reversible UI hide/show behavior. This is strong evidence that the tested input path reaches a game/UI interaction target.
+- This does not establish a universal safe coordinate, validate other coordinates, or prove that the state guard is robust. The toggle target can be layout/state dependent.
+- Avoid repeated clicking outside deliberate tests. Do not repeat dispatch or interfere with the expedition already underway.
+- Next: use this as the physical-input-path milestone; keep the next step narrowly scoped to read-only identification of the expedition UI/control and its coordinate frame before any expedition-related click. The actual expedition completion/result claim/re-dispatch loop remains **NOT VERIFIED**.
+- This is a remote GitHub progress update based on user-confirmed observations; no local filesystem synchronization is implied.
