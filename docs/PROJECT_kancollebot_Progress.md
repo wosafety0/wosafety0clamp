@@ -1704,3 +1704,18 @@ The Hand plugin's read-only probe reported:
 - Historical result associated with this probe: the conversation records successful retrieval of `main.js` at **8,495,851 characters** and a `STATIC_SOURCE_ANALYSIS_SUCCESS` report. The historical report showed 10 excerpts. This result is sourced from the conversation's runtime report, not a fresh execution during archival.
 - Follow-up correction: the script searches for an `_0x460358` definition, but later static inspection established that `_0x460358` is an alias to `_0x3353` inside the relevant module wrapper. Therefore this script is a historical source-retrieval/excerpt probe, not a complete decoder extractor. It does not yet reliably extract the complete `_0x3353` definition or the `_0x3f23` table-rotation initialization.
 - Status: **code archived; historical source-read result documented; decoder extraction remains incomplete**. No fresh runtime test was run as part of this archival action. This remote write does not imply local filesystem synchronization.
+
+
+### 2026-10-27 — Native WebSocket CDP execution-context discovery and read-only evaluate
+
+#### Code/progress audit result
+
+- A backward review of the 2026-10-27 conversation found a completed native .NET WebSocket/CDP probe whose execution-context discovery and read-only evaluation result were not explicitly recorded in this progress log. The separate static `main.js` retrieval/excerpt script is already archived at `tools/hand_sandbox/static_main_decoder_20261027.js`; do not duplicate it.
+- The probe connected to Poi's local CDP endpoint at `127.0.0.1:9222`, discovered the game WebView's default execution context over successive context events (ContextId **71**, then stable ContextId **73**), and successfully enabled the Runtime domain.
+- Recorded output: `STATUS: CONTEXT_FOUND`; `DETAIL: ContextId=73, Generation=3, Runtime.enable=SUCCESS, Stability=window_passed`.
+- A bounded read-only `Runtime.evaluate` then returned `{"accessible":true,"readyState":"complete","canvasCount":1,"safeGlobals":["PIXI","KCS"]}`, with `STATUS: EVALUATE_SUCCESS`. The conversation explicitly records no game input.
+- This is useful progress because it establishes that the native CDP path can identify a stable main-world context and perform a limited read-only query, not merely connect to port 9222. It does **not** prove that game actions can be safely automated or that a usable fleet-state object is exposed.
+- A related earlier context-only discovery mapped frame `htmlWrap` (FrameId `4D4C916E7B825BBB208E594675BC3F33`) to default ContextId **73** and isolated ContextId **74**, with `Runtime.enable: PASS`; that earlier probe did not call `Runtime.evaluate`.
+- **Code archival limitation:** the historical conversation search returned a description of the full PowerShell probe but did not return its literal complete source text. To avoid fabricating or silently rewriting historical code, no reconstructed script is committed in this entry. The exact probe source should be archived as a code file only when its original code block is retrievable.
+- No game functions were called and no game input was sent during the documented read-only probe. The real expedition completion, reward claim, and re-dispatch loop remains **NOT VERIFIED**.
+- This is a remote GitHub documentation update; it does not imply local filesystem synchronization.
