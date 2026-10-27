@@ -1,0 +1,26 @@
+name: CI Availability Check
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  availability:
+    name: Verify Actions Runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Confirm runner execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "GitHub Actions runner started."
+          test -n "${GITHUB_ACTIONS:-}"
+          test "${GITHUB_ACTIONS}" = "true"
+          test -n "${GITHUB_RUN_ID:-}"
+          echo "PASS: runner environment and workflow execution are available."
