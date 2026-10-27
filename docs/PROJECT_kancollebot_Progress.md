@@ -1352,3 +1352,23 @@
 - The missing equipment JSON files are checked during initialization, but the fatal exception shown in the supplied log occurs later during Chrome target discovery. The empty OpenCV screenshots are post-crash secondary errors.
 - Decision: do not reinstall or patch Kca yet. A bounded next check, if user chooses to continue, is read-only inspection of the active Kca config's interaction mode and configured ports, plus confirmation whether Kca-specific POI plugins/services exist. Do not change config or install plugins during preflight. If that route is not already supported by the user's environment, return to KancolleBot's own Poi/CDP MVP path.
 - Evidence boundary: public upstream source review plus user-supplied log only. No local config/runtime inspection, plugin install, gameplay action, or GitHub Actions run. KancolleBot real expedition/claim loop remains NOT VERIFIED.
+
+
+## 2026-10-27 — CDP transport implementation: guarded input primitives
+
+### Implemented on the MVP branch
+- Added `src/kancollebot/adapters/poi/cdp_websocket.py`: a standard-library WebSocket transport restricted to loopback debugger URLs and an explicit command allowlist (`Page.getLayoutMetrics`, `Page.captureScreenshot`, `Input.dispatchMouseEvent`). It rejects `Runtime.evaluate` and other commands, correlates CDP responses by request ID, limits frame size, and does not retry ambiguous input.
+- Tightened `src/kancollebot/adapters/poi/cdp_input.py`: every click first reads current viewport metrics and rejects out-of-bounds recorded coordinates before sending mouse input. Invalid coordinate types and non-finite values are rejected.
+- Updated `tests/test_cdp_input.py` and added `tests/test_cdp_websocket.py` for viewport bounds, input event ordering, no-retry ambiguity, loopback-only transport, and rejection of arbitrary JavaScript evaluation.
+- Remote commits:
+  - `c527d5cfacb2c17ff66f1f1c060a766a21330daf` — CDP WebSocket transport.
+  - `11d082b5228d3a03f4660882480f590f7d736c2f` — live viewport guard.
+  - `d833bafcfd16c2298ad9bb1fd959688758c11583` — viewport/input regression tests.
+  - `93d26e7b254bdc5d4bfffc23ef1080fbbdea0d0d` — transport safety-boundary tests.
+
+### Verification and remaining blockers
+- GitHub read-back confirmed the new transport, updated input primitive, and tests exist on `dev/expedition-closed-loop-mvp`.
+- **Tests have not been executed in this session.** The added tests are test source only; no CI workflow was triggered and no local worktree is available here to run the suite.
+- No CDP endpoint was contacted, no WebSocket was opened, no screenshot was captured, and no mouse input or game action was sent.
+- The transport is a low-level primitive, not yet a concrete expedition adapter. The MVP still needs a verified target selection + recorded/validated action sequence + fresh state verification for dispatch, result handling, and return to idle. User-supplied coordinates remain unverified and must not be treated as calibrated.
+- Real expedition/claim closed loop remains **NOT VERIFIED**. The default live-action safety policy remains disabled.
