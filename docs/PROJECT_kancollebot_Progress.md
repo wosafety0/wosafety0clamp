@@ -1541,3 +1541,22 @@ The Hand plugin's zero-click Canvas metadata probe returned:
 - Do not repeat dispatch or interfere with the expedition already underway. The real expedition loop remains incomplete.
 - The Poi translation warning, Electron renderer `vm` warning, and `No quest tracking data!` message appeared in the same console output but do not by themselves invalidate the successful metadata result.
 - Evidence source: runtime log pasted by the user; not independently executed by the assistant. This GitHub record does not imply local filesystem synchronization.
+
+
+### 2026-10-27 — WebView input API and host rectangle preflight
+
+#### Runtime evidence supplied by user
+
+The Hand plugin's read-only probe reported:
+
+- `typeof webview.sendInputEvent === 'function'`: true.
+- WebView host-document rectangle: left = 0, top = 29, width = 1200, height = 720.
+- The inner traversal returned `未找到 canvas` at `frame2.contentDocument.querySelector('canvas')`; no inner geometry JSON was returned in this run.
+
+#### Interpretation and limits
+
+- **Confirmed:** The WebView object exposes a `sendInputEvent` function, and its bounding rectangle in the Poi host document begins at (0, 29) with size 1200 × 720.
+- API presence does not prove a call succeeds or that the game accepts input. The host-document rectangle is not itself a coordinate offset to add to WebView-content coordinates; these coordinate spaces must remain distinct.
+- The failed Canvas lookup means this run did not produce a complete inner geometry sample. It does not negate the earlier user-supplied observation that a Canvas existed; the nested frame/document may have changed, not loaded yet, or the traversal may be targeting a different document state. Re-check frame IDs, URLs with credential query parameters redacted, readiness, child-frame counts, and canvas counts per document before calculating coordinates.
+- No clicks or game-state changes were performed or evidenced by this probe. Do not repeat dispatch or interfere with the expedition already underway. The real expedition loop remains incomplete.
+- Evidence source: runtime log pasted by the user; not independently executed by the assistant. This GitHub record does not imply local filesystem synchronization.
