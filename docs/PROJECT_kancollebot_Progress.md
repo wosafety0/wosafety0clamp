@@ -1410,3 +1410,13 @@
 - The authoritative alias/path mapping remains in a separately authorized private index. This public repository records only whether the index was consulted and whether the live path was verified; it must not name the private index repository or reproduce its mappings.
 - This policy update does not remove identifiers from earlier commits, old branches, historical PR diffs, or prior progress entries. Historical exposure cleanup is a separate task and is not claimed complete.
 - MVP engineering status is unchanged by this documentation update: no verified live dispatch/claim/redispatch cycle is claimed. Continue cloud-first, use GitHub Actions for repository tests where available, and do not require local execution unless a test depends on the Windows/client runtime.
+
+ 
+## 2026-10-27 — Semantic UI discovery groundwork (cloud-only)
+- Added a read-only accessibility-tree locator that requires one exact accessible name/role match and validates DOM geometry. Ambiguous, ignored, malformed, off-viewport, and scrolled-coordinate cases fail closed. The locator sends no input.
+- Expanded the approved CDP command set only for read-only accessibility and DOM geometry inspection. Mouse input remains the only permitted input command; arbitrary JavaScript evaluation remains blocked.
+- Added a bounded read-only diagnostic to report only unique expedition-related accessible labels. It does not print the page URL, does not capture screenshots, and sends no input or game action.
+- GitHub Actions run [40464083320](https://github.com/wosafety0/wosafety0clamp/actions/runs/40464083320) completed successfully for commit `a3b062752798fa0c56787c1e60528038af6d19d5`: source compilation passed and all 122 unit tests passed.
+- An earlier CI run exposed a mismatch in a test fixture for the fail-closed scroll guard, and another exposed an incorrect filter-test expectation. Both were corrected; the latest full run is green.
+- Cloud-side code and documentation are committed. No local runtime was contacted, no local files were changed, and no gameplay input was sent.
+- **MVP status remains NOT VERIFIED:** actual UI accessibility labels, live state transitions, dispatch, completion/result handling, reward collection, and redispatch readiness have not been observed end-to-end. The next required evidence is a bounded read-only scan against the user's running client; GitHub Actions cannot substitute for that local runtime observation.
