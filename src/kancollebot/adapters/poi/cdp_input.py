@@ -1,8 +1,8 @@
 """Small, deterministic CDP input primitives for the Poi renderer.
 
-This module intentionally does not guess coordinates or claim game success.
-Coordinates must come from a reviewed local Record play capture. A concrete
-CDP WebSocket transport and game-state verifier are injected by the caller.
+Coordinates must come from a reviewed local Record play capture. The transport
+is loopback-only and allowlisted; this module never infers a target or claims
+that a game action succeeded.
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ class CdpInputError(RuntimeError):
 
 class CdpTransport(Protocol):
     def send(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        """Send one CDP command and return its result object."""
+        """Send one allowlisted CDP command and return its result object."""
         ...
 
 
@@ -31,11 +31,16 @@ class RecordedPoint:
     label: str
 
     def __post_init__(self) -> None:
-        if not math.isfinite(self.x) or not math.isfinite(self.y):
-            raise ValueError("recorded coordinates must be finite")
+        if (
+            isinstance(self.x, bool) or isinstance(self.y, bool)
+            or not isinstance(self.x, (int, float))
+            or not isinstance(self.y, (int, float))
+            or not math.isfinite(self.x) or not math.isfinite(self.y)
+        ):
+            raise ValueError("recorded coordinates must be finite numbers")
         if self.x < 0 or self.y < 0:
             raise ValueError("recorded coordinates must not be negative")
-        if not self.label.strip():
+        if not isinstance(self.label, str) or not self.label.strip():
             raise ValueError("recorded point label must not be empty")
 
 
@@ -53,14 +58,26 @@ class CdpInput:
         self._settle_seconds = settle_seconds
 
     def click(self, point: RecordedPoint, *, button: str = "left") -> None:
-        """Dispatch one mouse click at a recorded point; never retry automatically."""
+        """Validate the current viewport, then send one click without retry."""
         if button not in {"left", "right", "middle"}:
             raise ValueError("unsupported mouse button")
-        x, y = float(point.x), float(point.y)
         try:
+            metrics = self._transport.send("Page.getLayoutMetrics", {})
+            viewport = metrics.get("cssVisualViewport") or metrics.get("visualViewport")
+            if not isinstance(viewport, dict):
+                raise CdpInputError("CDP did not provide viewport dimensions")
+            width, height = viewport.get("clientWidth"), viewport.get("clientHeight")
+            if (
+                isinstance(width, bool) or isinstance(height, bool)
+                or not isinstance(width, (int, float)) or not isinstance(height, (int, float))
+                or not math.isfinite(width) or not math.isfinite(height)
+                or width <= 0 or height <= 0 or point.x >= width or point.y >= height
+            ):
+                raise CdpInputError("Recorded point is outside the current verified viewport")
+            x, y = float(point.x), float(point.y)
             self._transport.send(
                 "Input.dispatchMouseEvent",
-                {"type": "mouseMoved", "x": x, "y": y},
+                {"type": "mouseMoved", "x": x, "y": y, "button": "none"},
             )
             if self._settle_seconds:
                 time.sleep(self._settle_seconds)
@@ -74,9 +91,10 @@ class CdpInput:
                 {"type": "mouseReleased", "x": x, "y": y,
                  "button": button, "clickCount": 1},
             )
+        except CdpInputError:
+            raise
         except Exception as exc:
-            # Once input begins, outcome can be ambiguous. The caller must not
-            # blindly replay this click; it must inspect fresh game state.
+            # Once input begins, outcome can be ambiguous. Never replay blindly.
             raise CdpInputError(
                 f"CDP click outcome may be ambiguous at recorded target: {point.label}"
             ) from exc
