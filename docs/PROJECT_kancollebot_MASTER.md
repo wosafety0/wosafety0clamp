@@ -50,7 +50,7 @@
 
 ## Path resolution and private alias mapping
 
-- Resolve paths in this order: inspect the current repository, branch, and file tree; read the applicable project rules; if a path, folder, module, or repository alias remains unresolved, consult the private path map at `/AGENTS/PROJECT_PATH_MAP.md` in the user's ChatGPT Library before asking the user to repeat details or guessing.
+- Resolve paths in this order: inspect the current repository, branch, and file tree; read the applicable project rules; if a path, folder, module, or repository alias remains unresolved, consult `PROJECT_PATH_MAP.md` in the separately authorized private index repository `wosafety0/KancolleBot-path-index` before asking the user to repeat details or guessing. This repository reference is internal-only and must be removed or generalized before any public release.
 - A map entry is only a lookup hint. Verify every resolved repository, branch, path, and file against the live source before reading or editing.
 - If the private map is unavailable, a mapping is missing/ambiguous, or the live tree contradicts it, stop and report the blocker. Do not invent paths or silently substitute similarly named files.
 - Never copy the private map, real project identities, or alias-to-identity relationships into a public repository, source comments, issues, pull requests, releases, workflow logs, commit messages, or public progress reports. Use only the approved opaque names in public-facing artifacts.
