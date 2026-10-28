@@ -1,0 +1,41 @@
+name: Verify Global Rules Access
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-global-rules:
+    name: Verify private rules access and integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Create read-only installation token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.AGENTS_APP_ID }}
+          private-key: ${{ secrets.AGENTS_APP_PRIVATE_KEY }}
+          owner: wosafety0
+          repositories: Agents-global
+
+      - name: Read pinned rules and verify Git Blob SHA
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="wosafety0/Agents-global"
+          rules_commit="018707cdbca1031ae94ce0f26edc9854ee78e4ed"
+          expected_blob_sha="69d72d15d07412a04c47edea5837374367935019"
+
+          actual_blob_sha="$(gh api "repos/${repo}/contents/AGENTS.md?ref=${rules_commit}" --jq '.sha')"
+
+          if [[ "${actual_blob_sha}" != "${expected_blob_sha}" ]]; then
+            echo "::error::AGENTS.md blob SHA mismatch; expected pinned content was not retrieved."
+            exit 1
+          fi
+
+          echo "PASS: private AGENTS.md was readable at the pinned commit and its Git Blob SHA matched."
