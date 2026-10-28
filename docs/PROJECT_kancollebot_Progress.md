@@ -1910,3 +1910,12 @@ The Hand plugin's read-only probe reported:
 - 对应最终完整 CI：[GitHub Actions run 40718219059](https://github.com/wosafety0/wosafety0clamp/actions/runs/40718219059) — success；Node 静态测试、Python 编译和 Python 单元测试全部成功。
 - 已从权威远程分支回读生产脚本、测试文件与工作流，并核对最终 Actions 作业步骤。当前进展为：**实现并通过云端离线测试；尚未在用户本机 Poi/Hand 中运行，也未实际捕获本机 main.js 文件。**
 - 使用限制：脚本默认写入 `~/Desktop/KancolleBot-CDP-Snapshots`；若本机桌面目录重定向、Hand 沙盒禁用文件系统访问或写入被拒绝，快照会失败或只留下源码文件而无元数据。需以实际运行输出和文件哈希核验为准。真实游戏输入仍未执行。
+
+
+### 快照保存器补充边界验证（2026-10-28）
+
+- 快照文件名保留 UTC 毫秒精度，降低短时间连续捕获发生同名冲突的概率；仍使用 `wx` 独占创建作为最终覆盖保护。
+- 对目标目录创建/源码写入失败增加明确的结构化错误返回；新增测试覆盖不可写目标目录。文件名格式也由回归测试检查。
+- 最终验证提交：`4ad4222b26471c0e7bfaf841486336c6dc501c24`；[GitHub Actions run 40718620102](https://github.com/wosafety0/wosafety0clamp/actions/runs/40718620102) 的 Node 回归测试、Python 编译和 Python 单元测试步骤全部 success。
+- 最终远程读取确认：生产脚本 blob `29e55810f86e930efbbc04f2a469aeac1a821483`、测试文件 blob `1afa94f986da30a1b21f798b64d9981c88869357`；CI 作业各步骤均已完成并成功。
+- 本补充只记录通过验证的正向成果；不代表用户本机快照已执行，仍需用户在 Poi/Hand 环境运行并上传输出文件后，才能进入离线解码分析。
