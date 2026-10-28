@@ -63,3 +63,18 @@ test('saves an exact source snapshot with SHA-256 metadata without executing sou
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+
+test('reports a clear failure when the snapshot destination is not writable', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kcb-cdp-snapshot-blocked-'));
+  const blocker = path.join(dir, 'not-a-directory');
+  fs.writeFileSync(blocker, 'file');
+  try {
+    const saved = lexer.saveSnapshot('source', 'https://example.test/main.js', '1', path.join(blocker, 'snapshots'));
+    assert.equal(saved.ok, false);
+    assert.match(saved.error, /Source snapshot write failed/);
+    assert.ok(saved.sha256);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
