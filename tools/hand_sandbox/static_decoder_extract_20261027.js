@@ -194,10 +194,10 @@ module.exports = function() {
     return calls;
   }
 
-  function saveSnapshot(source, scriptUrl, scriptId) {
+  function saveSnapshot(source, scriptUrl, scriptId, outputDirOverride) {
     const capturedAt = new Date().toISOString();
     const stamp = capturedAt.replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-    const outputDir = path.join(os.homedir(), 'Desktop', 'KancolleBot-CDP-Snapshots');
+    const outputDir = outputDirOverride || path.join(os.homedir(), 'Desktop', 'KancolleBot-CDP-Snapshots');
     const base = 'main-' + stamp;
     const sourcePath = path.join(outputDir, base + '.js');
     const metadataPath = path.join(outputDir, base + '.metadata.json');
