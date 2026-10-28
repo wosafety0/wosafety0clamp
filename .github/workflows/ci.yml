@@ -97,6 +97,8 @@ jobs:
           python-version: "3.12"
       - name: Run offline JavaScript static extraction tests
         run: node --test tests/static_decoder_extract.test.cjs
+      - name: Run AI semantic review validator tests (offline; no API calls)
+        run: python -m unittest discover -s tests -p 'test_ai_semantic_review.py' -v
       - name: Compile Python source
         run: python -m compileall -q src tests
       - name: Run unit tests
