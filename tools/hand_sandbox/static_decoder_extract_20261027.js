@@ -210,9 +210,13 @@ module.exports = function() {
     } catch (_) {
       safeUrl = safePath(scriptUrl || '');
     }
-    fs.mkdirSync(outputDir, { recursive: true });
-    // Exclusive creation prevents accidental overwrites if timestamps collide.
-    fs.writeFileSync(sourcePath, source, { encoding: 'utf8', flag: 'wx' });
+    try {
+      fs.mkdirSync(outputDir, { recursive: true });
+      // Exclusive creation prevents accidental overwrites if timestamps collide.
+      fs.writeFileSync(sourcePath, source, { encoding: 'utf8', flag: 'wx' });
+    } catch (error) {
+      return { ok: false, sourcePath, metadataPath, sha256, sourceBytes, error: 'Source snapshot write failed: ' + (error.message || String(error)) };
+    }
     const metadata = {
       status: 'SAVED',
       capturedAt,
