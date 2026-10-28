@@ -13,7 +13,7 @@ const source = fs.readFileSync(sourcePath, 'utf8');
 const anchor = '  timeout = setTimeout(function() {';
 assert.equal(source.split(anchor).length, 2, 'production extraction hook changed');
 const instrumented = source.replace(anchor, '  return { extractDefinition, findBalancedEnd, scanExpressionEnd, saveSnapshot };\n' + anchor);
-const sandbox = { module: { exports: {} }, console: { log() {} }, require, Buffer };
+const sandbox = { module: { exports: {} }, console: { log() {} }, require, Buffer, URL: require('node:url').URL };
 vm.runInNewContext(instrumented, sandbox, { filename: sourcePath, timeout: 1000 });
 const lexer = sandbox.module.exports();
 
