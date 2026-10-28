@@ -11,6 +11,10 @@ module.exports = function() {
   console.log('[Sandbox] Starting read-only static decoder extraction.');
 
   const http = require('http');
+  const fs = require('fs');
+  const path = require('path');
+  const os = require('os');
+  const crypto = require('crypto');
   const GAME_PAGE_PATH = '/kcs2/index.php';
   const MAIN_PATH = '/kcs2/js/main.js';
   const TIMEOUT_MS = 45000;
@@ -24,6 +28,7 @@ module.exports = function() {
   let finished = false;
   let sourceRequested = false;
   let selectedScriptId = null;
+  let selectedScriptUrl = null;
 
   const scripts = new Map();
   const PAGE_ENABLE_ID = 730;
@@ -189,7 +194,57 @@ module.exports = function() {
     return calls;
   }
 
+  function saveSnapshot(source, scriptUrl, scriptId) {
+    const capturedAt = new Date().toISOString();
+    const stamp = capturedAt.replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+    const outputDir = path.join(os.homedir(), 'Desktop', 'KancolleBot-CDP-Snapshots');
+    const base = 'main-' + stamp;
+    const sourcePath = path.join(outputDir, base + '.js');
+    const metadataPath = path.join(outputDir, base + '.metadata.json');
+    const sourceBytes = Buffer.byteLength(source, 'utf8');
+    const sha256 = crypto.createHash('sha256').update(source, 'utf8').digest('hex');
+    let safeUrl = '';
+    try {
+      const parsed = new URL(scriptUrl || '');
+      safeUrl = parsed.origin + parsed.pathname;
+    } catch (_) {
+      safeUrl = safePath(scriptUrl || '');
+    }
+    fs.mkdirSync(outputDir, { recursive: true });
+    // Exclusive creation prevents accidental overwrites if timestamps collide.
+    fs.writeFileSync(sourcePath, source, { encoding: 'utf8', flag: 'wx' });
+    const metadata = {
+      status: 'SAVED',
+      capturedAt,
+      sourceFile: path.basename(sourcePath),
+      sourceUrl: safeUrl,
+      scriptId: String(scriptId),
+      retrievalMethod: 'Debugger.getScriptSource',
+      sourceCharacters: source.length,
+      sourceBytes,
+      sha256,
+      safety: {
+        runtimeEvaluateUsed: false,
+        pageSourceExecuted: false,
+        gameFunctionsCalled: false,
+        gettersInvoked: false,
+        gameInputSent: false
+      }
+    };
+    try {
+      fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2) + '\\n', { encoding: 'utf8', flag: 'wx' });
+    } catch (error) {
+      return { ok: false, sourcePath, metadataPath, sha256, sourceBytes, error: 'Source saved but metadata write failed: ' + (error.message || String(error)) };
+    }
+    console.log('[Sandbox] SNAPSHOT_FILE:', sourcePath);
+    console.log('[Sandbox] SNAPSHOT_METADATA:', metadataPath);
+    console.log('[Sandbox] SNAPSHOT_SHA256:', sha256);
+    console.log('[Sandbox] SNAPSHOT_BYTES:', sourceBytes);
+    return { ok: true, sourcePath, metadataPath, sha256, sourceBytes, sourceCharacters: source.length };
+  }
+
   function analyzeSource(source, scriptUrl, scriptId) {
+    const snapshot = saveSnapshot(source, scriptUrl, scriptId);
     const decoder = extractDefinition(source, '_0x3353');
     const table = extractDefinition(source, '_0x3f23');
     const appFactory = extractDefinition(source, '_0x466acb');
@@ -205,6 +260,7 @@ module.exports = function() {
     const factoryCalls = appFactory ? extractCalls(appFactory.text, '_0x460358') : [];
     const report = {
       status: 'STATIC_EXTRACTION_COMPLETE',
+      snapshot,
       pageSource: {
         url: scriptUrl,
         scriptId,
@@ -251,9 +307,12 @@ module.exports = function() {
     if (!decoder) missing.push('_0x3353');
     if (!table) missing.push('_0x3f23');
     if (!appFactory) missing.push('_0x466acb');
+    const extractionStatus = missing.length ? 'PARTIAL_EXTRACTION' : 'STATIC_EXTRACTION_COMPLETE';
     cleanup(
-      missing.length ? 'PARTIAL_EXTRACTION' : 'STATIC_EXTRACTION_COMPLETE',
-      missing.length ? 'Definition not found or lexical boundary unresolved: ' + missing.join(', ') : 'Definitions extracted; no page execution or game input.'
+      snapshot.ok ? extractionStatus : 'SNAPSHOT_WRITE_ERROR',
+      snapshot.ok
+        ? (missing.length ? 'Definition not found or lexical boundary unresolved: ' + missing.join(', ') : 'Snapshot saved; definitions extracted; no page execution or game input.')
+        : snapshot.error
     );
   }
 
@@ -315,6 +374,7 @@ module.exports = function() {
         }
         const chosen = candidates[candidates.length - 1];
         selectedScriptId = chosen.scriptId;
+        selectedScriptUrl = chosen.url;
         sourceRequested = true;
         socket.send(JSON.stringify({
           id: SOURCE_ID,
@@ -405,7 +465,7 @@ module.exports = function() {
             return cleanup('EMPTY_SOURCE', 'Debugger returned empty source text.');
           }
           console.log('[Sandbox] Read-only source retrieved; length=' + source.length);
-          try { analyzeSource(source, gameFrameUrl, selectedScriptId); }
+          try { analyzeSource(source, selectedScriptUrl, selectedScriptId); }
           catch (error) { cleanup('ANALYSIS_ERROR', error && error.stack ? error.stack : String(error)); }
         }
       };
