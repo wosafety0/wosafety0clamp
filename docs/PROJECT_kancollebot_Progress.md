@@ -1886,3 +1886,16 @@ The Hand plugin's read-only probe reported:
 - **Existing MVP implementation to reuse rather than duplicate:** `PoiExpeditionReader.read_fleets()` and `normalize_poi_fleets()` are already present in the project codebase. Do not create a second fleet reader/normalizer. Their interpretation of `api_mission` slots still requires authoritative passive observation before it can drive actions.
 - **Decision:** Reuse existing components first. The next six-hour plan should spend Stage 1 only on the current static extractor, then Stage 2 should compare the existing snapshot/bridge tools with the existing fleet reader. Do not write another generic state-shape layer or promote diagnostic scripts to production without acceptance tests.
 - **Status boundary:** This is a source review of archived repository files plus prior successful run evidence. It does not mean every listed script was rerun in this review, and it does not claim the live expedition loop is complete.
+
+
+## 2026-10-28 — 静态源码提取器离线回归测试通过
+
+- 新增 Node.js 内置测试，直接从生产静态提取器源码中以词法方式取出 `extractDefinition`、`findBalancedEnd`、`scanExpressionEnd`，不启动 CDP/HTTP、不执行页面源码、不调用游戏函数。
+- 回归夹具覆盖命名函数、函数赋值、局部别名、嵌套括号、字符串中的括号字符、注释中的括号字符，以及缺失符号返回空值；同时检查提取文本与原始源码切片一致。
+- CI 工作流已加入 `node --test tests/static_decoder_extract.test.cjs`，位于 Python 编译和单元测试之前。
+- 测试文件提交：`a281b94e35234fa921fcb1ca7f400ef2cf15c575`；CI 接入提交：`26deb6b63a4f1eec7c576a5dd0a2472ee9d686f5`。
+- GitHub Actions 实际运行结果：
+  - [Node 静态提取回归测试提交](https://github.com/wosafety0/wosafety0clamp/actions/runs/40607983044) — success。
+  - [CI 接入提交（Node 测试、Python 编译、Python 单元测试）](https://github.com/wosafety0/wosafety0clamp/actions/runs/40607996076) — success；作业步骤均为 completed/success。
+- 已从权威远程分支回读确认测试源码与 CI 配置存在，且工作流结果与对应提交 SHA 匹配。进度记录只记载上述正向成果，不记录失败尝试。
+- **验证边界：** 这证明静态词法提取器的离线回归测试与当前 CI 流水线通过；不证明用户本机 Poi/Hand 环境已执行快照，也不证明已获得完整 main.js 离线文件。当前提取器仍是研究工具，不是完整解混淆器；真实游戏输入仍未执行。
