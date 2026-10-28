@@ -232,7 +232,7 @@ module.exports = function() {
       }
     };
     try {
-      fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2) + '\\n', { encoding: 'utf8', flag: 'wx' });
+      fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2) + String.fromCharCode(10), { encoding: 'utf8', flag: 'wx' });
     } catch (error) {
       return { ok: false, sourcePath, metadataPath, sha256, sourceBytes, error: 'Source saved but metadata write failed: ' + (error.message || String(error)) };
     }
