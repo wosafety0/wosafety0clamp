@@ -12,8 +12,9 @@ const sourcePath = path.resolve(__dirname, '../tools/hand_sandbox/static_decoder
 const source = fs.readFileSync(sourcePath, 'utf8');
 const anchor = '  timeout = setTimeout(function() {';
 assert.equal(source.split(anchor).length, 2, 'production extraction hook changed');
-const instrumented = source.replace(anchor, '  return { extractDefinition, findBalancedEnd, scanExpressionEnd, saveSnapshot };\n' + anchor);
-const sandbox = { module: { exports: {} }, console: { log() {} }, require, Buffer, URL: require('node:url').URL };
+const instrumented = source.replace(anchor, '  return { extractDefinition, findBalancedEnd, scanExpressionEnd, saveSnapshot, sanitizeScriptUrl, analyzeSource };\n' + anchor);
+const logMessages = [];
+const sandbox = { module: { exports: {} }, console: { log(...parts) { logMessages.push(parts.map(String).join(' ')); } }, require, Buffer, URL: require('node:url').URL };
 vm.runInNewContext(instrumented, sandbox, { filename: sourcePath, timeout: 1000 });
 const lexer = sandbox.module.exports();
 
@@ -65,6 +66,36 @@ test('saves an exact source snapshot with SHA-256 metadata without executing sou
   }
 });
 
+
+
+test('redacts credentials, query and fragment in snapshot metadata and printed source report', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kcb-cdp-report-'));
+  const unsafeUrl = 'https://user:private-credential@w14h.kancolle-server.com/kcs2/js/main.js?api_token=super-secret#fragment';
+  const safeUrl = 'https://w14h.kancolle-server.com/kcs2/js/main.js';
+  const fixture = [
+    'function _0x3353(x) { return x; }',
+    'function _0x3f23() { return []; }',
+    'function _0x466acb() { return 1; }'
+  ].join('\n');
+  try {
+    assert.equal(lexer.sanitizeScriptUrl(unsafeUrl), safeUrl);
+    assert.equal(lexer.sanitizeScriptUrl('not a URL'), '');
+    logMessages.length = 0;
+    lexer.analyzeSource(fixture, unsafeUrl, '758', dir);
+    const reportText = logMessages.join('\n');
+    assert.ok(reportText.includes('STATIC_SOURCE_REPORT_BEGIN'));
+    assert.ok(reportText.includes(safeUrl));
+    assert.ok(!reportText.includes('api_token'));
+    assert.ok(!reportText.includes('super-secret'));
+    assert.ok(!reportText.includes('private-credential'));
+    const metadataFile = fs.readdirSync(dir).find(name => name.endsWith('.metadata.json'));
+    assert.ok(metadataFile);
+    const metadata = JSON.parse(fs.readFileSync(path.join(dir, metadataFile), 'utf8'));
+    assert.equal(metadata.sourceUrl, safeUrl);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('reports a clear failure when the snapshot destination is not writable', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kcb-cdp-snapshot-blocked-'));
