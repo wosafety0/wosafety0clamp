@@ -1910,3 +1910,12 @@ The Hand plugin's read-only probe reported:
 - 更新 `.github/workflows/ci.yml`：PR 事件除了检查五个必需章节外，还要求每个章节有实质文本；空白/仅 HTML 注释的章节，以及包含常见未解决占位词（TODO、TBD、PLACEHOLDER、待填写、待补充）的章节会导致 CI 失败。
 - 最新代码提交：`d55cbc7b8ffcb92e2d6c9f143a1ca34f15191d40`。CI run [40624467486](https://github.com/wosafety0/wosafety0clamp/actions/runs/40624467486)（run #754）已完成并通过；全局规则校验、PR 字段内容门禁、JS 静态提取测试、Python compileall 和 unittest 均成功。
 - 状态边界：这只排除空字段与常见占位符，不验证内容是否真实、充分或语义合规；仍需要人工审查或未来独立的 AI 审查器。未合并 PR，未执行游戏操作，未同步本机工作树。
+
+### 2026-10-28 — AI 语义审查器原型与证据校验（离线门禁已加入，待 CI 核验）
+
+- 新增 `scripts/ai_semantic_review.py`：采用 OpenAI-compatible chat-completions 接口，但不预选供应商；通过 `AI_REVIEW_API_BASE`、`AI_REVIEW_API_KEY`、`AI_REVIEW_MODEL` 配置，密钥仅从安全环境注入，不写入仓库或输出。
+- 输入契约要求任务目标、PR diff、精确变更文件列表、固定版本全局规则和项目专属指令；输出必须是严格 JSON，状态为 `PASS`、`NEEDS_CHANGES` 或 `INCONCLUSIVE`，并带检查范围、限制及结构化 findings。
+- 证据验证器检查严格字段、状态与 findings 的一致性、变更文件归属、正整数行号，以及 finding 中代码证据和规则引文是否分别精确出现在输入 diff/指令中。验证器拒绝无依据 finding、`PASS` 携带 findings，以及没有 finding 的 `NEEDS_CHANGES`。
+- 新增 `tests/test_ai_semantic_review.py` 覆盖有效报告、伪造证据、伪造规则引文、状态矛盾、未知文件和提示词边界；CI 中新增离线测试步骤，不调用真实模型 API。
+- 新增 `docs/AI_SEMANTIC_REVIEWER.md` 记录输入/输出协议、配置方式、失败关闭行为和激活前验收清单。
+- **状态边界：** 目前实现的是模型客户端原型与输出证据校验，并未将真实模型调用接入 PR 必需门禁；尚未选定供应商/模型、配置 API 凭据或验证真实端到端调用。离线测试通过也不能证明模型推理正确或审查完整。未合并 PR、未执行游戏操作，远程变更未同步本机工作树。
