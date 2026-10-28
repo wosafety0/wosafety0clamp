@@ -1,0 +1,71 @@
+name: Night Watch (Manual Prototype)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: night-watch-manual-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  offline-check:
+    name: Offline project checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact triggering ref
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Validate workflow safety and project layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d src/kancollebot
+          test -d tests
+          test -f docs/PROJECT_kancollebot_Progress.md
+          echo "PASS: required project paths exist"
+
+      - name: Run offline unit tests
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONPATH: src
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Write execution summary
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/night-watch"
+          {
+            echo "# Night Watch - Manual Prototype"
+            echo
+            echo "Result: PASS"
+            echo "Repository: ${GITHUB_REPOSITORY}"
+            echo "Ref: ${GITHUB_REF}"
+            echo "Commit: ${GITHUB_SHA}"
+            echo "Run: ${GITHUB_RUN_ID}"
+            echo "Scope: offline Python unit tests only"
+            echo "No game operations, no AI API calls, no repository writes."
+          } > "$RUNNER_TEMP/night-watch/summary.md"
+
+      - name: Upload successful summary
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: night-watch-success-${{ github.run_id }}
+          path: ${{ runner.temp }}/night-watch/summary.md
+          retention-days: 7
