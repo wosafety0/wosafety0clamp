@@ -1895,3 +1895,11 @@ The Hand plugin's read-only probe reported:
 - PR：[#11 Gate CI on pinned global collaboration rules](https://github.com/wosafety0/wosafety0clamp/pull/11)，目标为 `dev/expedition-closed-loop-mvp`，当前 Open、未合并。
 - 状态边界：已验证的是全局规则可读、固定版本完整性、关键章节存在及现有离线测试通过；这**不等于自动证明每个代码变更在语义上遵守全部规则**，仍需任务/PR 审查。未执行游戏操作、未授予写权限。远程文档更新不代表本机工作树已同步。
 
+
+
+### 2026-10-28 — PR 结构化审查字段纳入 CI（待本轮 PR 检查验证）
+
+- 新增 `.github/PULL_REQUEST_TEMPLATE.md`，要求记录任务目标、范围与约束、验证证据、全局规则审查、成果持久化与状态边界。
+- 更新 `.github/workflows/ci.yml`：PR 目标分支覆盖 `main` 与 `dev/**`；PR 事件下检查描述是否包含上述五个必需章节，缺少章节则 CI 失败。该检查只保证审查信息字段存在，不会自动判断文字内容真实或代码语义上完全合规。
+- PR #11 描述已补齐这些字段，等待 GitHub PR 事件运行验证新门禁；未合并。
+- 状态边界：这是结构化审查流程门禁，不是 AI 语义审查器。没有新增模型/API 凭据，也未执行游戏操作；改动仅在远程候选分支，未同步本机工作树。
