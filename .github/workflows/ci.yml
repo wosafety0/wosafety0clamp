@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, "dev/**"]
   pull_request:
-    branches: [main]
+    branches: [main, "dev/**"]
   workflow_dispatch:
 
 permissions:
@@ -15,6 +15,80 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Create read-only installation token for global rules
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.AGENTS_APP_ID }}
+          private-key: ${{ secrets.AGENTS_APP_PRIVATE_KEY }}
+          owner: wosafety0
+          repositories: Agents-global
+
+      - name: Read and validate global collaboration rules
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="wosafety0/Agents-global"
+          rules_commit="018707cdbca1031ae94ce0f26edc9854ee78e4ed"
+          expected_blob_sha="69d72d15d07412a04c47edea5837374367935019"
+          response_file="$RUNNER_TEMP/agents-response.json"
+          rules_file="$RUNNER_TEMP/AGENTS.md"
+
+          gh api "repos/${repo}/contents/AGENTS.md?ref=${rules_commit}" > "$response_file"
+          actual_blob_sha="$(jq -r '.sha' "$response_file")"
+          if [[ "${actual_blob_sha}" != "${expected_blob_sha}" ]]; then
+            echo "::error::Global AGENTS.md blob SHA mismatch; refusing to run CI without the pinned rules."
+            exit 1
+          fi
+
+          jq -r '.content' "$response_file" | base64 --decode > "$rules_file"
+          for required_text in             "先理解，再行动"             "外部状态变更"             "验证与完成状态"             "成果持久化、强制门禁与跨会话恢复"             "按规则执行"; do
+            if ! grep -Fq "$required_text" "$rules_file"; then
+              echo "::error::Global AGENTS.md is missing a required policy section."
+              exit 1
+            fi
+          done
+
+          echo "PASS: pinned global rules were read, SHA-verified, and required policy sections were found."
+
+      - name: Validate structured PR task and review fields
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          body="$(jq -r '.pull_request.body // ""' "$GITHUB_EVENT_PATH")"
+          for required_heading in \
+            "## Task and expected outcome" \
+            "## Scope and constraints" \
+            "## Validation evidence" \
+            "## Global rules review" \
+            "## Persistence and status boundary"; do
+            if ! grep -Fq "$required_heading" <<< "$body"; then
+              echo "::error::Pull request description is missing required review field: $required_heading"
+              exit 1
+            fi
+          done
+          for required_heading in \
+            "## Task and expected outcome" \
+            "## Scope and constraints" \
+            "## Validation evidence" \
+            "## Global rules review" \
+            "## Persistence and status boundary"; do
+            section="$(awk -v heading="$required_heading" '$0 == heading { found=1; next } /^## / && found { exit } found { print }' <<< "$body")"
+            substantive="$(sed '/^[[:space:]]*$/d; /^[[:space:]]*<!--.*-->[[:space:]]*$/d' <<< "$section")"
+            if [[ -z "$substantive" ]]; then
+              echo "::error::Pull request section has no substantive content: $required_heading"
+              exit 1
+            fi
+            if grep -Eiq '(^|[^[:alnum:]_])(TODO|TBD|PLACEHOLDER)([^[:alnum:]_]|$)|待填写|待补充' <<< "$substantive"; then
+              echo "::error::Pull request section contains an unresolved placeholder: $required_heading"
+              exit 1
+            fi
+          done
+          echo "PASS: required PR sections exist, contain substantive text, and have no common unresolved placeholders."
+
       - name: Check out repository
         uses: actions/checkout@v5
       - name: Set up Python

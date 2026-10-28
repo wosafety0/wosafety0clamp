@@ -1886,3 +1886,27 @@ The Hand plugin's read-only probe reported:
 - **Existing MVP implementation to reuse rather than duplicate:** `PoiExpeditionReader.read_fleets()` and `normalize_poi_fleets()` are already present in the project codebase. Do not create a second fleet reader/normalizer. Their interpretation of `api_mission` slots still requires authoritative passive observation before it can drive actions.
 - **Decision:** Reuse existing components first. The next six-hour plan should spend Stage 1 only on the current static extractor, then Stage 2 should compare the existing snapshot/bridge tools with the existing fleet reader. Do not write another generic state-shape layer or promote diagnostic scripts to production without acceptance tests.
 - **Status boundary:** This is a source review of archived repository files plus prior successful run evidence. It does not mean every listed script was rerun in this review, and it does not claim the live expedition loop is complete.
+
+### 2026-10-28 — 全局规则读取纳入 CI 门禁（已验证）
+
+- 在候选分支 `dev/harness-global-rules-ci-gate-20261028` 更新 `.github/workflows/ci.yml`：现有离线测试前先用 GitHub App 创建仅限 `Agents-global` 的短期只读安装令牌，读取固定提交 `018707cdbca1031ae94ce0f26edc9854ee78e4ed` 中的 `AGENTS.md`。
+- 门禁核对预期 Git Blob SHA `69d72d15d07412a04c47edea5837374367935019`，并检查关键规则章节锚点；规则正文和凭据不输出到日志。若读取失败、SHA 不符或关键章节缺失，CI 将停止。
+- 变更提交：`ed7614b17473c365175c8e37db43aaa0b8e0781d`；CI 实际运行通过：[run 40623717925](https://github.com/wosafety0/wosafety0clamp/actions/runs/40623717925)。成功步骤包括安装令牌创建、全局规则读取/校验、JavaScript 静态提取测试、Python compileall 和 Python unittest。
+- PR：[#11 Gate CI on pinned global collaboration rules](https://github.com/wosafety0/wosafety0clamp/pull/11)，目标为 `dev/expedition-closed-loop-mvp`，当前 Open、未合并。
+- 状态边界：已验证的是全局规则可读、固定版本完整性、关键章节存在及现有离线测试通过；这**不等于自动证明每个代码变更在语义上遵守全部规则**，仍需任务/PR 审查。未执行游戏操作、未授予写权限。远程文档更新不代表本机工作树已同步。
+
+
+
+### 2026-10-28 — PR 结构化审查字段纳入 CI（已验证）
+
+- 新增 `.github/PULL_REQUEST_TEMPLATE.md`，要求记录任务目标、范围与约束、验证证据、全局规则审查、成果持久化与状态边界。
+- 更新 `.github/workflows/ci.yml`：PR 目标分支覆盖 `main` 与 `dev/**`；PR 事件下检查描述是否包含上述五个必需章节，缺少章节则 CI 失败。该检查只保证审查信息字段存在，不会自动判断文字内容真实或代码语义上完全合规。
+- PR #11 描述已补齐这些字段；CI run [40624159454](https://github.com/wosafety0/wosafety0clamp/actions/runs/40624159454)（run #750）已完成并通过。成功步骤包含全局规则读取/完整性校验、PR 字段门禁、JS 静态提取测试、Python compileall 与 unittest。PR #11 仍未合并。
+- 状态边界：这是结构化审查流程门禁，不是 AI 语义审查器。没有新增模型/API 凭据，也未执行游戏操作；改动仅在远程候选分支，未同步本机工作树。
+
+
+### 2026-10-28 — PR 审查字段内容门禁加强（已验证）
+
+- 更新 `.github/workflows/ci.yml`：PR 事件除了检查五个必需章节外，还要求每个章节有实质文本；空白/仅 HTML 注释的章节，以及包含常见未解决占位词（TODO、TBD、PLACEHOLDER、待填写、待补充）的章节会导致 CI 失败。
+- 最新代码提交：`d55cbc7b8ffcb92e2d6c9f143a1ca34f15191d40`。CI run [40624467486](https://github.com/wosafety0/wosafety0clamp/actions/runs/40624467486)（run #754）已完成并通过；全局规则校验、PR 字段内容门禁、JS 静态提取测试、Python compileall 和 unittest 均成功。
+- 状态边界：这只排除空字段与常见占位符，不验证内容是否真实、充分或语义合规；仍需要人工审查或未来独立的 AI 审查器。未合并 PR，未执行游戏操作，未同步本机工作树。
