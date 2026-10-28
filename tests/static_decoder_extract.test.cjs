@@ -49,7 +49,7 @@ test('saves an exact source snapshot with SHA-256 metadata without executing sou
     const saved = lexer.saveSnapshot(fixture, 'https://example.test/kcs2/js/main.js?session=redacted', '758', dir);
     assert.equal(saved.ok, true);
     assert.equal(fs.readFileSync(saved.sourcePath, 'utf8'), fixture);
-    assert.match(path.basename(saved.sourcePath), /^main-\\d{8}T\\d{6}\\.\\d{3}Z\\.js$/);
+    assert.match(path.basename(saved.sourcePath), /^main-\d{8}T\d{6}\.\d{3}Z\.js$/);
     assert.equal(saved.sourceBytes, Buffer.byteLength(fixture, 'utf8'));
     assert.equal(saved.sha256, crypto.createHash('sha256').update(fixture, 'utf8').digest('hex'));
     const metadata = JSON.parse(fs.readFileSync(saved.metadataPath, 'utf8'));
