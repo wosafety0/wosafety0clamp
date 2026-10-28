@@ -70,7 +70,24 @@ jobs:
               exit 1
             fi
           done
-          echo "PASS: required task, constraint, validation, rules-review, and persistence fields are present."
+          for required_heading in \
+            "## Task and expected outcome" \
+            "## Scope and constraints" \
+            "## Validation evidence" \
+            "## Global rules review" \
+            "## Persistence and status boundary"; do
+            section="$(awk -v heading="$required_heading" '$0 == heading { found=1; next } /^## / && found { exit } found { print }' <<< "$body")"
+            substantive="$(sed '/^[[:space:]]*$/d; /^[[:space:]]*<!--.*-->[[:space:]]*$/d' <<< "$section")"
+            if [[ -z "$substantive" ]]; then
+              echo "::error::Pull request section has no substantive content: $required_heading"
+              exit 1
+            fi
+            if grep -Eiq '(^|[^[:alnum:]_])(TODO|TBD|PLACEHOLDER)([^[:alnum:]_]|$)|待填写|待补充' <<< "$substantive"; then
+              echo "::error::Pull request section contains an unresolved placeholder: $required_heading"
+              exit 1
+            fi
+          done
+          echo "PASS: required PR sections exist, contain substantive text, and have no common unresolved placeholders."
 
       - name: Check out repository
         uses: actions/checkout@v5
