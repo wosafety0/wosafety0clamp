@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, "dev/**"]
   pull_request:
-    branches: [main]
+    branches: [main, "dev/**"]
   workflow_dispatch:
 
 permissions:
@@ -52,6 +52,25 @@ jobs:
           done
 
           echo "PASS: pinned global rules were read, SHA-verified, and required policy sections were found."
+
+      - name: Validate structured PR task and review fields
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          body="$(jq -r '.pull_request.body // ""' "$GITHUB_EVENT_PATH")"
+          for required_heading in \
+            "## Task and expected outcome" \
+            "## Scope and constraints" \
+            "## Validation evidence" \
+            "## Global rules review" \
+            "## Persistence and status boundary"; do
+            if ! grep -Fq "$required_heading" <<< "$body"; then
+              echo "::error::Pull request description is missing required review field: $required_heading"
+              exit 1
+            fi
+          done
+          echo "PASS: required task, constraint, validation, rules-review, and persistence fields are present."
 
       - name: Check out repository
         uses: actions/checkout@v5
