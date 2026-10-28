@@ -60,6 +60,16 @@ module.exports = function() {
     catch (_) { return ''; }
   }
 
+  function sanitizeScriptUrl(rawUrl) {
+    try {
+      const parsed = new URL(rawUrl || '');
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return safePath(rawUrl || '');
+      return parsed.origin + parsed.pathname;
+    } catch (_) {
+      return safePath(rawUrl || '');
+    }
+  }
+
   function findBalancedEnd(text, openIndex, openChar, closeChar) {
     let depth = 0;
     let quote = '';
@@ -203,13 +213,7 @@ module.exports = function() {
     const metadataPath = path.join(outputDir, base + '.metadata.json');
     const sourceBytes = Buffer.byteLength(source, 'utf8');
     const sha256 = crypto.createHash('sha256').update(source, 'utf8').digest('hex');
-    let safeUrl = '';
-    try {
-      const parsed = new URL(scriptUrl || '');
-      safeUrl = parsed.origin + parsed.pathname;
-    } catch (_) {
-      safeUrl = safePath(scriptUrl || '');
-    }
+    const safeUrl = sanitizeScriptUrl(scriptUrl);
     try {
       fs.mkdirSync(outputDir, { recursive: true });
       // Exclusive creation prevents accidental overwrites if timestamps collide.
@@ -247,8 +251,8 @@ module.exports = function() {
     return { ok: true, sourcePath, metadataPath, sha256, sourceBytes, sourceCharacters: source.length };
   }
 
-  function analyzeSource(source, scriptUrl, scriptId) {
-    const snapshot = saveSnapshot(source, scriptUrl, scriptId);
+  function analyzeSource(source, scriptUrl, scriptId, outputDirOverride) {
+    const snapshot = saveSnapshot(source, scriptUrl, scriptId, outputDirOverride);
     const decoder = extractDefinition(source, '_0x3353');
     const table = extractDefinition(source, '_0x3f23');
     const appFactory = extractDefinition(source, '_0x466acb');
@@ -266,7 +270,7 @@ module.exports = function() {
       status: 'STATIC_EXTRACTION_COMPLETE',
       snapshot,
       pageSource: {
-        url: scriptUrl,
+        url: sanitizeScriptUrl(scriptUrl),
         scriptId,
         sourceLength: source.length,
         sourceRetrievedBy: 'Debugger.getScriptSource',
