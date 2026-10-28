@@ -1899,3 +1899,14 @@ The Hand plugin's read-only probe reported:
   - [CI 接入提交（Node 测试、Python 编译、Python 单元测试）](https://github.com/wosafety0/wosafety0clamp/actions/runs/40607996076) — success；作业步骤均为 completed/success。
 - 已从权威远程分支回读确认测试源码与 CI 配置存在，且工作流结果与对应提交 SHA 匹配。进度记录只记载上述正向成果，不记录失败尝试。
 - **验证边界：** 这证明静态词法提取器的离线回归测试与当前 CI 流水线通过；不证明用户本机 Poi/Hand 环境已执行快照，也不证明已获得完整 main.js 离线文件。当前提取器仍是研究工具，不是完整解混淆器；真实游戏输入仍未执行。
+
+
+## 2026-10-28 — CDP main.js 离线快照保存器与完整 CI 验证
+
+- 在现有只读 CDP 静态提取器中增加完整源码落盘：通过 `Debugger.getScriptSource` 取得当前匹配的 `main.js` 文本后，将原始文本保存到 Windows 用户桌面下的 `KancolleBot-CDP-Snapshots` 目录；不将游戏源码或快照文件提交到 GitHub。
+- 同时写入 JSON 元数据，记录 UTC 捕获时间、源文件名、清理查询参数后的脚本 URL、scriptId、字符数、UTF-8 字节数、SHA-256 和只读安全标记。源码文件采用独占创建，避免同名覆盖；元数据写入使用合法 JSON 换行。
+- 新增离线回归测试，以临时目录验证保存文本与原始输入逐字节对应、字节数和 SHA-256 正确、URL 查询参数不会写入元数据，以及页面源码未执行/未使用 Runtime.evaluate 的安全标记。
+- 代码提交：`c0ec0b51db0aea8e6ffee209e697c5261cb84f86`（快照能力）、`a832dffed0ca8440d8206e588b84e63cdb1708f8`（元数据 JSON 格式修正）、`1892a23f22563a70d3c0e0d2badaf4bdcd05a4ce`（测试与 URL 元数据核验）。
+- 对应最终完整 CI：[GitHub Actions run 40718219059](https://github.com/wosafety0/wosafety0clamp/actions/runs/40718219059) — success；Node 静态测试、Python 编译和 Python 单元测试全部成功。
+- 已从权威远程分支回读生产脚本、测试文件与工作流，并核对最终 Actions 作业步骤。当前进展为：**实现并通过云端离线测试；尚未在用户本机 Poi/Hand 中运行，也未实际捕获本机 main.js 文件。**
+- 使用限制：脚本默认写入 `~/Desktop/KancolleBot-CDP-Snapshots`；若本机桌面目录重定向、Hand 沙盒禁用文件系统访问或写入被拒绝，快照会失败或只留下源码文件而无元数据。需以实际运行输出和文件哈希核验为准。真实游戏输入仍未执行。
