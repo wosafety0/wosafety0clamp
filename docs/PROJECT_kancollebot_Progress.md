@@ -1897,9 +1897,9 @@ The Hand plugin's read-only probe reported:
 
 
 
-### 2026-10-28 — PR 结构化审查字段纳入 CI（待本轮 PR 检查验证）
+### 2026-10-28 — PR 结构化审查字段纳入 CI（已验证）
 
 - 新增 `.github/PULL_REQUEST_TEMPLATE.md`，要求记录任务目标、范围与约束、验证证据、全局规则审查、成果持久化与状态边界。
 - 更新 `.github/workflows/ci.yml`：PR 目标分支覆盖 `main` 与 `dev/**`；PR 事件下检查描述是否包含上述五个必需章节，缺少章节则 CI 失败。该检查只保证审查信息字段存在，不会自动判断文字内容真实或代码语义上完全合规。
-- PR #11 描述已补齐这些字段，等待 GitHub PR 事件运行验证新门禁；未合并。
+- PR #11 描述已补齐这些字段；CI run [40624159454](https://github.com/wosafety0/wosafety0clamp/actions/runs/40624159454)（run #750）已完成并通过。成功步骤包含全局规则读取/完整性校验、PR 字段门禁、JS 静态提取测试、Python compileall 与 unittest。PR #11 仍未合并。
 - 状态边界：这是结构化审查流程门禁，不是 AI 语义审查器。没有新增模型/API 凭据，也未执行游戏操作；改动仅在远程候选分支，未同步本机工作树。
