@@ -1919,3 +1919,13 @@ The Hand plugin's read-only probe reported:
 - 最终验证提交：`4ad4222b26471c0e7bfaf841486336c6dc501c24`；[GitHub Actions run 40718620102](https://github.com/wosafety0/wosafety0clamp/actions/runs/40718620102) 的 Node 回归测试、Python 编译和 Python 单元测试步骤全部 success。
 - 最终远程读取确认：生产脚本 blob `29e55810f86e930efbbc04f2a469aeac1a821483`、测试文件 blob `1afa94f986da30a1b21f798b64d9981c88869357`；CI 作业各步骤均已完成并成功。
 - 本补充只记录通过验证的正向成果；不代表用户本机快照已执行，仍需用户在 Poi/Hand 环境运行并上传输出文件后，才能进入离线解码分析。
+
+
+## 2026-10-29 — CDP main.js 快照报告 URL 脱敏回归验证
+
+- **已核验的修复：** `tools/hand_sandbox/static_decoder_extract_20261027.js` 将脚本 URL 的安全化处理复用于快照元数据与控制台静态源码报告的 `pageSource.url`。报告不再直接打印 CDP `Debugger.scriptParsed` 提供的原始脚本 URL，避免其中的查询参数、片段和 URL 用户信息进入日志。
+- **离线回归测试：** `tests/static_decoder_extract.test.cjs` 使用含模拟 `api_token`、URL 凭据与片段的合成 URL，验证元数据与控制台报告仅保留 `origin + pathname`；测试仅处理合成源码文本，不连接 CDP、Poi 或游戏页面。
+- **远程代码提交：** `d16857c22e2f6aa2970ed709c97e8b8fee186ae1`；**测试提交：** `7a059f8b9d1b73b4b6074347d1f71c4f36b1160a`。
+- **远程回读：** 生产脚本 blob `3cdac1e7be25f712a8176dae03f94dd12a664e48`；测试 blob `3e6f150bdd39d913643770db18558966036d39e3`，均从权威分支 `dev/expedition-closed-loop-mvp` 重新读取并核对。
+- **CI 验证：** [GitHub Actions run 40774017056](https://github.com/wosafety0/wosafety0clamp/actions/runs/40774017056) 对应测试提交 `7a059f8b...`，结论为 `success`；Node 静态提取测试、Python 编译和 Python 单元测试步骤均为 `completed/success`。
+- **验证边界与下一步：** 仅证明远程代码、合成离线测试和 CI；用户本机 Poi/Hand 尚未运行本次版本，`main.js` 本地完整快照与元数据仍未实际核验。下一步需用户在现有 Hand 沙盒中运行当前只读脚本，检查 `SNAPSHOT_FILE`、`SNAPSHOT_METADATA`、`SNAPSHOT_SHA256` 和 `STATUS`，再将脱敏后的摘要及必要的离线快照提供用于静态分析。真实游戏输入持续关闭；没有调用 `Runtime.evaluate`、游戏函数或 getter。
