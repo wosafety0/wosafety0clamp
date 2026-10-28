@@ -1886,3 +1886,12 @@ The Hand plugin's read-only probe reported:
 - **Existing MVP implementation to reuse rather than duplicate:** `PoiExpeditionReader.read_fleets()` and `normalize_poi_fleets()` are already present in the project codebase. Do not create a second fleet reader/normalizer. Their interpretation of `api_mission` slots still requires authoritative passive observation before it can drive actions.
 - **Decision:** Reuse existing components first. The next six-hour plan should spend Stage 1 only on the current static extractor, then Stage 2 should compare the existing snapshot/bridge tools with the existing fleet reader. Do not write another generic state-shape layer or promote diagnostic scripts to production without acceptance tests.
 - **Status boundary:** This is a source review of archived repository files plus prior successful run evidence. It does not mean every listed script was rerun in this review, and it does not claim the live expedition loop is complete.
+
+### 2026-10-28 — 全局规则读取纳入 CI 门禁（已验证）
+
+- 在候选分支 `dev/harness-global-rules-ci-gate-20261028` 更新 `.github/workflows/ci.yml`：现有离线测试前先用 GitHub App 创建仅限 `Agents-global` 的短期只读安装令牌，读取固定提交 `018707cdbca1031ae94ce0f26edc9854ee78e4ed` 中的 `AGENTS.md`。
+- 门禁核对预期 Git Blob SHA `69d72d15d07412a04c47edea5837374367935019`，并检查关键规则章节锚点；规则正文和凭据不输出到日志。若读取失败、SHA 不符或关键章节缺失，CI 将停止。
+- 变更提交：`ed7614b17473c365175c8e37db43aaa0b8e0781d`；CI 实际运行通过：[run 40623717925](https://github.com/wosafety0/wosafety0clamp/actions/runs/40623717925)。成功步骤包括安装令牌创建、全局规则读取/校验、JavaScript 静态提取测试、Python compileall 和 Python unittest。
+- PR：[#11 Gate CI on pinned global collaboration rules](https://github.com/wosafety0/wosafety0clamp/pull/11)，目标为 `dev/expedition-closed-loop-mvp`，当前 Open、未合并。
+- 状态边界：已验证的是全局规则可读、固定版本完整性、关键章节存在及现有离线测试通过；这**不等于自动证明每个代码变更在语义上遵守全部规则**，仍需任务/PR 审查。未执行游戏操作、未授予写权限。远程文档更新不代表本机工作树已同步。
+
