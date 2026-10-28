@@ -1903,3 +1903,10 @@ The Hand plugin's read-only probe reported:
 - 更新 `.github/workflows/ci.yml`：PR 目标分支覆盖 `main` 与 `dev/**`；PR 事件下检查描述是否包含上述五个必需章节，缺少章节则 CI 失败。该检查只保证审查信息字段存在，不会自动判断文字内容真实或代码语义上完全合规。
 - PR #11 描述已补齐这些字段；CI run [40624159454](https://github.com/wosafety0/wosafety0clamp/actions/runs/40624159454)（run #750）已完成并通过。成功步骤包含全局规则读取/完整性校验、PR 字段门禁、JS 静态提取测试、Python compileall 与 unittest。PR #11 仍未合并。
 - 状态边界：这是结构化审查流程门禁，不是 AI 语义审查器。没有新增模型/API 凭据，也未执行游戏操作；改动仅在远程候选分支，未同步本机工作树。
+
+
+### 2026-10-28 — PR 审查字段内容门禁加强（已验证）
+
+- 更新 `.github/workflows/ci.yml`：PR 事件除了检查五个必需章节外，还要求每个章节有实质文本；空白/仅 HTML 注释的章节，以及包含常见未解决占位词（TODO、TBD、PLACEHOLDER、待填写、待补充）的章节会导致 CI 失败。
+- 最新代码提交：`d55cbc7b8ffcb92e2d6c9f143a1ca34f15191d40`。CI run [40624467486](https://github.com/wosafety0/wosafety0clamp/actions/runs/40624467486)（run #754）已完成并通过；全局规则校验、PR 字段内容门禁、JS 静态提取测试、Python compileall 和 unittest 均成功。
+- 状态边界：这只排除空字段与常见占位符，不验证内容是否真实、充分或语义合规；仍需要人工审查或未来独立的 AI 审查器。未合并 PR，未执行游戏操作，未同步本机工作树。
