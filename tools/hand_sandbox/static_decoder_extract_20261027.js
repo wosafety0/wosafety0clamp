@@ -196,7 +196,7 @@ module.exports = function() {
 
   function saveSnapshot(source, scriptUrl, scriptId, outputDirOverride) {
     const capturedAt = new Date().toISOString();
-    const stamp = capturedAt.replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+    const stamp = capturedAt.replace(/[-:]/g, '');
     const outputDir = outputDirOverride || path.join(os.homedir(), 'Desktop', 'KancolleBot-CDP-Snapshots');
     const base = 'main-' + stamp;
     const sourcePath = path.join(outputDir, base + '.js');
