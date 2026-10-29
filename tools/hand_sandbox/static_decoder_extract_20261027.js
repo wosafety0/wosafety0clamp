@@ -266,8 +266,15 @@ module.exports = function() {
     }
 
     const factoryCalls = appFactory ? extractCalls(appFactory.text, '_0x460358') : [];
+    const missing = [];
+    if (!decoder) missing.push('_0x3353');
+    if (!table) missing.push('_0x3f23');
+    if (!appFactory) missing.push('_0x466acb');
+    const extractionStatus = missing.length
+      ? 'PARTIAL_EXTRACTION'
+      : (snapshot.ok ? 'STATIC_EXTRACTION_COMPLETE' : 'SNAPSHOT_WRITE_ERROR');
     const report = {
-      status: 'STATIC_EXTRACTION_COMPLETE',
+      status: extractionStatus,
       snapshot,
       pageSource: {
         url: sanitizeScriptUrl(scriptUrl),
@@ -299,28 +306,72 @@ module.exports = function() {
       ]
     };
 
-    let serialized = JSON.stringify(report, null, 2);
+    const extractionPath = snapshot.sourcePath
+      ? path.join(path.dirname(snapshot.sourcePath), path.basename(snapshot.sourcePath, '.js') + '.extraction.json')
+      : null;
+    const fullReport = Object.assign({}, report, {
+      extractionArtifact: { path: extractionPath, status: extractionPath ? 'SAVED' : 'UNAVAILABLE' }
+    });
+    let artifactError = null;
+    if (extractionPath) {
+      try {
+        fs.writeFileSync(extractionPath, JSON.stringify(fullReport, null, 2) + String.fromCharCode(10), { encoding: 'utf8', flag: 'wx' });
+      } catch (error) {
+        artifactError = 'Extraction artifact write failed: ' + (error.message || String(error));
+        fullReport.extractionArtifact.status = 'WRITE_FAILED';
+        fullReport.extractionArtifact.error = artifactError;
+      }
+    } else {
+      artifactError = 'No source snapshot path available; extraction artifact was not written.';
+    }
+
+    // Keep the Hand console output bounded. Full source definitions and contexts
+    // are preserved in the sidecar JSON for offline analysis.
+    const displayReport = Object.assign({}, report, {
+      extractionArtifact: {
+        path: extractionPath,
+        status: artifactError ? 'WRITE_FAILED' : 'SAVED',
+        error: artifactError
+      },
+      definitions: Object.fromEntries(Object.entries(report.definitions).map(function(entry) {
+        const definition = entry[1];
+        return [entry[0], definition ? {
+          name: definition.name,
+          start: definition.start,
+          end: definition.end,
+          kind: definition.kind,
+          characters: definition.text.length
+        } : null];
+      })),
+      stringTableReferencesOutsideDefinition: rotationContexts.slice(0, 12).map(function(context) {
+        return Object.assign({}, context, { text: context.text.slice(0, 1200), textTruncated: context.text.length > 1200 });
+      }),
+      factoryDecoderCalls: factoryCalls.slice(0, 100).map(function(call) {
+        return Object.assign({}, call, { expression: call.expression.slice(0, 500), expressionTruncated: call.expression.length > 500 });
+      }),
+      outputTruncated: true,
+      outputLimitChars: MAX_REPORT_CHARS
+    });
+    let serialized = JSON.stringify(displayReport, null, 2);
     if (serialized.length > MAX_REPORT_CHARS) {
-      report.stringTableReferencesOutsideDefinition = rotationContexts.slice(0, 12);
-      report.factoryDecoderCalls = factoryCalls.slice(0, 100);
-      report.outputTruncated = true;
-      report.outputLimitChars = MAX_REPORT_CHARS;
-      serialized = JSON.stringify(report, null, 2);
+      displayReport.stringTableReferencesOutsideDefinition = displayReport.stringTableReferencesOutsideDefinition.slice(0, 4);
+      displayReport.factoryDecoderCalls = displayReport.factoryDecoderCalls.slice(0, 20);
+      serialized = JSON.stringify(displayReport, null, 2);
     }
     console.log('[Sandbox] STATIC_SOURCE_REPORT_BEGIN');
     console.log(serialized);
     console.log('[Sandbox] STATIC_SOURCE_REPORT_END');
 
-    const missing = [];
-    if (!decoder) missing.push('_0x3353');
-    if (!table) missing.push('_0x3f23');
-    if (!appFactory) missing.push('_0x466acb');
-    const extractionStatus = missing.length ? 'PARTIAL_EXTRACTION' : 'STATIC_EXTRACTION_COMPLETE';
+    const finalStatus = artifactError && !missing.length && snapshot.ok
+      ? 'EXTRACTION_ARTIFACT_WRITE_ERROR'
+      : (!snapshot.ok ? 'SNAPSHOT_WRITE_ERROR' : extractionStatus);
     cleanup(
-      snapshot.ok ? extractionStatus : 'SNAPSHOT_WRITE_ERROR',
-      snapshot.ok
-        ? (missing.length ? 'Definition not found or lexical boundary unresolved: ' + missing.join(', ') : 'Snapshot saved; definitions extracted; no page execution or game input.')
-        : snapshot.error
+      finalStatus,
+      artifactError
+        ? artifactError
+        : (snapshot.ok
+          ? (missing.length ? 'Definition not found or lexical boundary unresolved: ' + missing.join(', ') : 'Snapshot and full extraction artifact saved; no page execution or game input.')
+          : snapshot.error)
     );
   }
 

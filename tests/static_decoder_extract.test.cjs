@@ -110,3 +110,92 @@ test('reports a clear failure when the snapshot destination is not writable', ()
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+
+test('analyzeSource reports partial extraction when a required definition is missing', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kcb-partial-report-'));
+  const fixture = [
+    'function _0x3353(x) { return x; }',
+    'function _0x3f23() { return []; }'
+  ].join('\n');
+  try {
+    logMessages.length = 0;
+    lexer.analyzeSource(fixture, 'https://example.test/kcs2/js/main.js', '759', dir);
+    const output = logMessages.join('\n');
+    const start = output.indexOf('STATIC_SOURCE_REPORT_BEGIN');
+    const end = output.indexOf('STATIC_SOURCE_REPORT_END');
+    assert.ok(start >= 0 && end > start);
+    const jsonStart = output.indexOf('{', start + 'STATIC_SOURCE_REPORT_BEGIN'.length);
+    const reportEnd = output.indexOf('\n[Sandbox] STATIC_SOURCE_REPORT_END', jsonStart);
+    const report = JSON.parse(output.slice(jsonStart, reportEnd));
+    assert.equal(report.status, 'PARTIAL_EXTRACTION');
+    assert.equal(report.definitions.factory_0x466acb, null);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('analyzeSource reports complete extraction only when all required definitions exist', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kcb-complete-report-'));
+  const fixture = [
+    'function _0x3353(x) { return x; }',
+    'function _0x3f23() { return []; }',
+    'function _0x466acb() { return _0x460358(0x1); }',
+    'const _0x460358 = _0x3353;'
+  ].join('\n');
+  try {
+    logMessages.length = 0;
+    lexer.analyzeSource(fixture, 'https://example.test/kcs2/js/main.js', '760', dir);
+    const output = logMessages.join('\n');
+    const start = output.indexOf('STATIC_SOURCE_REPORT_BEGIN');
+    const end = output.indexOf('STATIC_SOURCE_REPORT_END');
+    assert.ok(start >= 0 && end > start);
+    const jsonStart = output.indexOf('{', start + 'STATIC_SOURCE_REPORT_BEGIN'.length);
+    const reportEnd = output.indexOf('\n[Sandbox] STATIC_SOURCE_REPORT_END', jsonStart);
+    const report = JSON.parse(output.slice(jsonStart, reportEnd));
+    assert.equal(report.status, 'STATIC_EXTRACTION_COMPLETE');
+    assert.equal(report.definitions.decoder_0x3353.kind, 'function');
+    assert.equal(report.definitions.stringTable_0x3f23.kind, 'function');
+    assert.equal(report.definitions.factory_0x466acb.kind, 'function');
+    assert.equal(report.definitions.localAlias_0x460358.kind, 'assignment');
+    assert.equal(report.factoryDecoderCalls.length, 1);
+    assert.equal(report.safety.pageSourceExecuted, false);
+    assert.equal(report.safety.gameFunctionsCalled, false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
+test('writes full extracted definitions to a sidecar while keeping console output bounded', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kcb-extraction-artifact-'));
+  const largeLiteral = 'A'.repeat(190000);
+  const fixture = [
+    'function _0x3353(x) { return x; }',
+    'function _0x3f23() { return ["small-table"]; }',
+    'function _0x466acb() { const big = "' + largeLiteral + '"; return _0x460358(0x1); }',
+    'const _0x460358 = _0x3353;'
+  ].join('\n');
+  try {
+    logMessages.length = 0;
+    lexer.analyzeSource(fixture, 'https://example.test/kcs2/js/main.js', '761', dir);
+    const output = logMessages.join('\n');
+    const start = output.indexOf('STATIC_SOURCE_REPORT_BEGIN');
+    const end = output.indexOf('\n[Sandbox] STATIC_SOURCE_REPORT_END', start);
+    assert.ok(start >= 0 && end > start);
+    const jsonStart = output.indexOf('{', start + 'STATIC_SOURCE_REPORT_BEGIN'.length);
+    const displayed = JSON.parse(output.slice(jsonStart, end));
+    assert.ok(JSON.stringify(displayed).length < 180000);
+    assert.equal(typeof displayed.definitions.factory_0x466acb.text, 'undefined');
+    const artifactName = fs.readdirSync(dir).find(name => name.endsWith('.extraction.json'));
+    assert.ok(artifactName);
+    const artifact = JSON.parse(fs.readFileSync(path.join(dir, artifactName), 'utf8'));
+    assert.equal(artifact.extractionArtifact.status, 'SAVED');
+    assert.equal(artifact.definitions.factory_0x466acb.text.length > 190000, true);
+    assert.ok(artifact.definitions.factory_0x466acb.text.includes(largeLiteral));
+    assert.equal(artifact.safety.pageSourceExecuted, false);
+    assert.equal(artifact.safety.gameFunctionsCalled, false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
