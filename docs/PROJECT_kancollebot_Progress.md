@@ -2410,4 +2410,4 @@ The Hand plugin's read-only probe reported:
 - 只读审查当前分支 `src/kancollebot/adapters/poi/expedition_state_v2.py` 后，确认代码仍将 `api_mission` 的时间槽保持为未解释状态，并拒绝状态值 3；本轮没有根据测试夹具推断真实 API 语义。
 - 对外部资料做了交叉核查：KanColle Wiki 社区 API 指南将数组描述为 `[状态, 任务 ID, 返回时间, 未知槽]`，列出状态 0/1/2/3 并称返回时间为 Unix epoch 毫秒；独立实现 `shichiria/kancolle-browser/src-tauri/src/api/fleet.rs` 的 `parse_expedition()` 也按槽位 0/1/2 解析状态、任务 ID 和返回时间。另一个公开 API 样例只用于佐证空闲数组形状。研究说明已保存至 `docs/research/POI_API_MISSION_SEMANTICS_RESEARCH_20261029.md`。
 - **证据等级与限制：** 这些是社区文档/独立客户端源码，不是当前游戏服务器的官方规范；本轮没有取得当前目标的新鲜实时样本，尚未验证时间单位、状态 3 的当前表现或返回状态转换。因此没有修改归一化代码、没有调整生产 freshness 门禁、没有启用任何游戏操作。生产 `source_freshness_verified` 仍须通过现有实时 witness 门禁。
-- 远程归档：研究记录 blob SHA 为 `8e5d2e4104dc7d507a4a65a251e5666130e4d6de`；进度日志首次更新提交为 `ed6c6dd06600d89cbed8155c44a7e37fd2460f9f`，随后在回读后补记核验结果，最终提交为 `2ff311065b65d24b517755a0bd8e415d319dab50`；最终进度日志已从目标分支回读，blob SHA 为 `04a8165c34cee8915fcabacd971c348017e10c20`。
+- 远程归档：研究记录 blob SHA 为 `8e5d2e4104dc7d507a4a65a251e5666130e4d6de`；进度日志首次更新提交为 `ed6c6dd06600d89cbed8155c44a7e37fd2460f9f`，随后通过回读核验研究记录和进度条目均已存在，并对归档说明作了校正；最终内容已从目标分支再次回读核验。
