@@ -2383,3 +2383,14 @@ The Hand plugin's read-only probe reported:
 - 新增 `tests/test_poi_port_freshness.py` 7 项离线测试，覆盖匹配的新鲜样本、过期/未来时间、舰队任务与舰船资源差异、路由/HTTP/缓存/安全标记错误、数据不完整、记录重复/缺失和无时区时钟。Windows 本地隔离克隆检查的分支 HEAD 为 `4a4f0b9653e566d07054272a2a9731055092bea9`；定向测试 7/7 PASS，完整 Python 单元测试 137/137 PASS。
 - **重要限制：** 该函数仅验证“快照声明的时间/来源元数据 + 当前 MCP 状态的字段一致性”，无法从紧凑快照重新计算原始响应体哈希，也不能认证磁盘 JSON 的来源或证明 Redux 原子快照。调用方必须从当前运行、可信的被动观察器进程直接取得内存快照；不得把历史磁盘快照当作 freshness 证明。该 helper 目前未接入 `PoiExpeditionReader`，也没有设置 `source_freshness_verified`，因此不改变生产门禁。
 - 本阶段未安装/切换 Poi 插件，未刷新或操作游戏，未发送游戏 API 请求。当前观察器在新一轮 120 秒被动等待中未捕获新的自然 port 响应；这次没有产生可复用的新样本，不作为成功成果归档。下一步是实现可信的实时观察器到读取器的内存证据交接，并用过期/不匹配用例验证 fail-closed 行为，再考虑接入读取器。
+
+
+### 2026-10-29 实时 port witness 交接与读取器门禁集成
+
+- 新增 `src/kancollebot/adapters/poi/port_response_observer.py`：提供可选的一次性子进程观察器包装，使用子进程专属环境变量要求已审查的 CDP observer 将紧凑 witness 通过 stdout 直接交回调用方；父进程不从历史快照文件读取新鲜度证据。超时、进程失败、无自然响应、无效/重复 JSON 或输出超限均返回无 witness，并记录不含游戏数据的状态。
+- 更新 `tools/hand_sandbox/poi_port_response_observer_20261029.js`：只有子进程显式设置 `KCB_POI_FRESHNESS_WITNESS_STDOUT=1` 时才输出 witness JSON；默认 Hand 沙盒运行仍只打印原有摘要，不将舰队/舰船 payload 写入控制台。
+- 更新 `port_freshness.py`：除结构、非缓存状态和舰队/舰船可变字段精确匹配外，要求响应接收时间与 body 捕获时间都在允许窗口内，并拒绝未来时间、缺失字段、非法哈希格式、重复/缺失记录与安全标记异常。函数明确声明不能认证磁盘 JSON、不能重算未保存的原始 body 哈希，也不能证明 Redux 原子快照。
+- 将校验器以可选的 `port_snapshot_provider` 接入 `PoiExpeditionReader` 和 `normalize_poi_fleets()`。只有当前进程提供 witness 且它在默认 30 秒窗口内与本次完整 MCP fleet/ship 读取的捕获字段完全匹配，归一化状态才会标记 `source_freshness_verified=True`；未配置 provider、超时、过期或任何字段差异均保持 false。默认构造方式仍不启动观察器，因此未配置的现有路径继续 fail-closed。
+- 测试：新增 observer 子进程包装 5 项测试、快照一致性 7 项测试，并在读取器中新增匹配/不匹配/过期 witness 集成测试。Windows 本机隔离克隆当前分支 HEAD `7e28aa6107d4dfe5385d2458282fa97b1acf9742`：定向 port 测试 12/12 PASS；完整 Python 单元测试 145/145 PASS；`node --check tools/hand_sandbox/poi_port_response_observer_20261029.js` PASS。
+- **验证边界：** 这是离线逻辑和子进程输出协议的测试证据，不是实时 CDP 端到端捕获验收。本轮对当前 Poi 的新一轮 120 秒被动观察没有等到自然 `api_port/port` 响应，因此未获得新的实时 witness；没有刷新、输入、主动请求游戏 API、安装/切换插件或改变生产配置。当前默认读取器未配置 provider，生产 `source_freshness_verified` 仍为 false，真实派遣继续关闭。
+- 下一步：先审查实际应用的 `PoiExpeditionReader` 构造入口，确认可在不改变现有默认安全状态的情况下按显式配置启用 provider；随后仅在自然响应出现时做真实端到端验证，并核对状态同步窗口。未通过前不启用真实派遣。
