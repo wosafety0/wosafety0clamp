@@ -13,13 +13,13 @@ The Harness acceptance workflow is an auxiliary acceptance/reporting layer for c
 
 ## What the workflow checks
 
-The reusable workflow is pinned to immutable commit `65544e290fd875bb6c4e30f6525b238200037bba`. It runs the consumer-owned command:
+The reusable workflow is pinned to immutable commit `07b8000ab8c2a1dad0f91bd29e2d84028bec2c93`, whose Push and PR CI passed in the Harness repository before this consumer pin was updated. It runs the consumer-owned command:
 
 - Node static tests: `tests/static_decoder_extract.test.cjs` and `tests/verify_cdp_snapshot.test.cjs`
 - Python compile check: `python -m compileall -q src tests`
 - Offline Python unit tests: `PYTHONPATH=src python -m unittest discover -s tests -v`
 
-The command uses `&&`, so a failed stage prevents later command segments from running. The reusable workflow creates a redacted acceptance report, uploads it as an artifact, and closes the final gate unless all required stages succeed.
+The command uses `&&`, so a failed stage prevents later command segments from running. The reusable workflow creates a redacted acceptance report, verifies the report's consumer commit SHA and caller workflow ref/SHA against trusted GitHub context, uploads the artifact, and closes the final gate unless runtime validation, the consumer command, report generation, artifact upload, and report verification all succeed.
 
 ## How to read the result
 
@@ -45,3 +45,10 @@ The command uses `&&`, so a failed stage prevents later command segments from ru
 ## Document responsibility
 
 This guide documents only the clamp Harness trial. Update it when the trial workflow's triggers, pinned reusable-workflow SHA, acceptance command, report behavior, or integration policy changes.
+
+
+## Report-verifier pin update
+
+- Updated the trial from the prior reusable-workflow commit to `07b8000ab8c2a1dad0f91bd29e2d84028bec2c93`, which contains the dedicated consumer report verifier and the Python/Node runtime contract.
+- The Harness repository's Push CI [40813229844](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40813229844) and PR CI [40813238148](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40813238148) passed for that exact SHA before pinning it here.
+- Clamp's own hosted CI must now pass on the updated pin; until then, the new consumer integration is pending verification.
