@@ -79,6 +79,20 @@ class PoiExpeditionReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(PoiMcpError, "truncated"):
             reader.read_fleets()
 
+    def test_missing_truncation_marker_fails_closed(self):
+        payloads = sample_payloads()
+        del payloads["info.fleets"]["truncated"]
+        _, reader = self.make_reader(payloads=payloads)
+        with self.assertRaisesRegex(PoiMcpError, "truncation marker"):
+            reader.read_fleets()
+
+    def test_inconsistent_collection_counts_fail_closed(self):
+        payloads = sample_payloads()
+        payloads["info.fleets"]["returned"] = 0
+        _, reader = self.make_reader(payloads=payloads)
+        with self.assertRaisesRegex(PoiMcpError, "counts do not match"):
+            reader.read_fleets()
+
     def test_missing_mission_data_fails_closed(self):
         payloads = sample_payloads()
         del payloads["info.fleets"]["items"][0]["api_mission"]
