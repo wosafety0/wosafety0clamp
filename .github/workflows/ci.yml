@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Run offline JavaScript static extraction tests
-        run: node --test tests/static_decoder_extract.test.cjs tests/verify_cdp_snapshot.test.cjs
+        run: node --test tests/static_decoder_extract.test.cjs tests/verify_cdp_snapshot.test.cjs tests/verify_cdp_snapshot_symlink.test.cjs
       - name: Compile Python source
         run: python -m compileall -q src tests
       - name: Run unit tests
