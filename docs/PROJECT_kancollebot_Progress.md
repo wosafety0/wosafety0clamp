@@ -2271,3 +2271,9 @@ The Hand plugin's read-only probe reported:
 - 观察窗口内没有自然发生且符合筛选条件的成功 `/kcsapi/api_port/port` 响应，因此未生成快照；不把该轮标记为 payload 捕获成功。此结果验证了当前 Poi 的目标识别、CDP 网络监听启动和有界退出路径，不验证源新鲜度或舰队/舰船 payload。
 - 运行输出确认未发送游戏输入、未主动发起游戏 API 请求、未使用 `Runtime.evaluate`，且未跳过任何缓存响应。快照目录不存在，符合“无合格响应不落盘”的预期。
 - 安全结论不变：`source_freshness_verified` 仍不得设为真；真实派遣和远征闭环继续关闭。下一步只能等待自然产生的合格母港响应，或在需要用户操作时明确暂停，不能通过刷新/触发游戏请求制造样本。
+
+### 2026-10-29 Poi CDP target surface clarification
+
+- 对当前唯一匹配的 DMM KanColle `webview` 做只读 DOM 与资源计时检查：`document.readyState=complete`，该目标自身 `canvasCount=0`，Performance Resource Timing 中没有 `/kcsapi/api_port/port` 条目；列出的 iframe URL 元数据也没有暴露 `kancolle-server.com` 游戏路径。
+- 因此，虽然该目标满足观察器的旧 DMM URL 过滤条件且 CDP `Network.enable` 成功，但现有证据不能证明它就是实际承载游戏画面的活动目标。120 秒监听无合格响应的原因尚不能确定；不归因于游戏未登录，也不宣称捕获成功。
+- 下一步应只读定位实际游戏 frame/target，并在该目标上等待自然响应；不得点击启动/登录按钮、刷新页面或主动请求游戏 API。`source_freshness_verified` 保持 `false`，真实派遣继续关闭。
