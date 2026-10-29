@@ -71,7 +71,7 @@ def port_snapshot_matches_current_state(
         raise ValueError("max_age must not be negative")
     if not isinstance(snapshot, dict):
         return False
-    if snapshot.get("schemaVersion") != 1:
+    if not _is_int(snapshot.get("schemaVersion"), minimum=1) or snapshot["schemaVersion"] != 1:
         return False
     if snapshot.get("verificationStatus") != "CAPTURED_UNDER_STATICALLY_REVIEWED_PROBE":
         return False
@@ -105,8 +105,14 @@ def port_snapshot_matches_current_state(
     captured_at = _parse_timestamp(source.get("bodyCapturedAt"))
     if received_at is None or captured_at is None or received_at > captured_at:
         return False
-    age = now - captured_at
-    if age < timedelta(0) or age > max_age:
+    received_age = now - received_at
+    captured_age = now - captured_at
+    if (
+        received_age < timedelta(0)
+        or received_age > max_age
+        or captured_age < timedelta(0)
+        or captured_age > max_age
+    ):
         return False
 
     safety = snapshot.get("safety")
@@ -125,9 +131,13 @@ def port_snapshot_matches_current_state(
         return False
     if not isinstance(witness_ships, dict) or not witness_ships:
         return False
-    if summary.get("fleetCount") != len(witness_fleets):
+    if not _is_int(summary.get("fleetCount"), minimum=1):
         return False
-    if summary.get("shipCount") != len(witness_ships):
+    if not _is_int(summary.get("shipCount"), minimum=1):
+        return False
+    if summary["fleetCount"] != len(witness_fleets):
+        return False
+    if summary["shipCount"] != len(witness_ships):
         return False
     if not isinstance(current_fleets, list) or not isinstance(current_ships, dict):
         return False
@@ -161,6 +171,8 @@ def port_snapshot_matches_current_state(
             if not _is_int(record.get(field), minimum=minimum):
                 return False
         if str(record["api_id"]) != key or key in witness_ship_ids:
+            return False
+        if "api_cond" in record and not _is_int(record["api_cond"], minimum=0):
             return False
         witness_ship_ids.add(key)
 
