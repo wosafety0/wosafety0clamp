@@ -117,11 +117,11 @@ test('analyzeSource reports partial extraction when a required definition is mis
   const fixture = [
     'function _0x3353(x) { return x; }',
     'function _0x3f23() { return []; }'
-  ].join('\\n');
+  ].join('\n');
   try {
     logMessages.length = 0;
     lexer.analyzeSource(fixture, 'https://example.test/kcs2/js/main.js', '759', dir);
-    const output = logMessages.join('\\n');
+    const output = logMessages.join('\n');
     const start = output.indexOf('STATIC_SOURCE_REPORT_BEGIN');
     const end = output.indexOf('STATIC_SOURCE_REPORT_END');
     assert.ok(start >= 0 && end > start);
@@ -141,11 +141,11 @@ test('analyzeSource reports complete extraction only when all required definitio
     'function _0x3f23() { return []; }',
     'function _0x466acb() { return _0x460358(0x1); }',
     'const _0x460358 = _0x3353;'
-  ].join('\\n');
+  ].join('\n');
   try {
     logMessages.length = 0;
     lexer.analyzeSource(fixture, 'https://example.test/kcs2/js/main.js', '760', dir);
-    const output = logMessages.join('\\n');
+    const output = logMessages.join('\n');
     const start = output.indexOf('STATIC_SOURCE_REPORT_BEGIN');
     const end = output.indexOf('STATIC_SOURCE_REPORT_END');
     assert.ok(start >= 0 && end > start);
