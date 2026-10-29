@@ -23,6 +23,8 @@ jobs:
           python-version: "3.12"
       - name: Run offline JavaScript static extraction tests
         run: node --test tests/static_decoder_extract.test.cjs tests/verify_cdp_snapshot.test.cjs
+      - name: Check passive port observer JavaScript syntax
+        run: node --check tools/hand_sandbox/poi_port_response_observer_20261029.js
       - name: Compile Python source
         run: python -m compileall -q src tests
       - name: Run unit tests
