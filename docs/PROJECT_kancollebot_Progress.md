@@ -2509,3 +2509,13 @@ The Hand plugin's read-only probe reported:
 - PR 包含 11 个文件，集中整合安全门槛、离线回归测试与只读诊断探针。PR 当前为 Draft/Open/未合并；不自动合并、不修改分支保护。
 - 精确代码提交 `7accb7a7634c463526c953f2fa15a2e36e92942d` 的 CI 已通过；随后只修正了探针文档中的验证状态说明。PR 分支最新头为文档提交 `f25fb75637c471d96b250e46eb770769b3e4ea94`，核心代码仍对应已通过 CI 的提交。
 - 下一项必须完成的验收是：在用户当前 Poi 实例中运行被动探针，核实目标发现、自然发生的成功母港响应、精简快照输出及本地哈希。实机验证完成前，PR 保持 Draft，生产新鲜度门禁不放行，真实派遣继续关闭。
+
+
+### 2026-10-30 PR #15/#16 在当前 MVP 基线的独立重构候选
+
+- 由于原 Draft PR #15 的 `dev/poi-safety-consolidation-20261029` 与目标 `dev/expedition-closed-loop-mvp` 分支已分叉（GitHub 曾报告 `mergeable=false`），创建独立候选分支 `dev/poi-safety-reconcile-20261030`，不修改原 PR #15、叠加 PR #16 或其分支，不合并任何 PR。
+- 从当前 MVP 基线提交 `7a04fe48854cae15172e94619fe55e03a1fcb587` 出发，按共同祖先 `bc3ae7ab863ffee4bbcf5687c2cd2bc33e5ce6a6` 与 PR #16 源分支逐项核对：将源分支的 25 个非进度文件的原有 blob 引入独立候选；对 `docs/PROJECT_kancollebot_Progress.md` 保留双方各自相对共同祖先追加的进度内容；保留当前 MVP 分支独有的 `docs/diagnostics/Personal-Windows-MCP-incident-20261029.md`。
+- 候选代码/文档提交 `b5e3e2a92f427eaeb6645dc4fafd21324d775d06`。GitHub Compare 显示相对 MVP 基线 **ahead 1 / behind 0**、26 个变更文件；进度文件 blob `90015e5e09b276bc49a2fd877e9c8b50c7eb4295` 与原基线诊断文件已远程回读。
+- **精确提交 CI PASS**：[40975922563](https://github.com/wosafety0/wosafety0clamp/actions/runs/40975922563)，Python **158/158**、JavaScript **14/14**、`node --check` 与 Python `compileall` 均通过。
+- 新建 Draft PR #17：https://github.com/wosafety0/wosafety0clamp/pull/17 ，目标为 `dev/expedition-closed-loop-mvp`。创建后重新读取 PR 元数据，GitHub 返回 `mergeable=true`、`draft=true`；此状态只证明当前 GitHub 合并性计算结果，不代表已经审查通过、合并或运行时验收。
+- **待审批**：审查完整 PR #17 diff 与 PR #15/#16 的依赖关系，决定是否采用候选替代旧分支；任何 PR 均不得自动合并。当前自然 port witness 与 MCP 同期匹配仍未在用户本机端到端验证，`source_freshness_verified` 不能凭历史快照放行，真实派遣保持关闭。本轮没有访问 Poi、本机游戏输入、页面 JS、主动游戏 API 或系统设置。
