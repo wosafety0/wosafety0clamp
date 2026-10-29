@@ -7,7 +7,7 @@ const crypto = require('node:crypto');
 function verifySnapshot(metadataPath) {
   const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
   if (!metadata || metadata.status !== 'SAVED') throw new Error('Metadata status is not SAVED');
-  if (typeof metadata.sourceFile !== 'string' || !/^main-[0-9TZ.]+\\.js$/.test(metadata.sourceFile)) {
+  if (typeof metadata.sourceFile !== 'string' || !metadata.sourceFile.startsWith('main-') || !metadata.sourceFile.endsWith('.js') || path.basename(metadata.sourceFile) !== metadata.sourceFile) {
     throw new Error('Unexpected snapshot filename');
   }
   if (typeof metadata.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(metadata.sha256)) {
