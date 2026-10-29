@@ -2394,3 +2394,12 @@ The Hand plugin's read-only probe reported:
 - 测试：新增 observer 子进程包装 5 项测试、快照一致性 7 项测试，并在读取器中新增匹配/不匹配/过期 witness 集成测试。Windows 本机隔离克隆当前分支 HEAD `7e28aa6107d4dfe5385d2458282fa97b1acf9742`：定向 port 测试 12/12 PASS；完整 Python 单元测试 145/145 PASS；`node --check tools/hand_sandbox/poi_port_response_observer_20261029.js` PASS。
 - **验证边界：** 这是离线逻辑和子进程输出协议的测试证据，不是实时 CDP 端到端捕获验收。本轮对当前 Poi 的新一轮 120 秒被动观察没有等到自然 `api_port/port` 响应，因此未获得新的实时 witness；没有刷新、输入、主动请求游戏 API、安装/切换插件或改变生产配置。当前默认读取器未配置 provider，生产 `source_freshness_verified` 仍为 false，真实派遣继续关闭。
 - 下一步：先审查实际应用的 `PoiExpeditionReader` 构造入口，确认可在不改变现有默认安全状态的情况下按显式配置启用 provider；随后仅在自然响应出现时做真实端到端验证，并核对状态同步窗口。未通过前不启用真实派遣。
+
+
+### 2026-10-29 只读 freshness bridge 诊断命令
+
+- 新增 `tools/verify_poi_freshness_bridge.py`，作为独立的只读端到端诊断入口：按配置启动一次性 passive CDP observer，再读取本机 Poi MCP store；只输出状态、观测时间、来源、舰队数量、observer 状态及 `game_actions_enabled=false`，不输出舰船/任务明细，也不导入或调用派遣执行器。
+- 新增诊断摘要与非有限时间参数测试。Windows 本机隔离克隆当前分支 HEAD `ba2e9dd04478e86a00f2326159a2f7d7ef7e83ea`：定向 port 测试 12/12 PASS；完整 Python 单元测试 148/148 PASS；observer JavaScript 语法检查 PASS；诊断命令 `--help` PASS。
+- 本机只读运行验证（为避免等待而将 observer 子进程超时显式设为 2 秒）：MCP 读取成功，返回 3 个舰队；结果为 `FRESHNESS_UNVERIFIED`、`source_freshness_verified=false`、`observer_status=process_timeout`、`game_actions_enabled=false`，退出码 2 表示证据未验证，PowerShell 将其作为预期的 fail-closed 结果接受。该次短超时不是实时响应捕获测试，也没有刷新、输入或主动游戏 API 请求。
+- 默认 `PoiExpeditionReader` 未配置 witness provider 时行为不变，仍保持 freshness=false；只有显式注入可信实时 observer 后，才会等待自然响应并验证捕获时间与当前 MCP 状态字段。当前项目仍没有已接入该读取器的真实派遣应用入口，web UI 仍只是健康诊断控制台，因此本阶段不代表完整自动远征闭环。
+- **当前阻塞边界：** 最近一次完整 120 秒被动观察没有自然 `api_port/port` 响应，无法完成真实 witness 交接验收。由于当前授权明确禁止刷新或操作游戏，不再人为触发响应。下一步继续离线审查/接入边界；只有在自然响应出现时才能完成端到端 freshness 验收。真实派遣保持关闭。
