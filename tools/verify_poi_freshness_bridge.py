@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import timedelta
 import sys
 from pathlib import Path
 from typing import Any
@@ -72,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     reader = PoiExpeditionReader(
         port_snapshot_provider=observer.capture,
-        freshness_max_age=__import__("datetime").timedelta(seconds=args.max_age_seconds),
+        freshness_max_age=timedelta(seconds=args.max_age_seconds),
     )
     try:
         state = reader.read_fleets()
