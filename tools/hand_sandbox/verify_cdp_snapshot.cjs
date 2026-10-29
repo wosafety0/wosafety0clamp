@@ -7,7 +7,7 @@ const crypto = require('node:crypto');
 function verifySnapshot(metadataPath) {
   const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
   if (!metadata || metadata.status !== 'SAVED') throw new Error('Metadata status is not SAVED');
-  if (typeof metadata.sourceFile !== 'string' || !metadata.sourceFile.startsWith('main-') || !metadata.sourceFile.endsWith('.js') || path.basename(metadata.sourceFile) !== metadata.sourceFile || path.win32.basename(metadata.sourceFile) !== metadata.sourceFile || metadata.sourceFile.includes('\\')) {
+  if (typeof metadata.sourceFile !== 'string' || !metadata.sourceFile.startsWith('main-') || !metadata.sourceFile.endsWith('.js') || path.basename(metadata.sourceFile) !== metadata.sourceFile || path.win32.basename(metadata.sourceFile) !== metadata.sourceFile || metadata.sourceFile.includes('\\\\')) {
     throw new Error('Unexpected snapshot filename');
   }
   if (typeof metadata.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(metadata.sha256)) {
@@ -20,6 +20,10 @@ function verifySnapshot(metadataPath) {
     throw new Error('Invalid expected character count');
   }
   const sourcePath = path.join(path.dirname(path.resolve(metadataPath)), metadata.sourceFile);
+  const sourceStat = fs.lstatSync(sourcePath);
+  if (!sourceStat.isFile() || sourceStat.isSymbolicLink()) {
+    throw new Error('Snapshot source must be a regular file, not a symbolic link');
+  }
   const bytes = fs.readFileSync(sourcePath);
   const digest = crypto.createHash('sha256').update(bytes).digest('hex');
   const decoded = bytes.toString('utf8');
