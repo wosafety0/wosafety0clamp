@@ -1965,3 +1965,13 @@ The Hand plugin's read-only probe reported:
 - Exact-head CI [run 40802538224](https://github.com/wosafety0/wosafety0clamp/actions/runs/40802538224) passed on commit `d1012091954f037757e38684b8c4472c5f11dfae`; the Node static extraction and snapshot-verifier tests, Python compilation, and Python unit tests all completed successfully.
 - Authoritative remote readback confirmed production extractor blob `80280ad548b9016f96ea1fc94e0f85c25c0d43e8` and test blob `f6a28dd71091bb2a7806638cfd2c7814fc881f63`.
 - **Boundary:** offline extractor/report semantics are verified. This does not complete live-source extraction or offline analysis of the real Poi `main.js`; the current chat has no newly captured local snapshot/metadata to verify. No live game code was executed and no game input was sent.
+
+
+## 2026-10-29 — Bounded extraction report and full offline sidecar
+
+- Improved `tools/hand_sandbox/static_decoder_extract_20261027.js` so the Hand console report stays bounded instead of printing potentially hundreds of thousands of characters from the `_0x3f23` table. The console now shows definition offsets/kinds/character counts plus bounded context excerpts.
+- The full extracted definitions, decoder-call expressions, and table-reference contexts are written to a separate `.extraction.json` sidecar next to the captured `main-*.js` snapshot and metadata. This preserves complete offline-analysis inputs without relying on copying a huge console payload.
+- Added a synthetic regression test with a 190,000-character factory definition. It verifies the console report remains under the configured 180,000-character limit while the sidecar retains the full definition and safety flags. No real Poi source or game runtime was used by this test.
+- Exact-head CI [run 40803106268](https://github.com/wosafety0/wosafety0clamp/actions/runs/40803106268) passed on commit `de4975b98e32b955fbdf77f0d344838092587a80`; JavaScript tests, Python compilation, and Python unit tests passed.
+- Remote readback verified extractor blob `3341884b9fa353a628e3879289930958397f30c3` and test blob `d90d5e3d55e0141d0de70cb86168b8a343f4bbf6`.
+- **Remaining real-source boundary:** this closes the tooling/output packaging issue, not the actual capture gap. No new real Poi snapshot or `.extraction.json` is available in the current session, so real `_0x3353`/`_0x3f23` rotation and decoded property names remain unverified. The extractor still uses CDP `Debugger.getScriptSource` only; no game source execution or input is performed.
