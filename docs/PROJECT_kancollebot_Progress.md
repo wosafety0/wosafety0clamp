@@ -2411,3 +2411,12 @@ The Hand plugin's read-only probe reported:
 - 对外部资料做了交叉核查：KanColle Wiki 社区 API 指南将数组描述为 `[状态, 任务 ID, 返回时间, 未知槽]`，列出状态 0/1/2/3 并称返回时间为 Unix epoch 毫秒；独立实现 `shichiria/kancolle-browser/src-tauri/src/api/fleet.rs` 的 `parse_expedition()` 也按槽位 0/1/2 解析状态、任务 ID 和返回时间。另一个公开 API 样例只用于佐证空闲数组形状。研究说明已保存至 `docs/research/POI_API_MISSION_SEMANTICS_RESEARCH_20261029.md`。
 - **证据等级与限制：** 这些是社区文档/独立客户端源码，不是当前游戏服务器的官方规范；本轮没有取得当前目标的新鲜实时样本，尚未验证时间单位、状态 3 的当前表现或返回状态转换。因此没有修改归一化代码、没有调整生产 freshness 门禁、没有启用任何游戏操作。生产 `source_freshness_verified` 仍须通过现有实时 witness 门禁。
 - 远程归档：研究记录 blob SHA 为 `8e5d2e4104dc7d507a4a65a251e5666130e4d6de`；进度日志首次更新提交为 `ed6c6dd06600d89cbed8155c44a7e37fd2460f9f`，随后通过回读核验研究记录和进度条目均已存在，并对归档说明作了校正；最终内容已从目标分支再次回读核验。
+
+
+### 2026-10-29 被动 freshness witness 接受/拒绝路径静态复核
+
+- 从 GitHub 当前分支静态审查被动 CDP observer、子进程 stdout witness 包装、快照一致性谓词、`PoiExpeditionReader` 与既有测试定义。确认 observer 只通过 loopback CDP 目标发现与 Network 域等待自然的成功 `api_port/port` 响应；对目标 URL/数量、CDP endpoint、HTTP 200、服务端域名、缓存来源及 body 解析实施拒绝条件；子进程 witness 缺失、重复、超限、无效 JSON、超时或异常退出均 fail-closed。
+- 读取器在 MCP 读取前取得当前进程 witness，校验完整舰队/舰船集合与相关可变字段，并二次读取 fleet/ship 集合以拒绝可见状态变化；只有 witness 时间窗口与捕获字段精确匹配时才设置 `source_freshness_verified=true`。默认未配置 provider 的读取路径仍保持 false。
+- 独立复核记录：`docs/research/POI_FRESHNESS_WITNESS_ACCEPTANCE_REVIEW_20261029.md`。明确记录了证据边界：本轮仅静态读取 GitHub 源码/测试定义，没有执行测试或当前 Poi 运行时验证；紧凑 witness 中的 SHA-256 仅检查格式、不能重新计算原始 body；stdout 交接不是密码学证明；二次读取不能提供原子 Redux 快照；观察器在 witness 模式下仍会写入包含任务数组和部分舰船状态的紧凑磁盘快照；诊断脚本不是生产派遣入口。
+- **阶段结论：** 接受/拒绝逻辑在静态源码层面整体保持保守，未发现足以据此放宽门禁的证据。没有改动生产代码或安全策略，没有刷新/输入/主动游戏 API 请求，也没有安装/切换插件。当前自然响应端到端 witness 仍未验证，生产 `source_freshness_verified` 不得据此标记为 true，真实派遣继续关闭。
+- 归档状态：研究记录已创建并从 GitHub 目标分支回读核验；本进度条目待本次更新后回读核验。此处没有声称本轮测试通过。
