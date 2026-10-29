@@ -8,6 +8,7 @@ from the persistent snapshot file.
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
 from pathlib import Path
@@ -33,8 +34,8 @@ class PassivePortResponseObserver:
     ) -> None:
         if not node_executable.strip():
             raise ValueError("node_executable must not be empty")
-        if timeout_seconds <= 0:
-            raise ValueError("timeout_seconds must be positive")
+        if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be finite and positive")
         self.script_path = Path(script_path).expanduser()
         self.node_executable = node_executable
         self.timeout_seconds = timeout_seconds
