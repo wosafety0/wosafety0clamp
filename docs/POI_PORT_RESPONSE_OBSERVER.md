@@ -3,7 +3,7 @@
 ## Status
 
 - Implementation: written on branch `dev/poi-safety-consolidation-20261029`; not yet run in the user's local Poi instance.
-- Automated verification: static safety-contract test and CI are pending.
+- Automated verification: static safety-contract test passed; GitHub Actions run [40858395913](https://github.com/wosafety0/wosafety0clamp/actions/runs/40858395913) passed, including Python compilation and 130 Python unit tests.
 - Runtime verification: **not performed**.
 - Intended use: observe a naturally occurring successful `/kcsapi/api_port/port` network response through loopback Chrome DevTools Protocol (CDP), then save a compact local snapshot for manual review.
 - This is a diagnostic artifact, not production integration and not permission to dispatch expeditions.
