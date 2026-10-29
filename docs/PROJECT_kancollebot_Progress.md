@@ -1975,3 +1975,13 @@ The Hand plugin's read-only probe reported:
 - 同一工作流另一次运行 [40798667539](https://github.com/wosafety0/wosafety0clamp/actions/runs/40798667539) 也为 success。两个 job 的 checkout、Python setup、consumer-owned acceptance command 均成功。
 - 这证明 clamp 已能调用固定版本的通用可复用工作流，并通过当前配置的 Node 静态测试、Python 编译及离线单元测试。
 - 边界：本轮只验证 CI 级别复用与当前离线检查，不证明游戏运行、真实 Poi/CDP 捕获、模型语义审查或跨平台全覆盖。PR #14 仍保持 draft、未合并；原有 CI 未替换。
+
+## 2026-10-29 — Harness report and fail-closed gate upgrade
+
+- Updated trial workflow `.github/workflows/harness-trial-acceptance.yml` on `feat/harness-trial-gate-20261029` to pin `wosafety0/dev-workflow-kit/.github/workflows/reusable-acceptance.yml` to immutable SHA `65544e290fd875bb6c4e30f6525b238200037bba`.
+- Selected the report-producing reusable workflow revision with explicit runtime allowlisting, redacted acceptance report, 14-day report artifact, and a final gate that fails unless test/report/artifact stages all succeed.
+- Kept consumer-owned checks unchanged: Node static tests, Python compile check, and offline unittest suite. Runtime is explicitly set to Python 3.12; permissions remain `contents: read`.
+- Updated Draft PR #14 description to reflect the new pin and acceptance evidence requirement: https://github.com/wosafety0/wosafety0clamp/pull/14.
+- The reusable workflow candidate's own CI passed at run https://github.com/wosafety0/dev-workflow-kit/actions/runs/40715196026; its independent Node consumer normal-path smoke test passed at https://github.com/wosafety0/AI-Worker-Proxy/actions/runs/40715309593, and the negative-path smoke test produced the expected failure at https://github.com/wosafety0/dev-workflow-kit/actions/runs/40715636382.
+- **Clamp verification for the new pin is pending** at the time of this record. The prior successful clamp runs exercised the older pinned workflow and must not be treated as evidence for the new revision.
+- No merge, deployment, secrets, provider API calls, or game operations. PR #14 remains draft/unmerged.
