@@ -67,12 +67,23 @@ class PoiExpeditionReader:
     def _collection_items(value: Any, path: str, *, expected_kind: str) -> Any:
         if not isinstance(value, dict) or value.get("kind") != expected_kind:
             raise PoiMcpError(f"Poi {path} did not return {expected_kind} data")
-        if value.get("truncated") is True:
+        truncated = value.get("truncated")
+        if not isinstance(truncated, bool):
+            raise PoiMcpError(f"Poi {path} result has no valid truncation marker")
+        if truncated:
             raise PoiMcpError(f"Poi {path} response was truncated")
         items = value.get("items")
         expected_type = list if expected_kind == "array" else dict
         if not isinstance(items, expected_type):
             raise PoiMcpError(f"Poi {path} result has an invalid items field")
+        total = value.get("total")
+        returned = value.get("returned")
+        if isinstance(total, bool) or not isinstance(total, int) or total < 0:
+            raise PoiMcpError(f"Poi {path} result has an invalid total count")
+        if isinstance(returned, bool) or not isinstance(returned, int) or returned < 0:
+            raise PoiMcpError(f"Poi {path} result has an invalid returned count")
+        if returned != len(items) or total != returned:
+            raise PoiMcpError(f"Poi {path} result counts do not match its complete items")
         return items
 
     @staticmethod
@@ -146,6 +157,30 @@ class PoiExpeditionReader:
             masters = self._lookup_items(lookup_result, master_ids)
         else:
             masters = {}
+
+        # The MCP API exposes no source revision token. Re-read both mutable
+        # Redux collections and refuse to combine records from visibly different
+        # states. This is a best-effort consistency guard, not a freshness proof
+        # or an atomic snapshot guarantee (an ABA change can still go undetected).
+        confirm_fleets_result = _tool_value(
+            self._client.call_read_tool("poi_get", {"path": "info.fleets"}),
+            "poi_get(info.fleets) confirmation",
+        )
+        confirm_ships_result = _tool_value(
+            self._client.call_read_tool("poi_get", {"path": "info.ships"}),
+            "poi_get(info.ships) confirmation",
+        )
+        confirm_fleets = self._collection_items(
+            confirm_fleets_result, "info.fleets", expected_kind="array"
+        )
+        confirm_ships = self._collection_items(
+            confirm_ships_result, "info.ships", expected_kind="object-map"
+        )
+        if fleets != confirm_fleets or ships != confirm_ships:
+            raise PoiMcpError(
+                "Poi fleet/ship state changed during observation; refusing mixed snapshot"
+            )
+
         observed_at = self._clock()
         try:
             return normalize_poi_fleets(fleets, ships, masters, observed_at=observed_at)

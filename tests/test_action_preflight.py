@@ -13,6 +13,7 @@ class ActionPreflightTests(unittest.TestCase):
             payload={"fleet_id": 1},
             observed_at=self.now - timedelta(seconds=5),
             source="unit-test",
+            source_freshness_verified=True,
         )
 
     def test_default_policy_blocks_live_action(self):
@@ -41,6 +42,7 @@ class ActionPreflightTests(unittest.TestCase):
             payload={},
             observed_at=self.now - timedelta(minutes=2),
             source="unit-test",
+            source_freshness_verified=True,
         )
         with self.assertRaisesRegex(ValueError, "stale"):
             authorize_planned_action(
@@ -57,11 +59,28 @@ class ActionPreflightTests(unittest.TestCase):
             payload={},
             observed_at=self.now + timedelta(seconds=1),
             source="unit-test",
+            source_freshness_verified=True,
         )
         with self.assertRaisesRegex(ValueError, "stale"):
             authorize_planned_action(
                 "dispatch_expedition",
                 future,
+                now=self.now,
+                max_state_age=timedelta(seconds=30),
+                policy=SafetyPolicy(allow_live_actions=True),
+                confirmed=True,
+            )
+
+    def test_rejects_recent_observation_without_source_freshness_evidence(self):
+        unverified = ObservedState(
+            payload={"fleet_id": 1},
+            observed_at=self.now - timedelta(seconds=1),
+            source="poi",
+        )
+        with self.assertRaisesRegex(ValueError, "Source data freshness has not been verified"):
+            authorize_planned_action(
+                "dispatch_expedition",
+                unverified,
                 now=self.now,
                 max_state_age=timedelta(seconds=30),
                 policy=SafetyPolicy(allow_live_actions=True),
