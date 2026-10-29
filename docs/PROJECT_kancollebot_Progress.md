@@ -2246,3 +2246,12 @@ The Hand plugin's read-only probe reported:
 - Poi 的舰队和舰船 reducer 会合并多个 API 响应（包括 port、deck、ship2、ship3 等），而响应 payload 虽有 `time`，当前只读 MCP `poi_get` 暴露的是归并后的状态，没有暴露能把整个 `info.fleets` 与 `info.ships` 快照绑定到同一源版本的令牌。现有实现无法据此证明两组数据在同一时点完整刷新。
 - 在 `dev/source-freshness-gate-20261029` 清理了 `ObservedState.require_source_freshness_verified` 的重复定义，避免后定义覆盖前定义造成维护歧义。修复提交 `7104df6c84fc0ff0c1c2978daed1b12834d47aa8` 的 CI 通过：[run 40829343257](https://github.com/wosafety0/wosafety0clamp/actions/runs/40829343257)。修复文件已从 GitHub 回读核对，方法定义现仅有一处。
 - **当前安全结论：** `PoiExpeditionReader` 仍不会设置 `source_freshness_verified=True`；在获得可验证的当前会话/源刷新证据前，真实 Poi 状态必须继续被安全前置检查拒绝。不要将缓存存在性、health 状态、本地读取时间或两次读取内容相同误认为源新鲜度证明。真实运行时刷新行为仍需只读实机证据验证。
+
+
+### 2026-10-29 Candidate: timestamped Poi port-response snapshot
+
+- 上游静态源码确认，Poi 的 `views/env-parts/data-resolver.ts` 会对成功的游戏 API 响应派发 `game.response` 事件，事件包含 `path`、解析后的 `body` 与 `time`；事件在对应 Redux 更新后派发。固定源码版本：`poooi/poi@725029997b84729df6394e1f107079b8e9437f36`。
+- `lib/game-api-broadcaster.ts` 在收到 HTTP 200 且可解析的响应时，以 `Date.now()` 记录响应接收时间。该值是本机接收时间，不是游戏服务器生成时间，但可用于约束“最近一次收到有效响应”的本地时间窗口。
+- 同一版本的舰队 reducer 从 `api_port_port` 响应的 `api_deck_port` 更新舰队，舰船 reducer 从同一响应的 `api_ship` 更新舰船。因此，捕获成功的 `/kcsapi/api_port/port` 响应体与其接收时间，是绕过可能陈旧的 Redux 持久化缓存、同时取得舰队/舰船基线快照的潜在只读路径。
+- **实现状态：未实现；验证状态：仅上游静态源码审查通过，未在用户当前 Poi 实例验证事件可见性、实际 payload 完整性及刷新频率。** 未来实现应只监听已发生的 `game.response` 事件，不主动请求游戏 API；在收到可验证的成功 port 响应前继续 fail-closed，并对接收时间设置年龄上限。不得把这个本机接收时间称为服务器端更新时间。
+- 当前 `PoiExpeditionReader` 尚未消费该事件或时间信息，故此发现不改变当前安全结论：真实状态仍不具备已验证的新鲜度证据。
