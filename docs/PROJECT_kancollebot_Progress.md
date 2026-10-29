@@ -2366,3 +2366,12 @@ The Hand plugin's read-only probe reported:
 - 独立包验收：在临时隔离目录生成 npm tarball 并解包，确认 `dist/index.js`、README、MCP 文档和 `poiPlugin` 元数据存在；动态导入打包入口并验证默认导出、插件 ID、生命周期 hooks、设置组件及设置描述数量，手动等价包验收 PASS。
 - **验证边界：** 这些测试使用仓库自带的 Poi-shaped host harness 和 loopback 测试服务；不等于在真实 Poi 图形界面中完成加载兼容性验证，也没有验证当前安装的 Poi 版本。测试只验证插件提供的只读投影行为，不证明其数据来自最近的游戏服务器响应。远征任务字段缺失与 revision 不是 freshness 证明的限制仍然成立。
 - **阶段结论：** 上游插件核心构建、类型检查、lint、15 项内置测试和打包入口均已有本机隔离验证证据；实现状态仍为未接入 KancolleBot，真实 Poi 插件加载/兼容性仍待验证。生产 `source_freshness_verified` 保持 false，真实派遣保持关闭。
+
+
+### 2026-10-29 plugin-server 与当前上游 Poi 宿主契约静态对照
+
+- 对照上游 `poooi/poi` master 当前静态源码树 `725029997b84729df6394e1f107079b8e9437f36` 与 `poooi/plugin-server` 测试版本 `b5c43407c4b3be1ad2f92e4404949fdf3a2cec57`。Poi 当前上游 `package.json` 标示版本 12.0.1，React 依赖范围为 `^18.3.1`。
+- 宿主契约核对：Poi 的 `views/redux/create-store.ts` 将 `getStore` 暴露到 `window.getStore`；`views/env-parts/config.ts` 将配置对象暴露到 `window.config`；`read-plugin.tsx` 从 `package.json.poiPlugin` 读取元数据，并将模块导出的 `settingsClass` 用作设置组件；`lifecycle.ts` 调用 `pluginDidLoad()` / `pluginWillUnload()`，未等待 hook 返回值。插件服务器入口与这些接口形状一致，React peer dependency 与上游声明的 React 18 依赖范围相符。
+- `hostFromPoiWindow()` 依赖主窗口存在 `window.getStore` 和 `window.config`，再将当前 store 映射为订阅接口；当前上游源码确认两者均被暴露。插件服务器的投影订阅使用 100 ms 轮询识别 Redux state 引用变化；这不是原子快照或服务器响应新鲜度证据。
+- 风险边界：插件入口对异步加载错误采用 catch 后吞掉的方式，真实宿主若缺失 API 或监听器启动失败，界面可能只显示未加载而缺少具体错误原因；真实 Poi 加载/卸载仍需单独验收。
+- **验证状态：静态源码对照完成；没有将插件安装到用户当前 Poi，没有刷新或操作游戏。** 本机安装包为 `D:\\Games\\poi\\resources\\app.asar`，已确认文件存在，但尚未成功只读解析其内部 `package.json`，因此不能断言用户当前安装版本与上游 12.0.1 一致。下一步优先确定本机安装版本/对应宿主 SHA，再决定是否进行隔离的真实插件加载测试。
