@@ -175,13 +175,13 @@ test('writes full extracted definitions to a sidecar while keeping console outpu
     'function _0x3f23() { return ["small-table"]; }',
     'function _0x466acb() { const big = "' + largeLiteral + '"; return _0x460358(0x1); }',
     'const _0x460358 = _0x3353;'
-  ].join('\\n');
+  ].join('\n');
   try {
     logMessages.length = 0;
     lexer.analyzeSource(fixture, 'https://example.test/kcs2/js/main.js', '761', dir);
-    const output = logMessages.join('\\n');
+    const output = logMessages.join('\n');
     const start = output.indexOf('STATIC_SOURCE_REPORT_BEGIN');
-    const end = output.indexOf('\\n[Sandbox] STATIC_SOURCE_REPORT_END', start);
+    const end = output.indexOf('\n[Sandbox] STATIC_SOURCE_REPORT_END', start);
     assert.ok(start >= 0 && end > start);
     const jsonStart = output.indexOf('{', start + 'STATIC_SOURCE_REPORT_BEGIN'.length);
     const displayed = JSON.parse(output.slice(jsonStart, end));
