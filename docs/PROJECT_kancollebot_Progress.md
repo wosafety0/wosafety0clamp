@@ -2439,3 +2439,13 @@ The Hand plugin's read-only probe reported:
 - **状态必须如实区分：** 源码提交 `bf0bb6df646cc9828dd21c8cd2255a2fb7a25834`；测试提交 `6fdbfeeecc0d6c54486578ade74afa7d572c72b2`。源码 blob 已回读为 `c511f64bcc6d9f4dbe09b2633239dbce57bbe615`，测试 blob 已回读为 `b91eede9a4eeb064469e06d9cc9e91482394a66f`。
 - 本轮未在本地执行测试、类型检查或导入检查，因此**实现已写入并回读，验证尚未完成**；测试文件只是已提交的测试定义，不是测试通过证据。未接入 Web UI 或生产入口，未访问本机 MCP，未刷新/操作 Poi，未主动请求游戏 API，真实派遣继续关闭。
 - 独立说明：`docs/research/POI_READ_ONLY_ASSESSMENT_LAYER_20261029.md`。下一步应在本地开发工作树运行新增测试及相关回归，再决定是否进行只读 UI 接入；在验证完成前不得将此组件标记为已验证成果。
+
+
+### 2026-10-29 只读远征评估组合层离线验证通过
+
+- 在独立 worktree `D:\\AI_Project\\KancolleBot-Worktrees\\poi-safety-consolidation-20261029` 中，检出并核对目标分支当前远程 HEAD `ecccb6061469e01dbec2aa3104279200d635aa2b`；工作树保持干净，没有在原有 `dev/expedition-closed-loop-mvp` 工作树中留下临时文件。
+- Python 3.13.16 实际执行结果：新增评估层测试 **5/5 PASS**；远征规划器回归 **11/11 PASS**；core 状态/安全回归 **12/12 PASS**；完整离线单元测试 **153/153 PASS**；`py_compile` 对新增模块和测试文件语法编译 **PASS**。
+- 完整测试命令执行时将仓库根目录与 `src` 同时加入进程级 `PYTHONPATH`，从而可正确导入 `tools` 和 `kancollebot` 包。测试仅为离线单元测试，没有连接 Poi/MCP，也没有执行游戏输入、刷新或主动游戏 API 请求。
+- 评估层的安全边界测试已通过：近期但来源未验证、过期、未来时间戳均抑制规划；新鲜且来源验证的状态仅产生规划结果，`dispatch_eligible=false` 仍成立。未接入 Web UI 或真实派遣适配器。
+- **验收区分：** 功能离线测试通过；GitHub 归档在后续进度更新后再进行远程回读验收。实时 witness 到当前 MCP 状态的端到端新鲜度门禁尚未验证，真实派遣继续关闭。
+- 研究说明已更新：`docs/research/POI_READ_ONLY_ASSESSMENT_LAYER_20261029.md`，将验证状态改为已通过本次离线验证，并保留运行时验证限制。
