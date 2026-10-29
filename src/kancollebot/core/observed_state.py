@@ -66,3 +66,4 @@ class ObservedState(Generic[T]):
         """Raise when the state is stale or future-dated."""
         if not self.is_fresh(now=now, max_age=max_age):
             raise ValueError("Observed state is stale or has an invalid timestamp")
+        self.require_source_freshness_verified()
