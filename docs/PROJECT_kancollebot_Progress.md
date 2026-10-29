@@ -2281,3 +2281,11 @@ The Hand plugin's read-only probe reported:
 - 脚本不使用 `Runtime.evaluate`，不调用游戏函数，不发送输入，也不主动发起游戏 API 请求；如果 120 秒内没有自然发生的合格响应，会超时退出，不会尝试刷新或派遣。输出保存到桌面的 `KancolleBot-Port-Snapshots`，不保存完整原始响应。
 - 精确提交 `7accb7a7634c463526c953f2fa15a2e36e92942d` 的 GitHub Actions CI 通过：[run 40858395913](https://github.com/wosafety0/wosafety0clamp/actions/runs/40858395913)。静态脚本安全契约测试通过，JavaScript 静态提取测试、Python 编译通过，**130 项 Python 单元测试通过**。
 - **实现状态：脚本已保存到 GitHub 独立分支；自动化静态检查通过。运行时验证状态：未验证。** 尚未在用户当前 Poi 实例执行该脚本，因此不能声称目标页识别、CDP Network 事件、真实响应体解析或快照写入已在实机成功。该脚本是诊断探针，不会修改生产新鲜度门禁；真实派遣继续关闭。
+
+
+### 2026-10-29 Draft PR for safety-gate consolidation
+
+- 已建立 Draft PR #15：[Consolidate Poi safety gates and add passive port-response probe](https://github.com/wosafety0/wosafety0clamp/pull/15)，目标为 `dev/expedition-closed-loop-mvp`，来源分支为 `dev/poi-safety-consolidation-20261029`。
+- PR 包含 11 个文件，集中整合安全门槛、离线回归测试与只读诊断探针。PR 当前为 Draft/Open/未合并；不自动合并、不修改分支保护。
+- 精确代码提交 `7accb7a7634c463526c953f2fa15a2e36e92942d` 的 CI 已通过；随后只修正了探针文档中的验证状态说明。PR 分支最新头为文档提交 `f25fb75637c471d96b250e46eb770769b3e4ea94`，核心代码仍对应已通过 CI 的提交。
+- 下一项必须完成的验收是：在用户当前 Poi 实例中运行被动探针，核实目标发现、自然发生的成功母港响应、精简快照输出及本地哈希。实机验证完成前，PR 保持 Draft，生产新鲜度门禁不放行，真实派遣继续关闭。
