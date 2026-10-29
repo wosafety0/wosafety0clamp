@@ -1977,6 +1977,21 @@ The Hand plugin's read-only probe reported:
 - **Remaining real-source boundary:** this closes the tooling/output packaging issue, not the actual capture gap. No new real Poi snapshot or `.extraction.json` is available in the current session, so real `_0x3353`/`_0x3f23` rotation and decoded property names remain unverified. The extractor still uses CDP `Debugger.getScriptSource` only; no game source execution or input is performed.
 
 
+## 2026-10-29 — Real Poi source snapshot verification (read-only)
+
+- Desktop Commander read the two locally preserved Poi CDP snapshots captured at 03:04:22.385Z and 03:05:53.145Z. Both actual `main.js` files were independently hashed from disk using PowerShell `Get-FileHash -Algorithm SHA256`; both match `073df7c8e4d4680208070b22806273b332e2f5ba7ae8b80005ad5914f336561e`. Each metadata record reports 8,496,723 bytes / 8,495,851 characters, CDP script ID 907, and retrieval through `Debugger.getScriptSource`.
+- The second real `.extraction.json` sidecar was read successfully. It reports `PARTIAL_EXTRACTION`, `_0x3f23` at [0, 317022), `_0x3353` at [317022, 318153), and local alias `_0x460358` at [8461300, 8461324). The decoder text shows index subtraction by `0x150`, a Base64/URI decoding routine, and a decoded-value cache. This does not yet verify rotated-table indices or decoded properties.
+- Independent read-only source text search found `_0x466acb` at offset 8464467 in a `const` declaration chain with an arrow-function initializer and a later call occurrence. The existing extractor did not recognize this lexical form; its null factory definition is an extraction limitation, not evidence the symbol is absent.
+- The sidecar and original game source remain local; neither is published to the public repository. The snapshot metadata and extraction report assert no `Runtime.evaluate`, page-source execution, getter calls, game-function calls, or game input.
+- **Verified scope:** two on-disk source hashes agree, both metadata files agree, the sidecar is readable, and the factory name occurs in the real source. **Pending:** robust factory boundary extraction, rotation reconstruction, offline decoding, and independent validation of decoded names. No completion claim for those pending tasks.
+
+
+## 2026-10-29 — Real source rotation bootstrap located
+
+- Read-only offline inspection of the locally hashed real `main.js` at offset 318153 found the immediately following rotation bootstrap: an IIFE receives `_0x3f23` and target constant `0xd12ca`, aliases `_0x3353`, computes an arithmetic expression using `parseInt` of decoded entries, and rotates the table with `push(shift())` until the expression equals the target.
+- This establishes that the table's initial literal order cannot be used directly for decoded-index mapping. The next offline step is to reconstruct the rotation without executing page code, then validate decoded strings against call sites.
+- A second source-context check at offset 8464467 confirmed `_0x466acb=()=>{...` in a comma-separated declaration chain. This explains the extractor's missed factory definition and identifies the parser case to support.
+- **Boundary:** rotation mechanism and target are observed from actual source text; rotation count, resolved indices, and decoded names remain unverified. No game code or inputs were executed.
 
 ## 2026-10-29 — Hosted empty-command fail-closed verification
 
