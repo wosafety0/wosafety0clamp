@@ -2027,5 +2027,12 @@ The Hand plugin's read-only probe reported:
 
 - The initial verifier pin `07b8000ab8c2a1dad0f91bd29e2d84028bec2c93` failed closed because the reusable workflow tried to execute a verifier script from the Harness repository inside a checkout of Clamp. The test command itself passed; the report-verification stage failed because the file was absent in the consumer workspace.
 - Harness corrected this by running the fail-closed verifier inline in the reusable workflow and testing that exact embedded Python code. Corrected Harness commit `0173c597e82364a91e50f9817a9c8d40876dc04c` passed both Push CI [40813501693](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40813501693) and PR CI [40813508518](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40813508518).
-- Clamp workflow pin updated to the corrected immutable SHA. New Clamp Push and PR CI for this exact consumer pin are pending; the earlier failed runs remain recorded as failures and are not counted as acceptance.
+- Clamp workflow pin updated to the corrected immutable SHA. The exact final head `a1aeb8f81845ba49b4a1a61518c15b1120a2ab0d` passed Push CI [40813714536](https://github.com/wosafety0/wosafety0clamp/actions/runs/40813714536); the new report-verifier step passed and the final acceptance gate succeeded. No PR-triggered run is present for this exact head, so only Push CI is counted as current validation. Earlier failed runs remain recorded as failures and are not counted as acceptance.
 - No local filesystem changes, model-provider calls, game actions, merge, release, or deployment.
+
+
+### 2026-10-29 — Trial PR integration state
+
+- Reconciled the trial branch's progress log with the latest `dev/expedition-closed-loop-mvp` progress entries before appending the trial records.
+- PR #14 remains Draft/unmerged. GitHub currently reports `mergeable_state: dirty`; no merge or automatic rebase was attempted because the branch includes broader project work and the conflicts must be reviewed before integration.
+- Current verification is the successful Push CI on head `a1aeb8f81845ba49b4a1a61518c15b1120a2ab0d`; no claim is made that PR CI or merge readiness is established.
