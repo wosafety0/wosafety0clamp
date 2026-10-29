@@ -38,7 +38,7 @@ The command uses `&&`, so a failed stage prevents later command segments from ru
 
 ## Current evidence
 
-- Normal clamp acceptance: [run 40801580252](https://github.com/wosafety0/wosafety0clamp/actions/runs/40801580252).
+- Latest normal clamp acceptance at the time of this update: [run 40805100294](https://github.com/wosafety0/wosafety0clamp/actions/runs/40805100294), exact head `cb9113354c3058595a421f97f704acc7f488b2a2`; 12 Node tests and 122 Python tests passed, report artifact uploaded, final gate passed.
 - Latest archived hosted empty-command negative-path test: [run 40802071906](https://github.com/wosafety0/wosafety0clamp/actions/runs/40802071906). Its expected failure confirms the pinned reusable workflow rejects blank consumer commands, uploads the failed report, and closes the gate. This negative test is separate from normal acceptance.
 - Consumer trial PR: [#14](https://github.com/wosafety0/wosafety0clamp/pull/14).
 
