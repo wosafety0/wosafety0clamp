@@ -2283,3 +2283,9 @@ The Hand plugin's read-only probe reported:
 - 使用只读 CDP `Page.getFrameTree` 在 DMM `webview` 内定位到嵌套 `htmlWrap` frame：`https://w14h.kancolle-server.com/kcs2/index.php`。针对该 frame 的默认执行上下文只读检查确认 `canvasCount=1`，并在 Resource Timing 中发现一条 `/kcsapi/api_port/port` 记录（`startTime≈9313 ms`、`duration≈453 ms`）。
 - 这修正了上一条仅检查顶层 DMM wrapper 的观察：顶层文档没有 canvas 和 port timing entry，但实际游戏画面位于嵌套 frame。该 timing 记录来自页面加载阶段，早于被动观察器启动；transfer-size 字段为 0，且 Resource Timing 不提供响应体，因此不能据此验证 payload 或源新鲜度。
 - 当前正确游戏 frame 已定位；观察器在此前 120 秒窗口内没有捕获新的合格 port 响应。后续可在不刷新、不输入、不主动发起游戏请求的前提下，再次被动等待自然响应；未捕获前继续保持 `source_freshness_verified=False` 和真实派遣关闭。
+
+### 2026-10-29 Passive observer window with active game frame identified
+
+- 在已定位的实际游戏 frame 存在且页面已完成加载的情况下，再次运行同一已归档被动观察器，成功发现唯一 DMM webview 并启用 CDP Network 监听；完整等待 120 秒后按预期退出。
+- 此窗口未观察到新的、符合条件的成功 `/kcsapi/api_port/port` 响应，因此未生成快照。结合已知的页面加载阶段 resource-timing 记录，可确认当前这段观察窗口没有产生可供探针捕获的新母港响应；不将其泛化为游戏永远不会轮询，也不声称 payload 已验证。
+- 观察器明确报告未发送输入、未主动发起游戏 API 请求、未使用 `Runtime.evaluate`，未跳过缓存响应。下一步要获得响应体必须等待游戏自然产生新的母港响应；在用户未扩大授权前，不刷新页面、不操作游戏。
