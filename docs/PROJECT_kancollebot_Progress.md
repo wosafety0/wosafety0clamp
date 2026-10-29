@@ -1929,3 +1929,14 @@ The Hand plugin's read-only probe reported:
 - **远程回读：** 生产脚本 blob `3cdac1e7be25f712a8176dae03f94dd12a664e48`；测试 blob `3e6f150bdd39d913643770db18558966036d39e3`，均从权威分支 `dev/expedition-closed-loop-mvp` 重新读取并核对。
 - **CI 验证：** [GitHub Actions run 40774017056](https://github.com/wosafety0/wosafety0clamp/actions/runs/40774017056) 对应测试提交 `7a059f8b...`，结论为 `success`；Node 静态提取测试、Python 编译和 Python 单元测试步骤均为 `completed/success`。
 - **验证边界与下一步：** 仅证明远程代码、合成离线测试和 CI；用户本机 Poi/Hand 尚未运行本次版本，`main.js` 本地完整快照与元数据仍未实际核验。下一步需用户在现有 Hand 沙盒中运行当前只读脚本，检查 `SNAPSHOT_FILE`、`SNAPSHOT_METADATA`、`SNAPSHOT_SHA256` 和 `STATUS`，再将脱敏后的摘要及必要的离线快照提供用于静态分析。真实游戏输入持续关闭；没有调用 `Runtime.evaluate`、游戏函数或 getter。
+
+
+## 2026-10-29 — 离线 CDP 快照完整性核验工具通过 CI
+
+- 新增 `tools/hand_sandbox/verify_cdp_snapshot.cjs`，仅使用 Node.js 标准库读取本地快照及 JSON 元数据；逐项检查 UTF-8 字节数、JavaScript 字符数和 SHA-256，并以明确的 `verified` 布尔值报告结果，不连接 Poi/CDP/游戏页面。
+- 新增 `tests/verify_cdp_snapshot.test.cjs`，用合成源码和元数据验证完整性核对通过以及修改源码后的哈希校验失败。
+- CI 已同时运行静态提取器测试和快照核验测试；[GitHub Actions run 40793353211](https://github.com/wosafety0/wosafety0clamp/actions/runs/40793353211) 的 Node 测试、Python 编译和 Python 单元测试步骤均为 success。
+- 生产核验脚本提交 `b22439229a4708bc00b7fdc60b85e343278d79f7`；测试提交 `67ebca6c0ad927a65b0233fd92b10ddc74f9190b`；CI 提交 `d1ce8cbb4e663d2b0898edbaa70c6e9c55a114c8`；校验文件名处理修正提交 `038abde0f76d4d335b1277726910b40656aa987b`。
+- 从权威远程分支回读核验脚本 blob `17fa136dd4b73a300ef83185ffcde734d3e54f2e` 和测试文件 blob `d9dfca0da8367a191caff7fd9366efafc477e172`。
+- **使用方式：** `node tools/hand_sandbox/verify_cdp_snapshot.cjs "<path-to-main.metadata.json>"`。退出码 0 表示完整性验证通过，1 表示内容不匹配或核验错误，2 表示未传路径。
+- **验收边界：** 只证明离线合成数据测试通过；用户本机尚未提供真实 `main.js` 快照，因此不宣称本机捕获或实际游戏运行成功。只归档已验证的正向成果。
