@@ -2375,3 +2375,11 @@ The Hand plugin's read-only probe reported:
 - `hostFromPoiWindow()` 依赖主窗口存在 `window.getStore` 和 `window.config`，再将当前 store 映射为订阅接口；当前上游源码确认两者均被暴露。插件服务器的投影订阅使用 100 ms 轮询识别 Redux state 引用变化；这不是原子快照或服务器响应新鲜度证据。
 - 风险边界：插件入口对异步加载错误采用 catch 后吞掉的方式，真实宿主若缺失 API 或监听器启动失败，界面可能只显示未加载而缺少具体错误原因；真实 Poi 加载/卸载仍需单独验收。
 - **验证状态：静态源码对照完成；没有将插件安装到用户当前 Poi，没有刷新或操作游戏。** 本机安装包 `D:\\Games\\poi\\resources\\app.asar` 已通过只读解析确认 `package.json` 为 Poi `12.0.1`，其构建元数据记录的 `latestCommit` 为 `bf4c54cd5c41bd2ffc2d4490cbddd55cbcaededc`（该 SHA 可在 Poi GitHub 仓库定位到）；归档内 `node_modules/react/package.json` 版本为 `18.3.1`。GitHub 权威仓库该精确提交的 `package.json`、`views/redux/create-store.ts`、`views/env-parts/config.ts`、插件生命周期和插件读取器均已回读，宿主版本证据与本机包元数据一致。对归档内编译文件的只读检查也确认 `window.getStore`、`window.config` 和插件生命周期调用存在。尚未执行真实插件安装/加载，因此兼容性仍是静态确认，不是运行时验收。
+
+
+### 2026-10-29 被动 port 快照一致性校验器
+
+- 新增 `src/kancollebot/adapters/poi/port_freshness.py`，实现纯函数 `port_snapshot_matches_current_state()`。该函数对被动 `api_port/port` 紧凑快照执行结构、时间窗口、HTTP 200、源域名、非缓存标记、安全标记、舰队/舰船 ID 集合与可变字段逐项匹配检查；缺字段、时间过期/超前、任务数组/船位引用不匹配、燃料/弹药/HP 等捕获字段不同均 fail-closed。
+- 新增 `tests/test_poi_port_freshness.py` 7 项离线测试，覆盖匹配的新鲜样本、过期/未来时间、舰队任务与舰船资源差异、路由/HTTP/缓存/安全标记错误、数据不完整、记录重复/缺失和无时区时钟。Windows 本地隔离克隆检查的分支 HEAD 为 `4a4f0b9653e566d07054272a2a9731055092bea9`；定向测试 7/7 PASS，完整 Python 单元测试 137/137 PASS。
+- **重要限制：** 该函数仅验证“快照声明的时间/来源元数据 + 当前 MCP 状态的字段一致性”，无法从紧凑快照重新计算原始响应体哈希，也不能认证磁盘 JSON 的来源或证明 Redux 原子快照。调用方必须从当前运行、可信的被动观察器进程直接取得内存快照；不得把历史磁盘快照当作 freshness 证明。该 helper 目前未接入 `PoiExpeditionReader`，也没有设置 `source_freshness_verified`，因此不改变生产门禁。
+- 本阶段未安装/切换 Poi 插件，未刷新或操作游戏，未发送游戏 API 请求。当前观察器在新一轮 120 秒被动等待中未捕获新的自然 port 响应；这次没有产生可复用的新样本，不作为成功成果归档。下一步是实现可信的实时观察器到读取器的内存证据交接，并用过期/不匹配用例验证 fail-closed 行为，再考虑接入读取器。
