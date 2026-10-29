@@ -160,4 +160,4 @@ No plugin execution, MCP request, network/WebSocket dispatch, game action, local
 - 将该测试改为行为验证：仅在测试进程内设置指向不可用 loopback 端口的 HTTP(S)/ALL proxy 环境变量并清空 NO_PROXY，再通过客户端 opener 请求一次本地 loopback HTTP server。若环境代理被使用，请求会失败；实际请求成功到达本地 server，未访问外部服务，也未改动全局代理。
 - 修复提交 c0676dac645c357b303489a0dfa4d08e0310522f；精确 HEAD Push CI [40929675833](https://github.com/wosafety0/wosafety0clamp/actions/runs/40929675833) 通过：Python 单元测试 73/73 PASS、compileall PASS。测试文件远程回读 blob 为 c3c68ebfc420be495f65689ca5895ffc80e9ae68。
 - 这是测试断言修复，不是对游戏运行时或 Poi 连接的验证。没有发送游戏输入、没有调用游戏 API、没有修改系统设置。PR #4 仍为 Draft/open，未合并。
-- 下一步：完成本进度归档提交的 CI 与回读核验；sparkle planner 仍是纯离线规划器，不能据此启用任何实时远征/出击行为。
+- 归档提交 bbbea3f05d9b340f159516fe28db8b7208b2ec46 的精确 HEAD Push CI [40929788392](https://github.com/wosafety0/wosafety0clamp/actions/runs/40929788392) 已通过：73/73 单元测试与 compileall PASS；进度文件 blob ac4cbaefb5ee0374b5abf16a2bed9c2f7ec646d2 已回读。下一步继续保持 sparkle planner 为纯离线规划器，不能据此启用任何实时远征/出击行为。
