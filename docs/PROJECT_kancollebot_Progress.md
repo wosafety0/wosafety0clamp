@@ -2027,3 +2027,6 @@ The Hand plugin's read-only probe reported:
 - Context confirms these calls belong to a wrapper/helper region around offsets 8,461,359–8,464,225, distinct from the `_0x466acb` application factory analysed previously. The adjacent `_0x3b2028(...)` calls are module-loader calls, not decoder calls, and were not misclassified as decoder evidence.
 - JavaScript extractor regression tests were rerun: **9/9 test cases passed**. The broader CI run previously passed 13 JavaScript tests across two files and 122 Python unit tests.
 - Scope: the global scan only counted direct numeric-literal calls to `_0x460358` and `_0x3353`; it does not claim to enumerate all aliases or decode every module. Analysis remained static; captured source was not executed and no game interaction occurred.
+
+
+- Follow-up aggregation of the saved factory decode report confirmed the 33 call sites map to 24 unique decoded names. Repeated names include `default` (3), `renderer` (3), `length` (3), `settings` (2), `split` (2), and `view` (2). This gives a compact map of the application factory's statically referenced configuration, rendering, DOM, and startup names without publishing source snippets.
