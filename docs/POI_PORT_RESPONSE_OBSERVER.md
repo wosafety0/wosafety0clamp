@@ -23,3 +23,11 @@
 The JSON artifact contains a local response-receipt timestamp, a response-body SHA-256, compact fleet and ship records, and a safety summary. The timestamp is the local observer's receipt time, not a server timestamp.
 
 A successful capture would establish that the current Poi page exposed a fresh, non-cache HTTP 200 port response with the expected fields at that moment. It would **not** by itself establish long-term freshness, atomic consistency with subsequent `poi_get` reads, or full expedition-loop correctness. Runtime compatibility, target discovery, and payload validation remain unverified until this script is run locally. If no natural port response occurs during the wait window, it exits without producing a snapshot; it must not trigger a refresh or any game action.
+
+## Read-only runtime preflight — 2026-10-29
+
+- CDP target-list read from `http://127.0.0.1:9222/json/list` returned exactly one matching KanColle webview target at `https://play.games.dmm.com/game/kancolle` with a WebSocket endpoint, plus the Poi shell page and a DMM service worker.
+- This satisfies the observer's existing `safeGameTarget` URL predicate at preflight time; no target-rule change is indicated by this observation.
+- The Nanodesu MCP health endpoint independently returned `status=ok` and `storeReady=true`.
+- No observer was armed and no snapshot was created in this preflight. Natural `api_port/port` response capture, response-body validation, and snapshot hashing remain **unverified**.
+- Safety: read-only CDP target discovery and MCP health read only; no game input, refresh, or game API request was initiated.
