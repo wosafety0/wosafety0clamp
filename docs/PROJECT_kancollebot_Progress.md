@@ -2364,3 +2364,9 @@ The Hand plugin's read-only probe reported:
 - This closes the same-head existing-CI coverage gap for the current trial commit. Evidence is limited to the workflow's offline checks; no live POI/game behavior is proven. PR #14 remains Draft/open/unmerged; no merge, deployment, provider call, or game operation occurred.
 
 - Follow-up accuracy note: the successful existing-CI manual dispatch above was run against code-bearing head `d914953c4187ed8b82de4d1b389c08b06d218198`. The subsequent `dc1308316cf13d0390726af11ba61b77e066f90a` commit changes documentation only; it does not alter the code exercised by that CI run. Future feature commits still need an explicit existing-CI dispatch or equivalent verification because the default triggers do not cover this PR.
+
+## 2026-10-29 - Refresh current-head acceptance evidence
+
+- Updated the usage guide to distinguish the current documentation-only PR head `23bf43a18cffe9d0345b1d7f01277349d0551ec4` from the code-bearing head `d914953c4187ed8b82de4d1b389c08b06d218198`.
+- Recorded exact-current-head Harness Push run [40855058078](https://github.com/wosafety0/wosafety0clamp/actions/runs/40855058078), PR run [40855066719](https://github.com/wosafety0/wosafety0clamp/actions/runs/40855066719), and PR report artifact `12888278843` with digest `sha256:2248cdef39220b629a7e85caa8f028375660b9b350e679c62f6689faccab1e88`. Historical evidence entries are labeled as earlier runs to avoid implying they are current.
+- This is documentation/evidence maintenance only; no workflow or runtime behavior changed. PR #14 remains Draft/open/unmerged; no merge, branch-protection promotion, deployment, provider call, or game operation occurred.
