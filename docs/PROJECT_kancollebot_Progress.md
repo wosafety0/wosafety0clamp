@@ -2217,3 +2217,13 @@ The Hand plugin's read-only probe reported:
 - Added regression tests for a missing truncation marker and inconsistent returned count on isolated branch `dev/poi-collection-integrity-20261029`.
 - Exact-head Push CI passed on commit `2994b23db63b1491803dc6f6bace64dd4f2d9073`: [run 40827710306](https://github.com/wosafety0/wosafety0clamp/actions/runs/40827710306). JavaScript static tests, Python compilation, and Python unit tests all completed successfully; the job log confirms **124 Python tests passed**.
 - Remote readback confirmed the stricter collection validation and both regression tests. This verifies the offline contract only; it does not prove the installed Poi plugin's live payload shape or source freshness. No live game operation, deployment, merge, or branch-protection change occurred.
+
+
+### 2026-10-29 Poi read consistency guard
+
+- 只读审查发现：`PoiExpeditionReader.read_fleets()` 先后读取 `info.fleets`、`info.ships` 和引用到的主数据，然后用本地时钟生成 `observed_at`。Nanodesu 的 `poi_get` / `poi_lookup` 响应未提供可用于绑定同一 Redux 版本的源 revision token；因此本地观察时间只能表示读取时间，不能证明源状态新鲜。
+- 在独立分支 `dev/poi-read-consistency-20261029` 增加最佳努力一致性门槛：主数据定向查询后重新读取完整的 `info.fleets` 与 `info.ships`；若两次返回的条目内容不一致，拒绝生成混合快照。对应源提交：`ef6fe18383d4c24222682c71412ab062bf270635`。
+- 新增离线测试覆盖“读取期间状态变化时拒绝”与“状态稳定时完成二次读取”。测试提交：`42659218eeeae503947b40b17e8e80ae69763329`。
+- GitHub Actions CI 对精确测试提交通过：[run 40828382725](https://github.com/wosafety0/wosafety0clamp/actions/runs/40828382725)。日志确认 JavaScript 静态测试、Python 编译成功，Python 单元测试 `Ran 126 tests ... OK`。
+- 已从 GitHub 权威远程回读核对源文件 blob `9634d4b960ab71c5acd164353d5f7996dfa7e22e` 与测试文件 blob `a2494a0ded7b6497ae500834b804c1e3af5c02f8`。
+- **限制：** 这不是原子快照协议；短暂变化后恢复原值（ABA）仍可能漏检。它也不证明数据新鲜或已登录，更不替代本机 Poi 运行时验证。真实派遣继续关闭；该分支未合并。
