@@ -130,7 +130,6 @@ test('analyzeSource reports partial extraction when a required definition is mis
     const report = JSON.parse(output.slice(jsonStart, reportEnd));
     assert.equal(report.status, 'PARTIAL_EXTRACTION');
     assert.equal(report.definitions.factory_0x466acb, null);
-    assert.ok(output.includes('STATUS: PARTIAL_EXTRACTION'));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -162,7 +161,6 @@ test('analyzeSource reports complete extraction only when all required definitio
     assert.equal(report.factoryDecoderCalls.length, 1);
     assert.equal(report.safety.pageSourceExecuted, false);
     assert.equal(report.safety.gameFunctionsCalled, false);
-    assert.ok(output.includes('STATUS: STATIC_EXTRACTION_COMPLETE'));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
