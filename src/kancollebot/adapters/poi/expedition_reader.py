@@ -67,12 +67,23 @@ class PoiExpeditionReader:
     def _collection_items(value: Any, path: str, *, expected_kind: str) -> Any:
         if not isinstance(value, dict) or value.get("kind") != expected_kind:
             raise PoiMcpError(f"Poi {path} did not return {expected_kind} data")
-        if value.get("truncated") is True:
+        truncated = value.get("truncated")
+        if not isinstance(truncated, bool):
+            raise PoiMcpError(f"Poi {path} result has no valid truncation marker")
+        if truncated:
             raise PoiMcpError(f"Poi {path} response was truncated")
         items = value.get("items")
         expected_type = list if expected_kind == "array" else dict
         if not isinstance(items, expected_type):
             raise PoiMcpError(f"Poi {path} result has an invalid items field")
+        total = value.get("total")
+        returned = value.get("returned")
+        if isinstance(total, bool) or not isinstance(total, int) or total < 0:
+            raise PoiMcpError(f"Poi {path} result has an invalid total count")
+        if isinstance(returned, bool) or not isinstance(returned, int) or returned < 0:
+            raise PoiMcpError(f"Poi {path} result has an invalid returned count")
+        if returned != len(items) or total != returned:
+            raise PoiMcpError(f"Poi {path} result counts do not match its complete items")
         return items
 
     @staticmethod
