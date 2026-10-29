@@ -1940,3 +1940,11 @@ The Hand plugin's read-only probe reported:
 - 从权威远程分支回读核验脚本 blob `17fa136dd4b73a300ef83185ffcde734d3e54f2e` 和测试文件 blob `d9dfca0da8367a191caff7fd9366efafc477e172`。
 - **使用方式：** `node tools/hand_sandbox/verify_cdp_snapshot.cjs "<path-to-main.metadata.json>"`。退出码 0 表示完整性验证通过，1 表示内容不匹配或核验错误，2 表示未传路径。
 - **验收边界：** 只证明离线合成数据测试通过；用户本机尚未提供真实 `main.js` 快照，因此不宣称本机捕获或实际游戏运行成功。只归档已验证的正向成果。
+
+
+### 快照完整性校验器补充边界测试（2026-10-29 白天）
+
+- 对离线核验工具新增合成测试：Unicode/代理对字符的 UTF-8 字节数与 JavaScript 字符数分别验证；元数据字符数、字节数被改动时返回未通过；不安全相对路径、非法 SHA-256、负数字节数与非法 UTF-8 源文件被拒绝。
+- 仅修改 `tests/verify_cdp_snapshot.test.cjs`，不连接游戏/CDP、不执行游戏输入。测试提交 `398766fffdbbcb9c7ef930bbe540ac35bbe097a1`，从 GitHub 权威分支回读测试文件 blob `8da0bbf8916d545ccf091ff9db7ba03eaa6afafc`。
+- [GitHub Actions run 40793688562](https://github.com/wosafety0/wosafety0clamp/actions/runs/40793688562) 的 Node 静态测试、Python 编译和 Python 单元测试作业步骤均为 success。
+- 验收范围限于离线合成数据及云端 CI；用户本机真实快照采集仍未验证。仅记录通过验证的正向成果。
