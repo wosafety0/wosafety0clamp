@@ -23,11 +23,13 @@ def sample_payloads():
 
 
 class FakeClient:
-    def __init__(self, *, store_ready=True, payloads=None, tools=None, lookup=None):
+    def __init__(self, *, store_ready=True, payloads=None, tools=None, lookup=None, sequences=None):
         self.store_ready = store_ready
         self.payloads = payloads or sample_payloads()
         self.tools = tools or ("poi_describe", "poi_get", "poi_lookup")
         self.lookup = lookup
+        self.sequences = sequences or {}
+        self.sequence_counts = {}
         self.calls = []
         self.initialize_calls = 0
 
@@ -48,7 +50,14 @@ class FakeClient:
         elif name == "poi_lookup":
             payload = self.lookup if self.lookup is not None else self.payloads["lookup"]
         else:
-            payload = self.payloads[arguments["path"]]
+            path = arguments["path"]
+            if path in self.sequences:
+                index = self.sequence_counts.get(path, 0)
+                sequence = self.sequences[path]
+                payload = sequence[min(index, len(sequence) - 1)]
+                self.sequence_counts[path] = index + 1
+            else:
+                payload = self.payloads[path]
         return {"content": [{"type": "text", "text": json.dumps(payload)}]}
 
 
@@ -72,11 +81,47 @@ class PoiExpeditionReaderTests(unittest.TestCase):
         self.assertEqual(lookup_calls[0]["select"], ["api_fuel_max", "api_bull_max"])
         self.assertFalse(any(args.get("path") == "const.$ships" for _, args in client.calls))
 
+    def test_rejects_state_changed_during_read(self):
+        first = sample_payloads()
+        second_fleets = json.loads(json.dumps(first["info.fleets"]))
+        second_fleets["items"][0]["api_name"] = "changed-between-reads"
+        sequences = {
+            "info.fleets": [first["info.fleets"], second_fleets],
+            "info.ships": [first["info.ships"], first["info.ships"]],
+        }
+        _, reader = self.make_reader(sequences=sequences)
+        with self.assertRaisesRegex(PoiMcpError, "changed during observation"):
+            reader.read_fleets()
+
+    def test_reads_a_stable_snapshot_with_confirmation_reads(self):
+        client, reader = self.make_reader()
+        observed = reader.read_fleets()
+        self.assertEqual(len(observed.payload), 1)
+        read_paths = [args["path"] for name, args in client.calls if name == "poi_get"]
+        self.assertEqual(
+            read_paths,
+            ["info.fleets", "info.ships", "info.fleets", "info.ships"],
+        )
+
     def test_rejects_truncated_fleet_payload(self):
         payloads = sample_payloads()
         payloads["info.fleets"]["truncated"] = True
         _, reader = self.make_reader(payloads=payloads)
         with self.assertRaisesRegex(PoiMcpError, "truncated"):
+            reader.read_fleets()
+
+    def test_missing_truncation_marker_fails_closed(self):
+        payloads = sample_payloads()
+        del payloads["info.fleets"]["truncated"]
+        _, reader = self.make_reader(payloads=payloads)
+        with self.assertRaisesRegex(PoiMcpError, "truncation marker"):
+            reader.read_fleets()
+
+    def test_inconsistent_collection_counts_fail_closed(self):
+        payloads = sample_payloads()
+        payloads["info.fleets"]["returned"] = 0
+        _, reader = self.make_reader(payloads=payloads)
+        with self.assertRaisesRegex(PoiMcpError, "counts do not match"):
             reader.read_fleets()
 
     def test_missing_mission_data_fails_closed(self):
