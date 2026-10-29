@@ -1997,3 +1997,12 @@ The Hand plugin's read-only probe reported:
 - The trial branch was behind the current `dev/expedition-closed-loop-mvp` head and GitHub reported a dirty merge state. Reconciled the branch with the current development head `4e221c719dc8766ab6ab14946136d669ed96f0e2` while preserving the Harness workflow, usage guide, and trial progress entries. The PR comparison now reports `ahead` with `behind_by: 0` and `mergeable: true`; PR #14 remains Draft/unmerged.
 - Exact reconciled head `cb9113354c3058595a421f97f704acc7f488b2a2` passed hosted acceptance [run 40805100294](https://github.com/wosafety0/wosafety0clamp/actions/runs/40805100294): 12 Node tests and 122 Python tests passed; report generation, artifact upload, and final gate succeeded.
 - Verification remains limited to offline checks; no real model provider call, live game operation, merge, or deployment occurred.
+
+
+### 2026-10-29 — Clamp Harness trial: consumer report verifier pin
+
+- Updated `.github/workflows/harness-trial-acceptance.yml` to pin reusable Harness commit `07b8000ab8c2a1dad0f91bd29e2d84028bec2c93`.
+- That exact Harness commit passed its own Push CI [40813229844](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40813229844) and PR CI [40813238148](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40813238148) before the Clamp pin was changed.
+- Updated `docs/CLAMP_HARNESS_TRIAL_USAGE.md` to describe report identity verification, the five required gate stages, and the immutable pin.
+- Clamp CI for the updated consumer pin is pending. Until its new Push and PR runs pass, the prior successful run on the old pin does not count as validation of this change.
+- No local filesystem changes, model-provider calls, game actions, merge, release, or deployment.
