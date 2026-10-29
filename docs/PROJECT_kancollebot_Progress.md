@@ -2227,3 +2227,13 @@ The Hand plugin's read-only probe reported:
 - GitHub Actions CI 对精确测试提交通过：[run 40828382725](https://github.com/wosafety0/wosafety0clamp/actions/runs/40828382725)。日志确认 JavaScript 静态测试、Python 编译成功，Python 单元测试 `Ran 126 tests ... OK`。
 - 已从 GitHub 权威远程回读核对源文件 blob `9634d4b960ab71c5acd164353d5f7996dfa7e22e` 与测试文件 blob `a2494a0ded7b6497ae500834b804c1e3af5c02f8`。
 - **限制：** 这不是原子快照协议；短暂变化后恢复原值（ABA）仍可能漏检。它也不证明数据新鲜或已登录，更不替代本机 Poi 运行时验证。真实派遣继续关闭；该分支未合并。
+
+
+### 2026-10-29 Explicit source-freshness evidence gate
+
+- 审查确认 `ObservedState.observed_at` 由本地读取时钟产生，只能描述观察时间；不能单独证明 Poi Redux 源数据何时刷新、是否来自当前有效游戏会话。
+- 在独立分支 `dev/source-freshness-gate-20261029` 为 `ObservedState` 增加显式的 `source_freshness_verified` 标记，默认值为 `false`。安全前置使用的 `require_fresh()` 在时间年龄校验通过后，还必须要求该标记为真；否则以 `Source data freshness has not been verified` 拒绝。现有 `PoiExpeditionReader` 不会设置该标记，因此当前 Poi 读取结果默认无法通过安全前置门槛。
+- 增加测试，验证即使本地观察时间只有 1 秒，只要缺少源新鲜度证据，前置检查与 runner 都会拒绝派遣；其他预检测试使用明确标记的合成可信夹具来覆盖后续逻辑。
+- 精确提交 `611eebad14c4c48d4ffa6b164b3b8a46f71240e3` 的 GitHub Actions CI 通过：[run 40829028107](https://github.com/wosafety0/wosafety0clamp/actions/runs/40829028107)。日志确认 JavaScript 静态测试、Python 编译成功，Python 单元测试 **124 项通过**。
+- 此门槛是保守的安全默认值，不是源新鲜度的实现或证明：当前真实 Poi 读取器没有已验证的源更新时间/版本令牌，所以真实状态仍会被拒绝用于安全敏感操作。未来只有在适配器能基于独立、可验证的源证据设置该标记时，才可允许通过。合成测试里的标记不代表真实 Poi 已通过验证。
+- 远程代码和测试已回读核验；本次没有合并功能分支、没有执行真实游戏操作或部署。实机 payload、新鲜度与登录会话验证仍未完成。
