@@ -266,8 +266,15 @@ module.exports = function() {
     }
 
     const factoryCalls = appFactory ? extractCalls(appFactory.text, '_0x460358') : [];
+    const missing = [];
+    if (!decoder) missing.push('_0x3353');
+    if (!table) missing.push('_0x3f23');
+    if (!appFactory) missing.push('_0x466acb');
+    const extractionStatus = missing.length
+      ? 'PARTIAL_EXTRACTION'
+      : (snapshot.ok ? 'STATIC_EXTRACTION_COMPLETE' : 'SNAPSHOT_WRITE_ERROR');
     const report = {
-      status: 'STATIC_EXTRACTION_COMPLETE',
+      status: extractionStatus,
       snapshot,
       pageSource: {
         url: sanitizeScriptUrl(scriptUrl),
@@ -311,11 +318,6 @@ module.exports = function() {
     console.log(serialized);
     console.log('[Sandbox] STATIC_SOURCE_REPORT_END');
 
-    const missing = [];
-    if (!decoder) missing.push('_0x3353');
-    if (!table) missing.push('_0x3f23');
-    if (!appFactory) missing.push('_0x466acb');
-    const extractionStatus = missing.length ? 'PARTIAL_EXTRACTION' : 'STATIC_EXTRACTION_COMPLETE';
     cleanup(
       snapshot.ok ? extractionStatus : 'SNAPSHOT_WRITE_ERROR',
       snapshot.ok
