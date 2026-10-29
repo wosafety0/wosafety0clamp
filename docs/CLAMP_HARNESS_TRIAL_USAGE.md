@@ -52,3 +52,9 @@ This guide documents only the clamp Harness trial. Update it when the trial work
 - Updated the trial from the interim reusable-workflow commit to `0173c597e82364a91e50f9817a9c8d40876dc04c`, which contains the inline consumer report verifier and the Python/Node runtime contract. The earlier candidate `07b8000ab8c2a1dad0f91bd29e2d84028bec2c93` was rejected after consumer CI showed its verifier script was not present in the consumer checkout.
 - The Harness repository's Push CI [40813501693](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40813501693) and PR CI [40813508518](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40813508518) passed for that exact SHA before pinning it here.
 - Clamp's own hosted CI must now pass on the updated pin; until then, the new consumer integration is pending verification.
+
+### Runtime-validation negative path (hosted evidence)
+
+- Isolated negative-path run [40821913417](https://github.com/wosafety0/wosafety0clamp/actions/runs/40821913417) on commit `ebacf6cad0ecdea1e6a2051068bf60864c585287` supplied an unsupported `runtime` value. The validator reported `runtime must be either python or node.` and exited 2; runtime setup and the consumer acceptance command were skipped.
+- The reusable workflow still generated and uploaded `consumer-acceptance-report` (artifact ID `12875055823`), with runtime validation failed and the consumer command not run. Report verification and the final gate then failed closed; the final gate listed `runtime,tests,verification` because skipped required stages are not successful. In this case `tests` means **skipped**, not that the consumer test suite ran and failed.
+- Diagnosis rule: inspect the first failed step to find the root failure, then use the report artifact to confirm the stage summary. Do not treat the final-gate list as a substitute for the first failing step, and do not count this intentional negative run as normal acceptance.
