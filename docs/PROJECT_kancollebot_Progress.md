@@ -2468,3 +2468,9 @@ The Hand plugin's read-only probe reported:
 - 验证边界：以上是源码/离线测试证据，不是 Poi 运行时验证。本轮未启动/刷新/操作游戏、未发送游戏输入或主动游戏 API 请求；source_freshness_verified 的生产门禁与 live dispatch 开关均未改变。当前自然响应 witness 与新鲜 MCP 读取的端到端匹配仍待在允许的本机环境中验证。
 - 归档提交 f8c7ec50c46d8c8b73421e7b3d840f4c28a6188d 的精确 HEAD Push CI [40929109186](https://github.com/wosafety0/wosafety0clamp/actions/runs/40929109186) 也已通过：Python 155/155、JavaScript 14/14、compileall PASS；本进度文件 blob a746e46d7005cd964b8baf0bbabed0a6e664eb42 已回读。下一步继续审查不依赖本机运行的只读组合层/安全测试，不以历史快照替代当前 freshness 证据。
 - 后续 CI 覆盖补强提交 9e794c03196bd7c4223299a2412e234ebadd60c 为观察器脚本增加独立的 node --check 步骤；精确 HEAD Push CI [40929250043](https://github.com/wosafety0/wosafety0clamp/actions/runs/40929250043) 通过：观察器语法检查 PASS、JavaScript 14/14、Python 155/155、compileall PASS。工作流 blob 19c20ff47d199092b9dee8c728c30dd338c92223 已回读。
+
+### 2026-10-30 PR #15 的合并性仍需独立解决
+
+- 最新 PR 元数据回读显示 #15 仍为 open/Draft，当前 head 为 c3190cb5437bf513964502e72b4cf940e0379b0f，GitHub 返回 mergeable=false；当前 base ref 为 dev/expedition-closed-loop-mvp（base SHA 8162646558e0558bf58bf1d351669083ac03c5ef）。
+- 这是 PR 集成/分支基线阻塞，与当前分支 Push CI 通过是两回事。未对 PR 做 rebase、retarget 或 merge，也没有修改 base 分支；在检查完整比较与依赖关系前保持 Draft。
+- 安全状态不变：freshness witness 的实时匹配未完成，生产 source_freshness_verified 仍不得标为 true，live dispatch 继续关闭。
