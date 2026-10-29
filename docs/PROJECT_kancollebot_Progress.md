@@ -2289,3 +2289,11 @@ The Hand plugin's read-only probe reported:
 - 在已定位的实际游戏 frame 存在且页面已完成加载的情况下，再次运行同一已归档被动观察器，成功发现唯一 DMM webview 并启用 CDP Network 监听；完整等待 120 秒后按预期退出。
 - 此窗口未观察到新的、符合条件的成功 `/kcsapi/api_port/port` 响应，因此未生成快照。结合已知的页面加载阶段 resource-timing 记录，可确认当前这段观察窗口没有产生可供探针捕获的新母港响应；不将其泛化为游戏永远不会轮询，也不声称 payload 已验证。
 - 观察器明确报告未发送输入、未主动发起游戏 API 请求、未使用 `Runtime.evaluate`，未跳过缓存响应。下一步要获得响应体必须等待游戏自然产生新的母港响应；在用户未扩大授权前，不刷新页面、不操作游戏。
+
+### 2026-10-29 Verified live Poi port response capture
+
+- On the user's running Poi instance, the previously archived passive CDP observer completed with `STATUS: CAPTURED` after it was armed. A compact local snapshot was created at `Desktop/KancolleBot-Port-Snapshots/poi-port-snapshot-20261029T140534.950Z.json` (19,694 bytes); the raw response was not saved.
+- The captured response was HTTP 200 at `/kcsapi/api_port/port` on `w14h.kancolle-server.com`, with local `responseReceivedAt=2026-10-29T14:05:34.545Z` and `bodyCapturedAt=2026-10-29T14:05:34.949Z`. The captured body length was 55,489 bytes and its SHA-256 was `11946f7e1e112d05bce29f972d454f2d48484576a750d1e3e3435558f84412f6` (distinct from the snapshot file hash).
+- The accepted response was not marked as disk cache, service-worker, or prefetch cache. Snapshot `data` contains `api_deck_port` and `api_ship`, with 3 fleets and 92 ships. Fleet fields include `api_id`, `api_mission`, `api_ship`; ship fields include `api_id`, `api_ship_id`, `api_nowhp`, `api_maxhp`, `api_fuel`, `api_bull`, `api_cond`.
+- Observer safety report: `gameInputSent=false`, `gameApiRequestInitiated=false`, `runtimeEvaluateUsed=false`, `fullRawResponseSaved=false`, `productionFreshnessGateChanged=false`. The snapshot contains a local receipt timestamp, not a server-origin timestamp. The capture is a verified runtime evidence point, **not** proof of ongoing freshness or of synchronization with subsequent MCP store reads.
+- No live dispatch or expedition action was executed. The production `source_freshness_verified` gate remains unchanged; do not enable dispatch from this capture alone. Next work is to design and verify a bounded-age passive evidence bridge and atomicity/freshness policy without initiating game actions.
