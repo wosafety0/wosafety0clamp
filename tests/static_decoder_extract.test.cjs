@@ -57,6 +57,16 @@ test('extracts comma-separated arrow declarators without consuming the next init
   const following = lexer.extractDefinition(fixture, 'next');
   assert.ok(following);
   assert.equal(following.text, 'next = 3;');
+
+  const commented = "const before = 1, /* split declaration */ _0x466acb = () => ({ value: 'a,b' }), // next declarator\nnext = 4;";
+  const commentedResult = lexer.extractDefinition(commented, '_0x466acb');
+  assert.ok(commentedResult);
+  assert.equal(commentedResult.start, commented.indexOf('_0x466acb'));
+  assert.equal(commented.slice(commentedResult.end, commentedResult.end + 1), ',');
+  assert.ok(commentedResult.text.includes("value: 'a,b'"));
+  const commentedNext = lexer.extractDefinition(commented, 'next');
+  assert.ok(commentedNext);
+  assert.equal(commentedNext.text, 'next = 4;');
 });
 
 test('saves an exact source snapshot with SHA-256 metadata without executing source', () => {

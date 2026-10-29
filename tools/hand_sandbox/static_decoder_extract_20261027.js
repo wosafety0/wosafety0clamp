@@ -166,7 +166,8 @@ module.exports = function() {
       if (source[finish] === ';') finish++;
       return { name, start, end: finish, text: source.slice(start, finish), kind: 'function' };
     }
-    const assignRe = new RegExp('(?:\\b(?:var|let|const)\\s+|[,;]\\s*)' + name + '\\s*=');
+    const trivia = '(?:\\s|/\\*[\\s\\S]*?\\*/|//[^\\r\\n]*(?:\\r?\\n|$))*';
+    const assignRe = new RegExp('(?:\\b(?:var|let|const)' + trivia + '|[,;]' + trivia + ')' + name + '\\s*=');
     const assignMatch = assignRe.exec(source);
     if (!assignMatch) return null;
     const start = assignMatch.index + assignMatch[0].lastIndexOf(name);

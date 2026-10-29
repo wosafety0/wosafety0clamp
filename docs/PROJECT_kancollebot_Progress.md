@@ -2030,3 +2030,12 @@ The Hand plugin's read-only probe reported:
 
 
 - Follow-up aggregation of the saved factory decode report confirmed the 33 call sites map to 24 unique decoded names. Repeated names include `default` (3), `renderer` (3), `length` (3), `settings` (2), `split` (2), and `view` (2). This gives a compact map of the application factory's statically referenced configuration, rendering, DOM, and startup names without publishing source snippets.
+
+
+## 2026-10-29 — Declaration-trivia compatibility extension
+
+- Extended the production assignment matcher to accept whitespace, block comments, and line comments between declaration keywords/delimiters and the target identifier.
+- Expanded the production regression test with a commented comma-separated arrow declarator and a following declaration after a line comment.
+- Validation: JavaScript tests **13/13 passed**; Python compilation passed; Python unit tests **122/122 passed** with both `src` and repository root on `PYTHONPATH`; `git diff --check` passed.
+- Re-ran the production extractor against the real snapshot after the change: SHA-256 unchanged, `_0x466acb` boundaries remain **8,464,467–8,465,759**, length **1,292**, following comma excluded.
+- This compatibility extension is verified in the local clone only; no GitHub push has been performed.
