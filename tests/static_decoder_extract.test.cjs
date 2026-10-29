@@ -43,6 +43,22 @@ test('balances comments, quoted braces and nested delimiters', () => {
 });
 
 
+test('extracts comma-separated arrow declarators without consuming the next initializer', () => {
+  const fixture = "const alias = decode, _0x466acb = () => { const obj = { nested: [1, 2], text: '},;' }; return helper(obj, (x, y) => ({ x, y })); }, next = 3;";
+  const result = lexer.extractDefinition(fixture, '_0x466acb');
+  assert.ok(result);
+  assert.equal(result.kind, 'assignment');
+  assert.equal(result.start, fixture.indexOf('_0x466acb'));
+  assert.ok(result.text.startsWith('_0x466acb = () => {'));
+  assert.ok(result.text.endsWith('}'));
+  assert.equal(fixture.slice(result.end, result.end + 1), ',');
+  assert.ok(result.text.includes("text: '},;'"));
+  assert.ok(result.text.includes('(x, y) => ({ x, y })'));
+  const following = lexer.extractDefinition(fixture, 'next');
+  assert.ok(following);
+  assert.equal(following.text, 'next = 3;');
+});
+
 test('saves an exact source snapshot with SHA-256 metadata without executing source', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kcb-cdp-snapshot-'));
   const fixture = '/* static fixture */\\nfunction _0x3353(x) { return x; }';

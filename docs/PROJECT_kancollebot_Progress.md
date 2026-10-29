@@ -1992,3 +1992,18 @@ The Hand plugin's read-only probe reported:
 - This establishes that the table's initial literal order cannot be used directly for decoded-index mapping. The next offline step is to reconstruct the rotation without executing page code, then validate decoded strings against call sites.
 - A second source-context check at offset 8464467 confirmed `_0x466acb=()=>{...` in a comma-separated declaration chain. This explains the extractor's missed factory definition and identifies the parser case to support.
 - **Boundary:** rotation mechanism and target are observed from actual source text; rotation count, resolved indices, and decoded names remain unverified. No game code or inputs were executed.
+
+
+## 2026-10-29 — Static extractor comma-separated arrow factory fix (local verification)
+
+- Updated `tools/hand_sandbox/static_decoder_extract_20261027.js` so `extractDefinition` recognizes an assignment target inside a comma-separated declaration chain, while returning the target identifier as the start offset rather than the preceding comma.
+- Updated `scanExpressionEnd` to stop at a top-level comma while preserving commas nested in calls, arrays, objects, and parenthesized expressions.
+- Added a production-module regression test in `tests/static_decoder_extract.test.cjs` for a comma-separated arrow factory with nested object/array values, punctuation inside a string, nested calls, and a following declarator.
+- Verification on the isolated local clone of `wosafety0/wosafety0clamp`, branch `dev/expedition-closed-loop-mvp`:
+  - JavaScript offline tests: **13/13 passed**.
+  - Python compilation: passed.
+  - Python unit tests: **122/122 passed**.
+  - `git diff --check`: passed.
+  - The production lexical functions extracted the factory from the locally preserved real Poi snapshot at offsets **8,464,467–8,465,759**, length **1,292** characters; the extracted text begins with `_0x466acb=()=>{`, ends at the matching body close, and leaves the following comma outside the extraction.
+- Verification is offline and read-only with respect to the game: the snapshot was treated as text; page source was not executed, no game functions/getters were called, and no game input was sent.
+- **State boundary:** production code and tests are modified and verified in the local clone only. No local commit or GitHub push is claimed in this record; authoritative remote integration and remote readback remain pending explicit authorization for the remote write.
