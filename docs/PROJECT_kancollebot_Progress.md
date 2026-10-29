@@ -2209,3 +2209,11 @@ The Hand plugin's read-only probe reported:
 - Exact-head GitHub Push CI passed on commit `554d045a3aa1b79d2bf673da6f89155606a94945`: [run 40827593526](https://github.com/wosafety0/wosafety0clamp/actions/runs/40827593526). Job steps report success for offline JavaScript tests, Python compilation, and Python unit tests; the log confirms **124 Python tests passed**.
 - Remote readback confirmed the implementation and both new tests. Branch comparison against `dev/expedition-closed-loop-mvp` reports ahead by 2, behind by 0; this fix remains isolated and has not been merged. CI evidence validates the offline checks only, not real Poi/game runtime behavior.
 - No live game operation, deployment, merge, or branch-protection change occurred.
+
+
+## 2026-10-29 - Require complete Poi collection metadata
+
+- Tightened the read-only Poi collection contract in `PoiExpeditionReader._collection_items`: a collection now must include a boolean `truncated` marker set to false, valid non-negative integer `total` and `returned` counts, and counts consistent with the complete `items` payload. Missing or contradictory completeness metadata is rejected rather than treated as a complete state.
+- Added regression tests for a missing truncation marker and inconsistent returned count on isolated branch `dev/poi-collection-integrity-20261029`.
+- Exact-head Push CI passed on commit `2994b23db63b1491803dc6f6bace64dd4f2d9073`: [run 40827710306](https://github.com/wosafety0/wosafety0clamp/actions/runs/40827710306). JavaScript static tests, Python compilation, and Python unit tests all completed successfully; the job log confirms **124 Python tests passed**.
+- Remote readback confirmed the stricter collection validation and both regression tests. This verifies the offline contract only; it does not prove the installed Poi plugin's live payload shape or source freshness. No live game operation, deployment, merge, or branch-protection change occurred.
