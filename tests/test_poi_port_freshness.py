@@ -97,6 +97,9 @@ class PortFreshnessTests(unittest.TestCase):
         snapshot, fleets, ships = sample_state()
         snapshot["source"]["bodyCapturedAt"] = "2026-10-29T12:00:06.000Z"
         self.assertFalse(self.validate(snapshot, fleets, ships))
+        snapshot, fleets, ships = sample_state()
+        snapshot["source"]["responseReceivedAt"] = "2026-10-29T11:59:00.000Z"
+        self.assertFalse(self.validate(snapshot, fleets, ships))
 
     def test_rejects_mutable_fleet_and_ship_differences(self):
         snapshot, fleets, ships = sample_state()
