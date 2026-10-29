@@ -2314,3 +2314,11 @@ The Hand plugin's read-only probe reported:
 - 同一版本的舰队 reducer 从 `api_port_port` 响应的 `api_deck_port` 更新舰队，舰船 reducer 从同一响应的 `api_ship` 更新舰船。因此，捕获成功的 `/kcsapi/api_port/port` 响应体与其接收时间，是绕过可能陈旧的 Redux 持久化缓存、同时取得舰队/舰船基线快照的潜在只读路径。
 - **实现状态：未实现；验证状态：仅上游静态源码审查通过，未在用户当前 Poi 实例验证事件可见性、实际 payload 完整性及刷新频率。** 未来实现应只监听已发生的 `game.response` 事件，不主动请求游戏 API；在收到可验证的成功 port 响应前继续 fail-closed，并对接收时间设置年龄上限。不得把这个本机接收时间称为服务器端更新时间。
 - 当前 `PoiExpeditionReader` 尚未消费该事件或时间信息，故此发现不改变当前安全结论：真实状态仍不具备已验证的新鲜度证据。
+
+
+## 2026-10-29 - Clamp trial synchronized and exact-head CI passed
+
+- Refreshed Draft PR #14 branch `feat/harness-trial-gate-20261029` from the current development base `caaba7338ae693b1f2f3734b5346de614f322170` with merge commit `58e8187660cb537f8447ebc22164f9d3301dba7f`, preserving both the trial-specific progress entries and the latest base progress entries. No source-code changes were introduced by this synchronization.
+- Re-ran the consumer-owned offline checks on the merged tree: Node tests **13/13**, Python compilation, Python unit tests **122/122**, and `git diff --check` all passed.
+- Exact-head Clamp Push CI [40850957958](https://github.com/wosafety0/wosafety0clamp/actions/runs/40850957958) and PR CI [40850965805](https://github.com/wosafety0/wosafety0clamp/actions/runs/40850965805) both completed successfully. Runtime validation, consumer command, report generation, artifact upload, report identity verification, and final gate passed.
+- GitHub reports PR #14 `CLEAN` / `MERGEABLE`, still Draft/open/unmerged. This branch synchronization does not merge the PR. No live model call, game action, release, or deployment occurred.
