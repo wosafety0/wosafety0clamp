@@ -1958,55 +1958,24 @@ The Hand plugin's read-only probe reported:
 - 验收范围为合成离线数据与 CI；真实 Poi/Hand 快照采集尚未验证。
 
 
+## 2026-10-29 — Static extractor report status now reflects actual completeness
 
-### 通用 Harness 试用接入（2026-10-29）
-
-- 为避免打乱现有开发，新增独立试用工作流 `.github/workflows/harness-trial-acceptance.yml`，保留原有 CI 不变。
-- 试用工作流通过可复用工作流调用 `wosafety0/dev-workflow-kit` 的固定提交 `827bb99d2eb97ac61909979094f68471f081150b`；该提交对应 Harness CI run [40797681816](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40797681816)，结论为 success。
-- 复用门禁运行本项目现有 Node 静态测试、Python 源码编译和离线单元测试；Python 固定为 3.12，与现有 CI 一致。权限仅 `contents: read`。
-- 本次变更分支：`feat/harness-trial-gate-20261029`；PR #14：https://github.com/wosafety0/wosafety0clamp/pull/14。PR 保持 draft、未合并。
-- **验收状态：** 工作流配置已提交并回读核验；截至归档时，尚未取得该试用工作流针对本项目提交的成功运行证据，因此只能称为“已接入待验证”，不能称为通过验收。
-- 安全边界：未调用模型提供方 API、未读取凭据、未修改游戏代码、未执行游戏操作、未合并 PR。原有 CI 保持不变。
+- Fixed a reporting correctness issue in `tools/hand_sandbox/static_decoder_extract_20261027.js`: the JSON report previously hard-coded `STATIC_EXTRACTION_COMPLETE` even when one or more required definitions were missing. The report now derives its status from the presence of `_0x3353`, `_0x3f23`, and `_0x466acb`; missing definitions yield `PARTIAL_EXTRACTION`, and a failed snapshot save yields `SNAPSHOT_WRITE_ERROR` when definitions are otherwise present.
+- Added offline tests for both partial and complete report states, including extracted decoder/table/factory/alias fields, decoder call capture, and safety flags. Tests operate on synthetic strings and instrument the production lexical functions only; they do not connect to CDP/Poi, execute page source, call game functions/getters, or send input.
+- Exact-head CI [run 40802538224](https://github.com/wosafety0/wosafety0clamp/actions/runs/40802538224) passed on commit `d1012091954f037757e38684b8c4472c5f11dfae`; the Node static extraction and snapshot-verifier tests, Python compilation, and Python unit tests all completed successfully.
+- Authoritative remote readback confirmed production extractor blob `80280ad548b9016f96ea1fc94e0f85c25c0d43e8` and test blob `f6a28dd71091bb2a7806638cfd2c7814fc881f63`.
+- **Boundary:** offline extractor/report semantics are verified. This does not complete live-source extraction or offline analysis of the real Poi `main.js`; the current chat has no newly captured local snapshot/metadata to verify. No live game code was executed and no game input was sent.
 
 
-### Harness 试用门禁首次验收通过（2026-10-29）
+## 2026-10-29 — Bounded extraction report and full offline sidecar
 
-- 试用工作流 `.github/workflows/harness-trial-acceptance.yml` 已在 clamp 分支实际运行成功；run [40798692801](https://github.com/wosafety0/wosafety0clamp/actions/runs/40798692801)，job `harness-acceptance / acceptance` 结论为 success。
-- 同一工作流另一次运行 [40798667539](https://github.com/wosafety0/wosafety0clamp/actions/runs/40798667539) 也为 success。两个 job 的 checkout、Python setup、consumer-owned acceptance command 均成功。
-- 这证明 clamp 已能调用固定版本的通用可复用工作流，并通过当前配置的 Node 静态测试、Python 编译及离线单元测试。
-- 边界：本轮只验证 CI 级别复用与当前离线检查，不证明游戏运行、真实 Poi/CDP 捕获、模型语义审查或跨平台全覆盖。PR #14 仍保持 draft、未合并；原有 CI 未替换。
+- Improved `tools/hand_sandbox/static_decoder_extract_20261027.js` so the Hand console report stays bounded instead of printing potentially hundreds of thousands of characters from the `_0x3f23` table. The console now shows definition offsets/kinds/character counts plus bounded context excerpts.
+- The full extracted definitions, decoder-call expressions, and table-reference contexts are written to a separate `.extraction.json` sidecar next to the captured `main-*.js` snapshot and metadata. This preserves complete offline-analysis inputs without relying on copying a huge console payload.
+- Added a synthetic regression test with a 190,000-character factory definition. It verifies the console report remains under the configured 180,000-character limit while the sidecar retains the full definition and safety flags. No real Poi source or game runtime was used by this test.
+- Exact-head CI [run 40803106268](https://github.com/wosafety0/wosafety0clamp/actions/runs/40803106268) passed on commit `de4975b98e32b955fbdf77f0d344838092587a80`; JavaScript tests, Python compilation, and Python unit tests passed.
+- Remote readback verified extractor blob `3341884b9fa353a628e3879289930958397f30c3` and test blob `d90d5e3d55e0141d0de70cb86168b8a343f4bbf6`.
+- **Remaining real-source boundary:** this closes the tooling/output packaging issue, not the actual capture gap. No new real Poi snapshot or `.extraction.json` is available in the current session, so real `_0x3353`/`_0x3f23` rotation and decoded property names remain unverified. The extractor still uses CDP `Debugger.getScriptSource` only; no game source execution or input is performed.
 
-## 2026-10-29 — Harness report and fail-closed gate upgrade
-
-- Updated trial workflow `.github/workflows/harness-trial-acceptance.yml` on `feat/harness-trial-gate-20261029` to pin `wosafety0/dev-workflow-kit/.github/workflows/reusable-acceptance.yml` to immutable SHA `65544e290fd875bb6c4e30f6525b238200037bba`.
-- Selected the report-producing reusable workflow revision with explicit runtime allowlisting, redacted acceptance report, 14-day report artifact, and a final gate that fails unless test/report/artifact stages all succeed.
-- Kept consumer-owned checks unchanged: Node static tests, Python compile check, and offline unittest suite. Runtime is explicitly set to Python 3.12; permissions remain `contents: read`.
-- Updated Draft PR #14 description to reflect the new pin and acceptance evidence requirement: https://github.com/wosafety0/wosafety0clamp/pull/14.
-- The reusable workflow candidate's own CI passed at run https://github.com/wosafety0/dev-workflow-kit/actions/runs/40715196026; its independent Node consumer normal-path smoke test passed at https://github.com/wosafety0/AI-Worker-Proxy/actions/runs/40715309593, and the negative-path smoke test produced the expected failure at https://github.com/wosafety0/dev-workflow-kit/actions/runs/40715636382.
-- **Clamp verification for the new pin is pending** at the time of this record. The prior successful clamp runs exercised the older pinned workflow and must not be treated as evidence for the new revision.
-- No merge, deployment, secrets, provider API calls, or game operations. PR #14 remains draft/unmerged.
-
-## 2026-10-29 — Harness report gate verified
-
-- Updated consumer head before this record: `af07c5ab266dc258a4fad831cffde3e5457c84bc`.
-- Exact-head PR workflow run [40801011771](https://github.com/wosafety0/wosafety0clamp/actions/runs/40801011771) completed successfully; push-triggered run [40801005786](https://github.com/wosafety0/wosafety0clamp/actions/runs/40801005786) also completed successfully.
-- Verified job steps: checkout, runtime allowlist validation, Python 3.12 setup, consumer acceptance command, redacted report generation, artifact upload, and final acceptance gate all succeeded. Node setup was correctly skipped because the consumer selected Python; the consumer command still executed both Node static tests and Python checks successfully.
-- Job log explicitly reports `Acceptance status: passed` and `Acceptance orchestration gate passed.`.
-- Report artifact: `consumer-acceptance-report`, artifact ID `12865713014`, SHA-256 digest `cc528d8f3dcd0a993c6dcd5b6db499eac35fe87996d64a372a29aab922208296`, retained until 2026-11-12.
-- The selected reusable workflow's hosted negative-path evidence is [run 40715636382](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40715636382): deliberately failing consumer command exited 23; report recorded failed; artifact upload succeeded; final gate exited 1 and named `tests` as the unsuccessful required stage.
-- This proves the updated reusable gate passes the clamp offline acceptance command and closes on the tested consumer-command failure. It does not prove full game/POI runtime behavior or actual live-model review.
-- PR #14 remains draft/unmerged. No game operations, provider requests, deployment, or automatic merge occurred.
-
-
-## 2026-10-29 — Current Harness pin: isolated failure-closed contract verification
-
-- Before this progress entry was appended, Draft PR #14 head was `5981d72c8d4c11849ee76634ee2cd2e75be00609`; its trial workflow pins `wosafety0/dev-workflow-kit/.github/workflows/reusable-acceptance.yml` to immutable SHA `65544e290fd875bb6c4e30f6525b238200037bba`.
-- Exact-head clamp trial runs [40801085969](https://github.com/wosafety0/wosafety0clamp/actions/runs/40801085969) and [40801081037](https://github.com/wosafety0/wosafety0clamp/actions/runs/40801081037) both completed with conclusion `success`; the reusable acceptance job succeeded on both runs.
-- The subsequent progress-archive commit `992a6b8f37cb14a47c21925a505b677e30f897ed` also passed the trial workflow on exact head: runs [40801580252](https://github.com/wosafety0/wosafety0clamp/actions/runs/40801580252) and [40801574616](https://github.com/wosafety0/wosafety0clamp/actions/runs/40801574616) both succeeded. Run 40801580252 confirms the report was generated, artifact ID `12866111805` uploaded, and the final gate passed.
-- Added isolated contract tests in the Harness repository at branch `test/reusable-command-fail-closed-65544-20261029`, tested code commit `75865a39849492e3b355b99c0353d07cfe5c2caa`. The tests execute shell blocks extracted from the exact pinned workflow, including the report-generation block: empty/whitespace-only commands fail with exit 2 and an explicit diagnostic; a nonexistent command fails and exposes its name/error; the failed report records `status: failed` and `tests.consumer-acceptance-command: failed` without copying raw command output; the final gate exits 1 and names `tests`; a valid command with all-success outcomes opens the gate.
-- Harness CI [run 40801822443](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40801822443) succeeded on the exact expanded test commit; logs confirm 100 offline tests passed and compile, report generation, artifact upload, and final gate steps succeeded. Test file blob read back from GitHub: `a8e9d378c839d2d581a8cacda3350fcd0b756716`.
-- Failure diagnostics are traceable through the named `Run consumer-owned acceptance command` step, its shell error, the redacted report's failed status, and the final gate's `tests` label. The redacted artifact intentionally does not embed raw command output.
-- Acceptance boundary: this proves the shell guard and final-gate behavior in isolated tests, not a full hosted reusable-workflow run supplied with empty/invalid input. PR #14 remains draft and unmerged; the current reusable-workflow pin is unchanged. No game operations, provider API calls, merge, or deployment occurred.
 
 
 ## 2026-10-29 — Hosted empty-command fail-closed verification
