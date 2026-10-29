@@ -2006,3 +2006,11 @@ The Hand plugin's read-only probe reported:
 - Updated `docs/CLAMP_HARNESS_TRIAL_USAGE.md` to describe report identity verification, the five required gate stages, and the immutable pin.
 - Clamp CI for the updated consumer pin is pending. Until its new Push and PR runs pass, the prior successful run on the old pin does not count as validation of this change.
 - No local filesystem changes, model-provider calls, game actions, merge, release, or deployment.
+
+
+### 2026-10-29 — Clamp Harness trial: verifier workspace fix
+
+- The initial verifier pin `07b8000ab8c2a1dad0f91bd29e2d84028bec2c93` failed closed because the reusable workflow tried to execute a verifier script from the Harness repository inside a checkout of Clamp. The test command itself passed; the report-verification stage failed because the file was absent in the consumer workspace.
+- Harness corrected this by running the fail-closed verifier inline in the reusable workflow and testing that exact embedded Python code. Corrected Harness commit `0173c597e82364a91e50f9817a9c8d40876dc04c` passed both Push CI [40813501693](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40813501693) and PR CI [40813508518](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40813508518).
+- Clamp workflow pin updated to the corrected immutable SHA. New Clamp Push and PR CI for this exact consumer pin are pending; the earlier failed runs remain recorded as failures and are not counted as acceptance.
+- No local filesystem changes, model-provider calls, game actions, merge, release, or deployment.
