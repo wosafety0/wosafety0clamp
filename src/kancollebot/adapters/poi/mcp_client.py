@@ -16,6 +16,13 @@ from dataclasses import dataclass
 from typing import Any
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Never follow redirects from a validated local endpoint."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 class PoiMcpError(RuntimeError):
     """Raised when the local Poi MCP endpoint cannot provide a valid response."""
 
@@ -34,6 +41,8 @@ class PoiMcpClient:
         parsed = urllib.parse.urlsplit(endpoint)
         if parsed.scheme != "http" or not parsed.hostname or not parsed.path:
             raise ValueError("endpoint must be an absolute HTTP URL")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("endpoint URL must not contain credentials")
         try:
             address = ipaddress.ip_address(parsed.hostname)
             is_loopback = address.is_loopback
@@ -45,6 +54,7 @@ class PoiMcpClient:
             raise ValueError("timeout must be positive")
         self.endpoint = endpoint
         self.timeout = timeout
+        self._opener = urllib.request.build_opener(_NoRedirectHandler, urllib.request.ProxyHandler({}))
         self._ids = itertools.count(1)
         self._session_id: str | None = None
         self._protocol_version = "2025-03-26"
@@ -62,7 +72,7 @@ class PoiMcpClient:
         data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         request = urllib.request.Request(self.endpoint, data=data, headers=headers, method="POST")
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            with self._opener.open(request, timeout=self.timeout) as response:
                 status = response.status
                 content_type = response.headers.get("Content-Type", "").lower()
                 session_id = response.headers.get("Mcp-Session-Id")
