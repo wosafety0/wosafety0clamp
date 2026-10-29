@@ -28,6 +28,10 @@ The command uses `&&`, so a failed stage prevents later command segments from ru
 - **Expected-negative test:** an intentionally failing smoke test should live on a clearly named isolated test branch and must not be confused with normal clamp acceptance.
 - **No report artifact:** treat the run as incomplete/failed; do not infer acceptance from an earlier green run.
 
+## Existing CI trigger coverage
+
+The existing `.github/workflows/ci.yml` is unchanged, but its triggers are narrower than this trial: pushes to `main` and `dev/**`, pull requests targeting `main`, and manual dispatch. It does **not** run for pushes to `feat/harness-trial-gate-*` or for PR #14 targeting `dev/expedition-closed-loop-mvp`. Therefore, the Harness Trial Acceptance run is the only automated workflow check currently observed on this trial PR head. Treat `existing CI remains unchanged` as configuration independence, not as proof that existing CI ran on the same head. Before integration, use the normal development-branch CI path or separately run the equivalent offline checks; do not promote this trial based on Harness-only evidence.
+
 ## Safety and integration policy
 
 - Existing project CI remains authoritative and unchanged by this trial.
