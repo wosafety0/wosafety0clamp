@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from tools.verify_poi_freshness_bridge import summarize_state
+from tools.verify_poi_freshness_bridge import main, summarize_state
 
 
 class FreshnessBridgeDiagnosticTests(unittest.TestCase):
@@ -34,6 +34,14 @@ class FreshnessBridgeDiagnosticTests(unittest.TestCase):
         self.assertFalse(result["source_freshness_verified"])
         self.assertFalse(result["game_actions_enabled"])
         self.assertIsNone(result["observed_at"])
+
+    def test_non_finite_time_limits_are_rejected_before_observation(self):
+        with self.assertRaises(SystemExit) as timeout_error:
+            main(["--timeout-seconds", "nan"])
+        self.assertEqual(timeout_error.exception.code, 2)
+        with self.assertRaises(SystemExit) as age_error:
+            main(["--max-age-seconds", "inf"])
+        self.assertEqual(age_error.exception.code, 2)
 
 
 if __name__ == "__main__":
