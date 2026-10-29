@@ -2015,3 +2015,10 @@ The Hand plugin's read-only probe reported:
 - The hosted run [40802071906](https://github.com/wosafety0/wosafety0clamp/actions/runs/40802071906) completed with conclusion `failure`, which is the expected result for this negative-path probe. The acceptance command guard emitted `test-command must not be empty.` and exited 2; the redacted report recorded `status: failed`; artifact upload succeeded (artifact ID `12866197367`); the final gate exited 1 and named `tests`.
 - This verifies the current pinned reusable workflow's empty-command path in a real hosted consumer call, closing the earlier evidence gap left by isolated contract tests alone. The red workflow result is intentional fail-closed behavior, not a successful normal acceptance run.
 - The probe workflow is isolated on its test branch and is not part of Draft PR #14. No merge, release, deployment, game operation, or provider API call occurred; PR #14 remains draft/unmerged and its pinned workflow is unchanged.
+
+
+## 2026-10-29 — Clamp Harness usage guide added
+
+- Added `docs/CLAMP_HARNESS_TRIAL_USAGE.md` on the clamp Harness trial branch. It defines when to run the auxiliary workflow, trigger conditions, test scope, how to inspect redacted report artifacts, the distinction between normal acceptance and intentional negative-path tests, and the no-merge/no-game-operation boundaries.
+- It explicitly says not to trigger Harness after every small edit and not to replace existing CI or make the trial a required branch-protection check without a separate decision.
+- Current normal-path evidence: [run 40801580252](https://github.com/wosafety0/wosafety0clamp/actions/runs/40801580252); negative-path evidence: [run 40802071906](https://github.com/wosafety0/wosafety0clamp/actions/runs/40802071906); trial PR [#14](https://github.com/wosafety0/wosafety0clamp/pull/14) remains Draft/unmerged.
