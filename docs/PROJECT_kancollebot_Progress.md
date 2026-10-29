@@ -2313,3 +2313,14 @@ The Hand plugin's read-only probe reported:
 - Compared overlapping fields without printing ship identifiers or payload values. All 92 ship instance keys, `api_id`, `api_ship_id`, `api_nowhp`, `api_maxhp`, and `api_cond` matched the captured snapshot. However, 8 ship records differed in `api_fuel`, 4 differed in `api_bull`; all 3 fleet names differed, 2 fleet mission arrays differed, while all 3 fleet `api_ship` slot arrays matched.
 - This is useful direct evidence that equal fleet/ship counts do **not** mean the compact captured snapshot and the later MCP store are synchronized. Mutable values can change between observations; therefore neither the old snapshot nor count-only comparison is a valid current-state source. Keep freshness fail-closed and do not enable dispatch based on this snapshot.
 - Current MCP health remains `status=ok`, `storeReady=true`; this confirms bridge availability only. The comparison does not determine whether each difference came from legitimate game-state evolution or a stale/partial update, and does not establish an atomic snapshot contract. Production `source_freshness_verified` remains false; live dispatch/expedition remains disabled.
+
+### 2026-10-29 读取器来源新鲜度门禁静态复核
+
+- 已从权威分支静态复核 `src/kancollebot/adapters/poi/expedition_reader.py`、`src/kancollebot/adapters/poi/expedition_state_v2.py`、`src/kancollebot/core/observed_state.py`、`src/kancollebot/safety/action_preflight.py` 与对应离线测试。
+- `normalize_poi_fleets()` 返回 `ObservedState(..., source="poi-redux:info.fleets+info.ships")`，未显式设置 `source_freshness_verified`，因此沿用默认值 `False`。
+- `authorize_planned_action()` 调用 `state.require_fresh()`；该方法除检查本地观察时间范围外，还要求 `source_freshness_verified=True`。因此单凭刚刚读取的时间戳不能通过行动前置检查，来源新鲜度证据缺失时 fail-closed。
+- `PoiExpeditionReader.read_fleets()` 会在读取舰队、舰船及所需主数据后，再次读取舰队和舰船集合；若两轮结果不同就拒绝归一化。这是同一读取窗口内的尽力一致性检查，不是原子快照或游戏源新鲜度证明，代码注释也指出仍可能漏掉 ABA 变化。
+- 离线测试覆盖稳定复读和读取期间舰队数据变化时拒绝状态；它们证明模拟契约，不证明 Poi Redux 数据的来源新鲜度。
+- 本轮仅做 GitHub 远程源码审查及文档归档；未调用 DC、未执行本地测试、未刷新或操作游戏。运行时来源新鲜度仍为 **未验证**，真实派遣保持关闭。
+- 下一步应继续静态审查可用的被动来源证据及测试契约；在找到可独立验证的源版本/刷新信号之前，不修改生产新鲜度门禁。
+
