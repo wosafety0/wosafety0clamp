@@ -1,0 +1,16 @@
+name: Harness Empty Command Negative Path (expected gate failure)
+
+on:
+  push:
+    branches: ["test/harness-empty-command-hosted-*"]
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    uses: wosafety0/dev-workflow-kit/.github/workflows/reusable-acceptance.yml@65544e290fd875bb6c4e30f6525b238200037bba
+    with:
+      runtime: "python"
+      python-version: "3.12"
+      test-command: ""
