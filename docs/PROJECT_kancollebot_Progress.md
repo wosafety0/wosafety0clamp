@@ -2244,3 +2244,10 @@ The Hand plugin's read-only probe reported:
 - The target branch had advanced by two commits since the trial branch diverged; the only changed path on the base side was `docs/PROJECT_kancollebot_Progress.md`. Reconciled the latest base progress entries with the trial's archived entries.
 - Created merge commit `7b48fc069b02df1fd5b8cf2dc50f7b3c23b2707c` on the feature branch with the latest base as its second parent. This syncs the feature branch; it does not merge PR #14.
 - PR #14 remains Draft/unmerged. After the branch sync GitHub reports it mergeable, and exact-head Push CI [40813891860](https://github.com/wosafety0/wosafety0clamp/actions/runs/40813891860) and PR CI [40813896564](https://github.com/wosafety0/wosafety0clamp/actions/runs/40813896564) both passed. The PR is not merged; no release or deployment occurred.
+
+## 2026-10-29 - Harness trial branch refreshed from current dev head
+
+- Refreshed Draft PR #14 branch `feat/harness-trial-gate-20261029` from current base `dev/expedition-closed-loop-mvp` at `7e958b4b1ac7e599f2a0d87150985a992603f9d7` using merge commit `a25f302e5af7ed4d1ed31d8802bf52ad9096d937`. The progress-log conflict was resolved byte-safely by preserving the current base history and appending the distinct Harness-trial entries; no source text was executed.
+- Offline validation on the merged tree passed: JavaScript tests **13/13**, Python compilation, Python unit tests **122/122**, and `git diff --check`.
+- Exact merge-head hosted Push CI [40824428251](https://github.com/wosafety0/wosafety0clamp/actions/runs/40824428251) passed runtime validation, the consumer acceptance command, report generation, artifact upload, strict report identity verification, and the final gate.
+- GitHub reports PR #14 mergeable against the current base; PR #14 remains Draft/open/unmerged. This only synchronizes the feature branch and does not merge the PR. No live model call, game action, release, or deployment occurred.
