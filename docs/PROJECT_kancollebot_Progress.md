@@ -2255,3 +2255,12 @@ The Hand plugin's read-only probe reported:
 - 同一版本的舰队 reducer 从 `api_port_port` 响应的 `api_deck_port` 更新舰队，舰船 reducer 从同一响应的 `api_ship` 更新舰船。因此，捕获成功的 `/kcsapi/api_port/port` 响应体与其接收时间，是绕过可能陈旧的 Redux 持久化缓存、同时取得舰队/舰船基线快照的潜在只读路径。
 - **实现状态：未实现；验证状态：仅上游静态源码审查通过，未在用户当前 Poi 实例验证事件可见性、实际 payload 完整性及刷新频率。** 未来实现应只监听已发生的 `game.response` 事件，不主动请求游戏 API；在收到可验证的成功 port 响应前继续 fail-closed，并对接收时间设置年龄上限。不得把这个本机接收时间称为服务器端更新时间。
 - 当前 `PoiExpeditionReader` 尚未消费该事件或时间信息，故此发现不改变当前安全结论：真实状态仍不具备已验证的新鲜度证据。
+
+
+### 2026-10-29 Poi port response fixture contract cross-check
+
+- 继续对固定上游版本 `poooi/poi@725029997b84729df6394e1f107079b8e9437f36` 的只读源码与测试夹具交叉核验。测试夹具 `views/redux/info/__tests__/__fixtures__/api_port_port_typical.json` 的响应路径为 `/kcsapi/api_port/port`，响应事件形状包含 `path`、`body`、`postBody` 和本机接收时间字段 `time`。
+- 该静态夹具的 `body` 同时包含 `api_deck_port` 与 `api_ship`；样本中分别有 4 个舰队和 391 条舰船记录。舰队记录包含 `api_id`、`api_mission`、`api_ship` 等字段，舰船实例包含 `api_id`、`api_ship_id`、`api_nowhp`、`api_maxhp`、`api_fuel`、`api_bull` 等字段。
+- 对照同一固定版本的 `views/redux/info/fleets.ts` 与 `views/redux/info/ships.ts`，`api_port_port` reducer 分别从同一响应体的 `api_deck_port` 和 `api_ship` 更新舰队及舰船状态；`data-resolver.ts` 在 Redux 更新调用后派发 `game.response`。这进一步支持“被动监听已发生的成功母港响应”作为候选数据源，而不是额外发起游戏 API 请求。
+- **验证边界：** 这是固定版本的上游源码和静态测试夹具证据，不是当前 Poi 安装版本的实时捕获。夹具时间戳属于历史样本，不能作为当前新鲜度证据；也不能证明当前游戏会话会按预期产生该事件。真实状态仍不得设置 `source_freshness_verified=True`，直到实际 Poi 运行时的事件、字段完整性与接收时间窗口经只读验证。
+- 参考： [data-resolver.ts](https://github.com/poooi/poi/blob/725029997b84729df6394e1f107079b8e9437f36/views/env-parts/data-resolver.ts)、[fleets.ts](https://github.com/poooi/poi/blob/725029997b84729df6394e1f107079b8e9437f36/views/redux/info/fleets.ts)、[ships.ts](https://github.com/poooi/poi/blob/725029997b84729df6394e1f107079b8e9437f36/views/redux/info/ships.ts)、[api_port_port_typical.json](https://github.com/poooi/poi/blob/725029997b84729df6394e1f107079b8e9437f36/views/redux/info/__tests__/__fixtures__/api_port_port_typical.json)。
