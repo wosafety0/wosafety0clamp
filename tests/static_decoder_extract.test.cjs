@@ -165,3 +165,37 @@ test('analyzeSource reports complete extraction only when all required definitio
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+
+test('writes full extracted definitions to a sidecar while keeping console output bounded', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kcb-extraction-artifact-'));
+  const largeLiteral = 'A'.repeat(190000);
+  const fixture = [
+    'function _0x3353(x) { return x; }',
+    'const _0x3f23 = function () { return "' + largeLiteral + '"; };',
+    'function _0x466acb() { return _0x460358(0x1); }',
+    'const _0x460358 = _0x3353;'
+  ].join('\\n');
+  try {
+    logMessages.length = 0;
+    lexer.analyzeSource(fixture, 'https://example.test/kcs2/js/main.js', '761', dir);
+    const output = logMessages.join('\\n');
+    const start = output.indexOf('STATIC_SOURCE_REPORT_BEGIN');
+    const end = output.indexOf('\\n[Sandbox] STATIC_SOURCE_REPORT_END', start);
+    assert.ok(start >= 0 && end > start);
+    const jsonStart = output.indexOf('{', start + 'STATIC_SOURCE_REPORT_BEGIN'.length);
+    const displayed = JSON.parse(output.slice(jsonStart, end));
+    assert.ok(JSON.stringify(displayed).length < 180000);
+    assert.equal(typeof displayed.definitions.stringTable_0x3f23.text, 'undefined');
+    const artifactName = fs.readdirSync(dir).find(name => name.endsWith('.extraction.json'));
+    assert.ok(artifactName);
+    const artifact = JSON.parse(fs.readFileSync(path.join(dir, artifactName), 'utf8'));
+    assert.equal(artifact.extractionArtifact.status, 'SAVED');
+    assert.equal(artifact.definitions.stringTable_0x3f23.text.length > 190000, true);
+    assert.ok(artifact.definitions.stringTable_0x3f23.text.includes(largeLiteral));
+    assert.equal(artifact.safety.pageSourceExecuted, false);
+    assert.equal(artifact.safety.gameFunctionsCalled, false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
