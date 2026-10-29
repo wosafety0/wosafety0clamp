@@ -2331,3 +2331,10 @@ The Hand plugin's read-only probe reported:
 - 这两项是已存在的回归测试定义；本轮只读取 GitHub 源码，没有执行测试，因此不新增“测试通过”的声明，也没有必要重复添加同类测试。
 - 结论：生产门禁和既有离线测试在“本地观察时间不能替代来源新鲜度证明”这一点上保持一致。运行时来源新鲜度仍未验证，真实派遣保持关闭。
 
+
+### 2026-10-29 候选：带 revision 的只读 Poi 数据投影
+
+- 为寻找可验证的数据版本信号，静态审查了公开仓库 `poooi/plugin-server` 的 README、`docs/WEBSOCKET_API.md`、`docs/MCP_API.md` 与 `src/server.ts`。该项目提供认证的只读 JSON、WebSocket 与 MCP 投影，默认仅监听 loopback；数据集覆盖 ships、equipment、fleets、resources、docks 和 masterData。
+- 源码显示，投影快照包含 `schemaVersion` 与整数 `revision`；服务监听 host Redux store 订阅，在 allowlisted projection 的序列化内容发生变化时递增 revision 并广播完整投影。HTTP `/api/v1/snapshot` 与 MCP `read_poi_snapshot` 均返回版本化快照；WebSocket 首条消息为 snapshot，后续 update 携带递增 revision。参考： https://github.com/poooi/plugin-server 、 https://github.com/poooi/plugin-server/blob/main/docs/WEBSOCKET_API.md 、 https://github.com/poooi/plugin-server/blob/main/docs/MCP_API.md 。
+- **价值与边界：** 相比当前 Nanodesu `poi_get` 读取器没有源 revision token 的现状，这提供了可评估的跨数据集版本一致性候选；但 revision 是该插件进程内的投影版本，服务重启会重新从 0 开始，单独的 revision 变化不证明当前游戏已登录、最近收到成功游戏响应，或快照一定来自当前会话。仍需将版本变化与被动响应时间/会话证据组合，并在本机 Poi 兼容性与认证配置验证后才能用于 freshness gate。
+- **实现状态：未实现；验证状态：仅公开上游源码静态审查；使用限制：未安装、未切换现有插件、未对当前 Poi 实例进行兼容性测试。** 当前生产读取器、`source_freshness_verified` 门禁和真实派遣策略均未改变；游戏仍保持只读，不执行刷新、输入或主动游戏 API 请求。
