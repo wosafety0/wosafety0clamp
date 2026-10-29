@@ -148,6 +148,7 @@ module.exports = function() {
       } else if (c === '[') bracket++;
       else if (c === ']') bracket--;
       if (c === ';' && paren === 0 && brace === 0 && bracket === 0) return i + 1;
+      if (c === ',' && paren === 0 && brace === 0 && bracket === 0) return i;
     }
     return text.length;
   }
@@ -165,10 +166,11 @@ module.exports = function() {
       if (source[finish] === ';') finish++;
       return { name, start, end: finish, text: source.slice(start, finish), kind: 'function' };
     }
-    const assignRe = new RegExp('(?:\\bvar|\\blet|\\bconst)\\s+' + name + '\\s*=');
+    const trivia = '(?:\\s|/\\*[\\s\\S]*?\\*/|//[^\\r\\n]*(?:\\r?\\n|$))*';
+    const assignRe = new RegExp('(?:\\b(?:var|let|const)' + trivia + '|[,;]' + trivia + ')' + name + '\\s*=');
     const assignMatch = assignRe.exec(source);
     if (!assignMatch) return null;
-    const start = assignMatch.index;
+    const start = assignMatch.index + assignMatch[0].lastIndexOf(name);
     const expressionStart = assignMatch.index + assignMatch[0].length;
     const finish = scanExpressionEnd(source, expressionStart);
     return { name, start, end: finish, text: source.slice(start, finish), kind: 'assignment' };
