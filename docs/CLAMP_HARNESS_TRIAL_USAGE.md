@@ -51,7 +51,7 @@ This guide documents only the clamp Harness trial. Update it when the trial work
 
 - Updated the trial from `0173c597e82364a91e50f9817a9c8d40876dc04c` to `982a84782db825689bd3b84c13cc168934375e44`, preserving the inline consumer report verifier and Python/Node runtime contract. The earlier candidate `07b8000ab8c2a1dad0f91bd29e2d84028bec2c93` was rejected after consumer CI showed its verifier script was not present in the consumer checkout.
 - The Harness repository's Push CI [40841134517](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40841134517) and PR CI [40841140380](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40841140380) passed for that exact SHA before pinning it here.
-- Clamp's own hosted CI must now pass on the updated pin; until then, the new consumer integration is pending verification.
+- Consumer integration verification is complete for Clamp head `a841627963a77701091bba69da74f09390b81c50`: offline Node tests (13/13), Python compilation, Python unit tests (122/122), and `git diff --check` passed. Exact-head Clamp Push CI [40851075661](https://github.com/wosafety0/wosafety0clamp/actions/runs/40851075661) and PR CI [40851082838](https://github.com/wosafety0/wosafety0clamp/actions/runs/40851082838) both completed successfully, including report generation, artifact upload, report identity verification, and final gate. PR #14 remains Draft/open/unmerged; CI success does not authorize merge or promotion to required branch protection.
 
 ### Runtime-validation negative path (hosted evidence)
 
