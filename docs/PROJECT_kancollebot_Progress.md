@@ -1985,3 +1985,14 @@ The Hand plugin's read-only probe reported:
 - The reusable workflow candidate's own CI passed at run https://github.com/wosafety0/dev-workflow-kit/actions/runs/40715196026; its independent Node consumer normal-path smoke test passed at https://github.com/wosafety0/AI-Worker-Proxy/actions/runs/40715309593, and the negative-path smoke test produced the expected failure at https://github.com/wosafety0/dev-workflow-kit/actions/runs/40715636382.
 - **Clamp verification for the new pin is pending** at the time of this record. The prior successful clamp runs exercised the older pinned workflow and must not be treated as evidence for the new revision.
 - No merge, deployment, secrets, provider API calls, or game operations. PR #14 remains draft/unmerged.
+
+## 2026-10-29 — Harness report gate verified
+
+- Updated consumer head before this record: `af07c5ab266dc258a4fad831cffde3e5457c84bc`.
+- Exact-head PR workflow run [40801011771](https://github.com/wosafety0/wosafety0clamp/actions/runs/40801011771) completed successfully; push-triggered run [40801005786](https://github.com/wosafety0/wosafety0clamp/actions/runs/40801005786) also completed successfully.
+- Verified job steps: checkout, runtime allowlist validation, Python 3.12 setup, consumer acceptance command, redacted report generation, artifact upload, and final acceptance gate all succeeded. Node setup was correctly skipped because the consumer selected Python; the consumer command still executed both Node static tests and Python checks successfully.
+- Job log explicitly reports `Acceptance status: passed` and `Acceptance orchestration gate passed.`.
+- Report artifact: `consumer-acceptance-report`, artifact ID `12865713014`, SHA-256 digest `cc528d8f3dcd0a993c6dcd5b6db499eac35fe87996d64a372a29aab922208296`, retained until 2026-11-12.
+- The selected reusable workflow's hosted negative-path evidence is [run 40715636382](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40715636382): deliberately failing consumer command exited 23; report recorded failed; artifact upload succeeded; final gate exited 1 and named `tests` as the unsuccessful required stage.
+- This proves the updated reusable gate passes the clamp offline acceptance command and closes on the tested consumer-command failure. It does not prove full game/POI runtime behavior or actual live-model review.
+- PR #14 remains draft/unmerged. No game operations, provider requests, deployment, or automatic merge occurred.
