@@ -125,7 +125,9 @@ test('analyzeSource reports partial extraction when a required definition is mis
     const start = output.indexOf('STATIC_SOURCE_REPORT_BEGIN');
     const end = output.indexOf('STATIC_SOURCE_REPORT_END');
     assert.ok(start >= 0 && end > start);
-    const jsonStart = output.indexOf('{', start + 'STATIC_SOURCE_REPORT_BEGIN'.length);\n    const reportEnd = output.indexOf('\\n[Sandbox] STATIC_SOURCE_REPORT_END', jsonStart);\n    const report = JSON.parse(output.slice(jsonStart, reportEnd));
+    const jsonStart = output.indexOf('{', start + 'STATIC_SOURCE_REPORT_BEGIN'.length);
+    const reportEnd = output.indexOf('\n[Sandbox] STATIC_SOURCE_REPORT_END', jsonStart);
+    const report = JSON.parse(output.slice(jsonStart, reportEnd));
     assert.equal(report.status, 'PARTIAL_EXTRACTION');
     assert.equal(report.definitions.factory_0x466acb, null);
     assert.ok(output.includes('STATUS: PARTIAL_EXTRACTION'));
@@ -149,7 +151,9 @@ test('analyzeSource reports complete extraction only when all required definitio
     const start = output.indexOf('STATIC_SOURCE_REPORT_BEGIN');
     const end = output.indexOf('STATIC_SOURCE_REPORT_END');
     assert.ok(start >= 0 && end > start);
-    const jsonStart = output.indexOf('{', start + 'STATIC_SOURCE_REPORT_BEGIN'.length);\n    const reportEnd = output.indexOf('\\n[Sandbox] STATIC_SOURCE_REPORT_END', jsonStart);\n    const report = JSON.parse(output.slice(jsonStart, reportEnd));
+    const jsonStart = output.indexOf('{', start + 'STATIC_SOURCE_REPORT_BEGIN'.length);
+    const reportEnd = output.indexOf('\n[Sandbox] STATIC_SOURCE_REPORT_END', jsonStart);
+    const report = JSON.parse(output.slice(jsonStart, reportEnd));
     assert.equal(report.status, 'STATIC_EXTRACTION_COMPLETE');
     assert.equal(report.definitions.decoder_0x3353.kind, 'function');
     assert.equal(report.definitions.stringTable_0x3f23.kind, 'function');
