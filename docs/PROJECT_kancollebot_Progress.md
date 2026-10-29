@@ -1948,3 +1948,11 @@ The Hand plugin's read-only probe reported:
 - 仅修改 `tests/verify_cdp_snapshot.test.cjs`，不连接游戏/CDP、不执行游戏输入。测试提交 `398766fffdbbcb9c7ef930bbe540ac35bbe097a1`，从 GitHub 权威分支回读测试文件 blob `8da0bbf8916d545ccf091ff9db7ba03eaa6afafc`。
 - [GitHub Actions run 40793688562](https://github.com/wosafety0/wosafety0clamp/actions/runs/40793688562) 的 Node 静态测试、Python 编译和 Python 单元测试作业步骤均为 success。
 - 验收范围限于离线合成数据及云端 CI；用户本机真实快照采集仍未验证。仅记录通过验证的正向成果。
+
+
+### 快照核验器跨平台路径安全修复（2026-10-29）
+
+- 离线校验器同时采用当前平台 `path.basename` 和 `path.win32.basename`，并拒绝反斜杠，避免在 Linux CI 环境将 Windows 风格目录分隔符误判为合法文件名；不执行游戏输入。
+- 代码提交 `d17ecb9fa002f6705821c87f2e8653625227315a`；回归测试提交 `c9bb657e3791e43c992f0b9e04bf0c87b76a8c51`，覆盖模拟 Windows 风格文件名。
+- [GitHub Actions run 40797386740](https://github.com/wosafety0/wosafety0clamp/actions/runs/40797386740) 对应最新测试提交，已完成且结论为 `success`。源码与测试从权威远程分支回读，blob 分别为 `b60e16bf535630b2d80d8872c36c62797e55928a`、`9e6fc36b835c26cedeb2154185ddb10ecf95819d`。
+- 验收范围为合成离线数据与 CI；真实 Poi/Hand 快照采集尚未验证。
