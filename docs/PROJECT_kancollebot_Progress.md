@@ -1967,3 +1967,11 @@ The Hand plugin's read-only probe reported:
 - 本次变更分支：`feat/harness-trial-gate-20261029`；PR #14：https://github.com/wosafety0/wosafety0clamp/pull/14。PR 保持 draft、未合并。
 - **验收状态：** 工作流配置已提交并回读核验；截至归档时，尚未取得该试用工作流针对本项目提交的成功运行证据，因此只能称为“已接入待验证”，不能称为通过验收。
 - 安全边界：未调用模型提供方 API、未读取凭据、未修改游戏代码、未执行游戏操作、未合并 PR。原有 CI 保持不变。
+
+
+### Harness 试用门禁首次验收通过（2026-10-29）
+
+- 试用工作流 `.github/workflows/harness-trial-acceptance.yml` 已在 clamp 分支实际运行成功；run [40798692801](https://github.com/wosafety0/wosafety0clamp/actions/runs/40798692801)，job `harness-acceptance / acceptance` 结论为 success。
+- 同一工作流另一次运行 [40798667539](https://github.com/wosafety0/wosafety0clamp/actions/runs/40798667539) 也为 success。两个 job 的 checkout、Python setup、consumer-owned acceptance command 均成功。
+- 这证明 clamp 已能调用固定版本的通用可复用工作流，并通过当前配置的 Node 静态测试、Python 编译及离线单元测试。
+- 边界：本轮只验证 CI 级别复用与当前离线检查，不证明游戏运行、真实 Poi/CDP 捕获、模型语义审查或跨平台全覆盖。PR #14 仍保持 draft、未合并；原有 CI 未替换。
