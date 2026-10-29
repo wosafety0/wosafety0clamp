@@ -172,8 +172,8 @@ test('writes full extracted definitions to a sidecar while keeping console outpu
   const largeLiteral = 'A'.repeat(190000);
   const fixture = [
     'function _0x3353(x) { return x; }',
-    'function _0x3f23() { const big = "' + largeLiteral + '"; return [big]; }',
-    'function _0x466acb() { return _0x460358(0x1); }',
+    'function _0x3f23() { return ["small-table"]; }',
+    'function _0x466acb() { const big = "' + largeLiteral + '"; return _0x460358(0x1); }',
     'const _0x460358 = _0x3353;'
   ].join('\\n');
   try {
@@ -186,13 +186,13 @@ test('writes full extracted definitions to a sidecar while keeping console outpu
     const jsonStart = output.indexOf('{', start + 'STATIC_SOURCE_REPORT_BEGIN'.length);
     const displayed = JSON.parse(output.slice(jsonStart, end));
     assert.ok(JSON.stringify(displayed).length < 180000);
-    assert.equal(typeof displayed.definitions.stringTable_0x3f23.text, 'undefined');
+    assert.equal(typeof displayed.definitions.factory_0x466acb.text, 'undefined');
     const artifactName = fs.readdirSync(dir).find(name => name.endsWith('.extraction.json'));
     assert.ok(artifactName);
     const artifact = JSON.parse(fs.readFileSync(path.join(dir, artifactName), 'utf8'));
     assert.equal(artifact.extractionArtifact.status, 'SAVED');
-    assert.equal(artifact.definitions.stringTable_0x3f23.text.length > 190000, true);
-    assert.ok(artifact.definitions.stringTable_0x3f23.text.includes(largeLiteral));
+    assert.equal(artifact.definitions.factory_0x466acb.text.length > 190000, true);
+    assert.ok(artifact.definitions.factory_0x466acb.text.includes(largeLiteral));
     assert.equal(artifact.safety.pageSourceExecuted, false);
     assert.equal(artifact.safety.gameFunctionsCalled, false);
   } finally {
