@@ -2322,3 +2322,10 @@ The Hand plugin's read-only probe reported:
 - Re-ran the consumer-owned offline checks on the merged tree: Node tests **13/13**, Python compilation, Python unit tests **122/122**, and `git diff --check` all passed.
 - Exact-head Clamp Push CI [40850957958](https://github.com/wosafety0/wosafety0clamp/actions/runs/40850957958) and PR CI [40850965805](https://github.com/wosafety0/wosafety0clamp/actions/runs/40850965805) both completed successfully. Runtime validation, consumer command, report generation, artifact upload, report identity verification, and final gate passed.
 - GitHub reports PR #14 `CLEAN` / `MERGEABLE`, still Draft/open/unmerged. This branch synchronization does not merge the PR. No live model call, game action, release, or deployment occurred.
+
+
+## 2026-10-29 - Trial usage guide verification status corrected
+
+- Corrected stale wording in `docs/CLAMP_HARNESS_TRIAL_USAGE.md` that still described the consumer pin validation as pending despite later successful exact-head evidence. The guide now records Clamp head `a841627963a77701091bba69da74f09390b81c50` and its successful Push/PR CI runs `40851075661` / `40851082838`, while preserving the Draft/unmerged and no-automatic-promotion boundaries.
+- Documentation commit `1a2d8d441d748fcd79dc090004f07aa8b6324300` was pushed and the changed guide was read back from GitHub at that exact SHA. Its Push CI [40851281200](https://github.com/wosafety0/wosafety0clamp/actions/runs/40851281200) and PR CI [40851287548](https://github.com/wosafety0/wosafety0clamp/actions/runs/40851287548) both completed successfully.
+- This was a documentation accuracy fix only; no source implementation changed. PR #14 remains Draft/open/unmerged. No live model call, game action, release, or deployment occurred.
