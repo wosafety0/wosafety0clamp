@@ -2264,3 +2264,10 @@ The Hand plugin's read-only probe reported:
 - 对照同一固定版本的 `views/redux/info/fleets.ts` 与 `views/redux/info/ships.ts`，`api_port_port` reducer 分别从同一响应体的 `api_deck_port` 和 `api_ship` 更新舰队及舰船状态；`data-resolver.ts` 在 Redux 更新调用后派发 `game.response`。这进一步支持“被动监听已发生的成功母港响应”作为候选数据源，而不是额外发起游戏 API 请求。
 - **验证边界：** 这是固定版本的上游源码和静态测试夹具证据，不是当前 Poi 安装版本的实时捕获。夹具时间戳属于历史样本，不能作为当前新鲜度证据；也不能证明当前游戏会话会按预期产生该事件。真实状态仍不得设置 `source_freshness_verified=True`，直到实际 Poi 运行时的事件、字段完整性与接收时间窗口经只读验证。
 - 参考： [data-resolver.ts](https://github.com/poooi/poi/blob/725029997b84729df6394e1f107079b8e9437f36/views/env-parts/data-resolver.ts)、[fleets.ts](https://github.com/poooi/poi/blob/725029997b84729df6394e1f107079b8e9437f36/views/redux/info/fleets.ts)、[ships.ts](https://github.com/poooi/poi/blob/725029997b84729df6394e1f107079b8e9437f36/views/redux/info/ships.ts)、[api_port_port_typical.json](https://github.com/poooi/poi/blob/725029997b84729df6394e1f107079b8e9437f36/views/redux/info/__tests__/__fixtures__/api_port_port_typical.json)。
+
+### 2026-10-29 Poi passive port observer runtime startup verification
+
+- 将已归档的被动响应观察器脚本从 GitHub 分支 `dev/poi-safety-consolidation-20261029` 读取到本机并启动；CDP 目标发现返回唯一匹配的 KanColle DMM webview，`Network.enable` 成功，观察器进入等待状态并完整运行 120 秒。
+- 观察窗口内没有自然发生且符合筛选条件的成功 `/kcsapi/api_port/port` 响应，因此未生成快照；不把该轮标记为 payload 捕获成功。此结果验证了当前 Poi 的目标识别、CDP 网络监听启动和有界退出路径，不验证源新鲜度或舰队/舰船 payload。
+- 运行输出确认未发送游戏输入、未主动发起游戏 API 请求、未使用 `Runtime.evaluate`，且未跳过任何缓存响应。快照目录不存在，符合“无合格响应不落盘”的预期。
+- 安全结论不变：`source_freshness_verified` 仍不得设为真；真实派遣和远征闭环继续关闭。下一步只能等待自然产生的合格母港响应，或在需要用户操作时明确暂停，不能通过刷新/触发游戏请求制造样本。
