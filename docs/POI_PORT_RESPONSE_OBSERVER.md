@@ -4,7 +4,7 @@
 
 - Implementation: committed on branch `dev/poi-safety-consolidation-20261029` and run on the user's local Poi instance as a bounded, passive observer.
 - Automated verification: static safety-contract test passed; GitHub Actions run [40858395913](https://github.com/wosafety0/wosafety0clamp/actions/runs/40858395913) passed, including Python compilation and 130 Python unit tests.
-- Runtime preflight: verified exactly one matching DMM KanColle webview target and successful CDP `Network.enable`; the observer remained armed for 120 seconds and exited cleanly when no qualifying natural port response arrived. No snapshot was created. This verifies startup/target compatibility, **not** payload capture.
+- Runtime preflight: verified exactly one matching DMM KanColle webview target and successful CDP `Network.enable`; the observer remained armed for 120 seconds and exited cleanly when no qualifying natural port response arrived. A separate read-only DOM/resource-timing query then found `document.readyState=complete`, zero canvas elements in that target, and no `/kcsapi/api_port/port` resource-timing entry. The listed iframe URLs did not expose the KanColle server path. This target may be the DMM wrapper rather than the actual game surface; payload capture and the correct active game target remain **unverified**.
 - Intended use: observe a naturally occurring successful `/kcsapi/api_port/port` network response through loopback Chrome DevTools Protocol (CDP), then save a compact local snapshot for manual review.
 - This is a diagnostic artifact, not production integration and not permission to dispatch expeditions.
 
@@ -22,7 +22,7 @@
 
 The JSON artifact contains a local response-receipt timestamp, a response-body SHA-256, compact fleet and ship records, and a safety summary. The timestamp is the local observer's receipt time, not a server timestamp.
 
-A successful capture would establish that the current Poi page exposed a fresh, non-cache HTTP 200 port response with the expected fields at that moment. It would **not** by itself establish long-term freshness, atomic consistency with subsequent `poi_get` reads, or full expedition-loop correctness. Runtime startup and target discovery were verified on 2026-10-29. Successful payload capture and validation remain unverified until a qualifying natural response is observed. If no natural port response occurs during the wait window, it exits without producing a snapshot; it must not trigger a refresh or any game action.
+A successful capture would establish that the current Poi page exposed a fresh, non-cache HTTP 200 port response with the expected fields at that moment. It would **not** by itself establish long-term freshness, atomic consistency with subsequent `poi_get` reads, or full expedition-loop correctness. CDP startup and DMM wrapper-target discovery were verified on 2026-10-29. The actual active game surface, successful payload capture, and payload validation remain unverified until the game target is identified and a qualifying natural response is observed. If no natural port response occurs during the wait window, it exits without producing a snapshot; it must not trigger a refresh or any game action.
 
 ## Read-only runtime preflight — 2026-10-29
 
