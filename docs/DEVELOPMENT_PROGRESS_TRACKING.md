@@ -2,7 +2,7 @@
 
 ## 权威数据与范围
 
-机器可读的唯一进度基线是 progress/project_plan.json；本文件定义方法，不另建平行任务清单。基线绑定仓库、分支、commit 和日期，不能把远端状态说成本地同步。仓库根目录没有 AGENTS.md；已读取固定版本的全局 AGENTS.md 和 docs/CLAMP_HARNESS_TRIAL_USAGE.md。当前仓库 README/历史记录有 KancolleBot 遗留内容，当前范围仍限定为 Clamp 静态源码提取核验及后续 Harness，不据此扩展 KancolleBot 任务。
+机器可读的唯一进度基线是 progress/project_plan.json；本文件定义方法，不另建平行任务清单。基线绑定仓库、分支、commit 和日期，不能把远端状态说成本地同步。仓库根目录没有 AGENTS.md；已读取固定版本的全局 AGENTS.md 和 docs/CLAMP_HARNESS_TRIAL_USAGE.md。仓库规范名为 wosafety0clamp；KancolleBot 是过期仓库名。README/历史文件中的旧名称属于遗留内容，不作为仓库身份冲突的证据。当前范围限定为 Clamp 静态源码提取核验及后续 Harness。
 
 ## 分解、依赖与权重
 

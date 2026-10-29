@@ -2,7 +2,7 @@
   "schema_version": 1,
   "project_id": "clamp-static-extraction-and-harness",
   "title": "Clamp 静态源码提取核验与后续 Harness 接入",
-  "baseline": {"repository":"wosafety0/wosafety0clamp","branch":"feat/harness-trial-gate-20261029","commit":"5c46cc3510fdab19cce4bafdb6199c78cb80a45d","captured_at":"2026-10-29","note":"远端 GitHub 快照，不代表本地工作树同步；仓库 README 与历史文件含 KancolleBot 遗留，当前范围按 Clamp 专项任务限定。"},
+  "baseline": {"repository":"wosafety0/wosafety0clamp","branch":"feat/harness-trial-gate-20261029","commit":"5c46cc3510fdab19cce4bafdb6199c78cb80a45d","captured_at":"2026-10-29","note":"仓库规范名为 wosafety0clamp；KancolleBot 是过期仓库名。仓库内残留的 KancolleBot 文案属于历史遗留，不代表仓库身份冲突。此基线是远端 GitHub 快照，不代表本地工作树同步。"},
   "status_policy": {"PLANNED":0.0,"IMPLEMENTED":0.4,"TESTED":0.7,"VERIFIED":1.0,"BLOCKED":0.0},
   "nodes": [
     {"id":"X","parent_id":null,"title":"完成 Clamp 静态源码提取核验并满足 Harness 阶段准入条件","kind":"deliverable","weight":100,"status":"PLANNED","dependencies":[],"acceptance_criteria":["真实 Poi Hand 沙盒提取目标 main.js，来源和页面身份可核验","snapshot、metadata、extraction 报告及哈希一致","真实产物通过离线解码/结构核验并保存证据","静态提取阶段验收后才启动 Harness 阶段"],"evidence":[],"children":["A","B"]},
