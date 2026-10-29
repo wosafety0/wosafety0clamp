@@ -91,6 +91,8 @@ class PassivePortResponseObserverTests(unittest.TestCase):
             self.assertEqual(observer.last_status, "script_missing")
         with self.assertRaisesRegex(ValueError, "positive"):
             PassivePortResponseObserver("observer.js", timeout_seconds=0)
+        with self.assertRaisesRegex(ValueError, "finite"):
+            PassivePortResponseObserver("observer.js", timeout_seconds=float("nan"))
 
 
 if __name__ == "__main__":
