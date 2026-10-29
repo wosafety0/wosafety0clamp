@@ -1984,3 +1984,11 @@ The Hand plugin's read-only probe reported:
 - Independent read-only source text search found `_0x466acb` at offset 8464467 in a `const` declaration chain with an arrow-function initializer and a later call occurrence. The existing extractor did not recognize this lexical form; its null factory definition is an extraction limitation, not evidence the symbol is absent.
 - The sidecar and original game source remain local; neither is published to the public repository. The snapshot metadata and extraction report assert no `Runtime.evaluate`, page-source execution, getter calls, game-function calls, or game input.
 - **Verified scope:** two on-disk source hashes agree, both metadata files agree, the sidecar is readable, and the factory name occurs in the real source. **Pending:** robust factory boundary extraction, rotation reconstruction, offline decoding, and independent validation of decoded names. No completion claim for those pending tasks.
+
+
+## 2026-10-29 — Real source rotation bootstrap located
+
+- Read-only offline inspection of the locally hashed real `main.js` at offset 318153 found the immediately following rotation bootstrap: an IIFE receives `_0x3f23` and target constant `0xd12ca`, aliases `_0x3353`, computes an arithmetic expression using `parseInt` of decoded entries, and rotates the table with `push(shift())` until the expression equals the target.
+- This establishes that the table's initial literal order cannot be used directly for decoded-index mapping. The next offline step is to reconstruct the rotation without executing page code, then validate decoded strings against call sites.
+- A second source-context check at offset 8464467 confirmed `_0x466acb=()=>{...` in a comma-separated declaration chain. This explains the extractor's missed factory definition and identifies the parser case to support.
+- **Boundary:** rotation mechanism and target are observed from actual source text; rotation count, resolved indices, and decoded names remain unverified. No game code or inputs were executed.
