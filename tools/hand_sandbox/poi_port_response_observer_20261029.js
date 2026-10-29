@@ -145,11 +145,17 @@ module.exports = function() {
     const stamp = new Date().toISOString().replace(/[-:]/g, '');
     const filePath = path.join(OUTPUT_DIR, 'poi-port-snapshot-' + stamp + '.json');
     fs.writeFileSync(filePath, serialized, { encoding: 'utf8', flag: 'wx' });
-    return {
+    const summary = {
       filePath,
       sha256: crypto.createHash('sha256').update(serialized, 'utf8').digest('hex'),
       fleetCount: compactFleets.length,
       shipCount: Object.keys(compactShips).length
+    };
+    return {
+      summary,
+      witnessJson: process.env.KCB_POI_FRESHNESS_WITNESS_STDOUT === '1'
+        ? JSON.stringify(snapshot)
+        : null
     };
   }
 
@@ -206,7 +212,10 @@ module.exports = function() {
       }
       const parsed = parseApiResponse(rawText);
       const saved = saveSnapshot(meta, rawText, parsed);
-      cleanup('CAPTURED', JSON.stringify(saved));
+      cleanup('CAPTURED', JSON.stringify(saved.summary));
+      if (saved.witnessJson) {
+        console.log('[PortObserver] WITNESS_JSON:' + saved.witnessJson);
+      }
     } catch (error) {
       cleanup('REJECTED', error && error.message ? error.message : String(error));
     }
