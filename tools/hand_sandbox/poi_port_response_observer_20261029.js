@@ -80,7 +80,7 @@ module.exports = function() {
     socket.send(JSON.stringify({ id, method, params: params || {} }));
   }
 
-  function saveSnapshot(meta, rawText, parsed) {
+  function buildSnapshot(meta, rawText, parsed) {
     const data = parsed.api_data;
     const fleets = data.api_deck_port;
     const ships = data.api_ship;
@@ -141,21 +141,31 @@ module.exports = function() {
     if (Buffer.byteLength(serialized, 'utf8') > MAX_RESPONSE_BYTES) {
       throw new Error('Compact snapshot exceeded the local output size limit.');
     }
-    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-    const stamp = new Date().toISOString().replace(/[-:]/g, '');
-    const filePath = path.join(OUTPUT_DIR, 'poi-port-snapshot-' + stamp + '.json');
-    fs.writeFileSync(filePath, serialized, { encoding: 'utf8', flag: 'wx' });
-    const summary = {
-      filePath,
-      sha256: crypto.createHash('sha256').update(serialized, 'utf8').digest('hex'),
-      fleetCount: compactFleets.length,
-      shipCount: Object.keys(compactShips).length
-    };
+    const witnessMode = process.env.KCB_POI_FRESHNESS_WITNESS_STDOUT === '1';
+    let summary;
+    if (witnessMode) {
+      // The parent process consumes this witness in memory; do not persist fleet/ship state.
+      summary = {
+        persisted: false,
+        fleetCount: compactFleets.length,
+        shipCount: Object.keys(compactShips).length
+      };
+    } else {
+      fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[-:]/g, '');
+      const filePath = path.join(OUTPUT_DIR, 'poi-port-snapshot-' + stamp + '.json');
+      fs.writeFileSync(filePath, serialized, { encoding: 'utf8', flag: 'wx' });
+      summary = {
+        persisted: true,
+        filePath,
+        sha256: crypto.createHash('sha256').update(serialized, 'utf8').digest('hex'),
+        fleetCount: compactFleets.length,
+        shipCount: Object.keys(compactShips).length
+      };
+    }
     return {
       summary,
-      witnessJson: process.env.KCB_POI_FRESHNESS_WITNESS_STDOUT === '1'
-        ? JSON.stringify(snapshot)
-        : null
+      witnessJson: witnessMode ? JSON.stringify(snapshot) : null
     };
   }
 
@@ -211,7 +221,7 @@ module.exports = function() {
         throw new Error('Response body exceeded the capture size limit.');
       }
       const parsed = parseApiResponse(rawText);
-      const saved = saveSnapshot(meta, rawText, parsed);
+      const saved = buildSnapshot(meta, rawText, parsed);
       cleanup('CAPTURED', JSON.stringify(saved.summary));
       if (saved.witnessJson) {
         console.log('[PortObserver] WITNESS_JSON:' + saved.witnessJson);

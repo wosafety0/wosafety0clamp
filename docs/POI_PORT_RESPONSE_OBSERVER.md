@@ -16,12 +16,12 @@
 - Does not call `Runtime.evaluate`, page JavaScript, game functions, or any input method.
 - Does not issue a game API request. It waits up to 120 seconds for a natural response already initiated by the game client.
 - Rejects non-200 responses, cached/service-worker/prefetch responses, failed API results, duplicate IDs, and malformed fleet/ship records.
-- Saves only a compact subset of the response data to `Desktop/KancolleBot-Port-Snapshots`; it does not save the full raw response body. Console output excludes ship/fleet payload values.
+- Default Hand sandbox mode saves only a compact subset of the response data to `Desktop/KancolleBot-Port-Snapshots`; it does not save the full raw response body. In child-only witness mode (`KCB_POI_FRESHNESS_WITNESS_STDOUT=1`), no snapshot directory or file is created: the compact witness is returned only over captured child stdout for the parent to consume in memory. Console output excludes ship/fleet payload values.
 - The observer alone does not modify the production freshness gate. The optional in-memory provider can feed a witness to `PoiExpeditionReader`, which sets `source_freshness_verified` only after bounded-age and exact mutable-field matching; the default reader without a provider remains unverified.
 
 ## Output and limits
 
-The JSON artifact contains a local response-receipt timestamp, a response-body SHA-256, compact fleet and ship records, and a safety summary. The timestamp is the local observer's receipt time, not a server timestamp.
+In default Hand mode, the on-disk JSON artifact contains a local response-receipt timestamp, a response-body SHA-256, compact fleet and ship records, and a safety summary. The timestamp is the local observer's receipt time, not a server timestamp. In child-only witness mode, the same compact object is emitted for in-memory handoff and is not persisted.
 
 A successful capture would establish that the current Poi page exposed a fresh, non-cache HTTP 200 port response with the expected fields at that moment. It would **not** by itself establish long-term freshness, atomic consistency with subsequent `poi_get` reads, or full expedition-loop correctness. CDP startup, DMM wrapper discovery, and identification of the nested active game frame were verified on 2026-10-29. Successful response-body capture and payload validation remain unverified until a qualifying natural response is observed after the observer is armed. If no natural port response occurs during the wait window, it exits without producing a snapshot; it must not trigger a refresh or any game action.
 
@@ -44,7 +44,7 @@ A successful capture would establish that the current Poi page exposed a fresh, 
 
 ## In-memory witness handoff and read-only diagnostic — 2026-10-29
 
-- The observer now supports an opt-in child-process output mode. Only when the child environment contains `KCB_POI_FRESHNESS_WITNESS_STDOUT=1` does it emit one `[PortObserver] WITNESS_JSON:` line after a successful capture. Normal Hand sandbox use keeps the original summary-only console output.
+- The observer now supports an opt-in child-process output mode. Only when the child environment contains `KCB_POI_FRESHNESS_WITNESS_STDOUT=1` does it emit one `[PortObserver] WITNESS_JSON:` line after a successful capture. In this mode the compact witness is not written to disk; the parent captures stdout and consumes the witness in memory. Normal Hand sandbox use keeps summary-only console output and retains the optional compact snapshot file.
 - `PassivePortResponseObserver` launches the reviewed script as a local Node child process, captures stdout privately, and parses exactly one witness in memory. It never reads the persistent snapshot file as freshness evidence. Timeout, no natural response, malformed/duplicate witness output, oversized output, missing script, or nonzero child exit returns no witness.
 - `PoiExpeditionReader` accepts an optional `port_snapshot_provider` and a default 30-second freshness window. A supplied witness must match the current MCP fleet/ship record sets and captured mutable fields, and both response-receipt and body-capture timestamps must be within the window. Missing provider, stale capture, or any mismatch leaves the freshness flag false.
 - Read-only diagnostic command: `python tools/verify_poi_freshness_bridge.py --help`. A full run may wait up to 120 seconds for a naturally occurring response; it never refreshes the page, sends game input, or initiates a game API request. The output omits ship/fleet mission details and always reports `game_actions_enabled: false`. Exit code 2 means the read completed but freshness evidence was not verified.
