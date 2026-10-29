@@ -13,7 +13,7 @@ The Harness acceptance workflow is an auxiliary acceptance/reporting layer for c
 
 ## What the workflow checks
 
-The reusable workflow is pinned to immutable commit `0173c597e82364a91e50f9817a9c8d40876dc04c`, whose Push and PR CI passed in the Harness repository before this consumer pin was updated. It runs the consumer-owned command:
+The reusable workflow is pinned to immutable commit `982a84782db825689bd3b84c13cc168934375e44`, whose Push and PR CI passed in the Harness repository before this consumer pin was updated. It runs the consumer-owned command:
 
 - Node static tests: `tests/static_decoder_extract.test.cjs` and `tests/verify_cdp_snapshot.test.cjs`
 - Python compile check: `python -m compileall -q src tests`
@@ -49,8 +49,8 @@ This guide documents only the clamp Harness trial. Update it when the trial work
 
 ## Report-verifier pin update
 
-- Updated the trial from the interim reusable-workflow commit to `0173c597e82364a91e50f9817a9c8d40876dc04c`, which contains the inline consumer report verifier and the Python/Node runtime contract. The earlier candidate `07b8000ab8c2a1dad0f91bd29e2d84028bec2c93` was rejected after consumer CI showed its verifier script was not present in the consumer checkout.
-- The Harness repository's Push CI [40813501693](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40813501693) and PR CI [40813508518](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40813508518) passed for that exact SHA before pinning it here.
+- Updated the trial from `0173c597e82364a91e50f9817a9c8d40876dc04c` to `982a84782db825689bd3b84c13cc168934375e44`, preserving the inline consumer report verifier and Python/Node runtime contract. The earlier candidate `07b8000ab8c2a1dad0f91bd29e2d84028bec2c93` was rejected after consumer CI showed its verifier script was not present in the consumer checkout.
+- The Harness repository's Push CI [40841134517](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40841134517) and PR CI [40841140380](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40841140380) passed for that exact SHA before pinning it here.
 - Clamp's own hosted CI must now pass on the updated pin; until then, the new consumer integration is pending verification.
 
 ### Runtime-validation negative path (hosted evidence)
