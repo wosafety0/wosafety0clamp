@@ -2449,3 +2449,12 @@ The Hand plugin's read-only probe reported:
 - 评估层的安全边界测试已通过：近期但来源未验证、过期、未来时间戳均抑制规划；新鲜且来源验证的状态仅产生规划结果，`dispatch_eligible=false` 仍成立。未接入 Web UI 或真实派遣适配器。
 - **验收区分：** 功能离线测试通过；GitHub 归档在后续进度更新后再进行远程回读验收。实时 witness 到当前 MCP 状态的端到端新鲜度门禁尚未验证，真实派遣继续关闭。
 - 研究说明已更新：`docs/research/POI_READ_ONLY_ASSESSMENT_LAYER_20261029.md`，将验证状态改为已通过本次离线验证，并保留运行时验证限制。
+
+
+### 2026-10-29 只读评估结果的派遣标志不可配置化
+
+- 安全复核发现，虽然评估函数总是返回 `dispatch_eligible=false`，但结果 dataclass 的构造参数此前仍允许调用方自行创建 `dispatch_eligible=true` 的对象，容易让展示层误用该字段。
+- 将字段改为 `field(default=False, init=False)`，使构造函数无法覆盖该标志；dataclass 仍为 frozen。新增回归测试明确验证传入 `dispatch_eligible=True` 会被拒绝。
+- 最新本地提交：`9526bdf09f5c8118938e68879cc31c216136d92f`；已推送到 `dev/poi-safety-consolidation-20261029`，并通过 GitHub 文件接口回读源码和测试文件核验。源码 blob SHA `af6c8aec28e3432159b71e5fac22c165461bbda9`，测试 blob SHA `50d40307cf935eb80f61bc5e7df21132395085d6`。
+- Python 3.13.16 验证：评估层测试 **6/6 PASS**；完整离线单元测试 **154/154 PASS**；`py_compile` PASS；`git diff --check` PASS。测试在推送前针对完全相同的源码与测试内容执行；推送后已回读确认远程内容一致。
+- **限制不变：** 只读评估层尚未接入 Web UI/生产组合入口；没有访问本机 MCP、刷新/操作 Poi 或主动请求游戏 API；实时 witness 端到端 freshness 仍未验证，真实派遣继续关闭。
