@@ -2420,3 +2420,13 @@ The Hand plugin's read-only probe reported:
 - 独立复核记录：`docs/research/POI_FRESHNESS_WITNESS_ACCEPTANCE_REVIEW_20261029.md`。明确记录了证据边界：本轮仅静态读取 GitHub 源码/测试定义，没有执行测试或当前 Poi 运行时验证；紧凑 witness 中的 SHA-256 仅检查格式、不能重新计算原始 body；stdout 交接不是密码学证明；二次读取不能提供原子 Redux 快照；观察器在 witness 模式下仍会写入包含任务数组和部分舰船状态的紧凑磁盘快照；诊断脚本不是生产派遣入口。
 - **阶段结论：** 接受/拒绝逻辑在静态源码层面整体保持保守，未发现足以据此放宽门禁的证据。没有改动生产代码或安全策略，没有刷新/输入/主动游戏 API 请求，也没有安装/切换插件。当前自然响应端到端 witness 仍未验证，生产 `source_freshness_verified` 不得据此标记为 true，真实派遣继续关闭。
 - 归档状态：研究记录已创建并从 GitHub 目标分支回读核验；本进度条目待本次更新后回读核验。此处没有声称本轮测试通过。
+
+
+### 2026-10-29 Poi 应用集成边界复核与观察器状态文档校正
+
+- 静态核对 `PoiExpeditionReader`、`ExpeditionRunner`、`SafetyPolicy`、`ObservedState`、`PoiMcpClient`、`web_ui.py` 和相关测试定义。确认读取器本身只读，不实现 `dispatch_expedition`；runner 依赖注入的双方法 `ExpeditionAdapter` 协议，但审查到的 Poi adapter 目录没有具体派遣实现；当前 web UI 仅提供健康/状态诊断，启动/暂停/停止按钮仍禁用；freshness bridge CLI 也不会创建或运行 runner。
+- 安全边界复核：默认 `allow_live_actions=false`；前置检查要求状态时间有效且 `source_freshness_verified=true`；启用 live policy 时还要求 durable journal。以上是源码静态证据，不代表本轮运行或测试了这些分支。
+- 更新 `docs/POI_PORT_RESPONSE_OBSERVER.md` 顶部状态摘要，区分两件容易混淆的事：2026-10-29 曾成功捕获自然非缓存 port 响应并验证紧凑 payload 结构；但当前 stdout 内存 witness 与新鲜 MCP 读取相匹配的端到端门禁仍未验收。历史快照不能作为当前 freshness 证据。
+- 研究记录：`docs/research/POI_EXPEDITION_APPLICATION_INTEGRATION_BOUNDARY_20261029.md`，给出下一步仅做只读应用组合层的安全切片建议；不接入真实派遣、不启用 UI 控制，先通过 fake adapter 离线测试证明默认策略/缺失 freshness 不会触发 dispatch。
+- **本轮限制：** 仅静态回读 GitHub 源码与测试定义，未执行测试、未调用本机 MCP、未刷新/操作游戏、未主动请求游戏 API、未修改生产代码。既有 148/148 测试结果只是此前记录，本轮未重跑。
+- 归档状态：观察器文档更新和集成边界研究记录均已写入目标分支；本进度条目待更新后远程回读核验。实时 witness 端到端验收仍待完成，生产 freshness 门禁不变，真实派遣保持关闭。
