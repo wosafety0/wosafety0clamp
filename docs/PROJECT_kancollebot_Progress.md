@@ -2201,6 +2201,7 @@ The Hand plugin's read-only probe reported:
 - Remote branch readback confirms `feat/harness-trial-gate-20261029` points to `cc9374c261f918aa4c8f3ce41174cd763af9b7ef`. PR #14 remains open, Draft, and unmerged. The intentionally failing runtime probe remains isolated on `feat/harness-trial-gate-runtime-negative-20261029` at `ebacf6cad0ecdea1e6a2051068bf60864c585287`; its expected failure is not counted as normal acceptance.
 - No merge, deployment, branch-protection change, live model request, or game operation occurred.
 
+
 ## 2026-10-29 — Hosted empty-command fail-closed verification
 
 - Created isolated branch `test/harness-empty-command-hosted-20261029` from the current trial head solely to exercise the empty-input negative path; probe workflow: `.github/workflows/harness-empty-command-negative-path.yml`, pinned to reusable workflow SHA `65544e290fd875bb6c4e30f6525b238200037bba`.
@@ -2258,3 +2259,58 @@ The Hand plugin's read-only probe reported:
 - Verified `.github/workflows/harness-trial-acceptance.yml` already pins immutable Harness commit `982a84782db825689bd3b84c13cc168934375e44`; its exact-head Push CI [40841134517](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40841134517) and PR CI [40841140380](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40841140380) both completed successfully before the Clamp consumer head.
 - Offline validation on the Clamp trial worktree passed: Node tests **13/13**, Python compilation, Python unit tests **122/122**, and `git diff --check`.
 - Clamp exact-head Push CI [40846900954](https://github.com/wosafety0/wosafety0clamp/actions/runs/40846900954) completed successfully. PR-context CI for this exact head is not yet independently confirmed. PR #14 remains Draft/unmerged; no model-provider calls, game actions, merge, release, or deployment occurred.
+
+
+## 2026-10-29 - Reject globally duplicated fleet state
+
+- Static review of `normalize_poi_fleets` found that individual fleet records were validated, but duplicate fleet IDs and the same ship instance appearing in multiple fleets were not rejected at the normalization boundary.
+- Added fail-closed checks and regression tests on isolated branch `dev/expedition-state-global-uniqueness-20261029`: duplicate fleet IDs and cross-fleet duplicate ship assignments now raise `PoiStateError`.
+- Exact-head GitHub Push CI passed on commit `554d045a3aa1b79d2bf673da6f89155606a94945`: [run 40827593526](https://github.com/wosafety0/wosafety0clamp/actions/runs/40827593526). Job steps report success for offline JavaScript tests, Python compilation, and Python unit tests; the log confirms **124 Python tests passed**.
+- Remote readback confirmed the implementation and both new tests. Branch comparison against `dev/expedition-closed-loop-mvp` reports ahead by 2, behind by 0; this fix remains isolated and has not been merged. CI evidence validates the offline checks only, not real Poi/game runtime behavior.
+- No live game operation, deployment, merge, or branch-protection change occurred.
+
+
+## 2026-10-29 - Require complete Poi collection metadata
+
+- Tightened the read-only Poi collection contract in `PoiExpeditionReader._collection_items`: a collection now must include a boolean `truncated` marker set to false, valid non-negative integer `total` and `returned` counts, and counts consistent with the complete `items` payload. Missing or contradictory completeness metadata is rejected rather than treated as a complete state.
+- Added regression tests for a missing truncation marker and inconsistent returned count on isolated branch `dev/poi-collection-integrity-20261029`.
+- Exact-head Push CI passed on commit `2994b23db63b1491803dc6f6bace64dd4f2d9073`: [run 40827710306](https://github.com/wosafety0/wosafety0clamp/actions/runs/40827710306). JavaScript static tests, Python compilation, and Python unit tests all completed successfully; the job log confirms **124 Python tests passed**.
+- Remote readback confirmed the stricter collection validation and both regression tests. This verifies the offline contract only; it does not prove the installed Poi plugin's live payload shape or source freshness. No live game operation, deployment, merge, or branch-protection change occurred.
+
+
+### 2026-10-29 Poi read consistency guard
+
+- 只读审查发现：`PoiExpeditionReader.read_fleets()` 先后读取 `info.fleets`、`info.ships` 和引用到的主数据，然后用本地时钟生成 `observed_at`。Nanodesu 的 `poi_get` / `poi_lookup` 响应未提供可用于绑定同一 Redux 版本的源 revision token；因此本地观察时间只能表示读取时间，不能证明源状态新鲜。
+- 在独立分支 `dev/poi-read-consistency-20261029` 增加最佳努力一致性门槛：主数据定向查询后重新读取完整的 `info.fleets` 与 `info.ships`；若两次返回的条目内容不一致，拒绝生成混合快照。对应源提交：`ef6fe18383d4c24222682c71412ab062bf270635`。
+- 新增离线测试覆盖“读取期间状态变化时拒绝”与“状态稳定时完成二次读取”。测试提交：`42659218eeeae503947b40b17e8e80ae69763329`。
+- GitHub Actions CI 对精确测试提交通过：[run 40828382725](https://github.com/wosafety0/wosafety0clamp/actions/runs/40828382725)。日志确认 JavaScript 静态测试、Python 编译成功，Python 单元测试 `Ran 126 tests ... OK`。
+- 已从 GitHub 权威远程回读核对源文件 blob `9634d4b960ab71c5acd164353d5f7996dfa7e22e` 与测试文件 blob `a2494a0ded7b6497ae500834b804c1e3af5c02f8`。
+- **限制：** 这不是原子快照协议；短暂变化后恢复原值（ABA）仍可能漏检。它也不证明数据新鲜或已登录，更不替代本机 Poi 运行时验证。真实派遣继续关闭；该分支未合并。
+
+
+### 2026-10-29 Explicit source-freshness evidence gate
+
+- 审查确认 `ObservedState.observed_at` 由本地读取时钟产生，只能描述观察时间；不能单独证明 Poi Redux 源数据何时刷新、是否来自当前有效游戏会话。
+- 在独立分支 `dev/source-freshness-gate-20261029` 为 `ObservedState` 增加显式的 `source_freshness_verified` 标记，默认值为 `false`。安全前置使用的 `require_fresh()` 在时间年龄校验通过后，还必须要求该标记为真；否则以 `Source data freshness has not been verified` 拒绝。现有 `PoiExpeditionReader` 不会设置该标记，因此当前 Poi 读取结果默认无法通过安全前置门槛。
+- 增加测试，验证即使本地观察时间只有 1 秒，只要缺少源新鲜度证据，前置检查与 runner 都会拒绝派遣；其他预检测试使用明确标记的合成可信夹具来覆盖后续逻辑。
+- 精确提交 `611eebad14c4c48d4ffa6b164b3b8a46f71240e3` 的 GitHub Actions CI 通过：[run 40829028107](https://github.com/wosafety0/wosafety0clamp/actions/runs/40829028107)。日志确认 JavaScript 静态测试、Python 编译成功，Python 单元测试 **124 项通过**。
+- 此门槛是保守的安全默认值，不是源新鲜度的实现或证明：当前真实 Poi 读取器没有已验证的源更新时间/版本令牌，所以真实状态仍会被拒绝用于安全敏感操作。未来只有在适配器能基于独立、可验证的源证据设置该标记时，才可允许通过。合成测试里的标记不代表真实 Poi 已通过验证。
+- 远程代码和测试已回读核验；本次没有合并功能分支、没有执行真实游戏操作或部署。实机 payload、新鲜度与登录会话验证仍未完成。
+
+
+### 2026-10-29 Poi cache and source timestamp audit
+
+- 上游源码审查定位到一个此前未能排除的陈旧状态来源：Poi 的 `views/redux/create-store.ts` 将 `info` 纳入 `targetPaths`，启动时从本地 `localStorage` 的 `_storeCache` 读入初始 Redux state，并以该缓存作为 store 初始值。对应上游源码固定提交：`poooi/poi@725029997b84729df6394e1f107079b8e9437f36`。
+- Nanodesu MCP 的 `/health` 中 `storeReady` 只验证 `getStore()` 返回对象且含有 `info` 属性，不表示本次会话已收到新鲜游戏响应。对应上游固定提交：`momocow/poi-plugin-nanodesu-mcp@2ba0a461ee44d64bf9d19b3467cf7565ad51b943`。因此 health OK / storeReady 不能作为源新鲜度证据。
+- Poi 的舰队和舰船 reducer 会合并多个 API 响应（包括 port、deck、ship2、ship3 等），而响应 payload 虽有 `time`，当前只读 MCP `poi_get` 暴露的是归并后的状态，没有暴露能把整个 `info.fleets` 与 `info.ships` 快照绑定到同一源版本的令牌。现有实现无法据此证明两组数据在同一时点完整刷新。
+- 在 `dev/source-freshness-gate-20261029` 清理了 `ObservedState.require_source_freshness_verified` 的重复定义，避免后定义覆盖前定义造成维护歧义。修复提交 `7104df6c84fc0ff0c1c2978daed1b12834d47aa8` 的 CI 通过：[run 40829343257](https://github.com/wosafety0/wosafety0clamp/actions/runs/40829343257)。修复文件已从 GitHub 回读核对，方法定义现仅有一处。
+- **当前安全结论：** `PoiExpeditionReader` 仍不会设置 `source_freshness_verified=True`；在获得可验证的当前会话/源刷新证据前，真实 Poi 状态必须继续被安全前置检查拒绝。不要将缓存存在性、health 状态、本地读取时间或两次读取内容相同误认为源新鲜度证明。真实运行时刷新行为仍需只读实机证据验证。
+
+
+### 2026-10-29 Candidate: timestamped Poi port-response snapshot
+
+- 上游静态源码确认，Poi 的 `views/env-parts/data-resolver.ts` 会对成功的游戏 API 响应派发 `game.response` 事件，事件包含 `path`、解析后的 `body` 与 `time`；事件在对应 Redux 更新后派发。固定源码版本：`poooi/poi@725029997b84729df6394e1f107079b8e9437f36`。
+- `lib/game-api-broadcaster.ts` 在收到 HTTP 200 且可解析的响应时，以 `Date.now()` 记录响应接收时间。该值是本机接收时间，不是游戏服务器生成时间，但可用于约束“最近一次收到有效响应”的本地时间窗口。
+- 同一版本的舰队 reducer 从 `api_port_port` 响应的 `api_deck_port` 更新舰队，舰船 reducer 从同一响应的 `api_ship` 更新舰船。因此，捕获成功的 `/kcsapi/api_port/port` 响应体与其接收时间，是绕过可能陈旧的 Redux 持久化缓存、同时取得舰队/舰船基线快照的潜在只读路径。
+- **实现状态：未实现；验证状态：仅上游静态源码审查通过，未在用户当前 Poi 实例验证事件可见性、实际 payload 完整性及刷新频率。** 未来实现应只监听已发生的 `game.response` 事件，不主动请求游戏 API；在收到可验证的成功 port 响应前继续 fail-closed，并对接收时间设置年龄上限。不得把这个本机接收时间称为服务器端更新时间。
+- 当前 `PoiExpeditionReader` 尚未消费该事件或时间信息，故此发现不改变当前安全结论：真实状态仍不具备已验证的新鲜度证据。
