@@ -1996,3 +1996,13 @@ The Hand plugin's read-only probe reported:
 - The selected reusable workflow's hosted negative-path evidence is [run 40715636382](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40715636382): deliberately failing consumer command exited 23; report recorded failed; artifact upload succeeded; final gate exited 1 and named `tests` as the unsuccessful required stage.
 - This proves the updated reusable gate passes the clamp offline acceptance command and closes on the tested consumer-command failure. It does not prove full game/POI runtime behavior or actual live-model review.
 - PR #14 remains draft/unmerged. No game operations, provider requests, deployment, or automatic merge occurred.
+
+
+## 2026-10-29 — Current Harness pin: isolated failure-closed contract verification
+
+- The current Draft PR #14 head is \`5981d72c8d4c11849ee76634ee2cd2e75be00609\`; its trial workflow pins \`wosafety0/dev-workflow-kit/.github/workflows/reusable-acceptance.yml\` to immutable SHA \`65544e290fd875bb6c4e30f6525b238200037bba\`.
+- Exact-head clamp trial runs [40801085969](https://github.com/wosafety0/wosafety0clamp/actions/runs/40801085969) and [40801081037](https://github.com/wosafety0/wosafety0clamp/actions/runs/40801081037) both completed with conclusion \`success\`; the reusable acceptance job succeeded on both runs.
+- Added isolated contract tests in the Harness repository at branch \`test/reusable-command-fail-closed-65544-20261029\`, commit \`bfdba4d51dba0f776aad8f136c2e394510b6a939\`. The tests execute shell blocks extracted from the exact pinned workflow: empty/whitespace-only commands fail with exit 2 and an explicit diagnostic; a nonexistent command fails and exposes its name/error; the final gate exits 1 and names \`tests\`; a valid command with all-success outcomes opens the gate.
+- Harness CI [run 40801493718](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40801493718) succeeded on the exact test commit; logs confirm 99 offline tests passed and compile, report generation, artifact upload, and final gate steps succeeded. Test file blob read back from GitHub: \`e18a17432c8d204cad5cac6d8588c859f4c1f711\`.
+- Failure diagnostics are traceable through the named \`Run consumer-owned acceptance command\` step, its shell error, the redacted report's failed status, and the final gate's \`tests\` label. The redacted artifact intentionally does not embed raw command output.
+- Acceptance boundary: this proves the shell guard and final-gate behavior in isolated tests, not a full hosted reusable-workflow run supplied with empty/invalid input. PR #14 remains draft and unmerged; the current reusable-workflow pin is unchanged. No game operations, provider API calls, merge, or deployment occurred.
