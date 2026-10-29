@@ -16,7 +16,7 @@
 - Does not issue a game API request. It waits up to 120 seconds for a natural response already initiated by the game client.
 - Rejects non-200 responses, cached/service-worker/prefetch responses, failed API results, duplicate IDs, and malformed fleet/ship records.
 - Saves only a compact subset of the response data to `Desktop/KancolleBot-Port-Snapshots`; it does not save the full raw response body. Console output excludes ship/fleet payload values.
-- It does not modify the production freshness gate or set `source_freshness_verified`.
+- The observer alone does not modify the production freshness gate. The optional in-memory provider can feed a witness to `PoiExpeditionReader`, which sets `source_freshness_verified` only after bounded-age and exact mutable-field matching; the default reader without a provider remains unverified.
 
 ## Output and limits
 
@@ -39,3 +39,13 @@ A successful capture would establish that the current Poi page exposed a fresh, 
 - Snapshot: `Desktop/KancolleBot-Port-Snapshots/poi-port-snapshot-20261029T140534.950Z.json`; 19,694 bytes; snapshot file SHA-256 `70a5c5b3d709061b1f5ca7062e09849aa981f3ba14ced643c5aed4e2d70d61f7`. Captured response-body SHA-256 `11946f7e1e112d05bce29f972d454f2d48484576a750d1e3e3435558f84412f6`.
 - Runtime payload check passed: 3 fleet records; 92 ship records in an object keyed by ship instance ID; all keys matched `api_id`, IDs were unique, basic ship HP/ID checks passed, fleet record shapes passed, and all 14 positive fleet ship references resolved within the snapshot.
 - This validates a real capture point and compact payload structure only. The local receipt timestamp is not a server timestamp; it does not prove synchronization with later MCP store reads, continuing freshness, or full expedition-loop correctness. No production gate was changed and no game action was performed. The earlier historical preflight sections are retained as a record of what was known at those times.
+
+
+## In-memory witness handoff and read-only diagnostic — 2026-10-29
+
+- The observer now supports an opt-in child-process output mode. Only when the child environment contains `KCB_POI_FRESHNESS_WITNESS_STDOUT=1` does it emit one `[PortObserver] WITNESS_JSON:` line after a successful capture. Normal Hand sandbox use keeps the original summary-only console output.
+- `PassivePortResponseObserver` launches the reviewed script as a local Node child process, captures stdout privately, and parses exactly one witness in memory. It never reads the persistent snapshot file as freshness evidence. Timeout, no natural response, malformed/duplicate witness output, oversized output, missing script, or nonzero child exit returns no witness.
+- `PoiExpeditionReader` accepts an optional `port_snapshot_provider` and a default 30-second freshness window. A supplied witness must match the current MCP fleet/ship record sets and captured mutable fields, and both response-receipt and body-capture timestamps must be within the window. Missing provider, stale capture, or any mismatch leaves the freshness flag false.
+- Read-only diagnostic command: `python tools/verify_poi_freshness_bridge.py --help`. A full run may wait up to 120 seconds for a naturally occurring response; it never refreshes the page, sends game input, or initiates a game API request. The output omits ship/fleet mission details and always reports `game_actions_enabled: false`. Exit code 2 means the read completed but freshness evidence was not verified.
+- Offline validation on Windows: 148/148 Python unit tests passed; observer JavaScript syntax check and diagnostic `--help` passed. A live read-only diagnostic with a deliberately short 2-second observer timeout read 3 fleets from MCP but correctly returned `FRESHNESS_UNVERIFIED` because no witness was received.
+- This remains an opt-in integration. The default reader does not start an observer, and the diagnostic does not dispatch expeditions. A recent real response and matching current MCP state have not yet been verified through the new stdout handoff. Do not use a historical disk snapshot to set the freshness flag, and do not refresh or interact with the game to force a capture.
