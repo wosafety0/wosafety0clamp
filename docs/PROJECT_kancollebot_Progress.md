@@ -2265,6 +2265,226 @@ The Hand plugin's read-only probe reported:
 - **验证边界：** 这是固定版本的上游源码和静态测试夹具证据，不是当前 Poi 安装版本的实时捕获。夹具时间戳属于历史样本，不能作为当前新鲜度证据；也不能证明当前游戏会话会按预期产生该事件。真实状态仍不得设置 `source_freshness_verified=True`，直到实际 Poi 运行时的事件、字段完整性与接收时间窗口经只读验证。
 - 参考： [data-resolver.ts](https://github.com/poooi/poi/blob/725029997b84729df6394e1f107079b8e9437f36/views/env-parts/data-resolver.ts)、[fleets.ts](https://github.com/poooi/poi/blob/725029997b84729df6394e1f107079b8e9437f36/views/redux/info/fleets.ts)、[ships.ts](https://github.com/poooi/poi/blob/725029997b84729df6394e1f107079b8e9437f36/views/redux/info/ships.ts)、[api_port_port_typical.json](https://github.com/poooi/poi/blob/725029997b84729df6394e1f107079b8e9437f36/views/redux/info/__tests__/__fixtures__/api_port_port_typical.json)。
 
+### 2026-10-29 Poi passive port observer runtime startup verification
+
+- 将已归档的被动响应观察器脚本从 GitHub 分支 `dev/poi-safety-consolidation-20261029` 读取到本机并启动；CDP 目标发现返回唯一匹配的 KanColle DMM webview，`Network.enable` 成功，观察器进入等待状态并完整运行 120 秒。
+- 观察窗口内没有自然发生且符合筛选条件的成功 `/kcsapi/api_port/port` 响应，因此未生成快照；不把该轮标记为 payload 捕获成功。此结果验证了当前 Poi 的目标识别、CDP 网络监听启动和有界退出路径，不验证源新鲜度或舰队/舰船 payload。
+- 运行输出确认未发送游戏输入、未主动发起游戏 API 请求、未使用 `Runtime.evaluate`，且未跳过任何缓存响应。快照目录不存在，符合“无合格响应不落盘”的预期。
+- 安全结论不变：`source_freshness_verified` 仍不得设为真；真实派遣和远征闭环继续关闭。下一步只能等待自然产生的合格母港响应，或在需要用户操作时明确暂停，不能通过刷新/触发游戏请求制造样本。
+
+### 2026-10-29 Poi CDP target surface clarification
+
+- 对当前唯一匹配的 DMM KanColle `webview` 做只读 DOM 与资源计时检查：`document.readyState=complete`，该目标自身 `canvasCount=0`，Performance Resource Timing 中没有 `/kcsapi/api_port/port` 条目；列出的 iframe URL 元数据也没有暴露 `kancolle-server.com` 游戏路径。
+- 因此，虽然该目标满足观察器的旧 DMM URL 过滤条件且 CDP `Network.enable` 成功，但现有证据不能证明它就是实际承载游戏画面的活动目标。120 秒监听无合格响应的原因尚不能确定；不归因于游戏未登录，也不宣称捕获成功。
+- 下一步应只读定位实际游戏 frame/target，并在该目标上等待自然响应；不得点击启动/登录按钮、刷新页面或主动请求游戏 API。`source_freshness_verified` 保持 `false`，真实派遣继续关闭。
+
+### 2026-10-29 Poi nested game frame identified
+
+- 使用只读 CDP `Page.getFrameTree` 在 DMM `webview` 内定位到嵌套 `htmlWrap` frame：`https://w14h.kancolle-server.com/kcs2/index.php`。针对该 frame 的默认执行上下文只读检查确认 `canvasCount=1`，并在 Resource Timing 中发现一条 `/kcsapi/api_port/port` 记录（`startTime≈9313 ms`、`duration≈453 ms`）。
+- 这修正了上一条仅检查顶层 DMM wrapper 的观察：顶层文档没有 canvas 和 port timing entry，但实际游戏画面位于嵌套 frame。该 timing 记录来自页面加载阶段，早于被动观察器启动；transfer-size 字段为 0，且 Resource Timing 不提供响应体，因此不能据此验证 payload 或源新鲜度。
+- 当前正确游戏 frame 已定位；观察器在此前 120 秒窗口内没有捕获新的合格 port 响应。后续可在不刷新、不输入、不主动发起游戏请求的前提下，再次被动等待自然响应；未捕获前继续保持 `source_freshness_verified=False` 和真实派遣关闭。
+
+### 2026-10-29 Passive observer window with active game frame identified
+
+- 在已定位的实际游戏 frame 存在且页面已完成加载的情况下，再次运行同一已归档被动观察器，成功发现唯一 DMM webview 并启用 CDP Network 监听；完整等待 120 秒后按预期退出。
+- 此窗口未观察到新的、符合条件的成功 `/kcsapi/api_port/port` 响应，因此未生成快照。结合已知的页面加载阶段 resource-timing 记录，可确认当前这段观察窗口没有产生可供探针捕获的新母港响应；不将其泛化为游戏永远不会轮询，也不声称 payload 已验证。
+- 观察器明确报告未发送输入、未主动发起游戏 API 请求、未使用 `Runtime.evaluate`，未跳过缓存响应。下一步要获得响应体必须等待游戏自然产生新的母港响应；在用户未扩大授权前，不刷新页面、不操作游戏。
+
+### 2026-10-29 Verified live Poi port response capture
+
+- On the user's running Poi instance, the previously archived passive CDP observer completed with `STATUS: CAPTURED` after it was armed. A compact local snapshot was created at `Desktop/KancolleBot-Port-Snapshots/poi-port-snapshot-20261029T140534.950Z.json` (19,694 bytes); the raw response was not saved.
+- The captured response was HTTP 200 at `/kcsapi/api_port/port` on `w14h.kancolle-server.com`, with local `responseReceivedAt=2026-10-29T14:05:34.545Z` and `bodyCapturedAt=2026-10-29T14:05:34.949Z`. The captured body length was 55,489 bytes and its SHA-256 was `11946f7e1e112d05bce29f972d454f2d48484576a750d1e3e3435558f84412f6` (distinct from the snapshot file hash).
+- The accepted response was not marked as disk cache, service-worker, or prefetch cache. Snapshot `data` contains `api_deck_port` and `api_ship`, with 3 fleets and 92 ships. Fleet fields include `api_id`, `api_mission`, `api_ship`; ship fields include `api_id`, `api_ship_id`, `api_nowhp`, `api_maxhp`, `api_fuel`, `api_bull`, `api_cond`.
+- Observer safety report: `gameInputSent=false`, `gameApiRequestInitiated=false`, `runtimeEvaluateUsed=false`, `fullRawResponseSaved=false`, `productionFreshnessGateChanged=false`. The snapshot contains a local receipt timestamp, not a server-origin timestamp. The capture is a verified runtime evidence point, **not** proof of ongoing freshness or of synchronization with subsequent MCP store reads.
+- No live dispatch or expedition action was executed. The production `source_freshness_verified` gate remains unchanged; do not enable dispatch from this capture alone. Next work is to design and verify a bounded-age passive evidence bridge and atomicity/freshness policy without initiating game actions.
+
+
+### 2026-10-29 Captured Poi port snapshot structural validation
+
+- Re-read the local compact snapshot `Desktop/KancolleBot-Port-Snapshots/poi-port-snapshot-20261029T140534.950Z.json` after the successful passive capture. UTF-8 JSON parsing passed; the snapshot is 19,694 bytes and its file SHA-256 is `70a5c5b3d709061b1f5ca7062e09849aa981f3ba14ced643c5aed4e2d70d61f7`. This is distinct from the captured response-body SHA-256 `11946f7e1e112d05bce29f972d454f2d48484576a750d1e3e3435558f84412f6`.
+- Independently rechecked payload structure: `api_deck_port` is an array of 3 fleet records with IDs 1, 2, 3; `api_ship` is an object keyed by ship instance ID with 92 records. All 92 keys match their records' `api_id`, all ship API IDs are unique, and no basic ship HP/ID checks failed. Fleet slot/mission array shapes passed; 14 positive fleet ship references all resolve to ship API IDs in the same snapshot.
+- Capture metadata remains HTTP 200 for `/kcsapi/api_port/port`; local response receipt time `2026-10-29T14:05:34.545Z`, body capture time `2026-10-29T14:05:34.949Z`; disk-cache, service-worker, and prefetch flags are all false. Current CDP target discovery still finds one KanColle webview, and Nanodesu MCP health reports `status=ok`, `storeReady=true`.
+- **Scope:** these checks validate JSON syntax, compact-snapshot structure, internal ship-reference consistency, and a non-cache HTTP 200 capture point. They do not establish current MCP-store synchronization, a reusable bounded-age freshness bridge, or long-term freshness. `source_freshness_verified` remains false; production gate unchanged; live dispatch/expedition remains disabled. No game action or additional refresh was performed.
+
+
+### 2026-10-29 Read-only comparison: captured snapshot versus current MCP store
+
+- Performed a new read-only MCP session against `127.0.0.1:12450/mcp` and queried only `poi_get(info.fleets)` and `poi_get(info.ships)`; no game action, page refresh, or game API request was issued. Both reads returned complete collections: 3 fleets and 92 ships, matching the snapshot counts.
+- Compared overlapping fields without printing ship identifiers or payload values. All 92 ship instance keys, `api_id`, `api_ship_id`, `api_nowhp`, `api_maxhp`, and `api_cond` matched the captured snapshot. However, 8 ship records differed in `api_fuel`, 4 differed in `api_bull`; all 3 fleet names differed, 2 fleet mission arrays differed, while all 3 fleet `api_ship` slot arrays matched.
+- This is useful direct evidence that equal fleet/ship counts do **not** mean the compact captured snapshot and the later MCP store are synchronized. Mutable values can change between observations; therefore neither the old snapshot nor count-only comparison is a valid current-state source. Keep freshness fail-closed and do not enable dispatch based on this snapshot.
+- Current MCP health remains `status=ok`, `storeReady=true`; this confirms bridge availability only. The comparison does not determine whether each difference came from legitimate game-state evolution or a stale/partial update, and does not establish an atomic snapshot contract. Production `source_freshness_verified` remains false; live dispatch/expedition remains disabled.
+
+### 2026-10-29 读取器来源新鲜度门禁静态复核
+
+- 已从权威分支静态复核 `src/kancollebot/adapters/poi/expedition_reader.py`、`src/kancollebot/adapters/poi/expedition_state_v2.py`、`src/kancollebot/core/observed_state.py`、`src/kancollebot/safety/action_preflight.py` 与对应离线测试。
+- `normalize_poi_fleets()` 返回 `ObservedState(..., source="poi-redux:info.fleets+info.ships")`，未显式设置 `source_freshness_verified`，因此沿用默认值 `False`。
+- `authorize_planned_action()` 调用 `state.require_fresh()`；该方法除检查本地观察时间范围外，还要求 `source_freshness_verified=True`。因此单凭刚刚读取的时间戳不能通过行动前置检查，来源新鲜度证据缺失时 fail-closed。
+- `PoiExpeditionReader.read_fleets()` 会在读取舰队、舰船及所需主数据后，再次读取舰队和舰船集合；若两轮结果不同就拒绝归一化。这是同一读取窗口内的尽力一致性检查，不是原子快照或游戏源新鲜度证明，代码注释也指出仍可能漏掉 ABA 变化。
+- 离线测试覆盖稳定复读和读取期间舰队数据变化时拒绝状态；它们证明模拟契约，不证明 Poi Redux 数据的来源新鲜度。
+- 本轮仅做 GitHub 远程源码审查及文档归档；未调用 DC、未执行本地测试、未刷新或操作游戏。运行时来源新鲜度仍为 **未验证**，真实派遣保持关闭。
+- 下一步应继续静态审查可用的被动来源证据及测试契约；在找到可独立验证的源版本/刷新信号之前，不修改生产新鲜度门禁。
+
+### 2026-10-29 新鲜度门禁回归测试覆盖复核
+
+- 静态读取 `tests/test_action_preflight.py`，确认已有 `test_rejects_recent_observation_without_source_freshness_evidence`：观察时间仅 1 秒、但未设置来源新鲜度证据时，行动前置检查预期抛出 `Source data freshness has not been verified`。
+- 静态读取 `tests/test_expedition_runner.py`，确认已有 `test_unverified_source_freshness_blocks_dispatch`：来源新鲜度为 false 时，runner 预期返回 `blocked_by_preflight` 且派遣调用列表为空。
+- 这两项是已存在的回归测试定义；本轮只读取 GitHub 源码，没有执行测试，因此不新增“测试通过”的声明，也没有必要重复添加同类测试。
+- 结论：生产门禁和既有离线测试在“本地观察时间不能替代来源新鲜度证明”这一点上保持一致。运行时来源新鲜度仍未验证，真实派遣保持关闭。
+
+
+### 2026-10-29 候选：带 revision 的只读 Poi 数据投影
+
+- 为寻找可验证的数据版本信号，静态审查了公开仓库 `poooi/plugin-server` 的 README、`docs/WEBSOCKET_API.md`、`docs/MCP_API.md` 与 `src/server.ts`。该项目提供认证的只读 JSON、WebSocket 与 MCP 投影，默认仅监听 loopback；数据集覆盖 ships、equipment、fleets、resources、docks 和 masterData。
+- 源码显示，投影快照包含 `schemaVersion` 与整数 `revision`；服务监听 host Redux store 订阅，在 allowlisted projection 的序列化内容发生变化时递增 revision 并广播完整投影。HTTP `/api/v1/snapshot` 与 MCP `read_poi_snapshot` 均返回版本化快照；WebSocket 首条消息为 snapshot，后续 update 携带递增 revision。参考： https://github.com/poooi/plugin-server 、 https://github.com/poooi/plugin-server/blob/main/docs/WEBSOCKET_API.md 、 https://github.com/poooi/plugin-server/blob/main/docs/MCP_API.md 。
+- **价值与边界：** 相比当前 Nanodesu `poi_get` 读取器没有源 revision token 的现状，这提供了可评估的跨数据集版本一致性候选；但 revision 是该插件进程内的投影版本，服务重启会重新从 0 开始，单独的 revision 变化不证明当前游戏已登录、最近收到成功游戏响应，或快照一定来自当前会话。仍需将版本变化与被动响应时间/会话证据组合，并在本机 Poi 兼容性与认证配置验证后才能用于 freshness gate。
+- **实现状态：未实现；验证状态：仅公开上游源码静态审查；使用限制：未安装、未切换现有插件、未对当前 Poi 实例进行兼容性测试。** 当前生产读取器、`source_freshness_verified` 门禁和真实派遣策略均未改变；游戏仍保持只读，不执行刷新、输入或主动游戏 API 请求。
+
+### 2026-10-29 版本化只读投影候选的安全与测试边界复核
+
+- 继续静态审查 `poooi/plugin-server` 的 `src/settings.ts`、`src/server.ts`、`src/projection.ts`、`src/types.ts`、`tests/server.test.ts` 与打包 smoke 脚本，确认该候选不是仅有文档的接口草案：包入口声明 Poi 插件元数据及生命周期 hook，服务端提供真实 loopback HTTP 与 WebSocket 测试覆盖。
+- 测试源码覆盖：零参数 Poi 生命周期 hook、allowlist 数据集读取、store 更新后 revision 增长、错误/缺失 Bearer Token、URL 中携带 token 的拒绝、Host/Origin 校验、token 轮换、部分数据集显式标记 `available=false, partial=true`、WebSocket 初始 snapshot 与有序更新，以及只读订阅的连接行为。这些是**上游测试代码覆盖证据**；本轮没有运行上游构建或测试，不能表述为本轮测试通过，也不能替代真实 Poi 安装兼容性验收。
+- 关键安全限制进一步明确：默认设置 `enabled=false`、`allowLan=false`、监听端口 8765；服务启用需要 Poi 配置操作和生成/保存 Bearer Token。未获授权前不安装或启用该插件，不读取/输出本机 token，不修改 Poi 配置或监听端口。现阶段只能把它作为隔离候选方案评估。
+- 版本信号仍非充分 freshness 证明：revision 初值为 0，仅当 allowlisted projection 的序列化结果变化时递增；进程重载/服务重启会重置。相同 projection 的新游戏响应不会必然增加 revision，因此 revision 必须与被动成功响应的接收时间、会话标识/有效性及完整性条件组合，且不得将缺少任一证据的状态标为新鲜。
+- **阶段结论：** 候选具备可测试的只读投影、认证和版本接口，值得后续进行不影响现有 Nanodesu MCP 的隔离兼容性验证；尚未证明可直接替换当前读取器。实现状态仍为未实现，验证状态为上游源码/测试定义静态审查，未执行测试、未安装、未切换插件、未操作游戏。生产 `source_freshness_verified` 保持 false，真实派遣保持关闭。
+
+
+### 2026-10-29 plugin-server API 字段覆盖与本地验证范围
+
+- 依据用户提供的上游文档链接，继续核对 `docs/WEBSOCKET_API.md`、`docs/MCP_API.md`、`docs/caddy-local-tls.md`，并交叉读取 `docs/JSON_API.md`、`README.md` 与 `package.json`。这是对公开源码/文档的静态审查；未安装插件、未运行构建或测试、未接触当前 Poi 配置。
+- WebSocket 使用认证 Bearer Token，连接后先发送完整 snapshot，只有 allowlisted projection 内容变化时才递增 revision 并发送 update；客户端断线重连会获得新快照，但不补发离线期间的更新。单条消息及每客户端队列有 1 MiB 上限，慢客户端会被断开。MCP 使用同一认证监听器与同一投影，提供只读资源及 `read_poi_snapshot` / `read_poi_{dataset}` 工具。默认回环监听，不需要为本机隔离测试先配置 Caddy/TLS；Caddy 文档面向需要 HTTPS/WSS 或受信任代理的场景。
+- **字段覆盖限制：** `docs/JSON_API.md` 对 `fleets` 的 allowlist 仅列出 `id`、`name`、`ships`（拥有舰船 ID 列表）和 `flagshipId`，没有 `api_mission`/远征任务字段。因而该插件的公开投影不能单独替代 KancolleBot 当前依赖的远征任务状态读取。它仍可作为舰船/舰队基础信息和投影变更的只读观察候选，但必须保留独立任务来源与完整性验证。
+- **revision 的准确含义：** revision 反映插件进程内 allowlisted projection 的内容版本；同一投影内容对应的新游戏响应未必使 revision 增加，插件/服务重启也会重置 revision。它不是游戏服务器时间戳，也不独立证明会话有效、最近收到成功游戏响应或多字段来自同一原子游戏响应。
+- **建议的本地验证顺序：** 先在隔离副本/独立 Poi 配置中检查包兼容、构建与上游测试；再确认插件启停、loopback 绑定、Bearer Token、Host/Origin 校验、快照的 `available/partial` 标志、WebSocket revision 与重连行为；最后才评估与现有被动 port-response 观察器的证据关联。不得覆盖或切换当前 Nanodesu MCP，不打印 token，不主动请求游戏 API，不刷新或操作游戏。若无法隔离安装，则暂停安装步骤，先完成纯离线构建/测试。
+- **阶段结论：** 值得进行隔离本地测试，但其目标是验证只读投影的兼容性、认证与版本行为，不是直接启用远征闭环。实现状态：未接入 KancolleBot；本轮验证状态：仅静态文档/元数据审查，未执行本地测试。生产 `source_freshness_verified` 仍为 false，真实派遣保持关闭。
+
+
+### 2026-10-29 plugin-server 隔离构建与测试验证
+
+- 在 Windows 本地临时目录对上游 `poooi/plugin-server` 的 `main`（测试时 HEAD `b5c43407c4b3be1ad2f92e4404949fdf3a2cec57`）做隔离克隆；未安装到 Poi 插件目录，未更改当前 Poi 配置或 Nanodesu MCP，未触发游戏刷新、输入或游戏 API 请求。
+- 环境：Node.js 24.21.0、Corepack 0.36.0、pnpm 12.16.1；`pnpm install --frozen-lockfile` 完成，依赖锁文件未重新解析。
+- 本地执行结果：Vite/TypeScript 构建 PASS；ESLint PASS；TypeScript `--noEmit` 类型检查 PASS；内置测试 `tests/server.test.ts` 共 15/15 PASS，覆盖只读投影、HTTP 认证与 Host/Origin 校验、WebSocket 快照/更新、MCP 资源与工具、令牌轮换、卸载和配置生命周期。
+- 独立包验收：在临时隔离目录生成 npm tarball 并解包，确认 `dist/index.js`、README、MCP 文档和 `poiPlugin` 元数据存在；动态导入打包入口并验证默认导出、插件 ID、生命周期 hooks、设置组件及设置描述数量，手动等价包验收 PASS。
+- **验证边界：** 这些测试使用仓库自带的 Poi-shaped host harness 和 loopback 测试服务；不等于在真实 Poi 图形界面中完成加载兼容性验证，也没有验证当前安装的 Poi 版本。测试只验证插件提供的只读投影行为，不证明其数据来自最近的游戏服务器响应。远征任务字段缺失与 revision 不是 freshness 证明的限制仍然成立。
+- **阶段结论：** 上游插件核心构建、类型检查、lint、15 项内置测试和打包入口均已有本机隔离验证证据；实现状态仍为未接入 KancolleBot，真实 Poi 插件加载/兼容性仍待验证。生产 `source_freshness_verified` 保持 false，真实派遣保持关闭。
+
+
+### 2026-10-29 plugin-server 与当前上游 Poi 宿主契约静态对照
+
+- 对照上游 `poooi/poi` master 当前静态源码树 `725029997b84729df6394e1f107079b8e9437f36` 与 `poooi/plugin-server` 测试版本 `b5c43407c4b3be1ad2f92e4404949fdf3a2cec57`。Poi 当前上游 `package.json` 标示版本 12.0.1，React 依赖范围为 `^18.3.1`。
+- 宿主契约核对：Poi 的 `views/redux/create-store.ts` 将 `getStore` 暴露到 `window.getStore`；`views/env-parts/config.ts` 将配置对象暴露到 `window.config`；`read-plugin.tsx` 从 `package.json.poiPlugin` 读取元数据，并将模块导出的 `settingsClass` 用作设置组件；`lifecycle.ts` 调用 `pluginDidLoad()` / `pluginWillUnload()`，未等待 hook 返回值。插件服务器入口与这些接口形状一致，React peer dependency 与上游声明的 React 18 依赖范围相符。
+- `hostFromPoiWindow()` 依赖主窗口存在 `window.getStore` 和 `window.config`，再将当前 store 映射为订阅接口；当前上游源码确认两者均被暴露。插件服务器的投影订阅使用 100 ms 轮询识别 Redux state 引用变化；这不是原子快照或服务器响应新鲜度证据。
+- 风险边界：插件入口对异步加载错误采用 catch 后吞掉的方式，真实宿主若缺失 API 或监听器启动失败，界面可能只显示未加载而缺少具体错误原因；真实 Poi 加载/卸载仍需单独验收。
+- **验证状态：静态源码对照完成；没有将插件安装到用户当前 Poi，没有刷新或操作游戏。** 本机安装包 `D:\\Games\\poi\\resources\\app.asar` 已通过只读解析确认 `package.json` 为 Poi `12.0.1`，其构建元数据记录的 `latestCommit` 为 `bf4c54cd5c41bd2ffc2d4490cbddd55cbcaededc`（该 SHA 可在 Poi GitHub 仓库定位到）；归档内 `node_modules/react/package.json` 版本为 `18.3.1`。GitHub 权威仓库该精确提交的 `package.json`、`views/redux/create-store.ts`、`views/env-parts/config.ts`、插件生命周期和插件读取器均已回读，宿主版本证据与本机包元数据一致。对归档内编译文件的只读检查也确认 `window.getStore`、`window.config` 和插件生命周期调用存在。尚未执行真实插件安装/加载，因此兼容性仍是静态确认，不是运行时验收。
+
+
+### 2026-10-29 被动 port 快照一致性校验器
+
+- 新增 `src/kancollebot/adapters/poi/port_freshness.py`，实现纯函数 `port_snapshot_matches_current_state()`。该函数对被动 `api_port/port` 紧凑快照执行结构、时间窗口、HTTP 200、源域名、非缓存标记、安全标记、舰队/舰船 ID 集合与可变字段逐项匹配检查；缺字段、时间过期/超前、任务数组/船位引用不匹配、燃料/弹药/HP 等捕获字段不同均 fail-closed。
+- 新增 `tests/test_poi_port_freshness.py` 7 项离线测试，覆盖匹配的新鲜样本、过期/未来时间、舰队任务与舰船资源差异、路由/HTTP/缓存/安全标记错误、数据不完整、记录重复/缺失和无时区时钟。Windows 本地隔离克隆检查的分支 HEAD 为 `4a4f0b9653e566d07054272a2a9731055092bea9`；定向测试 7/7 PASS，完整 Python 单元测试 137/137 PASS。
+- **重要限制：** 该函数仅验证“快照声明的时间/来源元数据 + 当前 MCP 状态的字段一致性”，无法从紧凑快照重新计算原始响应体哈希，也不能认证磁盘 JSON 的来源或证明 Redux 原子快照。调用方必须从当前运行、可信的被动观察器进程直接取得内存快照；不得把历史磁盘快照当作 freshness 证明。该 helper 目前未接入 `PoiExpeditionReader`，也没有设置 `source_freshness_verified`，因此不改变生产门禁。
+- 本阶段未安装/切换 Poi 插件，未刷新或操作游戏，未发送游戏 API 请求。当前观察器在新一轮 120 秒被动等待中未捕获新的自然 port 响应；这次没有产生可复用的新样本，不作为成功成果归档。下一步是实现可信的实时观察器到读取器的内存证据交接，并用过期/不匹配用例验证 fail-closed 行为，再考虑接入读取器。
+
+
+### 2026-10-29 实时 port witness 交接与读取器门禁集成
+
+- 新增 `src/kancollebot/adapters/poi/port_response_observer.py`：提供可选的一次性子进程观察器包装，使用子进程专属环境变量要求已审查的 CDP observer 将紧凑 witness 通过 stdout 直接交回调用方；父进程不从历史快照文件读取新鲜度证据。超时、进程失败、无自然响应、无效/重复 JSON 或输出超限均返回无 witness，并记录不含游戏数据的状态。
+- 更新 `tools/hand_sandbox/poi_port_response_observer_20261029.js`：只有子进程显式设置 `KCB_POI_FRESHNESS_WITNESS_STDOUT=1` 时才输出 witness JSON；默认 Hand 沙盒运行仍只打印原有摘要，不将舰队/舰船 payload 写入控制台。
+- 更新 `port_freshness.py`：除结构、非缓存状态和舰队/舰船可变字段精确匹配外，要求响应接收时间与 body 捕获时间都在允许窗口内，并拒绝未来时间、缺失字段、非法哈希格式、重复/缺失记录与安全标记异常。函数明确声明不能认证磁盘 JSON、不能重算未保存的原始 body 哈希，也不能证明 Redux 原子快照。
+- 将校验器以可选的 `port_snapshot_provider` 接入 `PoiExpeditionReader` 和 `normalize_poi_fleets()`。只有当前进程提供 witness 且它在默认 30 秒窗口内与本次完整 MCP fleet/ship 读取的捕获字段完全匹配，归一化状态才会标记 `source_freshness_verified=True`；未配置 provider、超时、过期或任何字段差异均保持 false。默认构造方式仍不启动观察器，因此未配置的现有路径继续 fail-closed。
+- 测试：新增 observer 子进程包装 5 项测试、快照一致性 7 项测试，并在读取器中新增匹配/不匹配/过期 witness 集成测试。Windows 本机隔离克隆当前分支 HEAD `7e28aa6107d4dfe5385d2458282fa97b1acf9742`：定向 port 测试 12/12 PASS；完整 Python 单元测试 145/145 PASS；`node --check tools/hand_sandbox/poi_port_response_observer_20261029.js` PASS。
+- **验证边界：** 这是离线逻辑和子进程输出协议的测试证据，不是实时 CDP 端到端捕获验收。本轮对当前 Poi 的新一轮 120 秒被动观察没有等到自然 `api_port/port` 响应，因此未获得新的实时 witness；没有刷新、输入、主动请求游戏 API、安装/切换插件或改变生产配置。当前默认读取器未配置 provider，生产 `source_freshness_verified` 仍为 false，真实派遣继续关闭。
+- 下一步：先审查实际应用的 `PoiExpeditionReader` 构造入口，确认可在不改变现有默认安全状态的情况下按显式配置启用 provider；随后仅在自然响应出现时做真实端到端验证，并核对状态同步窗口。未通过前不启用真实派遣。
+
+
+### 2026-10-29 只读 freshness bridge 诊断命令
+
+- 新增 `tools/verify_poi_freshness_bridge.py`，作为独立的只读端到端诊断入口：按配置启动一次性 passive CDP observer，再读取本机 Poi MCP store；只输出状态、观测时间、来源、舰队数量、observer 状态及 `game_actions_enabled=false`，不输出舰船/任务明细，也不导入或调用派遣执行器。
+- 新增诊断摘要与非有限时间参数测试。Windows 本机隔离克隆当前分支 HEAD `ba2e9dd04478e86a00f2326159a2f7d7ef7e83ea`：定向 port 测试 12/12 PASS；完整 Python 单元测试 148/148 PASS；observer JavaScript 语法检查 PASS；诊断命令 `--help` PASS。
+- 本机只读运行验证（为避免等待而将 observer 子进程超时显式设为 2 秒）：MCP 读取成功，返回 3 个舰队；结果为 `FRESHNESS_UNVERIFIED`、`source_freshness_verified=false`、`observer_status=process_timeout`、`game_actions_enabled=false`，退出码 2 表示证据未验证，PowerShell 将其作为预期的 fail-closed 结果接受。该次短超时不是实时响应捕获测试，也没有刷新、输入或主动游戏 API 请求。
+- 默认 `PoiExpeditionReader` 未配置 witness provider 时行为不变，仍保持 freshness=false；只有显式注入可信实时 observer 后，才会等待自然响应并验证捕获时间与当前 MCP 状态字段。当前项目仍没有已接入该读取器的真实派遣应用入口，web UI 仍只是健康诊断控制台，因此本阶段不代表完整自动远征闭环。
+- **当前阻塞边界：** 最近一次完整 120 秒被动观察没有自然 `api_port/port` 响应，无法完成真实 witness 交接验收。由于当前授权明确禁止刷新或操作游戏，不再人为触发响应。下一步继续离线审查/接入边界；只有在自然响应出现时才能完成端到端 freshness 验收。真实派遣保持关闭。
+
+
+### 2026-10-29 api_mission 字段语义的外部源码交叉核查
+
+- 只读审查当前分支 `src/kancollebot/adapters/poi/expedition_state_v2.py` 后，确认代码仍将 `api_mission` 的时间槽保持为未解释状态，并拒绝状态值 3；本轮没有根据测试夹具推断真实 API 语义。
+- 对外部资料做了交叉核查：KanColle Wiki 社区 API 指南将数组描述为 `[状态, 任务 ID, 返回时间, 未知槽]`，列出状态 0/1/2/3 并称返回时间为 Unix epoch 毫秒；独立实现 `shichiria/kancolle-browser/src-tauri/src/api/fleet.rs` 的 `parse_expedition()` 也按槽位 0/1/2 解析状态、任务 ID 和返回时间。另一个公开 API 样例只用于佐证空闲数组形状。研究说明已保存至 `docs/research/POI_API_MISSION_SEMANTICS_RESEARCH_20261029.md`。
+- **证据等级与限制：** 这些是社区文档/独立客户端源码，不是当前游戏服务器的官方规范；本轮没有取得当前目标的新鲜实时样本，尚未验证时间单位、状态 3 的当前表现或返回状态转换。因此没有修改归一化代码、没有调整生产 freshness 门禁、没有启用任何游戏操作。生产 `source_freshness_verified` 仍须通过现有实时 witness 门禁。
+- 远程归档：研究记录 blob SHA 为 `8e5d2e4104dc7d507a4a65a251e5666130e4d6de`；进度日志首次更新提交为 `ed6c6dd06600d89cbed8155c44a7e37fd2460f9f`，随后通过回读核验研究记录和进度条目均已存在，并对归档说明作了校正；最终内容已从目标分支再次回读核验。
+
+
+### 2026-10-29 被动 freshness witness 接受/拒绝路径静态复核
+
+- 从 GitHub 当前分支静态审查被动 CDP observer、子进程 stdout witness 包装、快照一致性谓词、`PoiExpeditionReader` 与既有测试定义。确认 observer 只通过 loopback CDP 目标发现与 Network 域等待自然的成功 `api_port/port` 响应；对目标 URL/数量、CDP endpoint、HTTP 200、服务端域名、缓存来源及 body 解析实施拒绝条件；子进程 witness 缺失、重复、超限、无效 JSON、超时或异常退出均 fail-closed。
+- 读取器在 MCP 读取前取得当前进程 witness，校验完整舰队/舰船集合与相关可变字段，并二次读取 fleet/ship 集合以拒绝可见状态变化；只有 witness 时间窗口与捕获字段精确匹配时才设置 `source_freshness_verified=true`。默认未配置 provider 的读取路径仍保持 false。
+- 独立复核记录：`docs/research/POI_FRESHNESS_WITNESS_ACCEPTANCE_REVIEW_20261029.md`。明确记录了证据边界：本轮仅静态读取 GitHub 源码/测试定义，没有执行测试或当前 Poi 运行时验证；紧凑 witness 中的 SHA-256 仅检查格式、不能重新计算原始 body；stdout 交接不是密码学证明；二次读取不能提供原子 Redux 快照；观察器在 witness 模式下仍会写入包含任务数组和部分舰船状态的紧凑磁盘快照；诊断脚本不是生产派遣入口。
+- **阶段结论：** 接受/拒绝逻辑在静态源码层面整体保持保守，未发现足以据此放宽门禁的证据。没有改动生产代码或安全策略，没有刷新/输入/主动游戏 API 请求，也没有安装/切换插件。当前自然响应端到端 witness 仍未验证，生产 `source_freshness_verified` 不得据此标记为 true，真实派遣继续关闭。
+- 归档状态：研究记录已创建并从 GitHub 目标分支回读核验；本进度条目待本次更新后回读核验。此处没有声称本轮测试通过。
+
+
+### 2026-10-29 Poi 应用集成边界复核与观察器状态文档校正
+
+- 静态核对 `PoiExpeditionReader`、`ExpeditionRunner`、`SafetyPolicy`、`ObservedState`、`PoiMcpClient`、`web_ui.py` 和相关测试定义。确认读取器本身只读，不实现 `dispatch_expedition`；runner 依赖注入的双方法 `ExpeditionAdapter` 协议，但审查到的 Poi adapter 目录没有具体派遣实现；当前 web UI 仅提供健康/状态诊断，启动/暂停/停止按钮仍禁用；freshness bridge CLI 也不会创建或运行 runner。
+- 安全边界复核：默认 `allow_live_actions=false`；前置检查要求状态时间有效且 `source_freshness_verified=true`；启用 live policy 时还要求 durable journal。以上是源码静态证据，不代表本轮运行或测试了这些分支。
+- 更新 `docs/POI_PORT_RESPONSE_OBSERVER.md` 顶部状态摘要，区分两件容易混淆的事：2026-10-29 曾成功捕获自然非缓存 port 响应并验证紧凑 payload 结构；但当前 stdout 内存 witness 与新鲜 MCP 读取相匹配的端到端门禁仍未验收。历史快照不能作为当前 freshness 证据。
+- 研究记录：`docs/research/POI_EXPEDITION_APPLICATION_INTEGRATION_BOUNDARY_20261029.md`，给出下一步仅做只读应用组合层的安全切片建议；不接入真实派遣、不启用 UI 控制，先通过 fake adapter 离线测试证明默认策略/缺失 freshness 不会触发 dispatch。
+- **本轮限制：** 仅静态回读 GitHub 源码与测试定义，未执行测试、未调用本机 MCP、未刷新/操作游戏、未主动请求游戏 API、未修改生产代码。既有 148/148 测试结果只是此前记录，本轮未重跑。
+- 归档状态：观察器文档更新和集成边界研究记录均已写入目标分支；本进度条目待更新后远程回读核验。实时 witness 端到端验收仍待完成，生产 freshness 门禁不变，真实派遣保持关闭。
+
+
+### 2026-10-29 只读远征评估组合层（未验证实现）
+
+- 新增 `src/kancollebot/expeditions/read_only_assessment.py`：只接受同时满足 `source_freshness_verified=true` 与本地观测年龄窗口的状态来运行离线规划器；来源未验证、状态过期或未来时间戳均抑制规划输出。结果的 `dispatch_eligible` 固定为 false；模块没有 Poi client、adapter、runner、journal 或派遣接口。
+- 新增 `tests/test_read_only_assessment.py`，定义 5 个离线用例：近期但来源未验证、已验证但过期、已验证且新鲜但仅规划、未来时间戳、负最大年龄。
+- **状态必须如实区分：** 源码提交 `bf0bb6df646cc9828dd21c8cd2255a2fb7a25834`；测试提交 `6fdbfeeecc0d6c54486578ade74afa7d572c72b2`。源码 blob 已回读为 `c511f64bcc6d9f4dbe09b2633239dbce57bbe615`，测试 blob 已回读为 `b91eede9a4eeb064469e06d9cc9e91482394a66f`。
+- 本轮未在本地执行测试、类型检查或导入检查，因此**实现已写入并回读，验证尚未完成**；测试文件只是已提交的测试定义，不是测试通过证据。未接入 Web UI 或生产入口，未访问本机 MCP，未刷新/操作 Poi，未主动请求游戏 API，真实派遣继续关闭。
+- 独立说明：`docs/research/POI_READ_ONLY_ASSESSMENT_LAYER_20261029.md`。下一步应在本地开发工作树运行新增测试及相关回归，再决定是否进行只读 UI 接入；在验证完成前不得将此组件标记为已验证成果。
+
+
+### 2026-10-29 只读远征评估组合层离线验证通过
+
+- 在独立 worktree `D:\\AI_Project\\KancolleBot-Worktrees\\poi-safety-consolidation-20261029` 中，检出并核对目标分支当前远程 HEAD `ecccb6061469e01dbec2aa3104279200d635aa2b`；工作树保持干净，没有在原有 `dev/expedition-closed-loop-mvp` 工作树中留下临时文件。
+- Python 3.13.16 实际执行结果：新增评估层测试 **5/5 PASS**；远征规划器回归 **11/11 PASS**；core 状态/安全回归 **12/12 PASS**；完整离线单元测试 **153/153 PASS**；`py_compile` 对新增模块和测试文件语法编译 **PASS**。
+- 完整测试命令执行时将仓库根目录与 `src` 同时加入进程级 `PYTHONPATH`，从而可正确导入 `tools` 和 `kancollebot` 包。测试仅为离线单元测试，没有连接 Poi/MCP，也没有执行游戏输入、刷新或主动游戏 API 请求。
+- 评估层的安全边界测试已通过：近期但来源未验证、过期、未来时间戳均抑制规划；新鲜且来源验证的状态仅产生规划结果，`dispatch_eligible=false` 仍成立。未接入 Web UI 或真实派遣适配器。
+- **验收区分：** 功能离线测试通过；GitHub 归档在后续进度更新后再进行远程回读验收。实时 witness 到当前 MCP 状态的端到端新鲜度门禁尚未验证，真实派遣继续关闭。
+- 研究说明已更新：`docs/research/POI_READ_ONLY_ASSESSMENT_LAYER_20261029.md`，将验证状态改为已通过本次离线验证，并保留运行时验证限制。
+
+
+### 2026-10-29 只读评估结果的派遣标志不可配置化
+
+- 安全复核发现，虽然评估函数总是返回 `dispatch_eligible=false`，但结果 dataclass 的构造参数此前仍允许调用方自行创建 `dispatch_eligible=true` 的对象，容易让展示层误用该字段。
+- 将字段改为 `field(default=False, init=False)`，使构造函数无法覆盖该标志；dataclass 仍为 frozen。新增回归测试明确验证传入 `dispatch_eligible=True` 会被拒绝。
+- 最新本地提交：`9526bdf09f5c8118938e68879cc31c216136d92f`；已推送到 `dev/poi-safety-consolidation-20261029`，并通过 GitHub 文件接口回读源码和测试文件核验。源码 blob SHA `af6c8aec28e3432159b71e5fac22c165461bbda9`，测试 blob SHA `50d40307cf935eb80f61bc5e7df21132395085d6`。
+- Python 3.13.16 验证：评估层测试 **6/6 PASS**；完整离线单元测试 **154/154 PASS**；`py_compile` PASS；`git diff --check` PASS。测试在推送前针对完全相同的源码与测试内容执行；推送后已回读确认远程内容一致。
+- **限制不变：** 只读评估层尚未接入 Web UI/生产组合入口；没有访问本机 MCP、刷新/操作 Poi 或主动请求游戏 API；实时 witness 端到端 freshness 仍未验证，真实派遣继续关闭。
+
+### 2026-10-30 被动 witness 模式停止持久化舰队/舰船快照
+
+- 静态复核发现：KCB_POI_FRESHNESS_WITNESS_STDOUT=1 模式下，父进程只消费子进程 stdout 中的内存 witness，但观察器仍会把包含紧凑舰队/舰船字段的同一份快照写入桌面目录。该持久化对 freshness handoff 没有必要，增加了本地数据留存。
+- 将 saveSnapshot 重命名为 buildSnapshot 并按模式分流：child-only witness 模式只返回 persisted=false 与舰队/舰船数量摘要，不创建输出目录、不写快照文件；普通 Hand 沙盒模式仍保留原有紧凑快照文件和哈希摘要。没有删除既有快照，也没有改动任何系统设置。
+- 更新 docs/POI_PORT_RESPONSE_OBSERVER.md，明确区分两种模式；新增 tests/test_poi_port_response_observer_source.py 静态安全契约，验证 witness 分支不调用 fs.mkdirSync / fs.writeFileSync，默认分支仍保留持久化路径。
+- 代码提交：9732b6ebe52fac79c2efa4dfac2e667a374abed5。精确提交 Push CI [40928945329](https://github.com/wosafety0/wosafety0clamp/actions/runs/40928945329) 通过：JavaScript 静态测试 14/14 PASS、Python 单元测试 155/155 PASS、Python compileall PASS。远程回读确认源码 blob 6138ca901eecdabc74073c05e1e1f2e64387748c、文档 blob f6ce81ab6d8489f69eb59033c247c03b5eee10e2、新增测试 blob 0f7259773014fa17d941d9502f6f838107b92d66。
+- 验证边界：以上是源码/离线测试证据，不是 Poi 运行时验证。本轮未启动/刷新/操作游戏、未发送游戏输入或主动游戏 API 请求；source_freshness_verified 的生产门禁与 live dispatch 开关均未改变。当前自然响应 witness 与新鲜 MCP 读取的端到端匹配仍待在允许的本机环境中验证。
+- 归档提交 f8c7ec50c46d8c8b73421e7b3d840f4c28a6188d 的精确 HEAD Push CI [40929109186](https://github.com/wosafety0/wosafety0clamp/actions/runs/40929109186) 也已通过：Python 155/155、JavaScript 14/14、compileall PASS；本进度文件 blob a746e46d7005cd964b8baf0bbabed0a6e664eb42 已回读。下一步继续审查不依赖本机运行的只读组合层/安全测试，不以历史快照替代当前 freshness 证据。
+- 后续 CI 覆盖补强提交 9e794c03196bd7c4223299a2412e234ebadd60c 为观察器脚本增加独立的 node --check 步骤；精确 HEAD Push CI [40929250043](https://github.com/wosafety0/wosafety0clamp/actions/runs/40929250043) 通过：观察器语法检查 PASS、JavaScript 14/14、Python 155/155、compileall PASS。工作流 blob 19c20ff47d199092b9dee8c728c30dd338c92223 已回读。
+
+### 2026-10-30 PR #15 的合并性仍需独立解决
+
+- 最新 PR 元数据回读显示 #15 仍为 open/Draft，当前 head 为 c3190cb5437bf513964502e72b4cf940e0379b0f，GitHub 返回 mergeable=false；当前 base ref 为 dev/expedition-closed-loop-mvp（base SHA 8162646558e0558bf58bf1d351669083ac03c5ef）。
+- 这是 PR 集成/分支基线阻塞，与当前分支 Push CI 通过是两回事。未对 PR 做 rebase、retarget 或 merge，也没有修改 base 分支；在检查完整比较与依赖关系前保持 Draft。
+- 安全状态不变：freshness witness 的实时匹配未完成，生产 source_freshness_verified 仍不得标为 true，live dispatch 继续关闭。
+
+
+### 2026-10-30 被动 freshness 比对拒绝 Python 数值类型隐式相等
+
+- 仓库：`wosafety0/wosafety0clamp`；独立开发分支：`dev/poi-witness-numeric-types-20261030`；基线：`b72ee8ef9414a680e3f9b805e0517c456a7d3f14`（Draft PR #15 当前分支），叠加 Draft PR #16：https://github.com/wosafety0/wosafety0clamp/pull/16。
+- 静态代码复核发现，Python 的 `True == 1`、`101.0 == 101` 可能使被动 port witness 与当前 MCP 状态的数值字段在类型不合法时仍被判断为相等。该比对用于决定 `source_freshness_verified`，必须 fail-closed，不能依赖宽松的数值相等。
+- 已修改 `src/kancollebot/adapters/poi/port_freshness.py`：比较前要求 witness 和当前舰队的 `api_mission` 都是四个非负整数槽位，`api_ship` 都是合法整数槽位（允许 -1），当前舰船的必要数值字段与已捕获的可选 `api_cond` 必须是非布尔整数。只验证数据类型/形状，不推断未确认的远征任务语义。
+- 已修改 `tests/test_poi_port_freshness.py`，新增 3 个回归测试方法，覆盖布尔舰船数值、浮点舰船 ID、布尔任务槽位和浮点舰队舰船槽位。源码提交 `27ac5c2fe63a32a0f0c0da696c6065ed6515315c`；测试提交 `0895e8af376e74e8cd569529cd367ce4d204d2d5`。
+- **精确提交 Push CI PASS**：[40975628357](https://github.com/wosafety0/wosafety0clamp/actions/runs/40975628357)，head `0895e8af376e74e8cd569529cd367ce4d204d2d5`；日志显示 Python **158/158**、JavaScript **14/14**、`node --check` 与 `python -m compileall -q src tests` 均成功。GitHub 远程源码 blob `9f07364ec2193ab051892a5850e30ba569d66873`、测试 blob `0701e898292a4dd4fad7b4541ff05350de5e4764` 已回读。
+- **边界**：这是离线校验与 CI 验证，不是当前 Poi 实例的 witness/MCP 端到端验证。未访问本机 Poi/MCP、未发送游戏输入、未调用 `Runtime.evaluate`、未主动请求游戏 API、未修改系统设置；真实派遣继续关闭。
+- **下一步**：先独立审查 PR #15 对 `dev/expedition-closed-loop-mvp` 的非可合并状态与分支漂移，再决定组合验收方式；PR #16 保持 Draft 且不合并。现有自然响应历史快照不可作为当前 freshness 证据。
 
 ### 2026-10-29 Consolidated Poi safety gates and offline CI
 

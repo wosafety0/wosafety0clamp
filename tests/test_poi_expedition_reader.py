@@ -15,19 +15,21 @@ def sample_payloads():
             "items": [{"api_id": 1, "api_ship": [101, -1, 102], "api_mission": [0, 0, 0, 0]}]},
         "info.ships": {"kind": "object-map", "total": 2, "returned": 2, "truncated": False,
             "items": {
-                "101": {"api_ship_id": 11, "api_nowhp": 10, "api_maxhp": 10, "api_fuel": 10, "api_bull": 10},
-                "102": {"api_ship_id": 11, "api_nowhp": 10, "api_maxhp": 10, "api_fuel": 10, "api_bull": 10},
+                "101": {"api_id": 101, "api_ship_id": 11, "api_nowhp": 10, "api_maxhp": 10, "api_fuel": 10, "api_bull": 10},
+                "102": {"api_id": 102, "api_ship_id": 11, "api_nowhp": 10, "api_maxhp": 10, "api_fuel": 10, "api_bull": 10},
             }},
         "lookup": {"11": {"api_fuel_max": 10, "api_bull_max": 10}},
     }
 
 
 class FakeClient:
-    def __init__(self, *, store_ready=True, payloads=None, tools=None, lookup=None):
+    def __init__(self, *, store_ready=True, payloads=None, tools=None, lookup=None, sequences=None):
         self.store_ready = store_ready
         self.payloads = payloads or sample_payloads()
         self.tools = tools or ("poi_describe", "poi_get", "poi_lookup")
         self.lookup = lookup
+        self.sequences = sequences or {}
+        self.sequence_counts = {}
         self.calls = []
         self.initialize_calls = 0
 
@@ -48,7 +50,14 @@ class FakeClient:
         elif name == "poi_lookup":
             payload = self.lookup if self.lookup is not None else self.payloads["lookup"]
         else:
-            payload = self.payloads[arguments["path"]]
+            path = arguments["path"]
+            if path in self.sequences:
+                index = self.sequence_counts.get(path, 0)
+                sequence = self.sequences[path]
+                payload = sequence[min(index, len(sequence) - 1)]
+                self.sequence_counts[path] = index + 1
+            else:
+                payload = self.payloads[path]
         return {"content": [{"type": "text", "text": json.dumps(payload)}]}
 
 
@@ -57,9 +66,105 @@ class PoiExpeditionReaderTests(unittest.TestCase):
         client = FakeClient(**kwargs)
         return client, PoiExpeditionReader(client=client, clock=lambda: NOW)
 
+    def make_port_snapshot(self, payloads=None):
+        payloads = payloads or sample_payloads()
+        fleets = payloads["info.fleets"]["items"]
+        ships = payloads["info.ships"]["items"]
+        compact_fleets = [
+            {
+                field: fleet[field]
+                for field in ("api_id", "api_name", "api_mission", "api_ship")
+                if field in fleet
+            }
+            for fleet in fleets
+        ]
+        ship_fields = (
+            "api_id", "api_ship_id", "api_nowhp", "api_maxhp",
+            "api_fuel", "api_bull", "api_cond",
+        )
+        compact_ships = {
+            str(key): {
+                field: record[field]
+                for field in ship_fields
+                if field in record
+            }
+            for key, record in ships.items()
+        }
+        return {
+            "schemaVersion": 1,
+            "verificationStatus": "CAPTURED_UNDER_STATICALLY_REVIEWED_PROBE",
+            "source": {
+                "kind": "cdp-network-response",
+                "path": "/kcsapi/api_port/port",
+                "host": "w14h.kancolle-server.com",
+                "httpStatus": 200,
+                "responseReceivedAt": "2026-10-24T11:59:58.000Z",
+                "bodyCapturedAt": "2026-10-24T11:59:59.000Z",
+                "fromDiskCache": False,
+                "fromServiceWorker": False,
+                "fromPrefetchCache": False,
+                "responseBodySha256": "a" * 64,
+                "responseBodyBytes": 1024,
+            },
+            "data": {
+                "api_deck_port": compact_fleets,
+                "api_ship": compact_ships,
+            },
+            "summary": {
+                "fleetCount": len(compact_fleets),
+                "shipCount": len(compact_ships),
+            },
+            "safety": {
+                "gameInputSent": False,
+                "gameApiRequestInitiated": False,
+                "runtimeEvaluateUsed": False,
+                "fullRawResponseSaved": False,
+                "productionFreshnessGateChanged": False,
+            },
+        }
+
+    def test_matching_live_port_snapshot_marks_source_freshness_verified(self):
+        payloads = sample_payloads()
+        snapshot = self.make_port_snapshot(payloads)
+        client = FakeClient(payloads=payloads)
+        reader = PoiExpeditionReader(
+            client=client,
+            clock=lambda: NOW,
+            port_snapshot_provider=lambda: snapshot,
+        )
+        observed = reader.read_fleets()
+        self.assertTrue(observed.source_freshness_verified)
+
+    def test_mismatched_live_port_snapshot_keeps_freshness_unverified(self):
+        payloads = sample_payloads()
+        snapshot = self.make_port_snapshot(payloads)
+        snapshot["data"]["api_ship"]["101"]["api_fuel"] = 9
+        client = FakeClient(payloads=payloads)
+        reader = PoiExpeditionReader(
+            client=client,
+            clock=lambda: NOW,
+            port_snapshot_provider=lambda: snapshot,
+        )
+        observed = reader.read_fleets()
+        self.assertFalse(observed.source_freshness_verified)
+
+    def test_stale_live_port_snapshot_keeps_freshness_unverified(self):
+        payloads = sample_payloads()
+        snapshot = self.make_port_snapshot(payloads)
+        snapshot["source"]["bodyCapturedAt"] = "2026-10-24T11:58:00.000Z"
+        client = FakeClient(payloads=payloads)
+        reader = PoiExpeditionReader(
+            client=client,
+            clock=lambda: NOW,
+            port_snapshot_provider=lambda: snapshot,
+        )
+        observed = reader.read_fleets()
+        self.assertFalse(observed.source_freshness_verified)
+
     def test_reads_fleet_with_targeted_master_lookup(self):
         client, reader = self.make_reader()
         observed = reader.read_fleets()
+        self.assertFalse(observed.source_freshness_verified)
         self.assertEqual(observed.observed_at, NOW)
         self.assertEqual(len(observed.payload), 1)
         self.assertEqual(observed.payload[0].fleet_id, 1)
@@ -72,11 +177,47 @@ class PoiExpeditionReaderTests(unittest.TestCase):
         self.assertEqual(lookup_calls[0]["select"], ["api_fuel_max", "api_bull_max"])
         self.assertFalse(any(args.get("path") == "const.$ships" for _, args in client.calls))
 
+    def test_rejects_state_changed_during_read(self):
+        first = sample_payloads()
+        second_fleets = json.loads(json.dumps(first["info.fleets"]))
+        second_fleets["items"][0]["api_name"] = "changed-between-reads"
+        sequences = {
+            "info.fleets": [first["info.fleets"], second_fleets],
+            "info.ships": [first["info.ships"], first["info.ships"]],
+        }
+        _, reader = self.make_reader(sequences=sequences)
+        with self.assertRaisesRegex(PoiMcpError, "changed during observation"):
+            reader.read_fleets()
+
+    def test_reads_a_stable_snapshot_with_confirmation_reads(self):
+        client, reader = self.make_reader()
+        observed = reader.read_fleets()
+        self.assertEqual(len(observed.payload), 1)
+        read_paths = [args["path"] for name, args in client.calls if name == "poi_get"]
+        self.assertEqual(
+            read_paths,
+            ["info.fleets", "info.ships", "info.fleets", "info.ships"],
+        )
+
     def test_rejects_truncated_fleet_payload(self):
         payloads = sample_payloads()
         payloads["info.fleets"]["truncated"] = True
         _, reader = self.make_reader(payloads=payloads)
         with self.assertRaisesRegex(PoiMcpError, "truncated"):
+            reader.read_fleets()
+
+    def test_missing_truncation_marker_fails_closed(self):
+        payloads = sample_payloads()
+        del payloads["info.fleets"]["truncated"]
+        _, reader = self.make_reader(payloads=payloads)
+        with self.assertRaisesRegex(PoiMcpError, "truncation marker"):
+            reader.read_fleets()
+
+    def test_inconsistent_collection_counts_fail_closed(self):
+        payloads = sample_payloads()
+        payloads["info.fleets"]["returned"] = 0
+        _, reader = self.make_reader(payloads=payloads)
+        with self.assertRaisesRegex(PoiMcpError, "counts do not match"):
             reader.read_fleets()
 
     def test_missing_mission_data_fails_closed(self):

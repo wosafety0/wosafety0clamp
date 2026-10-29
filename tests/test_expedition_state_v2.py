@@ -28,9 +28,13 @@ MASTERS = {"1": {"api_fuel_max": 10, "api_bull_max": 10}}
 
 def normalize(mission):
     fleets = [{"api_id": 2, "api_ship": [101], "api_mission": mission}]
+    return normalize_fleets(fleets).payload[0]
+
+
+def normalize_fleets(fleets, ships=SHIPS):
     return normalize_poi_fleets(
-        fleets, SHIPS, MASTERS, observed_at=OBSERVED_AT
-    ).payload[0]
+        fleets, ships, MASTERS, observed_at=OBSERVED_AT
+    )
 
 
 class PoiMissionStateTests(unittest.TestCase):
@@ -71,6 +75,22 @@ class PoiMissionStateTests(unittest.TestCase):
     def test_wrong_slot_count_fails_closed(self):
         with self.assertRaises(PoiStateError):
             normalize([0, 0, 0])
+
+    def test_duplicate_fleet_ids_fail_closed(self):
+        fleets = [
+            {"api_id": 2, "api_ship": [101], "api_mission": [0, 0, 0, 0]},
+            {"api_id": 2, "api_ship": [], "api_mission": [0, 0, 0, 0]},
+        ]
+        with self.assertRaisesRegex(PoiStateError, "duplicate fleet ID"):
+            normalize_fleets(fleets)
+
+    def test_ship_cannot_appear_in_multiple_fleets(self):
+        fleets = [
+            {"api_id": 1, "api_ship": [101], "api_mission": [0, 0, 0, 0]},
+            {"api_id": 2, "api_ship": [101], "api_mission": [0, 0, 0, 0]},
+        ]
+        with self.assertRaisesRegex(PoiStateError, "appears in multiple fleets"):
+            normalize_fleets(fleets)
 
 
 if __name__ == "__main__":
