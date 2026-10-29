@@ -2360,7 +2360,7 @@ The Hand plugin's read-only probe reported:
 
 ### 2026-10-29 plugin-server 隔离构建与测试验证
 
-- 在 Windows 本地临时目录对上游 `poooi/plugin-server` 当前 `main` 做隔离克隆；未安装到 Poi 插件目录，未更改当前 Poi 配置或 Nanodesu MCP，未触发游戏刷新、输入或游戏 API 请求。
+- 在 Windows 本地临时目录对上游 `poooi/plugin-server` 的 `main`（测试时 HEAD `b5c43407c4b3be1ad2f92e4404949fdf3a2cec57`）做隔离克隆；未安装到 Poi 插件目录，未更改当前 Poi 配置或 Nanodesu MCP，未触发游戏刷新、输入或游戏 API 请求。
 - 环境：Node.js 24.21.0、Corepack 0.36.0、pnpm 12.16.1；`pnpm install --frozen-lockfile` 完成，依赖锁文件未重新解析。
 - 本地执行结果：Vite/TypeScript 构建 PASS；ESLint PASS；TypeScript `--noEmit` 类型检查 PASS；内置测试 `tests/server.test.ts` 共 15/15 PASS，覆盖只读投影、HTTP 认证与 Host/Origin 校验、WebSocket 快照/更新、MCP 资源与工具、令牌轮换、卸载和配置生命周期。
 - 独立包验收：在临时隔离目录生成 npm tarball 并解包，确认 `dist/index.js`、README、MCP 文档和 `poiPlugin` 元数据存在；动态导入打包入口并验证默认导出、插件 ID、生命周期 hooks、设置组件及设置描述数量，手动等价包验收 PASS。
