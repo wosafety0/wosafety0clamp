@@ -2338,3 +2338,11 @@ The Hand plugin's read-only probe reported:
 - 源码显示，投影快照包含 `schemaVersion` 与整数 `revision`；服务监听 host Redux store 订阅，在 allowlisted projection 的序列化内容发生变化时递增 revision 并广播完整投影。HTTP `/api/v1/snapshot` 与 MCP `read_poi_snapshot` 均返回版本化快照；WebSocket 首条消息为 snapshot，后续 update 携带递增 revision。参考： https://github.com/poooi/plugin-server 、 https://github.com/poooi/plugin-server/blob/main/docs/WEBSOCKET_API.md 、 https://github.com/poooi/plugin-server/blob/main/docs/MCP_API.md 。
 - **价值与边界：** 相比当前 Nanodesu `poi_get` 读取器没有源 revision token 的现状，这提供了可评估的跨数据集版本一致性候选；但 revision 是该插件进程内的投影版本，服务重启会重新从 0 开始，单独的 revision 变化不证明当前游戏已登录、最近收到成功游戏响应，或快照一定来自当前会话。仍需将版本变化与被动响应时间/会话证据组合，并在本机 Poi 兼容性与认证配置验证后才能用于 freshness gate。
 - **实现状态：未实现；验证状态：仅公开上游源码静态审查；使用限制：未安装、未切换现有插件、未对当前 Poi 实例进行兼容性测试。** 当前生产读取器、`source_freshness_verified` 门禁和真实派遣策略均未改变；游戏仍保持只读，不执行刷新、输入或主动游戏 API 请求。
+
+### 2026-10-29 版本化只读投影候选的安全与测试边界复核
+
+- 继续静态审查 `poooi/plugin-server` 的 `src/settings.ts`、`src/server.ts`、`src/projection.ts`、`src/types.ts`、`tests/server.test.ts` 与打包 smoke 脚本，确认该候选不是仅有文档的接口草案：包入口声明 Poi 插件元数据及生命周期 hook，服务端提供真实 loopback HTTP 与 WebSocket 测试覆盖。
+- 测试源码覆盖：零参数 Poi 生命周期 hook、allowlist 数据集读取、store 更新后 revision 增长、错误/缺失 Bearer Token、URL 中携带 token 的拒绝、Host/Origin 校验、token 轮换、部分数据集显式标记 `available=false, partial=true`、WebSocket 初始 snapshot 与有序更新，以及只读订阅的连接行为。这些是**上游测试代码覆盖证据**；本轮没有运行上游构建或测试，不能表述为本轮测试通过，也不能替代真实 Poi 安装兼容性验收。
+- 关键安全限制进一步明确：默认设置 `enabled=false`、`allowLan=false`、监听端口 8765；服务启用需要 Poi 配置操作和生成/保存 Bearer Token。未获授权前不安装或启用该插件，不读取/输出本机 token，不修改 Poi 配置或监听端口。现阶段只能把它作为隔离候选方案评估。
+- 版本信号仍非充分 freshness 证明：revision 初值为 0，仅当 allowlisted projection 的序列化结果变化时递增；进程重载/服务重启会重置。相同 projection 的新游戏响应不会必然增加 revision，因此 revision 必须与被动成功响应的接收时间、会话标识/有效性及完整性条件组合，且不得将缺少任一证据的状态标为新鲜。
+- **阶段结论：** 候选具备可测试的只读投影、认证和版本接口，值得后续进行不影响现有 Nanodesu MCP 的隔离兼容性验证；尚未证明可直接替换当前读取器。实现状态仍为未实现，验证状态为上游源码/测试定义静态审查，未执行测试、未安装、未切换插件、未操作游戏。生产 `source_freshness_verified` 保持 false，真实派遣保持关闭。
