@@ -41,6 +41,7 @@ The existing `.github/workflows/ci.yml` is unchanged, but its triggers are narro
 - Keep PR #14 Draft/unmerged pending review and explicit merge authorization.
 
 ## Current evidence
+- Latest exact-head verification at `d914953c4187ed8b82de4d1b389c08b06d218198`: Harness Trial Acceptance Push [40854001251](https://github.com/wosafety0/wosafety0clamp/actions/runs/40854001251) and PR [40854010436](https://github.com/wosafety0/wosafety0clamp/actions/runs/40854010436) passed; the PR report artifact is ID `12888322450`, digest `sha256:27aee11994ea07be608875d1340ba0635b06b29a8eea393778341c3348c18551`. The existing Clamp CI was also manually dispatched against this exact feature-branch head via its declared `workflow_dispatch` trigger and passed all steps: [run 40854829135](https://github.com/wosafety0/wosafety0clamp/actions/runs/40854829135). This is offline static/compile/unit-test evidence only.
 
 - Latest normal clamp acceptance at the time of this update: [run 40805100294](https://github.com/wosafety0/wosafety0clamp/actions/runs/40805100294), exact head `cb9113354c3058595a421f97f704acc7f488b2a2`; 12 Node tests and 122 Python tests passed, report artifact uploaded, final gate passed.
 - Latest archived hosted empty-command negative-path test: [run 40802071906](https://github.com/wosafety0/wosafety0clamp/actions/runs/40802071906). Its expected failure confirms the pinned reusable workflow rejects blank consumer commands, uploads the failed report, and closes the gate. This negative test is separate from normal acceptance.
