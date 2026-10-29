@@ -2018,3 +2018,12 @@ The Hand plugin's read-only probe reported:
 - The analyzer's JSON report was re-read and parsed successfully; it records capturedSourceEvaluated=false, gameFunctionsCalled=false, gettersInvoked=false, cdpConnected=false, and gameInputSent=false.
 - Scope boundary: this validates decoder mapping for the factory's statically discovered aliases and numeric literal call arguments. It does not establish runtime behavior or complete deobfuscation of the rest of main.js. No game code or input was executed.
 - This result is saved locally. GitHub push and authoritative remote readback remain pending explicit remote-write authorization.
+
+
+## 2026-10-29 — Shared wrapper decoder call-site cross-check (offline)
+
+- Rechecked the preserved snapshot SHA-256 (`073df7c8e4d4680208070b22806273b332e2f5ba7ae8b80005ad5914f336561e`) and source length (8,495,851 characters).
+- A whole-source lexical text scan found 10 numeric-literal calls to the wrapper-local `_0x460358` alias across 9 unique indices. With the verified 323-step table rotation and custom alphabet, the calls decode to TypeScript/ES-module helper names including `__createBinding`, `create`, `__setModuleDefault`, `__importStar`, `__awaiter`, `__importDefault`, `defineProperty`, and `__esModule`.
+- Context confirms these calls belong to a wrapper/helper region around offsets 8,461,359–8,464,225, distinct from the `_0x466acb` application factory analysed previously. The adjacent `_0x3b2028(...)` calls are module-loader calls, not decoder calls, and were not misclassified as decoder evidence.
+- JavaScript extractor regression tests were rerun: **9/9 test cases passed**. The broader CI run previously passed 13 JavaScript tests across two files and 122 Python unit tests.
+- Scope: the global scan only counted direct numeric-literal calls to `_0x460358` and `_0x3353`; it does not claim to enumerate all aliases or decode every module. Analysis remained static; captured source was not executed and no game interaction occurred.
