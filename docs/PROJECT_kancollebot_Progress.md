@@ -1991,3 +1991,9 @@ The Hand plugin's read-only probe reported:
 - Added `docs/CLAMP_HARNESS_TRIAL_USAGE.md` on the clamp Harness trial branch. It defines when to run the auxiliary workflow, trigger conditions, test scope, how to inspect redacted report artifacts, the distinction between normal acceptance and intentional negative-path tests, and the no-merge/no-game-operation boundaries.
 - It explicitly says not to trigger Harness after every small edit and not to replace existing CI or make the trial a required branch-protection check without a separate decision.
 - Current normal-path evidence: [run 40801580252](https://github.com/wosafety0/wosafety0clamp/actions/runs/40801580252); negative-path evidence: [run 40802071906](https://github.com/wosafety0/wosafety0clamp/actions/runs/40802071906); trial PR [#14](https://github.com/wosafety0/wosafety0clamp/pull/14) remains Draft/unmerged.
+
+## 2026-10-29 — Trial branch reconciled with latest development head
+
+- The trial branch was behind the current `dev/expedition-closed-loop-mvp` head and GitHub reported a dirty merge state. Reconciled the branch with the current development head `4e221c719dc8766ab6ab14946136d669ed96f0e2` while preserving the Harness workflow, usage guide, and trial progress entries. The PR comparison now reports `ahead` with `behind_by: 0` and `mergeable: true`; PR #14 remains Draft/unmerged.
+- Exact reconciled head `cb9113354c3058595a421f97f704acc7f488b2a2` passed hosted acceptance [run 40805100294](https://github.com/wosafety0/wosafety0clamp/actions/runs/40805100294): 12 Node tests and 122 Python tests passed; report generation, artifact upload, and final gate succeeded.
+- Verification remains limited to offline checks; no real model provider call, live game operation, merge, or deployment occurred.
