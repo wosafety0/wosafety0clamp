@@ -2273,3 +2273,11 @@ The Hand plugin's read-only probe reported:
 - 精确提交 CI 通过：[GitHub Actions run 40858134020](https://github.com/wosafety0/wosafety0clamp/actions/runs/40858134020)。成功步骤包括 JavaScript 静态提取测试、Python 源码编译和离线单元测试；日志确认 **130 项 Python 测试通过**。
 - 已从 GitHub 权威远程回读核对集成分支头提交及关键源码 blob：读取器 `9634d4b960ab71c5acd164353d5f7996dfa7e22e`、状态归一化器 `1c91e67ea5c6da9bead7c89fba7f79dddd12d603`、新鲜度门槛 `b48d7a4955d53067dd5ed664f3b22c2e395abced`。
 - **验证边界：** 该 CI 只验证离线测试和静态检查，不证明当前 Poi 实例的事件可见性、实时数据完整性或新鲜度。读取器仍不会设置 `source_freshness_verified=True`，因此安全前置继续拒绝未经证明的新鲜度状态；真实派遣保持关闭。集成分支未合并，也未执行游戏操作。
+
+
+### 2026-10-29 Passive Poi port-response observer artifact
+
+- 在独立集成分支 `dev/poi-safety-consolidation-20261029` 新增只读诊断脚本 `tools/hand_sandbox/poi_port_response_observer_20261029.js` 及使用限制文档 `docs/POI_PORT_RESPONSE_OBSERVER.md`。脚本通过 loopback CDP 的 Network 域等待自然发生的成功 `/kcsapi/api_port/port` 响应，跳过缓存/Service Worker/prefetch 响应，校验 API 成功码、舰队与舰船字段，并只保存精简快照和响应体哈希。
+- 脚本不使用 `Runtime.evaluate`，不调用游戏函数，不发送输入，也不主动发起游戏 API 请求；如果 120 秒内没有自然发生的合格响应，会超时退出，不会尝试刷新或派遣。输出保存到桌面的 `KancolleBot-Port-Snapshots`，不保存完整原始响应。
+- 精确提交 `7accb7a7634c463526c953f2fa15a2e36e92942d` 的 GitHub Actions CI 通过：[run 40858395913](https://github.com/wosafety0/wosafety0clamp/actions/runs/40858395913)。静态脚本安全契约测试通过，JavaScript 静态提取测试、Python 编译通过，**130 项 Python 单元测试通过**。
+- **实现状态：脚本已保存到 GitHub 独立分支；自动化静态检查通过。运行时验证状态：未验证。** 尚未在用户当前 Poi 实例执行该脚本，因此不能声称目标页识别、CDP Network 事件、真实响应体解析或快照写入已在实机成功。该脚本是诊断探针，不会修改生产新鲜度门禁；真实派遣继续关闭。
