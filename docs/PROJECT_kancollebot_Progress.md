@@ -2202,6 +2202,65 @@ The Hand plugin's read-only probe reported:
 - No merge, deployment, branch-protection change, live model request, or game operation occurred.
 
 
+## 2026-10-29 — Hosted empty-command fail-closed verification
+
+- Created isolated branch `test/harness-empty-command-hosted-20261029` from the current trial head solely to exercise the empty-input negative path; probe workflow: `.github/workflows/harness-empty-command-negative-path.yml`, pinned to reusable workflow SHA `65544e290fd875bb6c4e30f6525b238200037bba`.
+- The hosted run [40802071906](https://github.com/wosafety0/wosafety0clamp/actions/runs/40802071906) completed with conclusion `failure`, which is the expected result for this negative-path probe. The acceptance command guard emitted `test-command must not be empty.` and exited 2; the redacted report recorded `status: failed`; artifact upload succeeded (artifact ID `12866197367`); the final gate exited 1 and named `tests`.
+- This verifies the current pinned reusable workflow's empty-command path in a real hosted consumer call, closing the earlier evidence gap left by isolated contract tests alone. The red workflow result is intentional fail-closed behavior, not a successful normal acceptance run.
+- The probe workflow is isolated on its test branch and is not part of Draft PR #14. No merge, release, deployment, game operation, or provider API call occurred; PR #14 remains draft/unmerged and its pinned workflow is unchanged.
+
+
+## 2026-10-29 — Clamp Harness usage guide added
+
+- Added `docs/CLAMP_HARNESS_TRIAL_USAGE.md` on the clamp Harness trial branch. It defines when to run the auxiliary workflow, trigger conditions, test scope, how to inspect redacted report artifacts, the distinction between normal acceptance and intentional negative-path tests, and the no-merge/no-game-operation boundaries.
+- It explicitly says not to trigger Harness after every small edit and not to replace existing CI or make the trial a required branch-protection check without a separate decision.
+- Current normal-path evidence: [run 40801580252](https://github.com/wosafety0/wosafety0clamp/actions/runs/40801580252); negative-path evidence: [run 40802071906](https://github.com/wosafety0/wosafety0clamp/actions/runs/40802071906); trial PR [#14](https://github.com/wosafety0/wosafety0clamp/pull/14) remains Draft/unmerged.
+
+## 2026-10-29 — Trial branch reconciled with latest development head
+
+- The trial branch was behind the current `dev/expedition-closed-loop-mvp` head and GitHub reported a dirty merge state. Reconciled the branch with the current development head `4e221c719dc8766ab6ab14946136d669ed96f0e2` while preserving the Harness workflow, usage guide, and trial progress entries. The PR comparison now reports `ahead` with `behind_by: 0` and `mergeable: true`; PR #14 remains Draft/unmerged.
+- Exact reconciled head `cb9113354c3058595a421f97f704acc7f488b2a2` passed hosted acceptance [run 40805100294](https://github.com/wosafety0/wosafety0clamp/actions/runs/40805100294): 12 Node tests and 122 Python tests passed; report generation, artifact upload, and final gate succeeded.
+- Verification remains limited to offline checks; no real model provider call, live game operation, merge, or deployment occurred.
+
+
+### 2026-10-29 — Clamp Harness trial: consumer report verifier pin
+
+- Updated `.github/workflows/harness-trial-acceptance.yml` to pin reusable Harness commit `07b8000ab8c2a1dad0f91bd29e2d84028bec2c93`.
+- That exact Harness commit passed its own Push CI [40813229844](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40813229844) and PR CI [40813238148](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40813238148) before the Clamp pin was changed.
+- Updated `docs/CLAMP_HARNESS_TRIAL_USAGE.md` to describe report identity verification, the five required gate stages, and the immutable pin.
+- Clamp CI for the updated consumer pin is pending. Until its new Push and PR runs pass, the prior successful run on the old pin does not count as validation of this change.
+- No local filesystem changes, model-provider calls, game actions, merge, release, or deployment.
+
+
+### 2026-10-29 — Clamp Harness trial: verifier workspace fix
+
+- The initial verifier pin `07b8000ab8c2a1dad0f91bd29e2d84028bec2c93` failed closed because the reusable workflow tried to execute a verifier script from the Harness repository inside a checkout of Clamp. The test command itself passed; the report-verification stage failed because the file was absent in the consumer workspace.
+- Harness corrected this by running the fail-closed verifier inline in the reusable workflow and testing that exact embedded Python code. Corrected Harness commit `0173c597e82364a91e50f9817a9c8d40876dc04c` passed both Push CI [40813501693](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40813501693) and PR CI [40813508518](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40813508518).
+- Clamp workflow pin updated to the corrected immutable SHA. The exact final head `a1aeb8f81845ba49b4a1a61518c15b1120a2ab0d` passed Push CI [40813714536](https://github.com/wosafety0/wosafety0clamp/actions/runs/40813714536); the new report-verifier step passed and the final acceptance gate succeeded. No PR-triggered run is present for this exact head, so only Push CI is counted as current validation. Earlier failed runs remain recorded as failures and are not counted as acceptance.
+- No local filesystem changes, model-provider calls, game actions, merge, release, or deployment.
+
+
+### 2026-10-29 — Trial PR integration state
+
+- The target branch had advanced by two commits since the trial branch diverged; the only changed path on the base side was `docs/PROJECT_kancollebot_Progress.md`. Reconciled the latest base progress entries with the trial's archived entries.
+- Created merge commit `7b48fc069b02df1fd5b8cf2dc50f7b3c23b2707c` on the feature branch with the latest base as its second parent. This syncs the feature branch; it does not merge PR #14.
+- PR #14 remains Draft/unmerged. After the branch sync GitHub reports it mergeable, and exact-head Push CI [40813891860](https://github.com/wosafety0/wosafety0clamp/actions/runs/40813891860) and PR CI [40813896564](https://github.com/wosafety0/wosafety0clamp/actions/runs/40813896564) both passed. The PR is not merged; no release or deployment occurred.
+
+## 2026-10-29 - Harness trial branch refreshed from current dev head
+
+- Refreshed Draft PR #14 branch `feat/harness-trial-gate-20261029` from current base `dev/expedition-closed-loop-mvp` at `7e958b4b1ac7e599f2a0d87150985a992603f9d7` using merge commit `a25f302e5af7ed4d1ed31d8802bf52ad9096d937`. The progress-log conflict was resolved byte-safely by preserving the current base history and appending the distinct Harness-trial entries; no source text was executed.
+- Offline validation on the merged tree passed: JavaScript tests **13/13**, Python compilation, Python unit tests **122/122**, and `git diff --check`.
+- Exact merge-head hosted Push CI [40824428251](https://github.com/wosafety0/wosafety0clamp/actions/runs/40824428251) passed runtime validation, the consumer acceptance command, report generation, artifact upload, strict report identity verification, and the final gate.
+- GitHub reports PR #14 mergeable against the current base; PR #14 remains Draft/open/unmerged. This only synchronizes the feature branch and does not merge the PR. No live model call, game action, release, or deployment occurred.
+
+
+## 2026-10-29 - Clamp trial current Harness pin offline verification
+
+- Verified `.github/workflows/harness-trial-acceptance.yml` already pins immutable Harness commit `982a84782db825689bd3b84c13cc168934375e44`; its exact-head Push CI [40841134517](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40841134517) and PR CI [40841140380](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40841140380) both completed successfully before the Clamp consumer head.
+- Offline validation on the Clamp trial worktree passed: Node tests **13/13**, Python compilation, Python unit tests **122/122**, and `git diff --check`.
+- Clamp exact-head Push CI [40846900954](https://github.com/wosafety0/wosafety0clamp/actions/runs/40846900954) completed successfully. PR-context CI for this exact head is not yet independently confirmed. PR #14 remains Draft/unmerged; no model-provider calls, game actions, merge, release, or deployment occurred.
+
+
 ## 2026-10-29 - Reject globally duplicated fleet state
 
 - Static review of `normalize_poi_fleets` found that individual fleet records were validated, but duplicate fleet IDs and the same ship instance appearing in multiple fleets were not rejected at the normalization boundary.
@@ -2289,3 +2348,69 @@ The Hand plugin's read-only probe reported:
 - PR 包含 11 个文件，集中整合安全门槛、离线回归测试与只读诊断探针。PR 当前为 Draft/Open/未合并；不自动合并、不修改分支保护。
 - 精确代码提交 `7accb7a7634c463526c953f2fa15a2e36e92942d` 的 CI 已通过；随后只修正了探针文档中的验证状态说明。PR 分支最新头为文档提交 `f25fb75637c471d96b250e46eb770769b3e4ea94`，核心代码仍对应已通过 CI 的提交。
 - 下一项必须完成的验收是：在用户当前 Poi 实例中运行被动探针，核实目标发现、自然发生的成功母港响应、精简快照输出及本地哈希。实机验证完成前，PR 保持 Draft，生产新鲜度门禁不放行，真实派遣继续关闭。
+## 2026-10-29 - Clamp trial synchronized and exact-head CI passed
+
+- Refreshed Draft PR #14 branch `feat/harness-trial-gate-20261029` from the current development base `caaba7338ae693b1f2f3734b5346de614f322170` with merge commit `58e8187660cb537f8447ebc22164f9d3301dba7f`, preserving both the trial-specific progress entries and the latest base progress entries. No source-code changes were introduced by this synchronization.
+- Re-ran the consumer-owned offline checks on the merged tree: Node tests **13/13**, Python compilation, Python unit tests **122/122**, and `git diff --check` all passed.
+- Exact-head Clamp Push CI [40850957958](https://github.com/wosafety0/wosafety0clamp/actions/runs/40850957958) and PR CI [40850965805](https://github.com/wosafety0/wosafety0clamp/actions/runs/40850965805) both completed successfully. Runtime validation, consumer command, report generation, artifact upload, report identity verification, and final gate passed.
+- GitHub reports PR #14 `CLEAN` / `MERGEABLE`, still Draft/open/unmerged. This branch synchronization does not merge the PR. No live model call, game action, release, or deployment occurred.
+
+
+## 2026-10-29 - Trial usage guide verification status corrected
+
+- Corrected stale wording in `docs/CLAMP_HARNESS_TRIAL_USAGE.md` that still described the consumer pin validation as pending despite later successful exact-head evidence. The guide now records Clamp head `a841627963a77701091bba69da74f09390b81c50` and its successful Push/PR CI runs `40851075661` / `40851082838`, while preserving the Draft/unmerged and no-automatic-promotion boundaries.
+- Documentation commit `1a2d8d441d748fcd79dc090004f07aa8b6324300` was pushed and the changed guide was read back from GitHub at that exact SHA. Its Push CI [40851281200](https://github.com/wosafety0/wosafety0clamp/actions/runs/40851281200) and PR CI [40851287548](https://github.com/wosafety0/wosafety0clamp/actions/runs/40851287548) both completed successfully.
+- This was a documentation accuracy fix only; no source implementation changed. PR #14 remains Draft/open/unmerged. No live model call, game action, release, or deployment occurred.
+
+## 2026-10-29 — Clamp Harness PR metadata and consumer-scope audit
+
+- Read the authoritative PR #14 metadata, changed-file list, workflow, usage guide, progress log, and current branch run list from GitHub at head f10f9d276d5c5b97964b35489867eaddde34da1a.
+- Scope check: PR changes are limited to .github/workflows/harness-trial-acceptance.yml, docs/CLAMP_HARNESS_TRIAL_USAGE.md, and docs/PROJECT_kancollebot_Progress.md. The consumer workflow grants only contents: read, pins Harness 982a84782db825689bd3b84c13cc168934375e44, and runs only Clamp-owned Node static tests, Python compilation, and offline Python unit tests. No copied Harness implementation, provider call, game action, deployment, or automatic merge was found in the reviewed workflow.
+- Found and corrected stale PR #14 description metadata: it named the superseded Harness pin 0173c597... and an old PR head. The updated description now names the current immutable pin and current head, links the exact-head Push/PR CI runs 40851371592 / 40851378667, and preserves the Draft/unmerged boundary.
+- Exact-head Push CI 40851371592 and PR CI 40851378667 both completed successfully for f10f9d276d5c5b97964b35489867eaddde34da1a. PR #14 remains open, Draft, and unmerged; branch comparison showed behind_by: 0 against base caaba7338ae693b1f2f3734b5346de614f322170.
+- This audit validates repository scope and offline acceptance evidence only; it does not prove live POI/game behavior or authorize merge/branch-protection promotion.
+## 2026-10-29 — Latest exact-head acceptance evidence added to trial guide
+
+- Follow-up audit confirmed the exact-head PR CI run 40852000842 completed successfully for consumer commit 722cd1e70669003f0fc2a5e51c9555fca588a562. Runtime validation, consumer command, redacted report generation, artifact upload, report identity verification, and final gate all succeeded; report artifact 12888045215 exists and is not expired.
+- Updated the Current evidence section of docs/CLAMP_HARNESS_TRIAL_USAGE.md to include the current Push/PR CI pair 40851991948 / 40852000842 and the exact commit, rather than leaving the latest listed normal acceptance at the earlier checkpoint.
+- The reusable workflow at Harness SHA 982a84782db825689bd3b84c13cc168934375e44 was read directly from GitHub. Its caller permissions remain contents: read; third-party actions are pinned to immutable SHAs; checkout disables persisted credentials; the acceptance command is passed through an environment variable and executed with bash strict mode; report generation and verification run unconditionally; final gate fails closed if any required stage is not successful.
+- Scope remains consumer workflow plus documentation only. PR #14 remains Draft/open/unmerged; no merge, deployment, model-provider call, or game operation occurred.
+
+## 2026-10-29 - Latest exact-head Harness acceptance audit
+
+- Re-read the Clamp consumer workflow at `8e703cb56c81208a634cd9dcdf7a4e42c83f95c4` and the reusable Harness workflow pinned at `982a84782db825689bd3b84c13cc168934375e44`. The consumer still grants only `contents: read`, keeps its acceptance command owned by Clamp, and runs the existing Node/Python offline checks; no change to the existing CI or runtime code was found.
+- Static audit confirmed the report verifier rejects duplicate JSON keys, unexpected/missing schema keys, malformed or mismatched consumer/workflow SHAs and refs, non-passing status, and any test-stage status other than `passed`. The final `always()` gate independently requires runtime, tests, report generation, artifact upload, and verification outcomes to be `success`. Exact-head PR run 40852688621 shows each required step succeeded.
+- Updated `docs/CLAMP_HARNESS_TRIAL_USAGE.md` to identify exact-head Push/PR runs 40852682505 / 40852688621 and report artifact 12888110966, including its recorded digest. This is documentation/evidence maintenance only. PR #14 remains Draft/open/unmerged; no merge, branch-protection promotion, deployment, model-provider call, or game operation occurred.
+
+
+## 2026-10-29 - Clarify existing CI trigger coverage for Harness trial
+
+- Read the current Clamp workflow inventory and exact `.github/workflows/ci.yml` at trial head `34f118eb019764e0d8ce05f80c105e94176c665c`. The existing CI is unchanged and grants `contents: read`, but triggers only on pushes to `main` / `dev/**`, PRs targeting `main`, or manual dispatch; it does not trigger for feature-branch pushes or PR #14 targeting `dev/expedition-closed-loop-mvp`.
+- Exact-head GitHub run inventory contains only the Harness Trial Acceptance Push and PR runs (40853298559 and 40853305610), both successful. Thus existing-CI independence is confirmed structurally, but existing CI was not independently exercised on this exact trial head. Updated the usage guide to state this coverage gap and require the normal development-branch CI path or separately run equivalent offline checks before integration; no workflow behavior was changed.
+- Report identity verifier and final gate remain fail-closed at the pinned Harness SHA. PR #14 remains Draft/open/unmerged; no merge, branch-protection change, deployment, provider call, or game operation occurred.
+
+## 2026-10-29 - Existing Clamp CI manually verified on trial head
+
+- Confirmed the existing `.github/workflows/ci.yml` supports `workflow_dispatch`; used that documented trigger to run workflow `CI` against `feat/harness-trial-gate-20261029` at exact head `d914953c4187ed8b82de4d1b389c08b06d218198`, without changing workflow configuration.
+- GitHub run [40854829135](https://github.com/wosafety0/wosafety0clamp/actions/runs/40854829135) completed successfully. Job steps confirmed checkout, Python setup, Node static extraction tests, Python compilation, and offline unit tests all succeeded.
+- This closes the same-head existing-CI coverage gap for the current trial commit. Evidence is limited to the workflow's offline checks; no live POI/game behavior is proven. PR #14 remains Draft/open/unmerged; no merge, deployment, provider call, or game operation occurred.
+
+- Follow-up accuracy note: the successful existing-CI manual dispatch above was run against code-bearing head `d914953c4187ed8b82de4d1b389c08b06d218198`. The subsequent `dc1308316cf13d0390726af11ba61b77e066f90a` commit changes documentation only; it does not alter the code exercised by that CI run. Future feature commits still need an explicit existing-CI dispatch or equivalent verification because the default triggers do not cover this PR.
+
+## 2026-10-29 - Refresh current-head acceptance evidence
+
+- Updated the usage guide to distinguish the current documentation-only PR head `88b8fdcc7b07a092629ac3149719dd554e29c80a` from the code-bearing head `d914953c4187ed8b82de4d1b389c08b06d218198`.
+- Recorded exact-current-head Harness Push run [40855320466](https://github.com/wosafety0/wosafety0clamp/actions/runs/40855320466), PR run [40855328844](https://github.com/wosafety0/wosafety0clamp/actions/runs/40855328844), and PR report artifact `12889001364` with digest `sha256:ad2356a8e0c8d58524ee81c28a7cd001d99414619892f95b65a72e64c51e014b`. Historical evidence entries are labeled as earlier runs to avoid implying they are current.
+- This is documentation/evidence maintenance only; no workflow or runtime behavior changed. PR #14 remains Draft/open/unmerged; no merge, branch-protection promotion, deployment, provider call, or game operation occurred.
+
+## 2026-10-29 - Verify latest code-bearing tree and report
+
+- The code-bearing tree remains `d914953c4187ed8b82de4d1b389c08b06d218198`; subsequent commits in this round modify only the trial usage guide and project progress evidence.
+- Harness Push [40855452371](https://github.com/wosafety0/wosafety0clamp/actions/runs/40855452371) and PR [40855460351](https://github.com/wosafety0/wosafety0clamp/actions/runs/40855460351) passed at documentation-bearing head `a5520d5f85d2bbd738f6a034512b2221ca543b50`. PR report artifact `12888818280`, digest `sha256:66c61f41145895faf310bf014cc19b9968078ddfe5d6c6e87fe5839ac4647122`.
+- The latest usage guide now distinguishes the latest workflow-tested head from later documentation-only updates. This remains offline static/compile/unit-test evidence; no live POI/game behavior is proven. PR #14 remains Draft/open/unmerged; no merge, branch-protection promotion, deployment, provider call, or game operation occurred.
+
+## 2026-10-29 - Refresh exact-head Harness evidence at b6f9ed9
+
+- Read the current PR #14 metadata and fetched both exact-head Harness jobs and report artifact from GitHub. At documentation-only head `b6f9ed9eb5977dd10e5172433e83553023b3692d`, Push run [40855583391](https://github.com/wosafety0/wosafety0clamp/actions/runs/40855583391) and PR run [40855589855](https://github.com/wosafety0/wosafety0clamp/actions/runs/40855589855) passed all required stages; PR artifact `12889012276` has digest `sha256:8eeb9e8db6aa35218d08938d7c0d6292c684ca885386437f6f364ddef2244724`.
+- Updated the usage guide's Current evidence paragraph to reflect this latest verified head instead of the previous `a5520d5f...` evidence. The underlying code-bearing head remains `d914953c4187ed8b82de4d1b389c08b06d218198`; existing Clamp CI passed on that code-bearing head via manual dispatch [40854829135].
+- Documentation-only evidence correction; no workflow or runtime code changed. PR #14 remains Draft/open/unmerged. Offline checks do not establish live POI/game behavior or authorize merge/branch-protection promotion.

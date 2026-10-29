@@ -1,0 +1,22 @@
+name: Harness Trial Acceptance
+
+on:
+  push:
+    branches: ["feat/harness-trial-gate-*"]
+  pull_request:
+    branches: ["dev/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  harness-acceptance:
+    uses: wosafety0/dev-workflow-kit/.github/workflows/reusable-acceptance.yml@982a84782db825689bd3b84c13cc168934375e44
+    with:
+      runtime: "python"
+      python-version: "3.12"
+      test-command: >-
+        node --test tests/static_decoder_extract.test.cjs tests/verify_cdp_snapshot.test.cjs
+        && python -m compileall -q src tests
+        && PYTHONPATH=src python -m unittest discover -s tests -v
