@@ -2403,3 +2403,11 @@ The Hand plugin's read-only probe reported:
 - 本机只读运行验证（为避免等待而将 observer 子进程超时显式设为 2 秒）：MCP 读取成功，返回 3 个舰队；结果为 `FRESHNESS_UNVERIFIED`、`source_freshness_verified=false`、`observer_status=process_timeout`、`game_actions_enabled=false`，退出码 2 表示证据未验证，PowerShell 将其作为预期的 fail-closed 结果接受。该次短超时不是实时响应捕获测试，也没有刷新、输入或主动游戏 API 请求。
 - 默认 `PoiExpeditionReader` 未配置 witness provider 时行为不变，仍保持 freshness=false；只有显式注入可信实时 observer 后，才会等待自然响应并验证捕获时间与当前 MCP 状态字段。当前项目仍没有已接入该读取器的真实派遣应用入口，web UI 仍只是健康诊断控制台，因此本阶段不代表完整自动远征闭环。
 - **当前阻塞边界：** 最近一次完整 120 秒被动观察没有自然 `api_port/port` 响应，无法完成真实 witness 交接验收。由于当前授权明确禁止刷新或操作游戏，不再人为触发响应。下一步继续离线审查/接入边界；只有在自然响应出现时才能完成端到端 freshness 验收。真实派遣保持关闭。
+
+
+### 2026-10-29 api_mission 字段语义的外部源码交叉核查
+
+- 只读审查当前分支 `src/kancollebot/adapters/poi/expedition_state_v2.py` 后，确认代码仍将 `api_mission` 的时间槽保持为未解释状态，并拒绝状态值 3；本轮没有根据测试夹具推断真实 API 语义。
+- 对外部资料做了交叉核查：KanColle Wiki 社区 API 指南将数组描述为 `[状态, 任务 ID, 返回时间, 未知槽]`，列出状态 0/1/2/3 并称返回时间为 Unix epoch 毫秒；独立实现 `shichiria/kancolle-browser/src-tauri/src/api/fleet.rs` 的 `parse_expedition()` 也按槽位 0/1/2 解析状态、任务 ID 和返回时间。另一个公开 API 样例只用于佐证空闲数组形状。研究说明已保存至 `docs/research/POI_API_MISSION_SEMANTICS_RESEARCH_20261029.md`。
+- **证据等级与限制：** 这些是社区文档/独立客户端源码，不是当前游戏服务器的官方规范；本轮没有取得当前目标的新鲜实时样本，尚未验证时间单位、状态 3 的当前表现或返回状态转换。因此没有修改归一化代码、没有调整生产 freshness 门禁、没有启用任何游戏操作。生产 `source_freshness_verified` 仍须通过现有实时 witness 门禁。
+- 远程归档：研究记录已提交并从目标分支回读，blob SHA 为 `8e5d2e4104dc7d507a4a65a251e5666130e4d6de`；本进度日志更新后还需单独回读确认。
