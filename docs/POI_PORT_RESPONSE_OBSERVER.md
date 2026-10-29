@@ -1,12 +1,13 @@
 # Passive Poi Port Response Observer
 
-## Status
+## Current status
 
-- Implementation: committed on branch `dev/poi-safety-consolidation-20261029` and run on the user's local Poi instance as a bounded, passive observer.
-- Automated verification: static safety-contract test passed; GitHub Actions run [40858395913](https://github.com/wosafety0/wosafety0clamp/actions/runs/40858395913) passed, including Python compilation and 130 Python unit tests.
-- Runtime preflight: verified exactly one matching DMM KanColle webview target and successful CDP `Network.enable`; the observer remained armed for 120 seconds and exited cleanly when no qualifying natural port response arrived. Follow-up read-only `Page.getFrameTree` identified a nested `htmlWrap` frame at `https://w14h.kancolle-server.com/kcs2/index.php`. Its default execution context reported one canvas and one `/kcsapi/api_port/port` resource-timing entry (`startTime≈9313 ms`, `duration≈453 ms`). The timing entry reflects page-load activity before the observer was armed; transfer-size fields were zero, and the timing entry provides no response body or source-freshness proof. The top-level DMM wrapper itself has zero canvas elements. After identifying the active game frame, a second full 120-second passive observation window also ended without a qualifying new port response; no snapshot was created. This supports only the bounded observation result for the current idle interval, not a general claim that the game never polls. Successful response-body capture and payload validation remain **unverified**.
-- Intended use: observe a naturally occurring successful `/kcsapi/api_port/port` network response through loopback Chrome DevTools Protocol (CDP), then save a compact local snapshot for manual review.
-- This is a diagnostic artifact, not production integration and not permission to dispatch expeditions.
+- Implementation: committed on branch `dev/poi-safety-consolidation-20261029`; the observer has been run on the user's local Poi instance as a bounded, passive observer.
+- **Natural response capture:** a successful, non-cache HTTP 200 `/kcsapi/api_port/port` response was captured on 2026-10-29 and its compact payload structure was checked. This verifies the capture path and payload shape for that historical sample only.
+- **Current in-memory witness gate:** the stdout handoff and reader integration have offline tests, but a successful natural-response capture through the current witness handoff followed by a matching current MCP read has not been verified end to end. The historical snapshot must not be reused as freshness evidence.
+- **Automated verification recorded by the project:** the diagnostic bridge was previously validated with 148/148 Python unit tests, a JavaScript syntax check, and diagnostic `--help`. Those are prior results, not tests rerun during the latest static reviews.
+- Intended use: passively observe a naturally occurring successful `/kcsapi/api_port/port` response through loopback Chrome DevTools Protocol (CDP), then compare an in-memory compact witness against current Poi MCP state.
+- This is a diagnostic artifact, not a production integration and not permission to dispatch expeditions. Live dispatch remains disabled.
 
 ## Safety contract
 
