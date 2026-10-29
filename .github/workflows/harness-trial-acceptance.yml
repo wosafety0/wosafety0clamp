@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   harness-acceptance:
-    uses: wosafety0/dev-workflow-kit/.github/workflows/reusable-acceptance.yml@65544e290fd875bb6c4e30f6525b238200037bba
+    uses: wosafety0/dev-workflow-kit/.github/workflows/reusable-acceptance.yml@07b8000ab8c2a1dad0f91bd29e2d84028bec2c93
     with:
       runtime: "python"
       python-version: "3.12"
