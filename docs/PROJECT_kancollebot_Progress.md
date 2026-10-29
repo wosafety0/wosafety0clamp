@@ -389,7 +389,7 @@
 ### 2026-10-24 Shallow inventory identifies Cloud-only directory
 
 - User-provided read-only inventory at 2026-10-24 15:13:33 +08:00 confirms `D:\Project_KancolleBot` exists but contains exactly one immediate child: directory `Cloud`.
-- The path has no `.git`, `05_Docs\PROJECT_RULES.md`, `src`, `tests`, or `.github\workflows\ci.yml`. The inventory also listed immediate children of `D:`; it did not perform recursive search.
+- The path has no `.git`, `05_Docs\PROJECT_RULES.md`, `src`, `tests`, or `.github\workflows\ci.yml`. The inventory also listed immediate children of `D:\`; it did not perform recursive search.
 - No file changes, network requests, game actions, or access to `D:\KancolleBot\Source` occurred.
 - Interpretation: the configured project path is not currently a recognizable checkout. This does **not** prove that source files were deleted; the `Cloud` child may be a sync/workspace entry or unrelated directory.
 - Next step: inspect only the `Cloud` directory's attributes/reparse-point metadata and its immediate children. Do not recurse across the drive, clone into this path, or run tests until the authoritative checkout and local `05_Docs\PROJECT_RULES.md` are located.
