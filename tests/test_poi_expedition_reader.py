@@ -15,8 +15,8 @@ def sample_payloads():
             "items": [{"api_id": 1, "api_ship": [101, -1, 102], "api_mission": [0, 0, 0, 0]}]},
         "info.ships": {"kind": "object-map", "total": 2, "returned": 2, "truncated": False,
             "items": {
-                "101": {"api_ship_id": 11, "api_nowhp": 10, "api_maxhp": 10, "api_fuel": 10, "api_bull": 10},
-                "102": {"api_ship_id": 11, "api_nowhp": 10, "api_maxhp": 10, "api_fuel": 10, "api_bull": 10},
+                "101": {"api_id": 101, "api_ship_id": 11, "api_nowhp": 10, "api_maxhp": 10, "api_fuel": 10, "api_bull": 10},
+                "102": {"api_id": 102, "api_ship_id": 11, "api_nowhp": 10, "api_maxhp": 10, "api_fuel": 10, "api_bull": 10},
             }},
         "lookup": {"11": {"api_fuel_max": 10, "api_bull_max": 10}},
     }
@@ -66,9 +66,105 @@ class PoiExpeditionReaderTests(unittest.TestCase):
         client = FakeClient(**kwargs)
         return client, PoiExpeditionReader(client=client, clock=lambda: NOW)
 
+    def make_port_snapshot(self, payloads=None):
+        payloads = payloads or sample_payloads()
+        fleets = payloads["info.fleets"]["items"]
+        ships = payloads["info.ships"]["items"]
+        compact_fleets = [
+            {
+                field: fleet[field]
+                for field in ("api_id", "api_name", "api_mission", "api_ship")
+                if field in fleet
+            }
+            for fleet in fleets
+        ]
+        ship_fields = (
+            "api_id", "api_ship_id", "api_nowhp", "api_maxhp",
+            "api_fuel", "api_bull", "api_cond",
+        )
+        compact_ships = {
+            str(key): {
+                field: record[field]
+                for field in ship_fields
+                if field in record
+            }
+            for key, record in ships.items()
+        }
+        return {
+            "schemaVersion": 1,
+            "verificationStatus": "CAPTURED_UNDER_STATICALLY_REVIEWED_PROBE",
+            "source": {
+                "kind": "cdp-network-response",
+                "path": "/kcsapi/api_port/port",
+                "host": "w14h.kancolle-server.com",
+                "httpStatus": 200,
+                "responseReceivedAt": "2026-10-24T11:59:58.000Z",
+                "bodyCapturedAt": "2026-10-24T11:59:59.000Z",
+                "fromDiskCache": False,
+                "fromServiceWorker": False,
+                "fromPrefetchCache": False,
+                "responseBodySha256": "a" * 64,
+                "responseBodyBytes": 1024,
+            },
+            "data": {
+                "api_deck_port": compact_fleets,
+                "api_ship": compact_ships,
+            },
+            "summary": {
+                "fleetCount": len(compact_fleets),
+                "shipCount": len(compact_ships),
+            },
+            "safety": {
+                "gameInputSent": False,
+                "gameApiRequestInitiated": False,
+                "runtimeEvaluateUsed": False,
+                "fullRawResponseSaved": False,
+                "productionFreshnessGateChanged": False,
+            },
+        }
+
+    def test_matching_live_port_snapshot_marks_source_freshness_verified(self):
+        payloads = sample_payloads()
+        snapshot = self.make_port_snapshot(payloads)
+        client = FakeClient(payloads=payloads)
+        reader = PoiExpeditionReader(
+            client=client,
+            clock=lambda: NOW,
+            port_snapshot_provider=lambda: snapshot,
+        )
+        observed = reader.read_fleets()
+        self.assertTrue(observed.source_freshness_verified)
+
+    def test_mismatched_live_port_snapshot_keeps_freshness_unverified(self):
+        payloads = sample_payloads()
+        snapshot = self.make_port_snapshot(payloads)
+        snapshot["data"]["api_ship"]["101"]["api_fuel"] = 9
+        client = FakeClient(payloads=payloads)
+        reader = PoiExpeditionReader(
+            client=client,
+            clock=lambda: NOW,
+            port_snapshot_provider=lambda: snapshot,
+        )
+        observed = reader.read_fleets()
+        self.assertFalse(observed.source_freshness_verified)
+
+    def test_stale_live_port_snapshot_keeps_freshness_unverified(self):
+        payloads = sample_payloads()
+        snapshot = self.make_port_snapshot(payloads)
+        snapshot["source"]["bodyCapturedAt"] = "2026-10-24T11:58:00.000Z"
+        client = FakeClient(payloads=payloads)
+        reader = PoiExpeditionReader(
+            client=client,
+            clock=lambda: NOW,
+            port_snapshot_provider=lambda: snapshot,
+        )
+        observed = reader.read_fleets()
+        self.assertFalse(observed.source_freshness_verified)
+
     def test_reads_fleet_with_targeted_master_lookup(self):
         client, reader = self.make_reader()
         observed = reader.read_fleets()
+        self.assertFalse(observed.source_freshness_verified)
         self.assertEqual(observed.observed_at, NOW)
         self.assertEqual(len(observed.payload), 1)
         self.assertEqual(observed.payload[0].fleet_id, 1)
