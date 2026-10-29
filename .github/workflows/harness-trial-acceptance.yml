@@ -14,7 +14,7 @@ jobs:
   harness-acceptance:
     uses: wosafety0/dev-workflow-kit/.github/workflows/reusable-acceptance.yml@0173c597e82364a91e50f9817a9c8d40876dc04c
     with:
-      runtime: "python"
+      runtime: "unsupported-runtime-negative-test"
       python-version: "3.12"
       test-command: >-
         node --test tests/static_decoder_extract.test.cjs tests/verify_cdp_snapshot.test.cjs
