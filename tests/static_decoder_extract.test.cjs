@@ -172,7 +172,7 @@ test('writes full extracted definitions to a sidecar while keeping console outpu
   const largeLiteral = 'A'.repeat(190000);
   const fixture = [
     'function _0x3353(x) { return x; }',
-    'const _0x3f23 = function () { return "' + largeLiteral + '"; };',
+    'function _0x3f23() { const big = "' + largeLiteral + '"; return [big]; }',
     'function _0x466acb() { return _0x460358(0x1); }',
     'const _0x460358 = _0x3353;'
   ].join('\\n');
