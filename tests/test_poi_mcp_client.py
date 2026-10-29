@@ -34,11 +34,43 @@ class PoiMcpClientTests(unittest.TestCase):
         ))
 
     def test_client_disables_environment_proxy(self):
-        client = PoiMcpClient()
-        proxy_handlers = [handler for handler in client._opener.handlers
-                          if isinstance(handler, urllib.request.ProxyHandler)]
-        self.assertEqual(len(proxy_handlers), 1)
-        self.assertEqual(proxy_handlers[0].proxies, {})
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, _format, *_args):
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        proxy_config = {
+            "HTTP_PROXY": "http://127.0.0.1:1",
+            "HTTPS_PROXY": "http://127.0.0.1:1",
+            "ALL_PROXY": "http://127.0.0.1:1",
+            "http_proxy": "http://127.0.0.1:1",
+            "https_proxy": "http://127.0.0.1:1",
+            "all_proxy": "http://127.0.0.1:1",
+            "NO_PROXY": "",
+            "no_proxy": "",
+        }
+        try:
+            with patch.dict("os.environ", proxy_config, clear=False):
+                client = PoiMcpClient(
+                    f"http://127.0.0.1:{server.server_port}/mcp"
+                )
+                request = urllib.request.Request(client.endpoint)
+                with client._opener.open(request, timeout=2) as response:
+                    self.assertEqual(response.status, 200)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
 
     def test_rejects_action_tool(self):
         client = PoiMcpClient()
