@@ -42,6 +42,7 @@ class ActionPreflightTests(unittest.TestCase):
             payload={},
             observed_at=self.now - timedelta(minutes=2),
             source="unit-test",
+            source_freshness_verified=True,
         )
         with self.assertRaisesRegex(ValueError, "stale"):
             authorize_planned_action(
@@ -58,6 +59,7 @@ class ActionPreflightTests(unittest.TestCase):
             payload={},
             observed_at=self.now + timedelta(seconds=1),
             source="unit-test",
+            source_freshness_verified=True,
         )
         with self.assertRaisesRegex(ValueError, "stale"):
             authorize_planned_action(
