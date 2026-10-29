@@ -310,13 +310,12 @@ module.exports = function() {
       ? path.join(path.dirname(snapshot.sourcePath), path.basename(snapshot.sourcePath, '.js') + '.extraction.json')
       : null;
     const fullReport = Object.assign({}, report, {
-      extractionArtifact: { path: extractionPath, status: extractionPath ? 'PENDING_WRITE' : 'UNAVAILABLE' }
+      extractionArtifact: { path: extractionPath, status: extractionPath ? 'SAVED' : 'UNAVAILABLE' }
     });
     let artifactError = null;
     if (extractionPath) {
       try {
         fs.writeFileSync(extractionPath, JSON.stringify(fullReport, null, 2) + String.fromCharCode(10), { encoding: 'utf8', flag: 'wx' });
-        fullReport.extractionArtifact.status = 'SAVED';
       } catch (error) {
         artifactError = 'Extraction artifact write failed: ' + (error.message || String(error));
         fullReport.extractionArtifact.status = 'WRITE_FAILED';
