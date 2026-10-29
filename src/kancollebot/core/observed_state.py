@@ -25,13 +25,6 @@ class ObservedState(Generic[T]):
             raise ValueError("source_freshness_verified must be a bool")
 
     def require_source_freshness_verified(self) -> None:
-        """Refuse safety-sensitive use without independent source freshness evidence."""
-        if not self.source_freshness_verified:
-            raise ValueError("Source data freshness has not been verified")
-        if not isinstance(self.source_freshness_verified, bool):
-            raise ValueError("source_freshness_verified must be a bool")
-
-    def require_source_freshness_verified(self) -> None:
         """Refuse safety-sensitive use without independent source freshness evidence.
 
         A recent local observation timestamp alone is not evidence that the
