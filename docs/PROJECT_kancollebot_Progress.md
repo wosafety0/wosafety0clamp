@@ -1956,3 +1956,12 @@ The Hand plugin's read-only probe reported:
 - 代码提交 `d17ecb9fa002f6705821c87f2e8653625227315a`；回归测试提交 `c9bb657e3791e43c992f0b9e04bf0c87b76a8c51`，覆盖模拟 Windows 风格文件名。
 - [GitHub Actions run 40797386740](https://github.com/wosafety0/wosafety0clamp/actions/runs/40797386740) 对应最新测试提交，已完成且结论为 `success`。源码与测试从权威远程分支回读，blob 分别为 `b60e16bf535630b2d80d8872c36c62797e55928a`、`9e6fc36b835c26cedeb2154185ddb10ecf95819d`。
 - 验收范围为合成离线数据与 CI；真实 Poi/Hand 快照采集尚未验证。
+
+
+## 2026-10-29 — Static extractor report status now reflects actual completeness
+
+- Fixed a reporting correctness issue in `tools/hand_sandbox/static_decoder_extract_20261027.js`: the JSON report previously hard-coded `STATIC_EXTRACTION_COMPLETE` even when one or more required definitions were missing. The report now derives its status from the presence of `_0x3353`, `_0x3f23`, and `_0x466acb`; missing definitions yield `PARTIAL_EXTRACTION`, and a failed snapshot save yields `SNAPSHOT_WRITE_ERROR` when definitions are otherwise present.
+- Added offline tests for both partial and complete report states, including extracted decoder/table/factory/alias fields, decoder call capture, and safety flags. Tests operate on synthetic strings and instrument the production lexical functions only; they do not connect to CDP/Poi, execute page source, call game functions/getters, or send input.
+- Exact-head CI [run 40802538224](https://github.com/wosafety0/wosafety0clamp/actions/runs/40802538224) passed on commit `d1012091954f037757e38684b8c4472c5f11dfae`; the Node static extraction and snapshot-verifier tests, Python compilation, and Python unit tests all completed successfully.
+- Authoritative remote readback confirmed production extractor blob `80280ad548b9016f96ea1fc94e0f85c25c0d43e8` and test blob `f6a28dd71091bb2a7806638cfd2c7814fc881f63`.
+- **Boundary:** offline extractor/report semantics are verified. This does not complete live-source extraction or offline analysis of the real Poi `main.js`; the current chat has no newly captured local snapshot/metadata to verify. No live game code was executed and no game input was sent.
