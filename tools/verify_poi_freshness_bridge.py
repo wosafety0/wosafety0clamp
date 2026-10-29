@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import timedelta
+import math
 import sys
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -64,8 +65,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Maximum age for both response receipt and body capture timestamps.",
     )
     args = parser.parse_args(argv)
-    if args.max_age_seconds < 0:
-        parser.error("--max-age-seconds must not be negative")
+    if not math.isfinite(args.timeout_seconds) or args.timeout_seconds <= 0:
+        parser.error("--timeout-seconds must be finite and positive")
+    if not math.isfinite(args.max_age_seconds) or args.max_age_seconds < 0:
+        parser.error("--max-age-seconds must be finite and non-negative")
 
     observer = PassivePortResponseObserver(
         args.observer_script,
