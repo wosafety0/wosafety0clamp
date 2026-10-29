@@ -2039,3 +2039,30 @@ The Hand plugin's read-only probe reported:
 - Validation: JavaScript tests **13/13 passed**; Python compilation passed; Python unit tests **122/122 passed** with both `src` and repository root on `PYTHONPATH`; `git diff --check` passed.
 - Re-ran the production extractor against the real snapshot after the change: SHA-256 unchanged, `_0x466acb` boundaries remain **8,464,467–8,465,759**, length **1,292**, following comma excluded.
 - This compatibility extension is verified in the local clone only; no GitHub push has been performed.
+
+
+## 2026-10-29 — Whole-source decoder inventory (offline)
+
+- Added local-only analyzer `offline_global_decoder_scan_20261029.js` and JSON output `offline_global_decoder_report_20261029.json` in the snapshot directory; neither is added to the public repository. The current script references the Esprima package already installed in this Windows user's npm cache, so that dependency path must be adjusted if reused on another machine.
+- The analyzer revalidated the expected SHA-256, 14,271-entry string table, and 323-step rotation. Esprima tokenization (without evaluating or parsing the captured source) excludes quoted strings and comments from call-site matching. It identified **2,273** direct decoder aliases, **2,270** aliases with numeric-literal calls, and decoded **22,196/22,196** numeric-literal call sites with **0 invalid indices**. The rotation call is at source offset **318,806**: the first **12** decoder calls before it use the original table order, while the following **22,184** use the rotated table. The analyzer selects the table state by each call's source offset rather than applying the final rotation to earlier calls.
+- The decoded inventory contains **6,748 unique string values** after accounting for pre-rotation calls, and summarizes call density across 17 contiguous source regions of 500,000 characters each (final region shorter). Per-region summaries also track unique decoded names and aliases; for example, the first 500,000 characters contain 1,097 calls / 338 unique values, while the final region contains 1,505 calls / 705 unique values. The report was written and read back as valid JSON (about 3.18 MB).
+- Frequently repeated decoded names include `defineProperty`, `__esModule`, `dispose`, `Container`, `initialize`, `__importDefault`, `update`, `TaskBase`, `activate`, and `deactivate`; these are aggregate counts, not a claim that every decoded value is a property name.
+- Added token-balanced numeric-keyed module-factory ranges to the same local report: **2,199** non-overlapping factory bodies were found; **2,198** contain at least one decoded call. Of 22,196 decoded calls, **22,159** map into a detected factory and 37 are outside these factory ranges. Per-module summaries record source boundaries, decoder aliases, unique names, and frequent decoded values; the report is about 3.17 MB. These are structural boundaries, not proof that every candidate corresponds to a semantically understood application module.
+- Safety scope remains static text only: the report marks captured source evaluation, game-function/getter invocation, CDP connection, and game input as false. This is a broad decoder inventory, not full semantic reconstruction of each module or proof of runtime behavior.
+
+
+## 2026-10-29 — Startup-tail module map (offline)
+
+- The token-balanced module report was expanded to retain every decoded value for module factories at offsets >= 8,400,000, while keeping only frequency summaries for earlier modules. This preserves a focused, local-only view of the startup tail without duplicating all source text.
+- Static module identifiers and decoded names in the tail include: `0x2bd6` (`width`, `height`, `_width`, `_height`); `0xdd98` (`_getInstance`, `view`, `settings`, `option`, `model`, `resources`, `scene`, `sound`, `friendlyRequest`); `0x806b` (ticker/FPS/timing and wheel-event names); and `0x3c0b` (font-loading identifiers such as `FontFace`, `fontdeck`, `typekit`, `fontloading`, and `userAgent`).
+- The final module `0x59ba` contains a decoded JSON-shaped resource/voice manifest string with numeric arrays. Only its structural type and key names are noted here; the full string remains in the local report and is not copied into the repository progress log.
+- These are static decoded identifiers and source boundaries, not runtime execution evidence or a claim that all module behavior has been reconstructed.
+
+
+## 2026-10-29 — Domain-module decoded identifier maps (offline)
+
+- Extended the local global report to retain full decoded identifier lists for selected domain modules, in addition to the startup tail.
+- Module `0x12fc7` (offsets 1,035,173–1,051,474) has 96 decoder calls / 94 unique names and exposes the `ShipModel` / `ShipModelEdit` model surface, including `__updateAmmo__`, `__updateFuel__`, `__updateNowHp__`, `getRepairTime`, `getSlotitems`, `getSlotitemTousai`, `hpNow`, `hpMax`, `fuelNow`, `ammoNow`, and `isDamaged`.
+- Module `0xd056` (offsets 1,115,980–1,130,914) has 60 calls / 58 unique names and exposes `ShipModelReplica` identifiers including `causeDamage`, `initializeHPInfo`, `initializeSlots`, `is_enemy_break`, `hp_now`, `hp_max`, `updateHpNow`, `useRation`, `useRepairItem`, and `useReplenishment`.
+- Module `0xd225` contains 148 calls / 80 unique names, with `EquipType` appearing 67 times and additional equipment filtering/rarity constants. Module `0xb705` contains 64 calls / 62 unique names and exposes `GameData` / `HighScore` plus game-stage, wave, score, and timer lifecycle method names.
+- This is identifier-level mapping only; it does not execute the game or prove when these methods run. Full decoded lists remain local in the JSON report.
