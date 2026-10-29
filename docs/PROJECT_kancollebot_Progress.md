@@ -2007,3 +2007,11 @@ The Hand plugin's read-only probe reported:
 - Harness CI [run 40801822443](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40801822443) succeeded on the exact expanded test commit; logs confirm 100 offline tests passed and compile, report generation, artifact upload, and final gate steps succeeded. Test file blob read back from GitHub: `a8e9d378c839d2d581a8cacda3350fcd0b756716`.
 - Failure diagnostics are traceable through the named `Run consumer-owned acceptance command` step, its shell error, the redacted report's failed status, and the final gate's `tests` label. The redacted artifact intentionally does not embed raw command output.
 - Acceptance boundary: this proves the shell guard and final-gate behavior in isolated tests, not a full hosted reusable-workflow run supplied with empty/invalid input. PR #14 remains draft and unmerged; the current reusable-workflow pin is unchanged. No game operations, provider API calls, merge, or deployment occurred.
+
+
+## 2026-10-29 — Hosted empty-command fail-closed verification
+
+- Created isolated branch `test/harness-empty-command-hosted-20261029` from the current trial head solely to exercise the empty-input negative path; probe workflow: `.github/workflows/harness-empty-command-negative-path.yml`, pinned to reusable workflow SHA `65544e290fd875bb6c4e30f6525b238200037bba`.
+- The hosted run [40802071906](https://github.com/wosafety0/wosafety0clamp/actions/runs/40802071906) completed with conclusion `failure`, which is the expected result for this negative-path probe. The acceptance command guard emitted `test-command must not be empty.` and exited 2; the redacted report recorded `status: failed`; artifact upload succeeded (artifact ID `12866197367`); the final gate exited 1 and named `tests`.
+- This verifies the current pinned reusable workflow's empty-command path in a real hosted consumer call, closing the earlier evidence gap left by isolated contract tests alone. The red workflow result is intentional fail-closed behavior, not a successful normal acceptance run.
+- The probe workflow is isolated on its test branch and is not part of Draft PR #14. No merge, release, deployment, game operation, or provider API call occurred; PR #14 remains draft/unmerged and its pinned workflow is unchanged.
