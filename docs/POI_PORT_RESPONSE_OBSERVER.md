@@ -31,3 +31,11 @@ A successful capture would establish that the current Poi page exposed a fresh, 
 - The Nanodesu MCP health endpoint independently returned `status=ok` and `storeReady=true`.
 - No observer was armed and no snapshot was created in this preflight. Natural `api_port/port` response capture, response-body validation, and snapshot hashing remain **unverified**.
 - Safety: read-only CDP target discovery and MCP health read only; no game input, refresh, or game API request was initiated.
+
+
+## Follow-up runtime capture validation — 2026-10-29
+
+- Supersedes the earlier status wording above that successful response-body capture remained unverified: a later passive observation did capture a natural, non-cache HTTP 200 `/kcsapi/api_port/port` response after the observer was armed. A compact local snapshot was saved and its JSON syntax and structure were independently checked.
+- Snapshot: `Desktop/KancolleBot-Port-Snapshots/poi-port-snapshot-20261029T140534.950Z.json`; 19,694 bytes; snapshot file SHA-256 `70a5c5b3d709061b1f5ca7062e09849aa981f3ba14ced643c5aed4e2d70d61f7`. Captured response-body SHA-256 `11946f7e1e112d05bce29f972d454f2d48484576a750d1e3e3435558f84412f6`.
+- Runtime payload check passed: 3 fleet records; 92 ship records in an object keyed by ship instance ID; all keys matched `api_id`, IDs were unique, basic ship HP/ID checks passed, fleet record shapes passed, and all 14 positive fleet ship references resolved within the snapshot.
+- This validates a real capture point and compact payload structure only. The local receipt timestamp is not a server timestamp; it does not prove synchronization with later MCP store reads, continuing freshness, or full expedition-loop correctness. No production gate was changed and no game action was performed. The earlier historical preflight sections are retained as a record of what was known at those times.
