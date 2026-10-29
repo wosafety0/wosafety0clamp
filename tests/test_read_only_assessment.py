@@ -7,7 +7,10 @@ from kancollebot.expeditions.planner import (
     ExpeditionDecision,
     ExpeditionFleetSnapshot,
 )
-from kancollebot.expeditions.read_only_assessment import assess_observed_fleets
+from kancollebot.expeditions.read_only_assessment import (
+    ReadOnlyFleetAssessment,
+    assess_observed_fleets,
+)
 
 NOW = datetime(2026, 10, 29, 12, 0, tzinfo=timezone.utc)
 
@@ -65,6 +68,16 @@ class ReadOnlyAssessmentTests(unittest.TestCase):
         )
         self.assertIsNone(result[0].decision)
         self.assertFalse(result[0].dispatch_eligible)
+
+    def test_dispatch_eligibility_cannot_be_enabled_by_constructor(self):
+        with self.assertRaisesRegex(TypeError, "dispatch_eligible"):
+            ReadOnlyFleetAssessment(
+                fleet_id=1,
+                decision=None,
+                reason="planning suppressed",
+                observation_accepted=False,
+                dispatch_eligible=True,
+            )
 
     def test_negative_max_age_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "must not be negative"):

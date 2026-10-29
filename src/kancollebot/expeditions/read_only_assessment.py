@@ -6,7 +6,7 @@ Passing those gates still does not authorize a gameplay action.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from kancollebot.core.observed_state import ObservedState
@@ -25,7 +25,7 @@ class ReadOnlyFleetAssessment:
     decision: ExpeditionDecision | None
     reason: str
     observation_accepted: bool
-    dispatch_eligible: bool = False
+    dispatch_eligible: bool = field(default=False, init=False)
 
 
 def assess_observed_fleets(
