@@ -29,6 +29,7 @@ def normalize_poi_fleets(
     master_ships_payload: Any,
     *,
     observed_at: datetime,
+    source_freshness_verified: bool = False,
 ) -> ObservedState[tuple[ExpeditionFleetSnapshot, ...]]:
     """Normalize fleet, roster, and master ship records.
 
@@ -137,4 +138,9 @@ def normalize_poi_fleets(
             ammo_ready=ammo_ready,
             damaged_ship_ids=tuple(damaged),
         ))
-    return ObservedState(tuple(snapshots), observed_at, "poi-redux:info.fleets+info.ships")
+    return ObservedState(
+        tuple(snapshots),
+        observed_at,
+        "poi-redux:info.fleets+info.ships",
+        source_freshness_verified=source_freshness_verified,
+    )
