@@ -2324,3 +2324,10 @@ The Hand plugin's read-only probe reported:
 - 本轮仅做 GitHub 远程源码审查及文档归档；未调用 DC、未执行本地测试、未刷新或操作游戏。运行时来源新鲜度仍为 **未验证**，真实派遣保持关闭。
 - 下一步应继续静态审查可用的被动来源证据及测试契约；在找到可独立验证的源版本/刷新信号之前，不修改生产新鲜度门禁。
 
+### 2026-10-29 新鲜度门禁回归测试覆盖复核
+
+- 静态读取 `tests/test_action_preflight.py`，确认已有 `test_rejects_recent_observation_without_source_freshness_evidence`：观察时间仅 1 秒、但未设置来源新鲜度证据时，行动前置检查预期抛出 `Source data freshness has not been verified`。
+- 静态读取 `tests/test_expedition_runner.py`，确认已有 `test_unverified_source_freshness_blocks_dispatch`：来源新鲜度为 false 时，runner 预期返回 `blocked_by_preflight` 且派遣调用列表为空。
+- 这两项是已存在的回归测试定义；本轮只读取 GitHub 源码，没有执行测试，因此不新增“测试通过”的声明，也没有必要重复添加同类测试。
+- 结论：生产门禁和既有离线测试在“本地观察时间不能替代来源新鲜度证明”这一点上保持一致。运行时来源新鲜度仍未验证，真实派遣保持关闭。
+
