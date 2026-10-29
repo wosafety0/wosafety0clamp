@@ -12,8 +12,9 @@ permissions:
 
 jobs:
   harness-acceptance:
-    uses: wosafety0/dev-workflow-kit/.github/workflows/reusable-acceptance.yml@827bb99d2eb97ac61909979094f68471f081150b
+    uses: wosafety0/dev-workflow-kit/.github/workflows/reusable-acceptance.yml@65544e290fd875bb6c4e30f6525b238200037bba
     with:
+      runtime: "python"
       python-version: "3.12"
       test-command: >-
         node --test tests/static_decoder_extract.test.cjs tests/verify_cdp_snapshot.test.cjs
