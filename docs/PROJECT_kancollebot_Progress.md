@@ -2346,3 +2346,13 @@ The Hand plugin's read-only probe reported:
 - 关键安全限制进一步明确：默认设置 `enabled=false`、`allowLan=false`、监听端口 8765；服务启用需要 Poi 配置操作和生成/保存 Bearer Token。未获授权前不安装或启用该插件，不读取/输出本机 token，不修改 Poi 配置或监听端口。现阶段只能把它作为隔离候选方案评估。
 - 版本信号仍非充分 freshness 证明：revision 初值为 0，仅当 allowlisted projection 的序列化结果变化时递增；进程重载/服务重启会重置。相同 projection 的新游戏响应不会必然增加 revision，因此 revision 必须与被动成功响应的接收时间、会话标识/有效性及完整性条件组合，且不得将缺少任一证据的状态标为新鲜。
 - **阶段结论：** 候选具备可测试的只读投影、认证和版本接口，值得后续进行不影响现有 Nanodesu MCP 的隔离兼容性验证；尚未证明可直接替换当前读取器。实现状态仍为未实现，验证状态为上游源码/测试定义静态审查，未执行测试、未安装、未切换插件、未操作游戏。生产 `source_freshness_verified` 保持 false，真实派遣保持关闭。
+
+
+### 2026-10-29 plugin-server API 字段覆盖与本地验证范围
+
+- 依据用户提供的上游文档链接，继续核对 `docs/WEBSOCKET_API.md`、`docs/MCP_API.md`、`docs/caddy-local-tls.md`，并交叉读取 `docs/JSON_API.md`、`README.md` 与 `package.json`。这是对公开源码/文档的静态审查；未安装插件、未运行构建或测试、未接触当前 Poi 配置。
+- WebSocket 使用认证 Bearer Token，连接后先发送完整 snapshot，只有 allowlisted projection 内容变化时才递增 revision 并发送 update；客户端断线重连会获得新快照，但不补发离线期间的更新。单条消息及每客户端队列有 1 MiB 上限，慢客户端会被断开。MCP 使用同一认证监听器与同一投影，提供只读资源及 `read_poi_snapshot` / `read_poi_{dataset}` 工具。默认回环监听，不需要为本机隔离测试先配置 Caddy/TLS；Caddy 文档面向需要 HTTPS/WSS 或受信任代理的场景。
+- **字段覆盖限制：** `docs/JSON_API.md` 对 `fleets` 的 allowlist 仅列出 `id`、`name`、`ships`（拥有舰船 ID 列表）和 `flagshipId`，没有 `api_mission`/远征任务字段。因而该插件的公开投影不能单独替代 KancolleBot 当前依赖的远征任务状态读取。它仍可作为舰船/舰队基础信息和投影变更的只读观察候选，但必须保留独立任务来源与完整性验证。
+- **revision 的准确含义：** revision 反映插件进程内 allowlisted projection 的内容版本；同一投影内容对应的新游戏响应未必使 revision 增加，插件/服务重启也会重置 revision。它不是游戏服务器时间戳，也不独立证明会话有效、最近收到成功游戏响应或多字段来自同一原子游戏响应。
+- **建议的本地验证顺序：** 先在隔离副本/独立 Poi 配置中检查包兼容、构建与上游测试；再确认插件启停、loopback 绑定、Bearer Token、Host/Origin 校验、快照的 `available/partial` 标志、WebSocket revision 与重连行为；最后才评估与现有被动 port-response 观察器的证据关联。不得覆盖或切换当前 Nanodesu MCP，不打印 token，不主动请求游戏 API，不刷新或操作游戏。若无法隔离安装，则暂停安装步骤，先完成纯离线构建/测试。
+- **阶段结论：** 值得进行隔离本地测试，但其目标是验证只读投影的兼容性、认证与版本行为，不是直接启用远征闭环。实现状态：未接入 KancolleBot；本轮验证状态：仅静态文档/元数据审查，未执行本地测试。生产 `source_freshness_verified` 仍为 false，真实派遣保持关闭。
