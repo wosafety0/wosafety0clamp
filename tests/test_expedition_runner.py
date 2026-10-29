@@ -26,8 +26,14 @@ def fleet(fleet_id: int = 2) -> ExpeditionFleetSnapshot:
 
 
 class FakeAdapter:
-    def __init__(self, *, observed_at=NOW, snapshots=(fleet(),), fail_dispatch=False, confirm_dispatch=False):
-        self.state = ObservedState(tuple(snapshots), observed_at, "fake-poi")
+    def __init__(
+        self, *, observed_at=NOW, snapshots=(fleet(),), fail_dispatch=False,
+        confirm_dispatch=False, source_freshness_verified=True,
+    ):
+        self.state = ObservedState(
+            tuple(snapshots), observed_at, "fake-poi",
+            source_freshness_verified=source_freshness_verified,
+        )
         self.dispatches = []
         self.fail_dispatch = fail_dispatch
         self.confirm_dispatch = confirm_dispatch
@@ -49,7 +55,8 @@ class FakeAdapter:
                 for item in self.state.payload
             )
             self.state = ObservedState(
-                updated, self.state.observed_at + timedelta(seconds=1), "fake-poi"
+                updated, self.state.observed_at + timedelta(seconds=1), "fake-poi",
+                source_freshness_verified=self.state.source_freshness_verified,
             )
 
 
@@ -101,6 +108,16 @@ class ExpeditionRunnerTests(unittest.TestCase):
             policy=self.policy(), confirmed=True,
         )
         self.assertEqual(result.status, "journal_unavailable")
+        self.assertEqual(adapter.dispatches, [])
+
+    def test_unverified_source_freshness_blocks_dispatch(self):
+        adapter = FakeAdapter(source_freshness_verified=False)
+        result = ExpeditionRunner(adapter).run_once(
+            mission_id=1, now=NOW, max_state_age=timedelta(seconds=30),
+            policy=self.policy(), confirmed=True,
+        )
+        self.assertEqual(result.status, "blocked_by_preflight")
+        self.assertIn("Source data freshness has not been verified", result.detail)
         self.assertEqual(adapter.dispatches, [])
 
     def test_stale_state_blocks(self):

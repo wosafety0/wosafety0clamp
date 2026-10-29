@@ -225,3 +225,22 @@ test('writes full extracted definitions to a sidecar while keeping console outpu
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+
+test('passive Poi port observer is restricted to loopback CDP network observation', () => {
+  const observerPath = path.resolve(__dirname, '../tools/hand_sandbox/poi_port_response_observer_20261029.js');
+  const observer = fs.readFileSync(observerPath, 'utf8');
+  assert.ok(observer.includes("http://127.0.0.1:9222/json/list"));
+  assert.ok(observer.includes("'Network.enable'"));
+  assert.ok(observer.includes("'Network.responseReceived'"));
+  assert.ok(observer.includes("'Network.loadingFinished'"));
+  assert.ok(observer.includes("'Network.getResponseBody'"));
+  assert.ok(observer.includes("path.join(os.homedir(), 'Desktop', 'KancolleBot-Port-Snapshots')"));
+  assert.ok(observer.includes('fromDiskCache'));
+  assert.ok(observer.includes('fromServiceWorker'));
+  assert.ok(observer.includes('productionFreshnessGateChanged: false'));
+  assert.ok(!observer.includes("method: 'Runtime.evaluate'"));
+  assert.ok(!observer.includes("method: 'Input.dispatchMouseEvent'"));
+  assert.ok(!observer.includes("method: 'Input.dispatchKeyEvent'"));
+  assert.ok(!observer.includes("http://127.0.0.1:12450/mcp"));
+});
