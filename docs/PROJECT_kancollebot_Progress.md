@@ -2237,3 +2237,12 @@ The Hand plugin's read-only probe reported:
 - 精确提交 `611eebad14c4c48d4ffa6b164b3b8a46f71240e3` 的 GitHub Actions CI 通过：[run 40829028107](https://github.com/wosafety0/wosafety0clamp/actions/runs/40829028107)。日志确认 JavaScript 静态测试、Python 编译成功，Python 单元测试 **124 项通过**。
 - 此门槛是保守的安全默认值，不是源新鲜度的实现或证明：当前真实 Poi 读取器没有已验证的源更新时间/版本令牌，所以真实状态仍会被拒绝用于安全敏感操作。未来只有在适配器能基于独立、可验证的源证据设置该标记时，才可允许通过。合成测试里的标记不代表真实 Poi 已通过验证。
 - 远程代码和测试已回读核验；本次没有合并功能分支、没有执行真实游戏操作或部署。实机 payload、新鲜度与登录会话验证仍未完成。
+
+
+### 2026-10-29 Poi cache and source timestamp audit
+
+- 上游源码审查定位到一个此前未能排除的陈旧状态来源：Poi 的 `views/redux/create-store.ts` 将 `info` 纳入 `targetPaths`，启动时从本地 `localStorage` 的 `_storeCache` 读入初始 Redux state，并以该缓存作为 store 初始值。对应上游源码固定提交：`poooi/poi@725029997b84729df6394e1f107079b8e9437f36`。
+- Nanodesu MCP 的 `/health` 中 `storeReady` 只验证 `getStore()` 返回对象且含有 `info` 属性，不表示本次会话已收到新鲜游戏响应。对应上游固定提交：`momocow/poi-plugin-nanodesu-mcp@2ba0a461ee44d64bf9d19b3467cf7565ad51b943`。因此 health OK / storeReady 不能作为源新鲜度证据。
+- Poi 的舰队和舰船 reducer 会合并多个 API 响应（包括 port、deck、ship2、ship3 等），而响应 payload 虽有 `time`，当前只读 MCP `poi_get` 暴露的是归并后的状态，没有暴露能把整个 `info.fleets` 与 `info.ships` 快照绑定到同一源版本的令牌。现有实现无法据此证明两组数据在同一时点完整刷新。
+- 在 `dev/source-freshness-gate-20261029` 清理了 `ObservedState.require_source_freshness_verified` 的重复定义，避免后定义覆盖前定义造成维护歧义。修复提交 `7104df6c84fc0ff0c1c2978daed1b12834d47aa8` 的 CI 通过：[run 40829343257](https://github.com/wosafety0/wosafety0clamp/actions/runs/40829343257)。修复文件已从 GitHub 回读核对，方法定义现仅有一处。
+- **当前安全结论：** `PoiExpeditionReader` 仍不会设置 `source_freshness_verified=True`；在获得可验证的当前会话/源刷新证据前，真实 Poi 状态必须继续被安全前置检查拒绝。不要将缓存存在性、health 状态、本地读取时间或两次读取内容相同误认为源新鲜度证明。真实运行时刷新行为仍需只读实机证据验证。
