@@ -2264,3 +2264,12 @@ The Hand plugin's read-only probe reported:
 - 对照同一固定版本的 `views/redux/info/fleets.ts` 与 `views/redux/info/ships.ts`，`api_port_port` reducer 分别从同一响应体的 `api_deck_port` 和 `api_ship` 更新舰队及舰船状态；`data-resolver.ts` 在 Redux 更新调用后派发 `game.response`。这进一步支持“被动监听已发生的成功母港响应”作为候选数据源，而不是额外发起游戏 API 请求。
 - **验证边界：** 这是固定版本的上游源码和静态测试夹具证据，不是当前 Poi 安装版本的实时捕获。夹具时间戳属于历史样本，不能作为当前新鲜度证据；也不能证明当前游戏会话会按预期产生该事件。真实状态仍不得设置 `source_freshness_verified=True`，直到实际 Poi 运行时的事件、字段完整性与接收时间窗口经只读验证。
 - 参考： [data-resolver.ts](https://github.com/poooi/poi/blob/725029997b84729df6394e1f107079b8e9437f36/views/env-parts/data-resolver.ts)、[fleets.ts](https://github.com/poooi/poi/blob/725029997b84729df6394e1f107079b8e9437f36/views/redux/info/fleets.ts)、[ships.ts](https://github.com/poooi/poi/blob/725029997b84729df6394e1f107079b8e9437f36/views/redux/info/ships.ts)、[api_port_port_typical.json](https://github.com/poooi/poi/blob/725029997b84729df6394e1f107079b8e9437f36/views/redux/info/__tests__/__fixtures__/api_port_port_typical.json)。
+
+
+### 2026-10-29 Consolidated Poi safety gates and offline CI
+
+- 将此前分离验证的四类保护合并到独立集成分支 `dev/poi-safety-consolidation-20261029`：舰队 ID 与跨舰队舰船实例全局唯一性、Poi 集合完整性元数据检查、读取期间舰队/舰船状态二次核对，以及默认关闭的源新鲜度证明门槛。
+- 集成分支精确提交：`fa20ea1082dde9890900f0f5fd7f1b2f4929edbf`。该提交以当前 MVP 分支提交 `bc3ae7ab863ffee4bbcf5687c2cd2bc33e5ce6a6` 为父提交，未合并到 MVP 分支。
+- 精确提交 CI 通过：[GitHub Actions run 40858134020](https://github.com/wosafety0/wosafety0clamp/actions/runs/40858134020)。成功步骤包括 JavaScript 静态提取测试、Python 源码编译和离线单元测试；日志确认 **130 项 Python 测试通过**。
+- 已从 GitHub 权威远程回读核对集成分支头提交及关键源码 blob：读取器 `9634d4b960ab71c5acd164353d5f7996dfa7e22e`、状态归一化器 `1c91e67ea5c6da9bead7c89fba7f79dddd12d603`、新鲜度门槛 `b48d7a4955d53067dd5ed664f3b22c2e395abced`。
+- **验证边界：** 该 CI 只验证离线测试和静态检查，不证明当前 Poi 实例的事件可见性、实时数据完整性或新鲜度。读取器仍不会设置 `source_freshness_verified=True`，因此安全前置继续拒绝未经证明的新鲜度状态；真实派遣保持关闭。集成分支未合并，也未执行游戏操作。
