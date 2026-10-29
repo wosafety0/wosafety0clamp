@@ -2277,3 +2277,9 @@ The Hand plugin's read-only probe reported:
 - 对当前唯一匹配的 DMM KanColle `webview` 做只读 DOM 与资源计时检查：`document.readyState=complete`，该目标自身 `canvasCount=0`，Performance Resource Timing 中没有 `/kcsapi/api_port/port` 条目；列出的 iframe URL 元数据也没有暴露 `kancolle-server.com` 游戏路径。
 - 因此，虽然该目标满足观察器的旧 DMM URL 过滤条件且 CDP `Network.enable` 成功，但现有证据不能证明它就是实际承载游戏画面的活动目标。120 秒监听无合格响应的原因尚不能确定；不归因于游戏未登录，也不宣称捕获成功。
 - 下一步应只读定位实际游戏 frame/target，并在该目标上等待自然响应；不得点击启动/登录按钮、刷新页面或主动请求游戏 API。`source_freshness_verified` 保持 `false`，真实派遣继续关闭。
+
+### 2026-10-29 Poi nested game frame identified
+
+- 使用只读 CDP `Page.getFrameTree` 在 DMM `webview` 内定位到嵌套 `htmlWrap` frame：`https://w14h.kancolle-server.com/kcs2/index.php`。针对该 frame 的默认执行上下文只读检查确认 `canvasCount=1`，并在 Resource Timing 中发现一条 `/kcsapi/api_port/port` 记录（`startTime≈9313 ms`、`duration≈453 ms`）。
+- 这修正了上一条仅检查顶层 DMM wrapper 的观察：顶层文档没有 canvas 和 port timing entry，但实际游戏画面位于嵌套 frame。该 timing 记录来自页面加载阶段，早于被动观察器启动；transfer-size 字段为 0，且 Resource Timing 不提供响应体，因此不能据此验证 payload 或源新鲜度。
+- 当前正确游戏 frame 已定位；观察器在此前 120 秒窗口内没有捕获新的合格 port 响应。后续可在不刷新、不输入、不主动发起游戏请求的前提下，再次被动等待自然响应；未捕获前继续保持 `source_freshness_verified=False` 和真实派遣关闭。
