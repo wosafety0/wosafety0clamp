@@ -110,3 +110,56 @@ test('reports a clear failure when the snapshot destination is not writable', ()
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+
+test('analyzeSource reports partial extraction when a required definition is missing', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kcb-partial-report-'));
+  const fixture = [
+    'function _0x3353(x) { return x; }',
+    'function _0x3f23() { return []; }'
+  ].join('\\n');
+  try {
+    logMessages.length = 0;
+    lexer.analyzeSource(fixture, 'https://example.test/kcs2/js/main.js', '759', dir);
+    const output = logMessages.join('\\n');
+    const start = output.indexOf('STATIC_SOURCE_REPORT_BEGIN');
+    const end = output.indexOf('STATIC_SOURCE_REPORT_END');
+    assert.ok(start >= 0 && end > start);
+    const report = JSON.parse(output.slice(start + 'STATIC_SOURCE_REPORT_BEGIN'.length, end).trim());
+    assert.equal(report.status, 'PARTIAL_EXTRACTION');
+    assert.equal(report.definitions.factory_0x466acb, null);
+    assert.ok(output.includes('STATUS: PARTIAL_EXTRACTION'));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('analyzeSource reports complete extraction only when all required definitions exist', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kcb-complete-report-'));
+  const fixture = [
+    'function _0x3353(x) { return x; }',
+    'function _0x3f23() { return []; }',
+    'function _0x466acb() { return _0x460358(0x1); }',
+    'const _0x460358 = _0x3353;'
+  ].join('\\n');
+  try {
+    logMessages.length = 0;
+    lexer.analyzeSource(fixture, 'https://example.test/kcs2/js/main.js', '760', dir);
+    const output = logMessages.join('\\n');
+    const start = output.indexOf('STATIC_SOURCE_REPORT_BEGIN');
+    const end = output.indexOf('STATIC_SOURCE_REPORT_END');
+    assert.ok(start >= 0 && end > start);
+    const report = JSON.parse(output.slice(start + 'STATIC_SOURCE_REPORT_BEGIN'.length, end).trim());
+    assert.equal(report.status, 'STATIC_EXTRACTION_COMPLETE');
+    assert.equal(report.definitions.decoder_0x3353.kind, 'function');
+    assert.equal(report.definitions.stringTable_0x3f23.kind, 'function');
+    assert.equal(report.definitions.factory_0x466acb.kind, 'function');
+    assert.equal(report.definitions.localAlias_0x460358.kind, 'assignment');
+    assert.equal(report.factoryDecoderCalls.length, 1);
+    assert.equal(report.safety.pageSourceExecuted, false);
+    assert.equal(report.safety.gameFunctionsCalled, false);
+    assert.ok(output.includes('STATUS: STATIC_EXTRACTION_COMPLETE'));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
