@@ -72,6 +72,9 @@ test('offline verifier rejects unsafe filename and malformed metadata', () => {
     metadata.sourceFile = 'main-\\\\nested.js';
     fs.writeFileSync(metadataPath, JSON.stringify(metadata));
     assert.throws(() => verifySnapshot(metadataPath), /filename/);
+    metadata.sourceFile = 'main-20261029T001122.345Z.js\\\\evil.js';
+    fs.writeFileSync(metadataPath, JSON.stringify(metadata));
+    assert.throws(() => verifySnapshot(metadataPath), /filename/);
     metadata.sourceFile = 'main-valid.js';
     metadata.sha256 = 'invalid';
     fs.writeFileSync(metadataPath, JSON.stringify(metadata));
