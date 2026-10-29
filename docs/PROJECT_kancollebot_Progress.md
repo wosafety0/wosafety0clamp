@@ -1956,3 +1956,14 @@ The Hand plugin's read-only probe reported:
 - 代码提交 `d17ecb9fa002f6705821c87f2e8653625227315a`；回归测试提交 `c9bb657e3791e43c992f0b9e04bf0c87b76a8c51`，覆盖模拟 Windows 风格文件名。
 - [GitHub Actions run 40797386740](https://github.com/wosafety0/wosafety0clamp/actions/runs/40797386740) 对应最新测试提交，已完成且结论为 `success`。源码与测试从权威远程分支回读，blob 分别为 `b60e16bf535630b2d80d8872c36c62797e55928a`、`9e6fc36b835c26cedeb2154185ddb10ecf95819d`。
 - 验收范围为合成离线数据与 CI；真实 Poi/Hand 快照采集尚未验证。
+
+
+
+### 通用 Harness 试用接入（2026-10-29）
+
+- 为避免打乱现有开发，新增独立试用工作流 `.github/workflows/harness-trial-acceptance.yml`，保留原有 CI 不变。
+- 试用工作流通过可复用工作流调用 `wosafety0/dev-workflow-kit` 的固定提交 `827bb99d2eb97ac61909979094f68471f081150b`；该提交对应 Harness CI run [40797681816](https://github.com/wosafety0/dev-workflow-kit/actions/runs/40797681816)，结论为 success。
+- 复用门禁运行本项目现有 Node 静态测试、Python 源码编译和离线单元测试；Python 固定为 3.12，与现有 CI 一致。权限仅 `contents: read`。
+- 本次变更分支：`feat/harness-trial-gate-20261029`；PR #14：https://github.com/wosafety0/wosafety0clamp/pull/14。PR 保持 draft、未合并。
+- **验收状态：** 工作流配置已提交并回读核验；截至归档时，尚未取得该试用工作流针对本项目提交的成功运行证据，因此只能称为“已接入待验证”，不能称为通过验收。
+- 安全边界：未调用模型提供方 API、未读取凭据、未修改游戏代码、未执行游戏操作、未合并 PR。原有 CI 保持不变。
