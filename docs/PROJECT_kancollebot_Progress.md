@@ -2007,3 +2007,14 @@ The Hand plugin's read-only probe reported:
   - The production lexical functions extracted the factory from the locally preserved real Poi snapshot at offsets **8,464,467–8,465,759**, length **1,292** characters; the extracted text begins with `_0x466acb=()=>{`, ends at the matching body close, and leaves the following comma outside the extraction.
 - Verification is offline and read-only with respect to the game: the snapshot was treated as text; page source was not executed, no game functions/getters were called, and no game input was sent.
 - **State boundary:** production code and tests are modified and verified in the local clone only. No local commit or GitHub push is claimed in this record; authoritative remote integration and remote readback remain pending explicit authorization for the remote write.
+
+
+## 2026-10-29 — Real-source factory call-site decoding (offline)
+
+- Added local-only reusable analyzer offline_factory_decode_20261029.js and JSON result offline_factory_decode_report_20261029.json under the snapshot directory. Both remain outside the public repository because the analyzer consumes the local game-source snapshot.
+- The analyzer validates the source SHA-256, string-table size (14,271 entries), the previously independently verified rotation count (323), and the production extractor's exact factory boundary before decoding.
+- Static alias propagation identified five decoder aliases in _0x466acb; 33 decoder call sites were decoded across 24 unique indices without evaluating the captured game source.
+- Decoded names include settings, GC_MAX_IDLE, GC_MAX_CHECK_COUNT, iOS_device, Application, default, width, height, renderer, plugins, interaction, autoPreventDefault, location, search, substring, length, split, body, appendChild, view, stage, addChild, AppInitializeTask, and start.
+- The analyzer's JSON report was re-read and parsed successfully; it records capturedSourceEvaluated=false, gameFunctionsCalled=false, gettersInvoked=false, cdpConnected=false, and gameInputSent=false.
+- Scope boundary: this validates decoder mapping for the factory's statically discovered aliases and numeric literal call arguments. It does not establish runtime behavior or complete deobfuscation of the rest of main.js. No game code or input was executed.
+- This result is saved locally. GitHub push and authoritative remote readback remain pending explicit remote-write authorization.
