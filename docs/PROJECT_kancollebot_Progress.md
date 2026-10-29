@@ -2474,3 +2474,14 @@ The Hand plugin's read-only probe reported:
 - 最新 PR 元数据回读显示 #15 仍为 open/Draft，当前 head 为 c3190cb5437bf513964502e72b4cf940e0379b0f，GitHub 返回 mergeable=false；当前 base ref 为 dev/expedition-closed-loop-mvp（base SHA 8162646558e0558bf58bf1d351669083ac03c5ef）。
 - 这是 PR 集成/分支基线阻塞，与当前分支 Push CI 通过是两回事。未对 PR 做 rebase、retarget 或 merge，也没有修改 base 分支；在检查完整比较与依赖关系前保持 Draft。
 - 安全状态不变：freshness witness 的实时匹配未完成，生产 source_freshness_verified 仍不得标为 true，live dispatch 继续关闭。
+
+
+### 2026-10-30 被动 freshness 比对拒绝 Python 数值类型隐式相等
+
+- 仓库：`wosafety0/wosafety0clamp`；独立开发分支：`dev/poi-witness-numeric-types-20261030`；基线：`b72ee8ef9414a680e3f9b805e0517c456a7d3f14`（Draft PR #15 当前分支），叠加 Draft PR #16：https://github.com/wosafety0/wosafety0clamp/pull/16。
+- 静态代码复核发现，Python 的 `True == 1`、`101.0 == 101` 可能使被动 port witness 与当前 MCP 状态的数值字段在类型不合法时仍被判断为相等。该比对用于决定 `source_freshness_verified`，必须 fail-closed，不能依赖宽松的数值相等。
+- 已修改 `src/kancollebot/adapters/poi/port_freshness.py`：比较前要求 witness 和当前舰队的 `api_mission` 都是四个非负整数槽位，`api_ship` 都是合法整数槽位（允许 -1），当前舰船的必要数值字段与已捕获的可选 `api_cond` 必须是非布尔整数。只验证数据类型/形状，不推断未确认的远征任务语义。
+- 已修改 `tests/test_poi_port_freshness.py`，新增 3 个回归测试方法，覆盖布尔舰船数值、浮点舰船 ID、布尔任务槽位和浮点舰队舰船槽位。源码提交 `27ac5c2fe63a32a0f0c0da696c6065ed6515315c`；测试提交 `0895e8af376e74e8cd569529cd367ce4d204d2d5`。
+- **精确提交 Push CI PASS**：[40975628357](https://github.com/wosafety0/wosafety0clamp/actions/runs/40975628357)，head `0895e8af376e74e8cd569529cd367ce4d204d2d5`；日志显示 Python **158/158**、JavaScript **14/14**、`node --check` 与 `python -m compileall -q src tests` 均成功。GitHub 远程源码 blob `9f07364ec2193ab051892a5850e30ba569d66873`、测试 blob `0701e898292a4dd4fad7b4541ff05350de5e4764` 已回读。
+- **边界**：这是离线校验与 CI 验证，不是当前 Poi 实例的 witness/MCP 端到端验证。未访问本机 Poi/MCP、未发送游戏输入、未调用 `Runtime.evaluate`、未主动请求游戏 API、未修改系统设置；真实派遣继续关闭。
+- **下一步**：先独立审查 PR #15 对 `dev/expedition-closed-loop-mvp` 的非可合并状态与分支漂移，再决定组合验收方式；PR #16 保持 Draft 且不合并。现有自然响应历史快照不可作为当前 freshness 证据。
