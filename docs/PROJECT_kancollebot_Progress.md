@@ -2430,3 +2430,12 @@ The Hand plugin's read-only probe reported:
 - 研究记录：`docs/research/POI_EXPEDITION_APPLICATION_INTEGRATION_BOUNDARY_20261029.md`，给出下一步仅做只读应用组合层的安全切片建议；不接入真实派遣、不启用 UI 控制，先通过 fake adapter 离线测试证明默认策略/缺失 freshness 不会触发 dispatch。
 - **本轮限制：** 仅静态回读 GitHub 源码与测试定义，未执行测试、未调用本机 MCP、未刷新/操作游戏、未主动请求游戏 API、未修改生产代码。既有 148/148 测试结果只是此前记录，本轮未重跑。
 - 归档状态：观察器文档更新和集成边界研究记录均已写入目标分支；本进度条目待更新后远程回读核验。实时 witness 端到端验收仍待完成，生产 freshness 门禁不变，真实派遣保持关闭。
+
+
+### 2026-10-29 只读远征评估组合层（未验证实现）
+
+- 新增 `src/kancollebot/expeditions/read_only_assessment.py`：只接受同时满足 `source_freshness_verified=true` 与本地观测年龄窗口的状态来运行离线规划器；来源未验证、状态过期或未来时间戳均抑制规划输出。结果的 `dispatch_eligible` 固定为 false；模块没有 Poi client、adapter、runner、journal 或派遣接口。
+- 新增 `tests/test_read_only_assessment.py`，定义 5 个离线用例：近期但来源未验证、已验证但过期、已验证且新鲜但仅规划、未来时间戳、负最大年龄。
+- **状态必须如实区分：** 源码提交 `bf0bb6df646cc9828dd21c8cd2255a2fb7a25834`；测试提交 `6fdbfeeecc0d6c54486578ade74afa7d572c72b2`。源码 blob 已回读为 `c511f64bcc6d9f4dbe09b2633239dbce57bbe615`，测试 blob 已回读为 `b91eede9a4eeb064469e06d9cc9e91482394a66f`。
+- 本轮未在本地执行测试、类型检查或导入检查，因此**实现已写入并回读，验证尚未完成**；测试文件只是已提交的测试定义，不是测试通过证据。未接入 Web UI 或生产入口，未访问本机 MCP，未刷新/操作 Poi，未主动请求游戏 API，真实派遣继续关闭。
+- 独立说明：`docs/research/POI_READ_ONLY_ASSESSMENT_LAYER_20261029.md`。下一步应在本地开发工作树运行新增测试及相关回归，再决定是否进行只读 UI 接入；在验证完成前不得将此组件标记为已验证成果。
