@@ -2458,3 +2458,12 @@ The Hand plugin's read-only probe reported:
 - 最新本地提交：`9526bdf09f5c8118938e68879cc31c216136d92f`；已推送到 `dev/poi-safety-consolidation-20261029`，并通过 GitHub 文件接口回读源码和测试文件核验。源码 blob SHA `af6c8aec28e3432159b71e5fac22c165461bbda9`，测试 blob SHA `50d40307cf935eb80f61bc5e7df21132395085d6`。
 - Python 3.13.16 验证：评估层测试 **6/6 PASS**；完整离线单元测试 **154/154 PASS**；`py_compile` PASS；`git diff --check` PASS。测试在推送前针对完全相同的源码与测试内容执行；推送后已回读确认远程内容一致。
 - **限制不变：** 只读评估层尚未接入 Web UI/生产组合入口；没有访问本机 MCP、刷新/操作 Poi 或主动请求游戏 API；实时 witness 端到端 freshness 仍未验证，真实派遣继续关闭。
+
+### 2026-10-30 被动 witness 模式停止持久化舰队/舰船快照
+
+- 静态复核发现：KCB_POI_FRESHNESS_WITNESS_STDOUT=1 模式下，父进程只消费子进程 stdout 中的内存 witness，但观察器仍会把包含紧凑舰队/舰船字段的同一份快照写入桌面目录。该持久化对 freshness handoff 没有必要，增加了本地数据留存。
+- 将 saveSnapshot 重命名为 buildSnapshot 并按模式分流：child-only witness 模式只返回 persisted=false 与舰队/舰船数量摘要，不创建输出目录、不写快照文件；普通 Hand 沙盒模式仍保留原有紧凑快照文件和哈希摘要。没有删除既有快照，也没有改动任何系统设置。
+- 更新 docs/POI_PORT_RESPONSE_OBSERVER.md，明确区分两种模式；新增 tests/test_poi_port_response_observer_source.py 静态安全契约，验证 witness 分支不调用 fs.mkdirSync / fs.writeFileSync，默认分支仍保留持久化路径。
+- 代码提交：9732b6ebe52fac79c2efa4dfac2e667a374abed5。精确提交 Push CI [40928945329](https://github.com/wosafety0/wosafety0clamp/actions/runs/40928945329) 通过：JavaScript 静态测试 14/14 PASS、Python 单元测试 155/155 PASS、Python compileall PASS。远程回读确认源码 blob 6138ca901eecdabc74073c05e1e1f2e64387748c、文档 blob f6ce81ab6d8489f69eb59033c247c03b5eee10e2、新增测试 blob 0f7259773014fa17d941d9502f6f838107b92d66。
+- 验证边界：以上是源码/离线测试证据，不是 Poi 运行时验证。本轮未启动/刷新/操作游戏、未发送游戏输入或主动游戏 API 请求；source_freshness_verified 的生产门禁与 live dispatch 开关均未改变。当前自然响应 witness 与新鲜 MCP 读取的端到端匹配仍待在允许的本机环境中验证。
+- 下一步：完成本次归档提交的精确 HEAD CI 与回读核验；之后继续审查不依赖本机运行的只读组合层/安全测试，不以历史快照替代当前 freshness 证据。
