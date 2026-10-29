@@ -2356,3 +2356,13 @@ The Hand plugin's read-only probe reported:
 - **revision 的准确含义：** revision 反映插件进程内 allowlisted projection 的内容版本；同一投影内容对应的新游戏响应未必使 revision 增加，插件/服务重启也会重置 revision。它不是游戏服务器时间戳，也不独立证明会话有效、最近收到成功游戏响应或多字段来自同一原子游戏响应。
 - **建议的本地验证顺序：** 先在隔离副本/独立 Poi 配置中检查包兼容、构建与上游测试；再确认插件启停、loopback 绑定、Bearer Token、Host/Origin 校验、快照的 `available/partial` 标志、WebSocket revision 与重连行为；最后才评估与现有被动 port-response 观察器的证据关联。不得覆盖或切换当前 Nanodesu MCP，不打印 token，不主动请求游戏 API，不刷新或操作游戏。若无法隔离安装，则暂停安装步骤，先完成纯离线构建/测试。
 - **阶段结论：** 值得进行隔离本地测试，但其目标是验证只读投影的兼容性、认证与版本行为，不是直接启用远征闭环。实现状态：未接入 KancolleBot；本轮验证状态：仅静态文档/元数据审查，未执行本地测试。生产 `source_freshness_verified` 仍为 false，真实派遣保持关闭。
+
+
+### 2026-10-29 plugin-server 隔离构建与测试验证
+
+- 在 Windows 本地临时目录对上游 `poooi/plugin-server` 当前 `main` 做隔离克隆；未安装到 Poi 插件目录，未更改当前 Poi 配置或 Nanodesu MCP，未触发游戏刷新、输入或游戏 API 请求。
+- 环境：Node.js 24.21.0、Corepack 0.36.0、pnpm 12.16.1；`pnpm install --frozen-lockfile` 完成，依赖锁文件未重新解析。
+- 本地执行结果：Vite/TypeScript 构建 PASS；ESLint PASS；TypeScript `--noEmit` 类型检查 PASS；内置测试 `tests/server.test.ts` 共 15/15 PASS，覆盖只读投影、HTTP 认证与 Host/Origin 校验、WebSocket 快照/更新、MCP 资源与工具、令牌轮换、卸载和配置生命周期。
+- 独立包验收：在临时隔离目录生成 npm tarball 并解包，确认 `dist/index.js`、README、MCP 文档和 `poiPlugin` 元数据存在；动态导入打包入口并验证默认导出、插件 ID、生命周期 hooks、设置组件及设置描述数量，手动等价包验收 PASS。
+- **验证边界：** 这些测试使用仓库自带的 Poi-shaped host harness 和 loopback 测试服务；不等于在真实 Poi 图形界面中完成加载兼容性验证，也没有验证当前安装的 Poi 版本。测试只验证插件提供的只读投影行为，不证明其数据来自最近的游戏服务器响应。远征任务字段缺失与 revision 不是 freshness 证明的限制仍然成立。
+- **阶段结论：** 上游插件核心构建、类型检查、lint、15 项内置测试和打包入口均已有本机隔离验证证据；实现状态仍为未接入 KancolleBot，真实 Poi 插件加载/兼容性仍待验证。生产 `source_freshness_verified` 保持 false，真实派遣保持关闭。
