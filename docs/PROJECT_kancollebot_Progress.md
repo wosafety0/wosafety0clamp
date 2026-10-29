@@ -2200,3 +2200,12 @@ The Hand plugin's read-only probe reported:
 - Exact-head Push CI [40822018899](https://github.com/wosafety0/wosafety0clamp/actions/runs/40822018899) passed: runtime validation, consumer acceptance command, report generation, artifact upload, report identity verification, and final gate all succeeded. The Node setup step was skipped as expected for the configured Python runtime. The API currently returns no separate PR-context run for this exact head, so only Push CI is counted here.
 - Remote branch readback confirms `feat/harness-trial-gate-20261029` points to `cc9374c261f918aa4c8f3ce41174cd763af9b7ef`. PR #14 remains open, Draft, and unmerged. The intentionally failing runtime probe remains isolated on `feat/harness-trial-gate-runtime-negative-20261029` at `ebacf6cad0ecdea1e6a2051068bf60864c585287`; its expected failure is not counted as normal acceptance.
 - No merge, deployment, branch-protection change, live model request, or game operation occurred.
+
+
+## 2026-10-29 - Reject globally duplicated fleet state
+
+- Static review of `normalize_poi_fleets` found that individual fleet records were validated, but duplicate fleet IDs and the same ship instance appearing in multiple fleets were not rejected at the normalization boundary.
+- Added fail-closed checks and regression tests on isolated branch `dev/expedition-state-global-uniqueness-20261029`: duplicate fleet IDs and cross-fleet duplicate ship assignments now raise `PoiStateError`.
+- Exact-head GitHub Push CI passed on commit `554d045a3aa1b79d2bf673da6f89155606a94945`: [run 40827593526](https://github.com/wosafety0/wosafety0clamp/actions/runs/40827593526). Job steps report success for offline JavaScript tests, Python compilation, and Python unit tests; the log confirms **124 Python tests passed**.
+- Remote readback confirmed the implementation and both new tests. Branch comparison against `dev/expedition-closed-loop-mvp` reports ahead by 2, behind by 0; this fix remains isolated and has not been merged. CI evidence validates the offline checks only, not real Poi/game runtime behavior.
+- No live game operation, deployment, merge, or branch-protection change occurred.
