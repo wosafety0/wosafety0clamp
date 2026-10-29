@@ -2367,6 +2367,6 @@ The Hand plugin's read-only probe reported:
 
 ## 2026-10-29 - Refresh current-head acceptance evidence
 
-- Updated the usage guide to distinguish the current documentation-only PR head `23bf43a18cffe9d0345b1d7f01277349d0551ec4` from the code-bearing head `d914953c4187ed8b82de4d1b389c08b06d218198`.
-- Recorded exact-current-head Harness Push run [40855058078](https://github.com/wosafety0/wosafety0clamp/actions/runs/40855058078), PR run [40855066719](https://github.com/wosafety0/wosafety0clamp/actions/runs/40855066719), and PR report artifact `12888278843` with digest `sha256:2248cdef39220b629a7e85caa8f028375660b9b350e679c62f6689faccab1e88`. Historical evidence entries are labeled as earlier runs to avoid implying they are current.
+- Updated the usage guide to distinguish the current documentation-only PR head `88b8fdcc7b07a092629ac3149719dd554e29c80a` from the code-bearing head `d914953c4187ed8b82de4d1b389c08b06d218198`.
+- Recorded exact-current-head Harness Push run [40855320466](https://github.com/wosafety0/wosafety0clamp/actions/runs/40855320466), PR run [40855328844](https://github.com/wosafety0/wosafety0clamp/actions/runs/40855328844), and PR report artifact `12889001364` with digest `sha256:ad2356a8e0c8d58524ee81c28a7cd001d99414619892f95b65a72e64c51e014b`. Historical evidence entries are labeled as earlier runs to avoid implying they are current.
 - This is documentation/evidence maintenance only; no workflow or runtime behavior changed. PR #14 remains Draft/open/unmerged; no merge, branch-protection promotion, deployment, provider call, or game operation occurred.
