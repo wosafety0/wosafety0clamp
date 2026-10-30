@@ -43,10 +43,14 @@ class PoiMissionStateTests(unittest.TestCase):
         self.assertIsNone(snapshot.mission_id)
         self.assertIsNone(snapshot.return_at)
 
-    def test_underway_state_retains_mission_and_blocks_dispatch(self):
-        snapshot = normalize([1, 1, 1793011949741, 0])
+    def test_underway_state_normalizes_epoch_milliseconds_and_blocks_dispatch(self):
+        timestamp_ms = 1793011949741
+        snapshot = normalize([1, 1, timestamp_ms, 0])
         self.assertEqual(snapshot.mission_id, 1)
-        self.assertIsNone(snapshot.return_at)
+        self.assertEqual(
+            snapshot.return_at,
+            datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc),
+        )
         plan = evaluate_expedition_fleet(snapshot, now=OBSERVED_AT)
         self.assertEqual(
             plan.decision, ExpeditionDecision.BLOCKED_UNKNOWN_RETURN_TIME
@@ -71,6 +75,10 @@ class PoiMissionStateTests(unittest.TestCase):
     def test_active_state_without_timestamp_fails_closed(self):
         with self.assertRaises(PoiStateError):
             normalize([1, 1, 0, 0])
+
+    def test_unrepresentable_timestamp_fails_closed(self):
+        with self.assertRaisesRegex(PoiStateError, "invalid mission timestamp"):
+            normalize([1, 1, 10**100, 0])
 
     def test_wrong_slot_count_fails_closed(self):
         with self.assertRaises(PoiStateError):
