@@ -91,19 +91,23 @@ def _require_ui_state(game_transport, expected: UiState) -> None:
     _print_event("ui_state_confirmed", state=expected.value)
 
 
-def _recover_home_port(game_session, attempts: int = 3) -> None:
+def _recover_home_port(game_session, attempts: int = 3, force_click: bool = False) -> None:
     """Use bounded top-left navigation retries, requiring state evidence after each click."""
-    for attempt in range(1, attempts + 1):
+    if not force_click:
         try:
             _require_ui_state(game_session.transport, UiState.HOME_PORT)
-            _print_event("home_port_recovery_confirmed", attempt=attempt - 1)
+            _print_event("home_port_recovery_confirmed", attempt=0)
             return
         except UiStateGateError as exc:
-            _print_event("home_port_state_not_confirmed", attempt=attempt, error=str(exc))
-        _print_event("ui_action_precondition", action="click_home_port", attempt=attempt)
+            _print_event("home_port_state_not_confirmed", attempt=0, error=str(exc))
+    for attempt in range(1, attempts + 1):
+        _print_event("ui_action_precondition", action="click_home_port", attempt=attempt,
+                     force_click=force_click)
         game_session.input.click(HOME_PORT)
         _print_event("ui_click_sent", point=HOME_PORT.label, attempt=attempt)
         time.sleep(1.0)
+        _print_event("ui_action_wait_completed", point=HOME_PORT.label, attempt=attempt,
+                     wait_seconds=1.0)
         try:
             _require_ui_state(game_session.transport, UiState.HOME_PORT)
             _print_event("home_port_recovery_confirmed", attempt=attempt)
@@ -215,7 +219,7 @@ def run(args: argparse.Namespace) -> int:
         _print_event("ui_click_sent", point=SORTIE.label)
         time.sleep(1.5)
         _print_event("ui_action_wait_completed", point=SORTIE.label, wait_seconds=1.5)
-        _recover_home_port(game_session)
+        _recover_home_port(game_session, force_click=True)
         refresh_deadline = time.monotonic() + 120.0
         last_refresh_log = 0.0
         result_state = None
