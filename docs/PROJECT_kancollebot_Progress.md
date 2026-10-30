@@ -161,3 +161,12 @@ No plugin execution, MCP request, network/WebSocket dispatch, game action, local
 - 修复提交 c0676dac645c357b303489a0dfa4d08e0310522f；精确 HEAD Push CI [40929675833](https://github.com/wosafety0/wosafety0clamp/actions/runs/40929675833) 通过：Python 单元测试 73/73 PASS、compileall PASS。测试文件远程回读 blob 为 c3c68ebfc420be495f65689ca5895ffc80e9ae68。
 - 这是测试断言修复，不是对游戏运行时或 Poi 连接的验证。没有发送游戏输入、没有调用游戏 API、没有修改系统设置。PR #4 仍为 Draft/open，未合并。
 - 归档提交 bbbea3f05d9b340f159516fe28db8b7208b2ec46 的精确 HEAD Push CI [40929788392](https://github.com/wosafety0/wosafety0clamp/actions/runs/40929788392) 已通过：73/73 单元测试与 compileall PASS；进度文件 blob ac4cbaefb5ee0374b5abf16a2bed9c2f7ec646d2 已回读。下一步继续保持 sparkle planner 为纯离线规划器，不能据此启用任何实时远征/出击行为。
+
+
+### 2026-10-31 — Strict integer validation for sparkle-planner inputs (implementation; CI pending)
+
+- Static review found Python's numeric coercion could admit booleans and non-integer values through fields annotated as integers: for example, `True` can pass range checks, and `max_sorties_per_ship=1.5` could leak a fractional batch limit into a plan.
+- Added exact integer checks (excluding booleans) for ship IDs, morale values, target morale, estimated gain, and sortie batch limits; the eligibility flag now requires an actual boolean. Invalid values fail closed with parameter-specific errors.
+- Added offline regressions for boolean, float, and string inputs. The change is isolated to the side-effect-free sparkle planner and its tests; it does not connect to Poi or enable gameplay actions.
+- Branch: `fix/sparkling-planner-strict-integers-20261031`, based on `fc09d9d83afe7c5730cb4a96ee5b90c4ddfe49b8`. Implementation and tests are committed together with this status note; automated verification is pending and must be recorded only after an exact-head CI result is read back.
+- No local test execution, game input, Poi/MCP request, or system setting change was performed in this connector-only run.

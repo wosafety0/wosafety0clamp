@@ -28,10 +28,14 @@ class SparkleShipSnapshot:
     eligible: bool = True
 
     def __post_init__(self) -> None:
-        if self.ship_id < 1:
-            raise ValueError("ship_id must be positive")
-        if self.morale is not None and not 0 <= self.morale <= 100:
-            raise ValueError("morale must be between 0 and 100")
+        if type(self.ship_id) is not int or self.ship_id < 1:
+            raise ValueError("ship_id must be a positive integer")
+        if self.morale is not None and (
+            type(self.morale) is not int or not 0 <= self.morale <= 100
+        ):
+            raise ValueError("morale must be an integer between 0 and 100")
+        if type(self.eligible) is not bool:
+            raise ValueError("eligible must be a boolean")
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,12 +82,15 @@ def build_sparkle_plan(
     ineligible ships fail closed. This function does not select a map, start a
     sortie, choose battle commands, or interact with POI.
     """
-    if not 1 <= target_morale <= 100:
-        raise ValueError("target_morale must be between 1 and 100")
-    if not 1 <= estimated_gain_per_sortie <= 100:
-        raise ValueError("estimated_gain_per_sortie must be between 1 and 100")
-    if max_sorties_per_ship < 1:
-        raise ValueError("max_sorties_per_ship must be positive")
+    if type(target_morale) is not int or not 1 <= target_morale <= 100:
+        raise ValueError("target_morale must be an integer between 1 and 100")
+    if (
+        type(estimated_gain_per_sortie) is not int
+        or not 1 <= estimated_gain_per_sortie <= 100
+    ):
+        raise ValueError("estimated_gain_per_sortie must be an integer between 1 and 100")
+    if type(max_sorties_per_ship) is not int or max_sorties_per_ship < 1:
+        raise ValueError("max_sorties_per_ship must be a positive integer")
 
     ship_ids = tuple(item.ship_id for item in snapshots)
     if len(set(ship_ids)) != len(ship_ids):
