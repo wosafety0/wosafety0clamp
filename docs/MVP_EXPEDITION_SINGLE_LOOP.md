@@ -80,3 +80,17 @@ Cloud GitHub first; no local checkout required. Read before write. Record verifi
 - Read-only inventory did not find a saved current-server `api_mission` transition capture. Existing tests are synthetic, not Taiwan-server runtime verification.
 - The installed forwarder is passive only; the Python Poi adapter is read-only. Dispatch and reward-collection mechanisms remain NOT_VERIFIED.
 - Resume condition: obtain one manually operated, passively observed expedition's sanitized before/after `api_mission` evidence, and independently identify a low-risk, authorized action mechanism. Until then, do not implement new state/action code or claim the single-expedition loop is operational. No game input or server request was sent during this review.
+
+
+## 2026-10-30 — Evidence capture acceptance protocol (planned; not yet run)
+
+This section defines the minimum evidence needed to unblock implementation; it is a protocol definition, not evidence that a live capture has occurred.
+
+1. **Before action:** with the user operating the game manually, capture one fresh natural `api_port/port` response and its matching Poi Redux read. Record observation timestamps, freshness age, fixed fleet index, and only the sanitized `api_mission` slot values needed for comparison. Do not save raw payloads, account identifiers, ship names, or secrets.
+2. **Operator event marker:** the user records which manual event occurred (dispatch or reward collection) and its approximate time. The observer itself must not click, refresh, invoke game functions, or issue game-server requests.
+3. **After action:** wait for a new natural port response, not merely a repeated cache read. Require a new source timestamp/freshness witness and record the same fleet's sanitized `api_mission` values using the same schema.
+4. **Compare, do not infer:** report the exact before/after slot values and whether the tuple changed. Do not map a numeric state to a meaning, infer success from a timer alone, or treat a different fleet/cache snapshot as a transition. If freshness, fleet identity, or event ordering is ambiguous, classify the capture as INCONCLUSIVE and repeat only when a naturally occurring response is available.
+5. **Separate action gate:** even a well-supported state transition validates observation semantics only. Before any bot-initiated action can be enabled, independently identify a client-mediated, low-risk action interface, document its authorization and fail-closed behavior, and test it separately under explicit user authorization. No direct game-server calls.
+6. **Acceptance record:** retain only the sanitized event label, before/after tuples, source/freshness timestamps, result (MATCHED / INCONCLUSIVE), and observer version. Keep the capture status, action-interface status, offline-test status, and MVP status as separate fields.
+
+**Unblock rule:** implementation may resume only after one unambiguous manually operated before/after transition is captured and the separate action-interface prerequisite is satisfied. Until then, mission-state expansion and action integration remain BLOCKED; tests not actually run must remain NOT_RUN.
