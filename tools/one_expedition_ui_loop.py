@@ -183,64 +183,77 @@ def _dispatch_again(reader_transport, game_input, expected_start_ms: int) -> Poi
 def run(args: argparse.Namespace) -> int:
     if not args.authorize_ui_actions:
         raise LoopError("Missing explicit --authorize-ui-actions flag")
-    if args.expected_start_ms <= 0:
-        raise LoopError("expected_start_ms must be positive")
     if not 1 <= args.poll_seconds <= 30:
         raise LoopError("poll_seconds must be between 1 and 30")
     if not 60 <= args.timeout_seconds <= 3600:
         raise LoopError("timeout_seconds must be between 60 and 3600")
     with connect_poi_session(timeout=3.0) as state_session, connect_game_webview(timeout=3.0) as game_session:
-        state = _fleet(read_poi_fleet_states(state_session.transport))
-        if state.mission_status != 1 or state.mission_id != MISSION_ID or state.final_time_ms != args.expected_start_ms:
-            raise LoopError(f"Startup state does not match the authorized mission: {state.mission}")
-        other_active = [item.fleet_id for item in read_poi_fleet_states(state_session.transport) if item.fleet_id != FLEET_ID and not _idle(item)]
-        if other_active:
-            raise LoopError(f"Other fleets are not idle: {other_active}")
-        _print_event("attached_to_expected_active_mission", state, target=game_session.target.title)
+        initial_states = read_poi_fleet_states(state_session.transport)
+        initial = _fleet(initial_states)
+        if not _idle(initial):
+            raise LoopError(f"Fleet 2 must be idle before this one-shot run: {initial.mission}")
+        _print_event("startup_idle_state_verified", initial)
+        _recover_home_port(game_session)
+        baseline_ms = int(time.time() * 1000)
+        dispatched = _dispatch_again(state_session.transport, game_session.input, baseline_ms)
+        expected_final_time_ms = dispatched.final_time_ms
+        _print_event("dispatch_confirmed_waiting_for_timer", dispatched,
+                     expected_final_time_ms=expected_final_time_ms)
         returned = _wait_for_return(
             state_session.transport,
-            args.expected_start_ms,
+            expected_final_time_ms,
             args.poll_seconds,
             args.timeout_seconds,
         )
-        # The return notification was observed on the home-port screen. The
-        # top-left Home Port navigation control is hidden there, so do not click
-        # its stale coordinate. Open the returned-expedition result from Sortie.
-        still_returned = _fleet(read_poi_fleet_states(state_session.transport))
-        if still_returned.mission != returned.mission:
-            raise LoopError("Mission state changed before opening its result; stopping")
-        _recover_home_port(game_session)
-        _print_event("ui_action_precondition", action="click_sortie", expected_state=UiState.HOME_PORT.value)
+
+        # Follow the requested UI refresh path: open Sortie, then navigate back
+        # through the top-left Home Port control before checking the refreshed state.
+        _print_event("ui_action_precondition", action="click_sortie", expected="expedition return refresh")
         game_session.input.click(SORTIE)
         _print_event("ui_click_sent", point=SORTIE.label)
         time.sleep(1.5)
-        result_deadline = time.monotonic() + 15.0
-        while time.monotonic() < result_deadline:
-            result_state = _fleet(read_poi_fleet_states(state_session.transport))
-            if result_state.mission_status == 2 and result_state.mission_id == MISSION_ID and result_state.final_time_ms == args.expected_start_ms:
-                _print_event("return_result_visible_in_state", result_state)
+        _print_event("ui_action_wait_completed", point=SORTIE.label, wait_seconds=1.5)
+        _recover_home_port(game_session)
+        refresh_deadline = time.monotonic() + 120.0
+        last_refresh_log = 0.0
+        result_state = None
+        while time.monotonic() < refresh_deadline:
+            observed = _fleet(read_poi_fleet_states(state_session.transport))
+            if observed.mission_status == 2 and observed.mission_id == MISSION_ID and observed.final_time_ms == expected_final_time_ms:
+                result_state = observed
+                _print_event("expedition_completion_confirmed_after_home_port_refresh", observed)
                 break
-            if result_state.mission_status != 1 or result_state.mission_id != MISSION_ID or result_state.final_time_ms != args.expected_start_ms:
-                raise LoopError("Unexpected state while waiting for return result: " + str(result_state.mission))
-            time.sleep(1.0)
-        else:
-            raise LoopError("Sortie UI did not refresh the return result; no confirmation click sent")
+            if observed.mission_status != 1 or observed.mission_id != MISSION_ID or observed.final_time_ms != expected_final_time_ms:
+                raise LoopError(f"Unexpected fleet 2 state after Home Port refresh: {observed.mission}")
+            now = time.monotonic()
+            if now - last_refresh_log >= 5.0:
+                _print_event("waiting_for_refreshed_completion_state", observed, retry_interval_seconds=5)
+                last_refresh_log = now
+            time.sleep(5.0)
+        if result_state is None:
+            raise LoopError("Completion state was not confirmed within 120 seconds after Home Port refresh")
+
         _require_ui_state(game_session.transport, UiState.RETURN_RESULT)
-        # Single attempt only. If the point is wrong, idle-state verification fails
-        # and the controller will not retry a potentially ambiguous click.
+        _print_event("ui_action_precondition", action="collect_expedition_reward",
+                     fleet_id=FLEET_ID, mission_id=MISSION_ID, expected_state="RETURN_RESULT")
         game_session.input.click(RETURN_CONFIRM)
         _print_event("ui_click_sent", point=RETURN_CONFIRM.label)
         time.sleep(1.5)
-        _wait_for_idle(state_session.transport)
+        _print_event("ui_action_wait_completed", point=RETURN_CONFIRM.label, wait_seconds=1.5)
+        idle = _wait_for_idle(state_session.transport)
         _require_ui_state(game_session.transport, UiState.BONUS_ITEMS)
-        # The observed result flow has a second visible Next page (bonus/items)
-        # after the fleet state becomes idle. Advance once to restore mother port.
+        _print_event("ui_action_precondition", action="advance_bonus_items", expected_state="BONUS_ITEMS")
         game_session.input.click(RETURN_CONFIRM)
         _print_event("ui_click_sent", point="bonus-next")
         time.sleep(1.0)
+        _print_event("ui_action_wait_completed", point="bonus-next", wait_seconds=1.0)
         _recover_home_port(game_session)
-        _dispatch_again(state_session.transport, game_session.input, args.expected_start_ms)
-        _print_event("ONE_EXPEDITION_RETURN_COLLECT_REDISPATCH_VERIFIED")
+        final_state = _fleet(read_poi_fleet_states(state_session.transport))
+        if not _idle(final_state):
+            raise LoopError(f"Fleet 2 did not return to idle after collection: {final_state.mission}")
+        _print_event("ONE_EXPEDITION_LOOP_VERIFIED_READY", final_state,
+                     previous_idle_state=idle.mission_status == 0,
+                     dispatch_final_time_ms=expected_final_time_ms)
     return 0
 
 
@@ -248,8 +261,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--authorize-ui-actions", action="store_true", required=True,
                         help="Explicitly authorize this one fixed live UI loop")
-    parser.add_argument("--expected-start-ms", type=int, required=True,
-                        help="Exact current fleet-2 mission-3 timestamp; prevents acting on a different mission")
     parser.add_argument("--poll-seconds", type=float, default=5.0)
     parser.add_argument("--timeout-seconds", type=float, default=1800.0)
     parser.add_argument(
