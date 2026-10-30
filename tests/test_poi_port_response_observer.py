@@ -47,7 +47,36 @@ class PassivePortResponseObserverTests(unittest.TestCase):
                 return_value=completed,
             ):
                 self.assertIsNone(observer.capture())
-            self.assertEqual(observer.last_status, "no_capture")
+            self.assertEqual(observer.last_status, "natural_response_timeout")
+
+    def test_target_discovery_failure_is_not_reported_as_no_capture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            observer = self.make_observer(directory)
+            completed = subprocess.CompletedProcess(
+                args=[], returncode=0,
+                stdout="[PortObserver] STATUS: TARGET_DISCOVERY_FAILED\n",
+                stderr="",
+            )
+            with patch(
+                "kancollebot.adapters.poi.port_response_observer.subprocess.run",
+                return_value=completed,
+            ):
+                self.assertIsNone(observer.capture())
+            self.assertEqual(observer.last_status, "target_discovery_failed")
+
+    def test_witness_requires_matching_captured_status(self):
+        with tempfile.TemporaryDirectory() as directory:
+            observer = self.make_observer(directory)
+            completed = subprocess.CompletedProcess(
+                args=[], returncode=0,
+                stdout=PREFIX + json.dumps(WITNESS) + "\n", stderr=""
+            )
+            with patch(
+                "kancollebot.adapters.poi.port_response_observer.subprocess.run",
+                return_value=completed,
+            ):
+                self.assertIsNone(observer.capture())
+            self.assertEqual(observer.last_status, "invalid_output")
 
     def test_invalid_or_ambiguous_witness_output_fails_closed(self):
         with tempfile.TemporaryDirectory() as directory:

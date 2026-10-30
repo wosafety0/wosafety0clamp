@@ -16,6 +16,7 @@ from typing import Any
 
 
 _WITNESS_PREFIX = "[PortObserver] WITNESS_JSON:"
+_STATUS_PREFIX = "[PortObserver] STATUS:"
 _WITNESS_ENV = "KCB_POI_FRESHNESS_WITNESS_STDOUT"
 _DEFAULT_TIMEOUT_SECONDS = 130.0
 _MAX_STDOUT_CHARS = 1_000_000
@@ -82,13 +83,32 @@ class PassivePortResponseObserver:
             self.last_status = "observer_failed"
             return None
 
+        status_lines = [
+            line[len(_STATUS_PREFIX):].strip()
+            for line in result.stdout.splitlines()
+            if line.startswith(_STATUS_PREFIX)
+        ]
+        if len(status_lines) > 1:
+            self.last_status = "invalid_output"
+            return None
+        reported_status = status_lines[0] if status_lines else None
+
         lines = [
             line[len(_WITNESS_PREFIX):]
             for line in result.stdout.splitlines()
             if line.startswith(_WITNESS_PREFIX)
         ]
         if not lines:
-            self.last_status = "no_capture"
+            status_map = {
+                "TIMEOUT": "natural_response_timeout",
+                "TARGET_DISCOVERY_FAILED": "target_discovery_failed",
+                "CDP_CONNECTION_FAILED": "cdp_connection_failed",
+                "CDP_CONNECTION_CLOSED": "cdp_connection_closed",
+                "CDP_PROTOCOL_ERROR": "cdp_protocol_error",
+                "CDP_COMMAND_FAILED": "cdp_command_failed",
+                "REJECTED": "response_rejected",
+            }
+            self.last_status = status_map.get(reported_status, "no_capture")
             return None
         if len(lines) != 1 or len(lines[0]) > _MAX_WITNESS_CHARS:
             self.last_status = "invalid_output"
@@ -102,5 +122,8 @@ class PassivePortResponseObserver:
             self.last_status = "invalid_shape"
             return None
 
+        if reported_status != "CAPTURED":
+            self.last_status = "invalid_output"
+            return None
         self.last_status = "captured"
         return witness
