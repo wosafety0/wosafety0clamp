@@ -206,6 +206,45 @@ module.exports = function() {
     return calls;
   }
 
+  function extractAliasCalls(functionText, seedAlias) {
+    const aliases = new Set([seedAlias]);
+    const declarationPattern = /\\b(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*([A-Za-z_$][\\w$]*)\\b/g;
+    let changed = true;
+    while (changed) {
+      changed = false;
+      declarationPattern.lastIndex = 0;
+      let declaration;
+      while ((declaration = declarationPattern.exec(functionText)) !== null) {
+        if (aliases.has(declaration[2]) && !aliases.has(declaration[1])) {
+          aliases.add(declaration[1]);
+          changed = true;
+        }
+      }
+    }
+
+    const calls = [];
+    for (const alias of aliases) {
+      const pattern = new RegExp('\\\\b' + alias.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\  function saveSnapshot(source, scriptUrl, scriptId, outputDirOverride) {') + '\\\\s*\\\\(', 'g');
+      let match;
+      while ((match = pattern.exec(functionText)) !== null && calls.length < 1000) {
+        const open = functionText.indexOf('(', match.index);
+        const end = findBalancedEnd(functionText, open, '(', ')');
+        if (end < 0) break;
+        calls.push({ alias, offset: match.index, expression: functionText.slice(match.index, end) });
+        pattern.lastIndex = end;
+      }
+    }
+    calls.sort((a, b) => a.offset - b.offset);
+    const uniqueCalls = [];
+    let previousEnd = -1;
+    for (const call of calls) {
+      if (call.offset < previousEnd) continue;
+      uniqueCalls.push(call);
+      previousEnd = call.offset + call.expression.length;
+    }
+    return { aliases: Array.from(aliases), calls: uniqueCalls };
+  }
+
   function saveSnapshot(source, scriptUrl, scriptId, outputDirOverride) {
     const capturedAt = new Date().toISOString();
     const stamp = capturedAt.replace(/[-:]/g, '');
@@ -267,7 +306,12 @@ module.exports = function() {
       rotationContexts.push(boundedContext(source, offset, 900, 1800));
     }
 
-    const factoryCalls = appFactory ? extractCalls(appFactory.text, '_0x460358') : [];
+    const factoryAliasAnalysis = appFactory
+      ? extractAliasCalls(appFactory.text, '_0x460358')
+      : { aliases: [], calls: [] };
+    const factoryCalls = factoryAliasAnalysis.calls.map(function(call) {
+      return Object.assign({}, call, { sourceOffset: appFactory.start + call.offset });
+    });
     const missing = [];
     if (!decoder) missing.push('_0x3353');
     if (!table) missing.push('_0x3f23');
@@ -300,6 +344,7 @@ module.exports = function() {
         localAlias_0x460358: aliasDecoder
       },
       stringTableReferencesOutsideDefinition: rotationContexts,
+      factoryDecoderAliases: factoryAliasAnalysis.aliases,
       factoryDecoderCalls: factoryCalls,
       notes: [
         'This file extracts source text only; it does not run the decoder.',
