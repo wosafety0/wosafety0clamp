@@ -20,7 +20,22 @@ class VisualStateGateTests(unittest.TestCase):
             "bonus_title.png": 0.26,
         }), "HOME_PORT")
 
-    def test_home_without_navigation_marker_fails_closed(self):
+    def test_dynamic_home_reference_can_confirm_home_without_stale_button_template(self):
+        self.assertEqual(classify_template_scores({
+            "home_reference_similarity": 0.979,
+            "home_sortie_menu.png": 0.22,
+            "negative_home_other_menu.png": 1.0,
+            "home_expedition_menu.png": 0.11,
+            "expedition_list_panel.png": 0.25,
+            "expedition_dispatch_button.png": 0.30,
+            "expedition_result_success.png": 0.27,
+            "expedition_result_failure.png": 0.17,
+            "result_next_button.png": 0.53,
+            "return_notice.png": 0.30,
+            "bonus_title.png": 0.26,
+        }), "HOME_PORT")
+
+    def test_home_without_navigation_or_reference_marker_fails_closed(self):
         self.assertEqual(classify_template_scores({
             "home_sortie_menu.png": 0.998,
             "home_expedition_menu.png": 0.21,

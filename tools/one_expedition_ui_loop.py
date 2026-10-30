@@ -37,6 +37,8 @@ from kancollebot.adapters.poi.ui_state_gate import (  # noqa: E402
 from kancollebot.adapters.poi.visual_state_gate import (
     VisualStateError,
     classify_screenshot_png,
+    classify_template_scores,
+    home_reference_similarity,
 )  # noqa: E402
 
 
@@ -69,6 +71,7 @@ def _idle(state: PoiFleetMissionState) -> bool:
 
 LOG_PATH: Path | None = None
 RUN_ID = "uninitialized"
+HOME_REFERENCE_BASE64: str | None = None
 
 
 def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra: object) -> None:
@@ -106,6 +109,9 @@ def _require_ui_state(game_session, expected: UiState) -> None:
             time.sleep(0.35)
             payload = game_session.input.capture_screenshot()
             visual_state, scores = classify_screenshot_png(payload, template_dir)
+            if HOME_REFERENCE_BASE64:
+                scores["home_reference_similarity"] = home_reference_similarity(payload, HOME_REFERENCE_BASE64)
+                visual_state = classify_template_scores(scores)
         except VisualStateError as visual_error:
             raise LoopError(
                 f"Accessible state unavailable ({accessible_error}); visual fallback failed ({visual_error})"
@@ -124,6 +130,39 @@ def _require_ui_state(game_session, expected: UiState) -> None:
         _print_event("ui_state_confirmed", ui_state=expected.value, evidence="in_memory_template_match")
 
 
+def _capture_home_reference(game_session) -> None:
+    """Capture a transient Home Port baseline in memory for later visual comparisons."""
+    global HOME_REFERENCE_BASE64
+    template_dir = os.environ.get("KANCOLLEBOT_TEMPLATE_DIR")
+    if not template_dir:
+        raise LoopError("KANCOLLEBOT_TEMPLATE_DIR is required for visual state verification")
+    game_session.transport.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 1100, "y": 500})
+    time.sleep(0.35)
+    payload = game_session.input.capture_screenshot()
+    _, scores = classify_screenshot_png(payload, template_dir)
+    home_nav = scores.get("negative_home_other_menu.png", -1.0)
+    competing = max(
+        scores.get("home_expedition_menu.png", -1.0),
+        scores.get("expedition_list_panel.png", -1.0),
+        scores.get("expedition_dispatch_button.png", -1.0),
+        scores.get("expedition_result_success.png", -1.0),
+        scores.get("expedition_result_failure.png", -1.0),
+        scores.get("return_notice.png", -1.0),
+        scores.get("bonus_title.png", -1.0),
+        scores.get("result_next_button.png", -1.0),
+    )
+    if home_nav < 0.90 or competing >= 0.85:
+        raise LoopError(
+            f"Cannot establish a Home Port reference safely: navigation_marker={home_nav:.3f}, competing_marker={competing:.3f}"
+        )
+    HOME_REFERENCE_BASE64 = payload
+    _print_event(
+        "home_reference_captured",
+        home_navigation_marker=round(home_nav, 4),
+        strongest_competing_marker=round(competing, 4),
+        screenshot_written_to_disk=False,
+    )
+
 def _recover_home_port(game_session, attempts: int = 3, force_click: bool = False) -> None:
     """Use bounded top-left navigation retries, requiring state evidence after each click."""
     if not force_click:
@@ -131,7 +170,7 @@ def _recover_home_port(game_session, attempts: int = 3, force_click: bool = Fals
             _require_ui_state(game_session, UiState.HOME_PORT)
             _print_event("home_port_recovery_confirmed", attempt=0)
             return
-        except UiStateGateError as exc:
+        except (UiStateGateError, LoopError) as exc:
             _print_event("home_port_state_not_confirmed", attempt=0, error=str(exc))
     for attempt in range(1, attempts + 1):
         _print_event("ui_action_precondition", action="click_home_port", attempt=attempt,
@@ -145,7 +184,7 @@ def _recover_home_port(game_session, attempts: int = 3, force_click: bool = Fals
             _require_ui_state(game_session, UiState.HOME_PORT)
             _print_event("home_port_recovery_confirmed", attempt=attempt)
             return
-        except UiStateGateError as exc:
+        except (UiStateGateError, LoopError) as exc:
             _print_event("home_port_recovery_retry", attempt=attempt, error=str(exc))
     raise LoopError(f"Home Port was not confirmed after {attempts} bounded attempts")
 
@@ -242,6 +281,7 @@ def run(args: argparse.Namespace) -> int:
         if not _idle(initial):
             raise LoopError(f"Fleet 2 must be idle before this one-shot run: {initial.mission}")
         _print_event("startup_idle_state_verified", initial)
+        _capture_home_reference(game_session)
         _recover_home_port(game_session)
         baseline_ms = int(time.time() * 1000)
         dispatched = _dispatch(state_session.transport, game_session.input, baseline_ms)
@@ -322,8 +362,9 @@ def main() -> int:
         help="The sole permitted local output file; defaults to logs/one_expedition_ui_loop.jsonl",
     )
     args = parser.parse_args()
-    global LOG_PATH, RUN_ID
+    global LOG_PATH, RUN_ID, HOME_REFERENCE_BASE64
     LOG_PATH = args.log_path.expanduser().resolve()
+    HOME_REFERENCE_BASE64 = None
     RUN_ID = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)

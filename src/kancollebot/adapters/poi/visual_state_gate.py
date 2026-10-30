@@ -1,4 +1,4 @@
-"""In-memory template matching for the game canvas when CDP accessibility is unavailable.
+"""In-memory template matching and baseline comparison for game UI state gates.
 
 No image is written to disk. Template assets are local operator-provided references.
 OpenCV is an optional runtime dependency; without it, classification fails closed.
@@ -13,6 +13,60 @@ from typing import Mapping
 
 class VisualStateError(RuntimeError):
     """The image cannot be classified with sufficient confidence."""
+
+
+def _vision_modules(cv2_module=None, numpy_module=None):
+    if cv2_module is None or numpy_module is None:
+        try:
+            import cv2 as cv2_module  # type: ignore[no-redef]
+            import numpy as numpy_module  # type: ignore[no-redef]
+        except ImportError as exc:
+            raise VisualStateError("OpenCV and NumPy are required for visual state checks") from exc
+    return cv2_module, numpy_module
+
+
+def _decode_grayscale(payload: str, cv2_module, numpy_module):
+    try:
+        raw = base64.b64decode(payload, validate=True)
+    except (ValueError, base64.binascii.Error) as exc:
+        raise VisualStateError("image payload is not valid base64") from exc
+    image = cv2_module.imdecode(
+        numpy_module.frombuffer(raw, dtype=numpy_module.uint8),
+        cv2_module.IMREAD_GRAYSCALE,
+    )
+    if image is None:
+        raise VisualStateError("image payload is not a decodable image")
+    return image
+
+
+def home_reference_similarity(
+    current_screenshot_base64: str,
+    home_reference_base64: str,
+    *,
+    cv2_module=None,
+    numpy_module=None,
+) -> float:
+    """Compare stable left-side menu pixels against an in-memory Home Port baseline."""
+    if not current_screenshot_base64 or not home_reference_base64:
+        raise VisualStateError("home reference and current screenshot are both required")
+    cv2_module, numpy_module = _vision_modules(cv2_module, numpy_module)
+    current = _decode_grayscale(current_screenshot_base64, cv2_module, numpy_module)
+    reference = _decode_grayscale(home_reference_base64, cv2_module, numpy_module)
+    if current.shape != reference.shape:
+        return -1.0
+    height, width = current.shape
+    x0, x1 = 0, min(width, 420)
+    y0, y1 = min(50, height), min(height, 450)
+    if x1 <= x0 or y1 <= y0:
+        return -1.0
+    current_crop = current[y0:y1, x0:x1]
+    reference_crop = reference[y0:y1, x0:x1]
+    if current_crop.size == 0 or reference_crop.size == 0:
+        return -1.0
+    match = cv2_module.matchTemplate(
+        current_crop, reference_crop, cv2_module.TM_CCOEFF_NORMED
+    )
+    return float(match[0, 0])
 
 
 def classify_template_scores(
@@ -32,6 +86,7 @@ def classify_template_scores(
 
     home = scores.get("home_sortie_menu.png", -1.0)
     home_nav = scores.get("negative_home_other_menu.png", -1.0)
+    home_reference = scores.get("home_reference_similarity", -1.0)
     expedition_menu = scores.get("home_expedition_menu.png", -1.0)
     list_panel = scores.get("expedition_list_panel.png", -1.0)
     dispatch_button = scores.get("expedition_dispatch_button.png", -1.0)
@@ -43,31 +98,39 @@ def classify_template_scores(
     result_ranked = sorted(result_scores.items(), key=lambda item: item[1], reverse=True)
     _, result = result_ranked[0]
     second_result = result_ranked[1][1]
-    bonus_scores = (
+    bonus = max(
         scores.get("result_next_button.png", -1.0),
         scores.get("bonus_title.png", -1.0),
     )
-    bonus = max(bonus_scores)
 
     candidates: list[tuple[str, float]] = []
+    home_markers = (
+        home_reference >= minimum_score
+        or (home >= minimum_score and home_nav >= minimum_score)
+    )
     if (
-        home >= minimum_score
-        and home_nav >= minimum_score
+        home_markers
         and expedition_menu < minimum_score
         and list_panel < minimum_score
         and dispatch_button < minimum_score
         and result < minimum_score
         and bonus < minimum_score
     ):
-        candidates.append(("HOME_PORT", home))
+        candidates.append(("HOME_PORT", max(home, home_reference)))
     if (
         home < minimum_score
+        and home_reference < minimum_score
         and bonus < minimum_score
         and result >= minimum_score
         and result - second_result >= minimum_margin
     ):
         candidates.append(("RETURN_RESULT", result))
-    if home < minimum_score and result < minimum_score and bonus >= minimum_score:
+    if (
+        home < minimum_score
+        and home_reference < minimum_score
+        and result < minimum_score
+        and bonus >= minimum_score
+    ):
         candidates.append(("BONUS_ITEMS", bonus))
 
     if len(candidates) != 1:
@@ -76,6 +139,7 @@ def classify_template_scores(
     state_markers = {
         "home_sortie_menu.png",
         "negative_home_other_menu.png",
+        "home_reference_similarity",
         "expedition_result_success.png",
         "expedition_result_failure.png",
         "return_notice.png",
@@ -102,22 +166,8 @@ def classify_screenshot_png(
     """Classify a CDP screenshot payload entirely in memory."""
     if not isinstance(screenshot_base64, str) or not screenshot_base64:
         raise VisualStateError("empty screenshot payload")
-    if cv2_module is None or numpy_module is None:
-        try:
-            import cv2 as cv2_module  # type: ignore[no-redef]
-            import numpy as numpy_module  # type: ignore[no-redef]
-        except ImportError as exc:
-            raise VisualStateError("OpenCV and NumPy are required for visual state checks") from exc
-    try:
-        raw = base64.b64decode(screenshot_base64, validate=True)
-    except (ValueError, base64.binascii.Error) as exc:
-        raise VisualStateError("screenshot payload is not valid base64") from exc
-    image = cv2_module.imdecode(
-        numpy_module.frombuffer(raw, dtype=numpy_module.uint8),
-        cv2_module.IMREAD_GRAYSCALE,
-    )
-    if image is None:
-        raise VisualStateError("screenshot payload is not a decodable image")
+    cv2_module, numpy_module = _vision_modules(cv2_module, numpy_module)
+    image = _decode_grayscale(screenshot_base64, cv2_module, numpy_module)
 
     directory = Path(template_dir)
     templates: dict[str, Path] = {
