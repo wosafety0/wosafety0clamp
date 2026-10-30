@@ -2519,3 +2519,12 @@ The Hand plugin's read-only probe reported:
 - **精确提交 CI PASS**：[40975922563](https://github.com/wosafety0/wosafety0clamp/actions/runs/40975922563)，Python **158/158**、JavaScript **14/14**、`node --check` 与 Python `compileall` 均通过。
 - 新建 Draft PR #17：https://github.com/wosafety0/wosafety0clamp/pull/17 ，目标为 `dev/expedition-closed-loop-mvp`。创建后重新读取 PR 元数据，GitHub 返回 `mergeable=true`、`draft=true`；此状态只证明当前 GitHub 合并性计算结果，不代表已经审查通过、合并或运行时验收。
 - **待审批**：审查完整 PR #17 diff 与 PR #15/#16 的依赖关系，决定是否采用候选替代旧分支；任何 PR 均不得自动合并。当前自然 port witness 与 MCP 同期匹配仍未在用户本机端到端验证，`source_freshness_verified` 不能凭历史快照放行，真实派遣保持关闭。本轮没有访问 Poi、本机游戏输入、页面 JS、主动游戏 API 或系统设置。
+
+
+### 2026-10-31 — Recheck of Draft PR #17 against the moving MVP base
+
+- Re-read current PR metadata and GitHub Compare after the daytime report. Candidate head before this archive update was `c8cf31ce3ac9e263a288a0b1ea927c5de63d72da`; the current `dev/expedition-closed-loop-mvp` base commit returned by Compare was `293c24e706a849346d2352d4ad52dca8320559aa`.
+- Current Compare result is `diverged`, **2 commits ahead / 115 behind**, merge base `7a04fe48854cae15172e94619fe55e03a1fcb587`. GitHub now reports PR #17 `mergeable=false`. This supersedes the creation-time note saying it was 1 ahead / 0 behind and mergeable; that statement was accurate only at the earlier snapshot.
+- Exact candidate head `c8cf31ce3ac9e263a288a0b1ea927c5de63d72da` had successful Push CI [40976027531](https://github.com/wosafety0/wosafety0clamp/actions/runs/40976027531): Python 158/158, JavaScript 14/14, observer `node --check`, and Python `compileall` passed. This verifies that candidate tree only, not its integration with the current moving base.
+- Decision: do not rebase, retarget, merge, or force-push the existing PR automatically. With 115 commits of base drift, a fresh comparison and selective reconstruction from the current base are required before this candidate can be reconsidered. Keep PR #15/#16/#17 open and Draft; do not treat the old mergeability result as current.
+- Safety boundary unchanged: no Poi/MCP request, game input, `Runtime.evaluate`, active game API request, system setting change, or live dispatch. Current natural witness-to-MCP freshness matching remains unverified; live dispatch stays disabled.
