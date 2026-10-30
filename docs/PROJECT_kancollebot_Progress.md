@@ -2537,6 +2537,6 @@ The Hand plugin's read-only probe reported:
 
 ## 2026-10-30 - Captured frame visually confirmed as the rendered top-level menu
 
-- Visually inspected one read-only PNG captured directly from the embedded KanColle WebView. The frame shows the rendered top-level menu with sortie (`??`), practice (`??`), and expedition (`??`) choices. A black screen, loading overlay, or modal was not apparent in this particular frame.
+- Visually inspected one read-only PNG captured directly from the embedded KanColle WebView. The frame shows the rendered top-level menu with the three large choices for sortie, practice, and expeditions (Japanese labels were visibly present in the image). A black screen, loading overlay, or modal was not apparent in this particular frame.
 - Scope: this is a single-frame manual visual observation, not an automated classifier or proof that the scene is stable across other states. No coordinates were recorded, no UI input was sent, and no screenshot containing account context was added to the repository.
 - Follow the existing stop-loss decision: do not expand CDP/PIXI injection, template matching, or manual-coordinate interaction. Treat screenshot work as transport evidence only and resume the passive Poi data route. MVP remains BLOCKED on current-server mission transition evidence and a separately verified, authorized action mechanism.
