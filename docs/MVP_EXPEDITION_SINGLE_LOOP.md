@@ -1,6 +1,6 @@
 # Single Expedition MVP — Execution Contract
 
-Status: BLOCKED (2026-10-30; screenshot transport verified; mission transitions and action interface remain unverified)
+Status: BLOCKED (2026-10-30; screenshot transport and repeated PNG capture verified; visual-state classification, mission transitions, and action interface remain unverified)
 Branch: dev/expedition-closed-loop-mvp
 
 ## One acceptance criterion
@@ -21,14 +21,14 @@ Unknown or stale state, mismatched fleet/expedition, ambiguous completion, unava
 - Historical Poi read-only evidence: info.fleets (3 fleets) and info.ships (91 ships), positive fleet-ship references matched.
 - Existing Python MCP client is read-only; poi_get is allowlisted; poi_hensei_save is explicitly excluded.
 - Fleet/ship reference consistency is not expedition-state recognition.
-- CDP direct WebSocket connection to the embedded KanColle `webview` target and `Page.captureScreenshot`: VERIFIED 2026-10-30; valid PNG 1200x720 matched the CSS viewport. Visual-state classification and coordinate mapping remain NOT_VERIFIED.
+- CDP direct WebSocket connection to the embedded KanColle `webview` target and `Page.captureScreenshot`: VERIFIED 2026-10-30; three consecutive read-only captures produced valid PNGs at 1200x720, matching the CSS visual viewport (1200x720, scale 1, page origin 0,0). The image hashes differ between captures, so frame stability is not assumed. Visual-state classification and coordinate mapping remain NOT_VERIFIED.
 - Real dispatch and reward-collection action interfaces: NOT_VERIFIED.
 - End-to-end live expedition loop: NOT_VERIFIED.
 - Current work-round tests: 167 Python unit tests passed; live screenshot was read-only.
 - No game actions authorized or executed.
 
 ## Immediate next implementation task
-Build on the verified direct-WebView screenshot path to validate screenshot repeatability, visual-state rejection (loading/black screen/modal versus home-port), and CSS-pixel coordinate mapping in read-only/offline checks. Do not send input during this phase. In parallel, retain the hard blocker for current-server mission-state transitions and a verified, separately authorized action interface; do not infer field semantics or claim the full loop works.
+Next inspect an actual captured frame and implement the smallest evidence-backed visual rejection gate only if scene semantics can be distinguished reliably; then validate CSS-pixel mapping offline against the observed 1200x720 viewport. Screenshot repeatability is already verified (3/3 valid PNGs, stable dimensions). Do not send input during this phase. In parallel, retain the hard blocker for current-server mission-state transitions and a verified, separately authorized action interface; do not infer field semantics or claim the full loop works.
 
 ## Explicitly out of scope
 AI model comparisons, generalized Bot reverse engineering, multi-fleet scheduling, optimal expeditions, battle automation, generic frameworks, extensive security investigations, or GitHub Actions.
