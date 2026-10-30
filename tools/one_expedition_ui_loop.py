@@ -42,7 +42,7 @@ from kancollebot.adapters.poi.visual_state_gate import (
 
 FLEET_ID = 2
 MISSION_ID = 3
-HOME_PORT = RecordedPoint(65, 85, "home-port")
+HOME_PORT = RecordedPoint(50, 50, "home-port")
 SORTIE = RecordedPoint(280, 425, "sortie")
 EXPEDITION_MODE = RecordedPoint(1105, 179, "expedition-mode")
 MISSION_ROW = RecordedPoint(500, 335, "mission-3-security-task")

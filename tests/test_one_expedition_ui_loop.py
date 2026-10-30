@@ -17,6 +17,9 @@ class ReturnGraceDelayTests(unittest.TestCase):
         self.active = PoiFleetMissionState(2, "第2艦隊", (1, 3, 1000, 0), (1, 4, 8, 25))
         self.returned = PoiFleetMissionState(2, "第2艦隊", (2, 3, 1000, 0), (1, 4, 8, 25))
 
+    def test_home_port_recovery_uses_live_verified_icon_coordinate(self):
+        self.assertEqual(controller.HOME_PORT.x, 50)
+        self.assertEqual(controller.HOME_PORT.y, 50)
     def test_scheduled_expiry_waits_one_grace_period_then_requests_ui_refresh(self):
         with (
             patch.object(controller, "read_poi_fleet_states", return_value=(self.active,)),
