@@ -106,8 +106,9 @@ def _dispatch_again(reader_transport, game_input, expected_start_ms: int) -> Poi
     before = _fleet(read_poi_fleet_states(reader_transport))
     if not _idle(before):
         raise LoopError(f"Fleet 2 is not idle before re-dispatch: {before.mission}")
+    # The result/bonus flow returns to the mother-port screen after the
+    # verified visible Next controls; Home Port itself is hidden at that point.
     for point, settle in (
-        (HOME_PORT, 0.4),
         (SORTIE, 1.0),
         (EXPEDITION_MODE, 1.0),
         (MISSION_ROW, 0.5),
@@ -179,6 +180,11 @@ def run(args: argparse.Namespace) -> int:
         _print_event("ui_click_sent", point=RETURN_CONFIRM.label)
         time.sleep(1.5)
         _wait_for_idle(state_session.transport)
+        # The observed result flow has a second visible Next page (bonus/items)
+        # after the fleet state becomes idle. Advance once to restore mother port.
+        game_session.input.click(RETURN_CONFIRM)
+        _print_event("ui_click_sent", point="bonus-next")
+        time.sleep(1.0)
         _dispatch_again(state_session.transport, game_session.input, args.expected_start_ms)
         _print_event("ONE_EXPEDITION_RETURN_COLLECT_REDISPATCH_VERIFIED")
     return 0
