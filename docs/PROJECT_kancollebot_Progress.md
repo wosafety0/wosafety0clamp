@@ -2473,3 +2473,10 @@ The Hand plugin's read-only probe reported:
 - After the Poi window was reopened, a read-only request to the loopback CDP version endpoint succeeded and identified Poi 12.0.1 / Electron 44. The current target list again exposed the Poi renderer and the DMM Kancolle WebView.
 - A CDP WebSocket request for `Page.getFrameTree` succeeded. The current tree contains `game_frame` and its nested `htmlWrap` frame at `/kcs2/index.php`; URL query parameters and session tokens are intentionally excluded.
 - **Verification boundary:** this confirms the local CDP endpoint and game-frame topology are reachable again. It does not verify the pre-init Hook, PIXI constructor interception, application instance capture, or stage readability. No game input, page refresh, dispatch, reward collection, or observer-initiated game API request was performed in this recovery check. Production action gates remain unchanged.
+
+
+## 2026-10-30 - PIXI Application export descriptor identified
+
+- Read-only CDP script enumeration found the active game main script hash matches the saved snapshot (073df7c8e4d4680208070b22806273b332e2f5ba7ae8b80005ad5914f336561e). The loaded PIXI library is v4.8.8 at /ajax/libs/pixi.js/4.8.8/pixi.min.js, SHA-256 ddff2d0e5f1b95026ccced8aed9a03391092f83c35fff6ee077a7cbbae6227ef.
+- Static inspection of that exact PIXI script confirms the library assigns its namespace to the window global. The Application export is an accessor with a getter; its property descriptor omits the configurable flag, whose ECMAScript default is false. Directly redefining the Application property is therefore not a viable interception point.
+- A possible alternative is to intercept the namespace assignment before game initialization and wrap subsequent Application reads. This remains a hypothesis, not an implemented or verified hook; a controlled pre-initialization run is still required. No page script was executed and no page refresh, game input, game request, dispatch, or reward action occurred during this source inspection. Production action gates remain unchanged.
