@@ -12,7 +12,7 @@ const sourcePath = path.resolve(__dirname, '../tools/hand_sandbox/static_decoder
 const source = fs.readFileSync(sourcePath, 'utf8');
 const anchor = '  timeout = setTimeout(function() {';
 assert.equal(source.split(anchor).length, 2, 'production extraction hook changed');
-const instrumented = source.replace(anchor, '  return { extractDefinition, findBalancedEnd, scanExpressionEnd, saveSnapshot, sanitizeScriptUrl, analyzeSource };\n' + anchor);
+const instrumented = source.replace(anchor, '  return { extractDefinition, findBalancedEnd, scanExpressionEnd, extractAliasCalls, saveSnapshot, sanitizeScriptUrl, analyzeSource };\n' + anchor);
 const logMessages = [];
 const sandbox = { module: { exports: {} }, console: { log(...parts) { logMessages.push(parts.map(String).join(' ')); } }, require, Buffer, URL: require('node:url').URL };
 vm.runInNewContext(instrumented, sandbox, { filename: sourcePath, timeout: 1000 });
@@ -67,6 +67,37 @@ test('extracts comma-separated arrow declarators without consuming the next init
   const commentedNext = lexer.extractDefinition(commented, 'next');
   assert.ok(commentedNext);
   assert.equal(commentedNext.text, 'next = 4;');
+});
+
+test('follows chained local decoder aliases and preserves exact factory call offsets', () => {
+  const fixture = [
+    'const _0x460358 = _0x3353;',
+    'function _0x466acb() {',
+    '  const _0x1298ca = _0x460358;',
+    '  let _0x55fc9b = _0x1298ca;',
+    '  return _0x55fc9b(0x1) + _0x1298ca(0x2) + _0x460358(0x3);',
+    '}'
+  ].join('\\n');
+  const factory = lexer.extractDefinition(fixture, '_0x466acb');
+  assert.ok(factory);
+  const result = lexer.extractAliasCalls(factory.text, '_0x460358');
+  assert.deepEqual(Array.from(result.aliases).sort(), ['_0x1298ca', '_0x460358', '_0x55fc9b'].sort());
+  assert.equal(result.calls.length, 3);
+  assert.deepEqual(result.calls.map(call => call.alias), ['_0x55fc9b', '_0x1298ca', '_0x460358']);
+  for (const call of result.calls) {
+    assert.equal(factory.text.slice(call.offset, call.offset + call.expression.length), call.expression);
+    assert.ok(call.offset >= 0 && call.offset + call.expression.length <= factory.text.length);
+  }
+  assert.ok(result.calls.every(call => call.expression.endsWith(')')));
+});
+
+test('alias call extraction handles nested arguments and ignores alias declarations', () => {
+  const fixture = 'function _0x466acb() { const _0x1298ca = _0x460358; return _0x1298ca(0x1, helper({ value: [1, 2] })) + _0x460358(0x2); }';
+  const factory = lexer.extractDefinition(fixture, '_0x466acb');
+  const result = lexer.extractAliasCalls(factory.text, '_0x460358');
+  assert.equal(result.calls.length, 2);
+  assert.ok(result.calls[0].expression.includes('helper({ value: [1, 2] })'));
+  assert.equal(result.calls[1].alias, '_0x460358');
 });
 
 test('saves an exact source snapshot with SHA-256 metadata without executing source', () => {
