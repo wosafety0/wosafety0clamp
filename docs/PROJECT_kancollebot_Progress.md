@@ -2298,3 +2298,9 @@ The Hand plugin's read-only probe reported:
 - 成功提交：`6fdbd436fa769889520b5cca7ca3d479ae00d3e9`；远端回读确认工作流内容与提交差异正确。
 - 本轮仅使用 GitHub 连接器处理远端源码、规则、进度和提交核验，未调用 DC；因此没有产生新的 DC 调用。当前没有可核验的 DC 总量/CLAMP 专属调用量统计接口，本轮不报告节省比例。
 - **验证状态：** 工作流修改已远端保存并回读核验；尚未实际运行该 workflow，因此标记为 `IMPLEMENTED`，不是 `TESTED/VERIFIED`。真实本机运行状态未改变。
+
+## 2026-10-30 - CLAMP DC 批量本机检查入口
+
+- 在已有 2026-10-30 DC 成本优化基础上，新增 `docs/DC_CALL_COST_OPTIMIZATION.md` 与 `scripts/dc_clamp_batch_check.ps1`，把“GitHub 优先、必要本机检查一次批量完成”的策略固化为可复用项目入口，避免重复启动多个 DC 进程。
+- 本轮 DC 总体统计实测为 **1548 次调用、99% 成功、剩余 83%**；这是账户/设备总体数据，不作为 CLAMP 专属调用量。当前完整历史归因仍不足，因此**没有声称节省比例**。
+- 远端文件已通过 GitHub 连接器回读；批量脚本本身尚未在本机执行，因此其运行验证状态为 **IMPLEMENTED / NOT_TESTED**，不能把它描述为已实测降低 DC 调用量。
