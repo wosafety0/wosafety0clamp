@@ -18,6 +18,24 @@ class SparkleShipSnapshotTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "positive"):
             SparkleShipSnapshot(ship_id=0, morale=30)
 
+    def test_rejects_boolean_and_non_integer_ship_ids(self):
+        for ship_id in (True, False, 1.0, 1.5, "1"):
+            with self.subTest(ship_id=ship_id):
+                with self.assertRaisesRegex(ValueError, "positive integer"):
+                    SparkleShipSnapshot(ship_id=ship_id, morale=30)
+
+    def test_rejects_boolean_and_non_integer_morale(self):
+        for morale in (True, False, 1.0, 1.5, "20"):
+            with self.subTest(morale=morale):
+                with self.assertRaisesRegex(ValueError, "integer between 0 and 100"):
+                    SparkleShipSnapshot(ship_id=1, morale=morale)
+
+    def test_eligible_flag_must_be_boolean(self):
+        for eligible in (0, 1, "false", None):
+            with self.subTest(eligible=eligible):
+                with self.assertRaisesRegex(ValueError, "eligible must be a boolean"):
+                    SparkleShipSnapshot(ship_id=1, morale=30, eligible=eligible)
+
 
 class SparklePlannerTests(unittest.TestCase):
     def test_orders_lowest_morale_first(self):
@@ -76,6 +94,20 @@ class SparklePlannerTests(unittest.TestCase):
             build_sparkle_plan((), estimated_gain_per_sortie=0)
         with self.assertRaisesRegex(ValueError, "max_sorties_per_ship"):
             build_sparkle_plan((), max_sorties_per_ship=0)
+
+    def test_policy_values_must_be_integers_not_booleans(self):
+        for value in (True, False, 50.0, "50"):
+            with self.subTest(target_morale=value):
+                with self.assertRaisesRegex(ValueError, "target_morale"):
+                    build_sparkle_plan((), target_morale=value)
+        for value in (True, False, 10.0, "10"):
+            with self.subTest(estimated_gain_per_sortie=value):
+                with self.assertRaisesRegex(ValueError, "estimated_gain_per_sortie"):
+                    build_sparkle_plan((), estimated_gain_per_sortie=value)
+        for value in (True, False, 3.0, "3"):
+            with self.subTest(max_sorties_per_ship=value):
+                with self.assertRaisesRegex(ValueError, "max_sorties_per_ship"):
+                    build_sparkle_plan((), max_sorties_per_ship=value)
 
 
 if __name__ == "__main__":
