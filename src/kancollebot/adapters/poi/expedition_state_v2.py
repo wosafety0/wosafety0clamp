@@ -133,6 +133,7 @@ def normalize_poi_fleets(
             fleet_id=fleet_id,
             ship_ids=ship_ids,
             mission_id=mission_id,
+            mission_status=status,
             return_at=None,
             fuel_ready=fuel_ready,
             ammo_ready=ammo_ready,

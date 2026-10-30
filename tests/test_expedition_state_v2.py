@@ -57,7 +57,7 @@ class PoiMissionStateTests(unittest.TestCase):
         self.assertEqual(snapshot.mission_id, 1)
         plan = evaluate_expedition_fleet(snapshot, now=OBSERVED_AT)
         self.assertEqual(
-            plan.decision, ExpeditionDecision.BLOCKED_UNKNOWN_RETURN_TIME
+            plan.decision, ExpeditionDecision.COMPLETED_AWAITING_REWARD
         )
 
     def test_unknown_status_fails_closed(self):
