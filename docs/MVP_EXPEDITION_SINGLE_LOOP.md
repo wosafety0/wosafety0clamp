@@ -19,6 +19,7 @@ Unknown or stale state, mismatched fleet/expedition, ambiguous completion, unava
 
 ## Current evidence and blockers
 - Historical Poi read-only evidence: info.fleets (3 fleets) and info.ships (91 ships), positive fleet-ship references matched.
+- Live local Poi MCP bridge was reachable and reported a ready Redux store. `poi_describe(info.fleets)` confirmed `api_mission` is part of the fleet records; one read-only `poi_get(info.fleets)` returned three cached values `[0,0,0,0]`. This is a current cache observation only: no source-freshness witness or before/after expedition transition was established.
 - Existing Python MCP client is read-only; poi_get is allowlisted; poi_hensei_save is explicitly excluded.
 - Fleet/ship reference consistency is not expedition-state recognition.
 - CDP direct WebSocket connection to the embedded KanColle `webview` target and `Page.captureScreenshot`: VERIFIED 2026-10-30; three consecutive read-only captures produced valid PNGs at 1200x720, matching the CSS visual viewport (1200x720, scale 1, page origin 0,0). One captured frame was visually inspected and showed the rendered top-level menu with sortie/practice/expedition choices; no loading/black screen/modal was apparent in that frame. This is a single-frame manual observation, not an automated visual-state gate. Coordinate mapping remains NOT_VERIFIED.
