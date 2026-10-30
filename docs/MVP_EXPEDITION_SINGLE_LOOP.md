@@ -1,6 +1,6 @@
 # Single Expedition MVP — Execution Contract
 
-Status: BLOCKED (2026-10-30; screenshot transport and repeated PNG capture verified; visual-state classification, mission transitions, and action interface remain unverified)
+Status: IN_PROGRESS (2026-10-30; user-authorized UI-mediated dispatch for fleet 2 mission 3 verified; same-mission return/reward/re-dispatch and Bot integration remain pending)
 Branch: dev/expedition-closed-loop-mvp
 
 ## One acceptance criterion
@@ -29,7 +29,7 @@ Unknown or stale state, mismatched fleet/expedition, ambiguous completion, unava
 - No game actions authorized or executed.
 
 ## Immediate next implementation task
-Respect the existing stop-loss decision: do not extend screenshot classification, template matching, manual coordinate recording, or CDP/PIXI interaction. Screenshot transport and dimensional repeatability are research evidence only. Resume the lower-cost passive Poi data route; the MVP remains blocked until sanitized before/after `api_mission` observations from a manually operated expedition establish current-server transitions and a separate low-risk authorized action interface is identified. Do not send input or issue game-server requests.
+The original stop-loss was revised only for the user's explicit authorization of normal game-UI input while prohibiting direct packet sending. A single client-mediated CDP `Input.dispatchMouseEvent` click sequence against the visible game UI has now been verified for a real dispatch. Do not call game API methods, construct/send game-server requests, or use page/PIXI injection to mutate game state. Next, track the same fleet and mission to completion, collect its result through the normal UI, verify the idle transition, and then implement/verify Bot-owned guarded re-dispatch with state readback. Fail closed on stale/unknown state, target ambiguity, or viewport mismatch.
 
 ## Explicitly out of scope
 AI model comparisons, generalized Bot reverse engineering, multi-fleet scheduling, optimal expeditions, battle automation, generic frameworks, extensive security investigations, or GitHub Actions.
@@ -94,3 +94,11 @@ This section defines the minimum evidence needed to unblock implementation; it i
 6. **Acceptance record:** retain only the sanitized event label, before/after tuples, source/freshness timestamps, result (MATCHED / INCONCLUSIVE), and observer version. Keep the capture status, action-interface status, offline-test status, and MVP status as separate fields.
 
 **Unblock rule:** implementation may resume only after one unambiguous manually operated before/after transition is captured and the separate action-interface prerequisite is satisfied. Until then, mission-state expansion and action integration remain BLOCKED; tests not actually run must remain NOT_RUN.
+
+## 2026-10-30 — Live UI dispatch proof and revised gate
+
+- **Verified live action:** after the prior returned mission was collected through the visible UI, Poi Redux showed all three fleets idle. Fleet 2 (four ships) was selected for expedition 3, `警備任務`.
+- **Explicit authorization:** the user authorized normal game UI actions except direct packet sending. The dispatch used one left-button press/release through the local CDP input domain against the visible game page. No game API method or direct game-server request was initiated by the automation.
+- **Before/after evidence:** fleet 2 changed from `api_mission=[0,0,0,0]` to `[1,3,1793354078676,0]`; fleets 1 and 3 remained idle. The game displayed `遠征に向かいました`. The observed third slot is `2026-10-30T09:54:38.676Z` in Unix milliseconds.
+- **Gate decision:** the action interface is now verified for this specific visible UI click path, but it is not yet integrated into the project Bot and viewport/target guards are not yet implemented. The new mission has not returned; the full same-mission loop and automatic re-dispatch remain pending. Do not mark the MVP complete.
+- **Next acceptance:** observe fleet 2 mission 3 return, collect its reward via the normal UI, read back `api_mission=[0,0,0,0]`, then trigger a new UI-mediated dispatch from Bot-owned guarded automation and verify the new active state. No direct game-server packet/API route is permitted.
