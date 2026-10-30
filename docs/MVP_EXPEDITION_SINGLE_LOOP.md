@@ -124,3 +124,13 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - This confirms the passive freshness-witness path worked in this runtime check. Because the run used a different local worktree revision and the report intentionally omitted fleet identifiers and mission tuples, it does **not** prove that fleet 2 / mission 3 is the returned fleet, and it does not authorize reward collection or re-dispatch.
 - No game input, refresh, game API call, source edit, or local commit was performed. Clipboard copy was unavailable in the DC session; the diagnostic itself completed successfully.
 - MVP remains `IN_PROGRESS`; exact target-fleet state, normal-UI reward collection, idle readback, and guarded re-dispatch remain unverified.
+
+## 2026-10-30 — Dispatch preconditions and post-dispatch return-to-port gate
+
+- **Dispatch precondition — supplies:** before dispatching any fleet, inspect fuel and ammunition for every ship in the target fleet. If either is not full, use the normal in-game UI to replenish, then re-read and verify the supplies are full. If replenishment cannot be confirmed, fail closed and do not dispatch.
+- **Dispatch action — normal UI only:** select the intended fleet and expedition through the visible game UI. Do not use direct game-server requests or game API calls to dispatch.
+- **Dispatch verification:** after the UI action, read the fleet state and verify the target fleet's `api_mission` is active and its mission ID matches the requested expedition. A click or screenshot alone is not sufficient evidence of success.
+- **Post-dispatch navigation:** after confirming dispatch, leave the expedition screen and return to the home port through the normal UI. Verify the game is back at the home port before considering the dispatch workflow complete.
+- **Acceptance gate:** a dispatch is workflow-complete only when supply preconditions are verified, the correct active mission tuple is observed, and the UI has returned to the home port. If any check is missing or ambiguous, report the run as incomplete rather than successful.
+- **Evidence status:** these are user-confirmed operational requirements added to the MVP acceptance criteria. They do not claim that supply-check automation or post-dispatch navigation has already been implemented or independently live-tested.
+
