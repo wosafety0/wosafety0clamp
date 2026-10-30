@@ -77,7 +77,7 @@ test('follows chained local decoder aliases and preserves exact factory call off
     '  let _0x55fc9b = _0x1298ca;',
     '  return _0x55fc9b(0x1) + _0x1298ca(0x2) + _0x460358(0x3);',
     '}'
-  ].join('\\n');
+  ].join('\n');
   const factory = lexer.extractDefinition(fixture, '_0x466acb');
   assert.ok(factory);
   const result = lexer.extractAliasCalls(factory.text, '_0x460358');
