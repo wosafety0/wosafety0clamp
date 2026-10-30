@@ -1,6 +1,6 @@
 # Single Expedition MVP — Execution Contract
 
-Status: ACTIVE (2026-10-26)
+Status: BLOCKED (2026-10-30; passive runtime transition evidence and verified action interface missing)
 Branch: dev/expedition-closed-loop-mvp
 
 ## One acceptance criterion
@@ -69,3 +69,12 @@ Cloud GitHub first; no local checkout required. Read before write. Record verifi
 - The diagnostic sends no mouse input, performs no JavaScript evaluation, and makes no game-state changes. Output is capped and excludes page URL, account data, and unrelated accessible labels.
 - This tool is prepared in the cloud and must not be described as having run on the user's machine. Its purpose is to determine whether the current UI exposes stable semantic labels without manually annotating screenshots or coordinates.
 - If the live UI exposes no matching accessible labels, do not invent labels or fall back to a large manual coordinate/template inventory. Reassess the shortest supported client-mediated route based on evidence.
+
+
+## 2026-10-30 — Bounded stop-loss status
+
+- The CDP/PIXI injection and manual-coordinate interaction routes are stopped by the project's explicit stop-loss gate.
+- Static public references support the likely `api_mission` shape `[state, mission_id, absolute Unix-ms final time, reserved]` and document states 0=idle, 1=active, 2=returned, 3=recalled. Current branch normalization still rejects state 3 and leaves `return_at` unset. This mismatch is not changed on static evidence alone; a current sanitized runtime observation is still required before making action-relevant state changes.
+- Read-only inventory did not find a saved current-server `api_mission` transition capture. Existing tests are synthetic, not Taiwan-server runtime verification.
+- The installed forwarder is passive only; the Python Poi adapter is read-only. Dispatch and reward-collection mechanisms remain NOT_VERIFIED.
+- Resume condition: obtain one manually operated, passively observed expedition's sanitized before/after `api_mission` evidence, and independently identify a low-risk, authorized action mechanism. Until then, do not implement new state/action code or claim the single-expedition loop is operational. No game input or server request was sent during this review.
