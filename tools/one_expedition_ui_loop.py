@@ -12,6 +12,7 @@ import argparse
 import json
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,13 +62,26 @@ def _idle(state: PoiFleetMissionState) -> bool:
     return state.mission == (0, 0, 0, 0)
 
 
+LOG_PATH: Path | None = None
+RUN_ID = "uninitialized"
+
+
 def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra: object) -> None:
-    payload: dict[str, object] = {"event": event, **extra}
+    payload: dict[str, object] = {
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "run_id": RUN_ID,
+        "event": event,
+        **extra,
+    }
     if state is not None:
         payload["fleet_id"] = state.fleet_id
         payload["mission"] = list(state.mission)
         payload["ship_count"] = len([ship_id for ship_id in state.ship_ids if ship_id > 0])
-    print(json.dumps(payload, ensure_ascii=False), flush=True)
+    line = json.dumps(payload, ensure_ascii=False)
+    print(line, flush=True)
+    if LOG_PATH is not None:
+        with LOG_PATH.open("a", encoding="utf-8", newline="\\n") as stream:
+            stream.write(line + "\\n")
 
 
 def _require_ui_state(game_transport, expected: UiState) -> None:
@@ -76,6 +90,28 @@ def _require_ui_state(game_transport, expected: UiState) -> None:
     nodes = result.get("nodes") if isinstance(result, dict) else None
     require_state(nodes, expected)
     _print_event("ui_state_confirmed", state=expected.value)
+
+
+def _recover_home_port(game_session, attempts: int = 3) -> None:
+    """Use bounded top-left navigation retries, requiring state evidence after each click."""
+    for attempt in range(1, attempts + 1):
+        try:
+            _require_ui_state(game_session.transport, UiState.HOME_PORT)
+            _print_event("home_port_recovery_confirmed", attempt=attempt - 1)
+            return
+        except UiStateGateError as exc:
+            _print_event("home_port_state_not_confirmed", attempt=attempt, error=str(exc))
+        _print_event("ui_action_precondition", action="click_home_port", attempt=attempt)
+        game_session.input.click(HOME_PORT)
+        _print_event("ui_click_sent", point=HOME_PORT.label, attempt=attempt)
+        time.sleep(1.0)
+        try:
+            _require_ui_state(game_session.transport, UiState.HOME_PORT)
+            _print_event("home_port_recovery_confirmed", attempt=attempt)
+            return
+        except UiStateGateError as exc:
+            _print_event("home_port_recovery_retry", attempt=attempt, error=str(exc))
+    raise LoopError(f"Home Port was not confirmed after {attempts} bounded attempts")
 
 
 def _wait_for_return(reader_transport, expected_start_ms: int, poll_seconds: float, timeout_seconds: float) -> PoiFleetMissionState:
@@ -173,7 +209,8 @@ def run(args: argparse.Namespace) -> int:
         still_returned = _fleet(read_poi_fleet_states(state_session.transport))
         if still_returned.mission != returned.mission:
             raise LoopError("Mission state changed before opening its result; stopping")
-        _require_ui_state(game_session.transport, UiState.HOME_PORT)
+        _recover_home_port(game_session)
+        _print_event("ui_action_precondition", action="click_sortie", expected_state=UiState.HOME_PORT.value)
         game_session.input.click(SORTIE)
         _print_event("ui_click_sent", point=SORTIE.label)
         time.sleep(1.5)
@@ -201,7 +238,7 @@ def run(args: argparse.Namespace) -> int:
         game_session.input.click(RETURN_CONFIRM)
         _print_event("ui_click_sent", point="bonus-next")
         time.sleep(1.0)
-        _require_ui_state(game_session.transport, UiState.HOME_PORT)
+        _recover_home_port(game_session)
         _dispatch_again(state_session.transport, game_session.input, args.expected_start_ms)
         _print_event("ONE_EXPEDITION_RETURN_COLLECT_REDISPATCH_VERIFIED")
     return 0
@@ -215,8 +252,19 @@ def main() -> int:
                         help="Exact current fleet-2 mission-3 timestamp; prevents acting on a different mission")
     parser.add_argument("--poll-seconds", type=float, default=5.0)
     parser.add_argument("--timeout-seconds", type=float, default=1800.0)
+    parser.add_argument(
+        "--log-path",
+        type=Path,
+        default=ROOT / "logs" / "one_expedition_ui_loop.jsonl",
+        help="The sole permitted local output file; defaults to logs/one_expedition_ui_loop.jsonl",
+    )
     args = parser.parse_args()
+    global LOG_PATH, RUN_ID
+    LOG_PATH = args.log_path.expanduser().resolve()
+    RUN_ID = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _print_event("run_started", log_path=str(LOG_PATH), output_policy="append-only-jsonl; no screenshots or other runtime files")
         return run(args)
     except (LoopError, CdpInputError, CdpFleetStateError, UiStateGateError, OSError, TimeoutError, ValueError) as exc:
         _print_event("STOPPED_FAIL_CLOSED", error_type=type(exc).__name__, error=str(exc))
