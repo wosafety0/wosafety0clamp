@@ -27,6 +27,10 @@ module.exports = function() {
   let finished = false;
   let nextId = 1;
   let networkEnabled = false;
+  let networkResponseEvents = 0;
+  let kancolleHostResponseEvents = 0;
+  let portPathResponseEvents = 0;
+  let portHttp200ResponseEvents = 0;
   let cachedResponsesSkipped = 0;
   const responses = new Map();
   const commands = new Map();
@@ -222,7 +226,15 @@ module.exports = function() {
   }
 
   timer = setTimeout(function() {
-    cleanup('TIMEOUT', 'No qualifying natural port response was captured within 120 seconds.');
+    cleanup('TIMEOUT', JSON.stringify({
+      reason: 'No qualifying natural port response was captured within 120 seconds.',
+      networkEnabled,
+      networkResponseEvents,
+      kancolleHostResponseEvents,
+      portPathResponseEvents,
+      portHttp200ResponseEvents,
+      cachedResponsesSkipped
+    }));
   }, WAIT_MS);
 
   request = http.get(TARGETS_URL, { timeout: 5000, agent: false }, function(response) {
@@ -286,12 +298,19 @@ module.exports = function() {
         if (!networkEnabled || !message.method || !message.params) return;
         const p = message.params;
         if (message.method === 'Network.responseReceived') {
+          networkResponseEvents++;
           const response = p.response || {};
           const url = typeof response.url === 'string' ? response.url : '';
-          const pathname = safePath(url);
-          if (!pathname.endsWith('/kcsapi/api_port/port') || response.status !== 200) return;
           let parsedUrl;
           try { parsedUrl = new URL(url); } catch (_) { return; }
+          if (/(^|\.)kancolle-server\.com$/i.test(parsedUrl.hostname)) {
+            kancolleHostResponseEvents++;
+          }
+          const pathname = parsedUrl.pathname;
+          const isPortPath = pathname.endsWith('/kcsapi/api_port/port');
+          if (isPortPath) portPathResponseEvents++;
+          if (isPortPath && response.status === 200) portHttp200ResponseEvents++;
+          if (!isPortPath || response.status !== 200) return;
           if (!/(^|\.)kancolle-server\.com$/i.test(parsedUrl.hostname)) return;
           const fromDiskCache = response.fromDiskCache === true;
           const fromServiceWorker = response.fromServiceWorker === true;
