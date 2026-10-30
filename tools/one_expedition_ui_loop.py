@@ -28,6 +28,11 @@ from kancollebot.adapters.poi.cdp_websocket import (  # noqa: E402
     connect_game_webview,
     connect_poi_session,
 )
+from kancollebot.adapters.poi.ui_state_gate import (  # noqa: E402
+    UiState,
+    UiStateGateError,
+    require_state,
+)
 
 FLEET_ID = 2
 MISSION_ID = 3
@@ -63,6 +68,14 @@ def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra:
         payload["mission"] = list(state.mission)
         payload["ship_count"] = len([ship_id for ship_id in state.ship_ids if ship_id > 0])
     print(json.dumps(payload, ensure_ascii=False), flush=True)
+
+
+def _require_ui_state(game_transport, expected: UiState) -> None:
+    """Require explicit accessible text evidence before a sensitive UI click."""
+    result = game_transport.send("Accessibility.getFullAXTree", {})
+    nodes = result.get("nodes") if isinstance(result, dict) else None
+    require_state(nodes, expected)
+    _print_event("ui_state_confirmed", state=expected.value)
 
 
 def _wait_for_return(reader_transport, expected_start_ms: int, poll_seconds: float, timeout_seconds: float) -> PoiFleetMissionState:
@@ -160,6 +173,7 @@ def run(args: argparse.Namespace) -> int:
         still_returned = _fleet(read_poi_fleet_states(state_session.transport))
         if still_returned.mission != returned.mission:
             raise LoopError("Mission state changed before opening its result; stopping")
+        _require_ui_state(game_session.transport, UiState.HOME_PORT)
         game_session.input.click(SORTIE)
         _print_event("ui_click_sent", point=SORTIE.label)
         time.sleep(1.5)
@@ -174,17 +188,20 @@ def run(args: argparse.Namespace) -> int:
             time.sleep(1.0)
         else:
             raise LoopError("Sortie UI did not refresh the return result; no confirmation click sent")
+        _require_ui_state(game_session.transport, UiState.RETURN_RESULT)
         # Single attempt only. If the point is wrong, idle-state verification fails
         # and the controller will not retry a potentially ambiguous click.
         game_session.input.click(RETURN_CONFIRM)
         _print_event("ui_click_sent", point=RETURN_CONFIRM.label)
         time.sleep(1.5)
         _wait_for_idle(state_session.transport)
+        _require_ui_state(game_session.transport, UiState.BONUS_ITEMS)
         # The observed result flow has a second visible Next page (bonus/items)
         # after the fleet state becomes idle. Advance once to restore mother port.
         game_session.input.click(RETURN_CONFIRM)
         _print_event("ui_click_sent", point="bonus-next")
         time.sleep(1.0)
+        _require_ui_state(game_session.transport, UiState.HOME_PORT)
         _dispatch_again(state_session.transport, game_session.input, args.expected_start_ms)
         _print_event("ONE_EXPEDITION_RETURN_COLLECT_REDISPATCH_VERIFIED")
     return 0
@@ -201,7 +218,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         return run(args)
-    except (LoopError, CdpInputError, CdpFleetStateError, OSError, TimeoutError) as exc:
+    except (LoopError, CdpInputError, CdpFleetStateError, UiStateGateError, OSError, TimeoutError, ValueError) as exc:
         _print_event("STOPPED_FAIL_CLOSED", error_type=type(exc).__name__, error=str(exc))
         return 2
 
