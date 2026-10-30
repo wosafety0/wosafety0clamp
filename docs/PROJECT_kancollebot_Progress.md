@@ -2604,3 +2604,10 @@ The Hand plugin's read-only probe reported:
 - Implementation status: changed and syntax-verified; end-to-end NOT_YET_VERIFIED. The controller now allows the scheduled return time to trigger a visible UI refresh, then requires the same mission tuple to appear in returned status before the one reward-confirmation click.
 - Verification so far: py_compile passed; fixed-expression fleet-reader tests passed 6/6. These checks do not validate the return-screen transition or reward-confirmation coordinate.
 - Runtime remains IN_PROGRESS. The running process uses the previous script version and does not validate this correction. Do not claim loop completion until the updated live sequence is verified.
+
+
+## 2026-10-30 - Returned-result navigation observation and stale-click correction
+
+- **Live UI observation:** the fresh CDP WebView screenshot showed the mother-port screen and the Japanese return notification for fleet 2. Opening the visible Sortie control displayed `遠征 失敗！`; the result and bonus screens were advanced using their visible `次` controls, and the UI returned to mother port. Poi Redux subsequently showed all three fleets idle. The expedition itself failed; this is not recorded as a successful expedition or loop acceptance, and no re-dispatch was attempted.
+- **Code correction: IMPLEMENTED; offline-verified.** In `tools/one_expedition_ui_loop.py`, removed the stale `HOME_PORT` click from the known mother-port return path. The Home Port navigation control is hidden while already at mother port, so clicking its saved coordinate was invalid; the controller now verifies the same mission tuple is unchanged and proceeds to the visible Sortie control.
+- **Verification:** full Python unit suite passed **175/175**; `compileall` and `git diff --check` passed. This verifies offline regressions and syntax only. The changed live controller sequence has not been rerun, and automated visual screen classification/native-dialog handling and the full successful expedition loop remain NOT_VERIFIED.

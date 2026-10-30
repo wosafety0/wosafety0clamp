@@ -153,11 +153,9 @@ def run(args: argparse.Namespace) -> int:
             args.poll_seconds,
             args.timeout_seconds,
         )
-        # The current known screen is the home port. The top-left port control is
-        # a navigation-only action; then the normal Sortie control opens the result.
-        game_session.input.click(HOME_PORT)
-        _print_event("ui_click_sent", point=HOME_PORT.label)
-        time.sleep(0.7)
+        # The return notification was observed on the home-port screen. The
+        # top-left Home Port navigation control is hidden there, so do not click
+        # its stale coordinate. Open the returned-expedition result from Sortie.
         still_returned = _fleet(read_poi_fleet_states(state_session.transport))
         if still_returned.mission != returned.mission:
             raise LoopError("Mission state changed before opening its result; stopping")
