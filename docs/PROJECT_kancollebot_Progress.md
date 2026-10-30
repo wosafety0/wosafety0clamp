@@ -170,3 +170,10 @@ No plugin execution, MCP request, network/WebSocket dispatch, game action, local
 - Added offline regressions for boolean, float, and string inputs. The change is isolated to the side-effect-free sparkle planner and its tests; it does not connect to Poi or enable gameplay actions.
 - Branch: `fix/sparkling-planner-strict-integers-20261031`, based on `fc09d9d83afe7c5730cb4a96ee5b90c4ddfe49b8`. Implementation and tests are committed together with this status note; automated verification is pending and must be recorded only after an exact-head CI result is read back.
 - No local test execution, game input, Poi/MCP request, or system setting change was performed in this connector-only run.
+
+
+### 2026-10-31 — Align strict planner candidate with existing CI branch filter
+
+- Read `.github/workflows/ci.yml`: push CI is configured for `main` and `dev/**`, while pull-request CI only targets `main`. The initial `fix/**` candidate did not produce a workflow run, so its validation status remains pending.
+- Created `dev/sparkling-planner-strict-integers-20261031` at the same implementation/test commit and added this evidence note on the eligible `dev/**` branch. No workflow configuration was changed; exact-head CI for the resulting commit is now the required verification.
+- This is a branch-trigger correction only. No local test execution, Poi/MCP request, game input, or system setting change was performed.
