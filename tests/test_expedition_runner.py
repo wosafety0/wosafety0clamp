@@ -88,6 +88,25 @@ class ExpeditionRunnerTests(unittest.TestCase):
         self.assertEqual(second.status, "no_ready_fleet")
         self.assertEqual(adapter.dispatches, [(2, 1)])
 
+    def test_post_dispatch_confirmation_requires_verified_source(self):
+        class LosesSourceEvidence(FakeAdapter):
+            def dispatch_expedition(self, *, fleet_id, mission_id):
+                super().dispatch_expedition(fleet_id=fleet_id, mission_id=mission_id)
+                self.state = ObservedState(
+                    self.state.payload, self.state.observed_at,
+                    self.state.source, source_freshness_verified=False,
+                )
+
+        adapter = LosesSourceEvidence(confirm_dispatch=True)
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ExpeditionActionJournal(Path(directory) / "actions.sqlite")
+            result = ExpeditionRunner(adapter, journal=journal).run_once(
+                mission_id=1, now=NOW, max_state_age=timedelta(seconds=30),
+                policy=self.policy(), confirmed=True,
+            )
+        self.assertEqual(result.status, "dispatch_outcome_unknown")
+        self.assertEqual(adapter.dispatches, [(2, 1)])
+
     def test_live_dispatch_requires_durable_journal(self):
         adapter = FakeAdapter(confirm_dispatch=True)
         result = ExpeditionRunner(adapter).run_once(

@@ -171,6 +171,8 @@ class ExpeditionRunner:
             after = self._adapter.read_fleets()
             if after.observed_at <= state.observed_at:
                 raise ValueError("post-dispatch observation is not newer")
+            if not after.source_freshness_verified or after.source != state.source:
+                raise ValueError("post-dispatch source freshness or identity is unverified")
             observed = next(
                 (fleet for fleet in after.payload if fleet.fleet_id == fleet_id),
                 None,

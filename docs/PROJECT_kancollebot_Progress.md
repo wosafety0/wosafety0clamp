@@ -2441,3 +2441,9 @@ The Hand plugin's read-only probe reported:
 - Added offline regression coverage proving that a completed/pending-reward mission status remains `completed_awaiting_reward` even when an optional return timestamp has elapsed. This prevents an elapsed clock value from overriding an authoritative pending-settlement status.
 - Added a rotation-selection regression proving a preferred fleet with pending rewards is skipped in favor of an otherwise ready idle fleet. Both are planning-only checks; neither invokes a game adapter or enables dispatch.
 - Verification: full Python suite **162/162 passed**, Node suite **17/17 passed**, Python compileall, passive observer JavaScript syntax and git diff checks passed. Live gameplay execution and reward collection remain disabled and unverified.
+
+## 2026-10-30 - Fail closed on unverified post-dispatch source evidence
+
+- Tightened the offline expedition coordinator's post-dispatch confirmation: a newer observation with the requested mission ID is not sufficient if its source freshness is unverified or its source identity differs from the pre-action observation. In that case, the outcome remains `dispatch_outcome_unknown`, with no automatic retry.
+- Added an injected-adapter regression that simulates a successful dispatch call followed by loss of source freshness proof. The result is unknown rather than confirmed. This is offline safety logic only; the actual Poi read-only adapter has no dispatch method and live gameplay remains disabled.
+- Verification: full Python suite **163/163 passed**, Node suite **17/17 passed**, Python compileall, observer JS syntax and git diff checks passed. No real dispatch, reward collection, refresh, or game input occurred.
