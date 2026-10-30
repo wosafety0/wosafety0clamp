@@ -347,6 +347,21 @@ module.exports = function() {
     return { ok: true, sourcePath, metadataPath, sha256, sourceBytes, sourceCharacters: source.length };
   }
 
+  function extractRotationTerms(text) {
+    const maskedText = maskNonCode(text);
+    const terms = [];
+    const pattern = /parseInt\s*\(\s*([A-Za-z_$][\w$]*)\s*\(\s*(0x[0-9a-f]+|[0-9]+)\s*\)\s*\)\s*\/\s*(0x[0-9a-f]+|[0-9]+)\b/gi;
+    let match;
+    while ((match = pattern.exec(maskedText)) !== null) {
+      terms.push({
+        decoderAlias: match[1],
+        index: match[2],
+        divisor: match[3]
+      });
+    }
+    return terms;
+  }
+
   function extractTableRotationBootstrap(source, tableName, searchStart) {
     function skipWhitespace(text, index) {
       while (index < text.length) {
@@ -406,6 +421,7 @@ module.exports = function() {
                   invocationTarget: target,
                   start,
                   end,
+                  decoderTerms: extractRotationTerms(source.slice(start, end)),
                   text: source.slice(start, end)
                 };
               }
@@ -527,7 +543,9 @@ module.exports = function() {
         invocationTarget: tableRotationBootstrap.invocationTarget,
         start: tableRotationBootstrap.start,
         end: tableRotationBootstrap.end,
-        characters: tableRotationBootstrap.text.length
+        characters: tableRotationBootstrap.text.length,
+        decoderTermCount: tableRotationBootstrap.decoderTerms.length,
+        decoderAliases: Array.from(new Set(tableRotationBootstrap.decoderTerms.map(function(term) { return term.decoderAlias; })))
       } : null,
       stringTableReferencesOutsideDefinition: rotationContexts.slice(0, 12).map(function(context) {
         return Object.assign({}, context, { text: context.text.slice(0, 1200), textTruncated: context.text.length > 1200 });

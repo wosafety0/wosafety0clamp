@@ -108,15 +108,16 @@ test('alias analysis ignores declaration-like text inside comments and quoted st
 });
 
 test('extracts the string-table rotation bootstrap with exact source bounds', () => {
-  const fixture = 'function decoder() { return 0; }(function(tableFactory, target) { while (true) { try { if (tableFactory() === target) break; } catch (error) {} } }(table, 0xd12ca), next());';
+  const fixture = 'function decoder() { return 0; }(function(tableFactory, target) { while (true) { try { if (parseInt(tableFactory(0x11))/0x1 + parseInt(tableFactory(0x22))/0x2 === target) break; } catch (error) {} } }(table, 0xd12ca), next());';
   const decoder = lexer.extractDefinition(fixture, 'decoder');
   assert.ok(decoder);
   const result = lexer.extractTableRotationBootstrap(fixture, 'table', decoder.end);
   assert.ok(result);
   assert.equal(result.tableName, 'table');
   assert.equal(result.invocationTarget, '0xd12ca');
+  assert.deepEqual(Array.from(result.decoderTerms, term => [term.decoderAlias, term.index, term.divisor]), [['tableFactory', '0x11', '0x1'], ['tableFactory', '0x22', '0x2']]);
   assert.equal(result.text, fixture.slice(result.start, result.end));
-  assert.ok(result.text.includes('tableFactory() === target'));
+  assert.ok(result.text.includes('parseInt(tableFactory(0x11))'));
   assert.equal(lexer.extractTableRotationBootstrap(fixture, 'otherTable', decoder.end), null);
 });
 
@@ -226,7 +227,7 @@ test('analyzeSource reports complete extraction only when all required definitio
   const fixture = [
     'function _0x3f23() { return []; }',
     'function _0x3353(x) { return _0x3f23()[x]; }',
-    '(function(tableFactory, target) { while (true) { try { if (tableFactory() === target) break; } catch (error) {} } }(_0x3f23, 0xd12ca));',
+    '(function(tableFactory, target) { while (true) { try { if (parseInt(tableFactory(0x11))/0x1 + parseInt(tableFactory(0x22))/0x2 === target) break; } catch (error) {} } }(_0x3f23, 0xd12ca));',
     'function _0x466acb() { return _0x460358(0x1); }',
     'const _0x460358 = _0x3353;'
   ].join('\n');
@@ -243,6 +244,8 @@ test('analyzeSource reports complete extraction only when all required definitio
     assert.equal(report.status, 'STATIC_EXTRACTION_COMPLETE');
     assert.equal(report.stringTableRotationBootstrap.tableName, '_0x3f23');
     assert.equal(report.stringTableRotationBootstrap.invocationTarget, '0xd12ca');
+    assert.equal(report.stringTableRotationBootstrap.decoderTermCount, 2);
+    assert.deepEqual(Array.from(report.stringTableRotationBootstrap.decoderAliases), ['tableFactory']);
     assert.equal(
       fixture.slice(report.stringTableRotationBootstrap.start, report.stringTableRotationBootstrap.end).startsWith('(function(tableFactory'),
       true
