@@ -72,53 +72,40 @@ Cloud GitHub first; no local checkout required. Read before write. Record verifi
 - This tool is prepared in the cloud and must not be described as having run on the user's machine. Its purpose is to determine whether the current UI exposes stable semantic labels without manually annotating screenshots or coordinates.
 - If the live UI exposes no matching accessible labels, do not invent labels or fall back to a large manual coordinate/template inventory. Reassess the shortest supported client-mediated route based on evidence.
 
-
 ## 2026-10-30 — Bounded stop-loss status
-
 - The CDP/PIXI injection and manual-coordinate interaction routes are stopped by the project's explicit stop-loss gate.
 - Static public references support the `api_mission` shape `[state, mission_id, absolute Unix-ms final time, reserved]` and document states 0=idle, 1=active, 2=returned, 3=recalled. The v2 normalizer now converts the third slot from Unix milliseconds to timezone-aware UTC `return_at` for supported states 1 and 2; offline regression tests cover conversion and fail-closed handling of unrepresentable values. State 3 remains rejected. This verifies offline normalization only; runtime edge cases and the action interface remain unverified, and no game action is enabled.
 - Read-only inventory did not find a saved current-server `api_mission` transition capture. Existing tests are synthetic, not Taiwan-server runtime verification.
 - The installed forwarder is passive only; the Python Poi adapter is read-only. Dispatch and reward-collection mechanisms remain NOT_VERIFIED.
 - Resume condition: obtain one manually operated, passively observed expedition's sanitized before/after `api_mission` evidence, and independently identify a low-risk, authorized action mechanism. Until then, do not implement new state/action code or claim the single-expedition loop is operational. No game input or server request was sent during this review.
 
-
 ## 2026-10-30 — Evidence capture acceptance protocol (planned; not yet run)
-
 This section defines the minimum evidence needed to unblock implementation; it is a protocol definition, not evidence that a live capture has occurred.
-
 1. **Before action:** with the user operating the game manually, capture one fresh natural `api_port/port` response and its matching Poi Redux read. Record observation timestamps, freshness age, fixed fleet index, and only the sanitized `api_mission` slot values needed for comparison. Do not save raw payloads, account identifiers, ship names, or secrets.
 2. **Operator event marker:** the user records which manual event occurred (dispatch or reward collection) and its approximate time. The observer itself must not click, refresh, invoke game functions, or issue game-server requests.
 3. **After action:** wait for a new natural port response, not merely a repeated cache read. Require a new source timestamp/freshness witness and record the same fleet's sanitized `api_mission` values using the same schema.
 4. **Compare, do not infer:** report the exact before/after slot values and whether the tuple changed. Do not map a numeric state to a meaning, infer success from a timer alone, or treat a different fleet/cache snapshot as a transition. If freshness, fleet identity, or event ordering is ambiguous, classify the capture as INCONCLUSIVE and repeat only when a naturally occurring response is available.
 5. **Separate action gate:** even a well-supported state transition validates observation semantics only. Before any bot-initiated action can be enabled, independently identify a client-mediated, low-risk action interface, document its authorization and fail-closed behavior, and test it separately under explicit user authorization. No direct game-server calls.
 6. **Acceptance record:** retain only the sanitized event label, before/after tuples, source/freshness timestamps, result (MATCHED / INCONCLUSIVE), and observer version. Keep the capture status, action-interface status, offline-test status, and MVP status as separate fields.
-
 **Unblock rule:** implementation may resume only after one unambiguous manually operated before/after transition is captured and the separate action-interface prerequisite is satisfied. Until then, mission-state expansion and action integration remain BLOCKED; tests not actually run must remain NOT_RUN.
 
 ## 2026-10-30 — Live UI dispatch proof and revised gate
-
 - **Verified live action:** after the prior returned mission was collected through the visible UI, Poi Redux showed all three fleets idle. Fleet 2 (four ships) was selected for expedition 3, `警備任務`.
 - **Explicit authorization:** the user authorized normal game UI actions except direct packet sending. The dispatch used one left-button press/release through the local CDP input domain against the visible game page. No game API method or direct game-server request was initiated by the automation.
 - **Before/after evidence:** fleet 2 changed from `api_mission=[0,0,0,0]` to `[1,3,1793354078676,0]`; fleets 1 and 3 remained idle. The game displayed `遠征に向かいました`. The observed third slot is `2026-10-30T09:54:38.676Z` in Unix milliseconds.
 - **Gate decision:** the action interface is now verified for this specific visible UI click path, but it is not yet integrated into the project Bot and viewport/target guards are not yet implemented. The new mission has not returned; the full same-mission loop and automatic re-dispatch remain pending. Do not mark the MVP complete.
 - **Next acceptance:** observe fleet 2 mission 3 return, collect its reward via the normal UI, read back `api_mission=[0,0,0,0]`, then trigger a new UI-mediated dispatch from Bot-owned guarded automation and verify the new active state. No direct game-server packet/API route is permitted.
 
-
-## 2026-10-30 - Fixed-fleet controller implementation checkpoint
-
+## 2026-10-30 — Fixed-fleet controller implementation checkpoint
 - Added a fixed-expression read-only Poi fleet-state reader and a bounded controller for fleet 2 / mission 3. The controller is guarded by an explicit `--authorize-ui-actions` flag and exact starting mission timestamp; it uses single-click UI input and verifies each state transition before proceeding.
 - Offline verification: **175/175 Python unit tests passed**, plus `compileall` and `git diff --check`. The read-only fleet reader also passed a live Poi runtime check against the active mission tuple.
 - **Live loop status remains IN_PROGRESS.** The same mission's return, reward collection, and re-dispatch have not yet been verified by this controller. Its return-confirmation point remains provisional until observed on the actual return screen.
 
-
-## 2026-10-30 - Return-time refresh gate correction (live verification pending)
-
+## 2026-10-30 — Return-time refresh gate correction (live verification pending)
 - The previous live run remained at mission status 1 after the recorded return timestamp passed. The controller was changed to trigger a visible UI refresh after the scheduled return time and then require the same mission tuple in returned status before one reward-confirmation click.
 - Verification so far: controller syntax check passed; fixed-expression fleet-reader tests passed 6/6. The changed live sequence, reward coordinate, idle transition, and re-dispatch remain NOT_VERIFIED. MVP remains IN_PROGRESS.
 
-
-## 2026-10-30 - Passive Poi freshness observer runtime check
-
+## 2026-10-30 — Passive Poi freshness observer runtime check
 - Ran the existing read-only `tools/verify_poi_freshness_bridge.py` against the local Poi runtime from worktree HEAD `ee13c36475e415912427adbe32a471d27f36b899` (`dev/cdp-screenshot-transport-20261030`; this worktree is 16 commits behind the target branch's configured upstream).
 - Result: exit code 0; `FRESHNESS_WITNESS_MATCHED`; `source_freshness_verified=true`; observer status `captured`; three fleets observed; no game actions enabled. The sanitized planning summary contained one `completed_awaiting_reward` assessment and two `ready_to_dispatch` assessments; all had `dispatch_eligible=false`.
 - This confirms the passive freshness-witness path worked in this runtime check. Because the run used a different local worktree revision and the report intentionally omitted fleet identifiers and mission tuples, it does **not** prove that fleet 2 / mission 3 is the returned fleet, and it does not authorize reward collection or re-dispatch.
@@ -126,7 +113,6 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - MVP remains `IN_PROGRESS`; exact target-fleet state, normal-UI reward collection, idle readback, and guarded re-dispatch remain unverified.
 
 ## 2026-10-30 — Dispatch preconditions and post-dispatch return-to-port gate
-
 - **Dispatch precondition — supplies:** before dispatching any fleet, inspect fuel and ammunition for every ship in the target fleet. If either is not full, use the normal in-game UI to replenish, then re-read and verify the supplies are full. If replenishment cannot be confirmed, fail closed and do not dispatch.
 - **Dispatch action — normal UI only:** select the intended fleet and expedition through the visible game UI. Do not use direct game-server requests or game API calls to dispatch.
 - **Dispatch verification:** after the UI action, read the fleet state and verify the target fleet's `api_mission` is active and its mission ID matches the requested expedition. A click or screenshot alone is not sufficient evidence of success.
@@ -135,7 +121,6 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - **Evidence status:** these are user-confirmed operational requirements added to the MVP acceptance criteria. They do not claim that supply-check automation or post-dispatch navigation has already been implemented or independently live-tested.
 
 ## 2026-10-30 — Simulated timer trigger and home-port state observation
-
 - **Trigger:** recorded as `timer_expired` with `trigger_mode=simulated`; this was a test marker, not a real timer wake-up.
 - **Visible UI sequence:** through the local CDP input domain, a click at the corrected visible Sortie-button coordinate entered the sortie selection screen; a subsequent click at the top-left navigation coordinate returned the game to the home port. Screenshots were captured after both actions. No direct game API call or game-server request was issued.
 - **Read-only Poi observation:** the Poi MCP health endpoint reported `ok` and `storeReady=true`. A sanitized read of `info.fleets` and `info.ships` succeeded at `2026-10-30T15:57:46.052Z` (UTC). Fleet 2 reported `api_mission=[2,3,1793375434202,0]`; fleet 3 reported `[2,1,1793375753312,0]`; fleet 1 reported `[0,0,0,0]`.
@@ -143,7 +128,6 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - **Actions intentionally omitted:** no reward was collected and no fleet was re-dispatched. Supply checks, reward-to-idle transition, and the complete automated loop remain unverified; MVP remains `IN_PROGRESS`.
 
 ## 2026-10-31 — Fleet 2 expedition 1 dispatch via visible UI
-
 - **Reward collection:** the pending expedition-result screens for fleet 2 and fleet 3 were advanced through the visible game UI to completion; the home-port view subsequently showed the normal resource/header area. This was a manual UI interaction, not a Bot-owned reward-collection implementation.
 - **Supply gate:** selected fleet 2 in the normal supply screen and executed the fleet-wide supply action. A subsequent sanitized Poi snapshot showed fleet 2 idle before dispatch and its four ships at fuel/ammunition values `15/20`, `15/15`, `15/20`, and `15/20`; the supply-screen bars were visibly full before dispatch.
 - **Dispatch:** selected expedition ID 01, “練習航海” (15-minute expedition), selected fleet 2, and activated the visible “遠征開始!” button. A read-only Poi snapshot at `2026-10-30T16:06:52.510Z` UTC reported fleet 2 `api_mission=[1,1,1793377300383,0]`; a second snapshot at `2026-10-30T16:07:50.721Z` UTC reported the same tuple. This is evidence of an active mission state with mission ID 1 after the UI dispatch. No direct game API call or game-server request was issued.
@@ -151,7 +135,6 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - **Scope boundary:** this validates one manually UI-dispatched fleet 2 / expedition 1 action and a matching read-only state tuple. It does not validate automated Bot dispatch, timer-triggered wake-up, passive source-freshness correlation, or the full closed loop. MVP remains `IN_PROGRESS`.
 
 ## 2026-10-31 — Fleet 3 Northern Sea expedition 17 dispatch via visible UI
-
 - **Intervening return/reward:** while navigating from the home port, the visible UI presented fleet 2's returned expedition 1 reward screen. The reward screen was advanced with the normal UI and the game returned to the home port; no direct game API call or game-server request was issued.
 - **Supply gate:** selected fleet 3 in the normal supply UI and used fleet-wide replenishment. A subsequent read-only Poi snapshot confirmed the four original fleet-3 destroyers at fuel/ammunition (15/15) each before formation changes.
 - **Mission and formation preconditions:** the Northern Sea list showed expedition ID 17, “敵地偵察作戦”, duration 45 minutes, requiring a six-ship expedition. Fleet 3 originally had four destroyers. Through the visible formation UI, moved Jintsuu from fleet 1 to fleet 3 and made her flagship, then added the unassigned destroyer Inazuma to slot 6. Fleet 3 now has six ships: Jintsuu, Kisaragi, Mutsuki, Satsuki, Nagatsuki, and Inazuma. Fleet 1 was left with five ships. No ship was scrapped or remodeled.
@@ -161,16 +144,21 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - **Safety and scope:** all game actions used the visible UI through local CDP mouse input; state checks used the read-only Poi MCP bridge. No direct game API or game-server request was made. This verifies a manual fleet-3 / expedition-17 dispatch and home-port navigation, not Bot-owned automated dispatch, timer wake-up, source-freshness correlation, or the complete closed loop. MVP remains `IN_PROGRESS`.
 
 ## 2026-10-31 — Fleet 3 expedition 17 read-only follow-up confirmation
-
 - **User-reported outcome:** the user confirms the fleet-3 / Northern Sea expedition 17 dispatch succeeded. This is consistent with the previously recorded visible-UI dispatch evidence and active mission tuple.
 - **Fresh read-only follow-up:** Poi snapshot captured at `2026-10-30T16:35:37.776Z` (2026-10-31 00:35:37.776 Beijing time) reported fleet 3 `api_mission=[1,17,1793380662749,0]`. An earlier read at `2026-10-30T16:34:30.935Z` reported the same tuple. The third slot is Unix milliseconds corresponding to `2026-10-30T17:17:42.749Z`; this is the recorded expedition return timestamp, not evidence that the return has occurred.
 - **UI follow-up:** a fresh screenshot `diagnostics/captures/dc-current-before.png` showed the game at the normal home-port menu at approximately 00:35 Beijing time. The snapshot observer recorded `poiHealth=ok`, three fleets, and 92 ship instances. No game input, refresh, dispatch, or supply action was performed during this follow-up.
 - **Acceptance boundary:** expedition 17 is confirmed active in the read-back state and the UI is at the home port. This follow-up does not independently re-prove the earlier supply action's before/after state, nor does it establish a fresh natural `api_port/port` response correlated to the snapshot. Do not re-dispatch fleet 3 while this mission is active. The Bot-owned automated loop and full return/reward/idle/re-dispatch acceptance remain pending; MVP remains `IN_PROGRESS`.
 
 ## 2026-10-31 — Fleet 2 expedition 1 replenishment and script-driven dispatch
-
 - **Script-driven supply:** used local Node.js scripts with client-mediated CDP mouse input through the visible game UI (no direct game API call or game-server request). Selected fleet 2 in the supply screen and activated fleet-wide replenishment.
 - **Supply before/after:** the pre-action read-only Poi snapshot showed fleet 2 idle with four ships' fuel/ammunition values `11/20`, `11/15`, `11/20`, and `11/20`. The post-supply snapshot at `2026-10-30T16:40:08.236Z` showed `15/20`, `15/15`, `15/20`, and `15/20`; fuel was replenished and ammunition remained full.
 - **Dispatch:** selected expedition ID 01, `練習航海` (15 minutes), selected fleet 2, and activated the visible `遠征開始!` button using a Node.js CDP-input script. Poi read-back at `2026-10-30T16:45:45.875Z` reported fleet 2 `api_mission=[1,1,1793379572868,0]`, confirming active status 1 and expedition ID 1. The four fleet-2 ships remained at the replenished fuel/ammunition values.
 - **Return to home port:** after the active tuple was confirmed, a script clicked the visible top-left home-port navigation control. A fresh screenshot `diagnostics/captures/dc-current-before.png` at approximately 00:47 Beijing time showed the normal home-port menu. A subsequent read-only Poi snapshot at `2026-10-30T16:47:12.845Z` still reported fleet 2 `[1,1,1793379572868,0]` and fleet 3 `[1,17,1793380662749,0]`.
 - **Acceptance boundary:** this verifies the requested manual script-driven replenishment, dispatch of fleet 2 on expedition 1, active mission read-back, and return to the home-port UI. The scripts are local diagnostic/workflow files and were not added to the repository by this record. Bot-owned guarded automation, timer wake-up, natural source-freshness correlation, and the full return/reward/idle/re-dispatch loop remain pending; MVP remains `IN_PROGRESS`.
+
+## 2026-10-31 — Runtime screenshot policy and performance requirement (implementation pending)
+- **User requirement:** normal Bot execution must not save a screenshot to local disk for each UI action. Per-step PNG capture, base64 decoding, and file writes are not acceptable in the production workflow.
+- **Required design:** screenshots are disabled by default in normal runs. The normal path uses lightweight state reads and explicit transition checks; it keeps the existing safety gates for fleet supply, target expedition, active mission tuple, and return to home port. CDP should be reused across a whole workflow, and fixed sleeps should be replaced where safe by bounded condition polling.
+- **Diagnostics:** screenshot capture is opt-in for troubleshooting or failure-only diagnostics, with bounded file count/retention. No routine per-click image files. If visual evidence is not needed, do not call `Page.captureScreenshot` at all.
+- **Timing requirement:** user authorizes cancelling an expedition through normal game UI if needed for testing; the 15-minute in-game duration is not a performance constraint for script optimization. Do not use direct game API calls or game-server requests.
+- **Verification status:** this is a recorded acceptance requirement and implementation plan, **not** evidence that scripts have already been changed or benchmarked. Implementation, runtime verification that normal execution creates no screenshots, and before/after timing measurements remain pending. The MVP remains IN_PROGRESS.
