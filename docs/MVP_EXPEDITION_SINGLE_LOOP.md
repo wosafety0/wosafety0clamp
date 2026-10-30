@@ -226,3 +226,10 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - **Automated tests:** added three unit tests covering the one-time grace delay, an already-returned mission skipping the delay, and a mismatched mission failing closed. Full verification passed: 189 Python unit tests, Python compilation, `git diff --check`, and 17 Node.js static tests.
 - **Remote archive:** controller and test source were pushed to `dev/expedition-closed-loop-mvp` at commit `9de1a446b063f5a34f5f482dc7acfc44eebbdcc2`; the GitHub file API readback confirms the controller exposes the grace option and emits the grace events.
 - **Acceptance boundary:** this is offline behavior verification plus source-level archive verification. The full live loop has not been started; supply verification and positive mission-3 selection before the irreversible dispatch click remain open gates. MVP remains `IN_PROGRESS`.
+
+
+## 2026-10-31 — Navigation-only calibration and safe return to Home Port
+- **Successful UI navigation calibration:** used visible UI navigation only to inspect the sortie/expedition path, then returned via the visible Home Port icon at approximately `(50, 50)`. The final screen was reclassified as `HOME_PORT` after moving the pointer off the menu and dismissing hover overlays; the best `home_sortie_menu.png` score was `0.9982`.
+- **Post-calibration live state at `2026-10-30T17:39:29.840Z`:** Poi health `ok`, store ready, fleet 2 and fleet 3 both idle `[0,0,0,0]`. This confirms no expedition was started and no fleet mission state changed during calibration.
+- No supply, expedition dispatch, refresh, or reward-collection action was performed. No local screenshot file was written; image data used for visual inspection remained in memory only.
+- **Controller correction needed:** the Home Port click coordinate should be updated from the stale `(52, 90)` to the live-verified `(50, 50)`, and visual state checks should move the pointer to a neutral area before capturing to avoid hover overlays. Mission-3 selection and supply-screen state recognition remain unverified; the full live loop is still pending.
