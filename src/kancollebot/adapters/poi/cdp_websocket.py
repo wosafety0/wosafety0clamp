@@ -1,7 +1,7 @@
 """Loopback-only, allowlisted WebSocket transport for CDP mouse input.
 
 Only viewport inspection, one fixed read-only fleet snapshot expression, mouse
-input, and screenshot capture are allowed. Arbitrary Runtime.evaluate expressions
+input, screenshot capture, and explicit page reload for UI recovery are allowed. Arbitrary Runtime.evaluate expressions
 and all other CDP methods are rejected.
 """
 from __future__ import annotations
@@ -24,6 +24,8 @@ _ALLOWED_METHODS = {
     "DOM.pushNodesByBackendIdsToFrontend",
     "DOM.getBoxModel",
     "Page.getLayoutMetrics",
+    # Browser-level recovery only; no game-state mutation or server request.
+    "Page.reload",
     "Page.captureScreenshot",
     # Mouse input remains the only enabled input method.
     "Input.dispatchMouseEvent",
