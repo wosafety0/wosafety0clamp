@@ -272,6 +272,9 @@ module.exports = function() {
       let targets;
       try { targets = JSON.parse(body); }
       catch (_) { return cleanup('TARGET_DISCOVERY_FAILED', 'Local CDP target list was not valid JSON.'); }
+      if (!Array.isArray(targets)) {
+        return cleanup('TARGET_DISCOVERY_FAILED', 'Local CDP target list must be an array.');
+      }
       const matches = targets.filter(safeGameTarget);
       if (matches.length !== 1) {
         return cleanup('TARGET_DISCOVERY_FAILED', 'Expected exactly one Kancolle game page target; found ' + matches.length + '.');
