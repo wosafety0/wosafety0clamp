@@ -48,6 +48,22 @@ def _is_int(value: Any, *, minimum: int = 0) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= minimum
 
 
+def _valid_mission_slots(value: Any) -> bool:
+    # Validate only the observed wire shape; do not infer mission semantics.
+    return isinstance(value, list) and len(value) == 4 and all(
+        _is_int(slot) for slot in value
+    )
+
+
+def _valid_fleet_ship_slots(value: Any) -> bool:
+    return isinstance(value, list) and len(value) <= 6 and all(
+        isinstance(ship_id, int)
+        and not isinstance(ship_id, bool)
+        and (ship_id == -1 or ship_id >= 1)
+        for ship_id in value
+    )
+
+
 def port_snapshot_matches_current_state(
     snapshot: Any,
     current_fleets: Any,
@@ -193,6 +209,15 @@ def port_snapshot_matches_current_state(
         current = indexed_current_fleets[fleet_id]
         if not all(field in witness and field in current for field in _REQUIRED_FLEET_FIELDS):
             return False
+        # Python treats True == 1 and 101.0 == 101. Validate wire types
+        # before equality so malformed current state cannot establish freshness.
+        if not (
+            _valid_mission_slots(witness["api_mission"])
+            and _valid_mission_slots(current["api_mission"])
+            and _valid_fleet_ship_slots(witness["api_ship"])
+            and _valid_fleet_ship_slots(current["api_ship"])
+        ):
+            return False
         if any(witness[field] != current[field] for field in _REQUIRED_FLEET_FIELDS):
             return False
         if "api_name" in witness and witness.get("api_name") != current.get("api_name"):
@@ -211,7 +236,15 @@ def port_snapshot_matches_current_state(
         fields = _REQUIRED_SHIP_FIELDS + tuple(
             field for field in _OPTIONAL_SHIP_FIELDS if field in witness
         )
-        if any(field not in current or witness[field] != current[field] for field in fields):
+        if any(
+            field not in current
+            or not _is_int(
+                current.get(field),
+                minimum=1 if field in ("api_id", "api_ship_id") else 0,
+            )
+            or witness[field] != current[field]
+            for field in fields
+        ):
             return False
 
     return True

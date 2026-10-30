@@ -50,3 +50,11 @@ A successful capture would establish that the current Poi page exposed a fresh, 
 - Read-only diagnostic command: `python tools/verify_poi_freshness_bridge.py --help`. A full run may wait up to 120 seconds for a naturally occurring response; it never refreshes the page, sends game input, or initiates a game API request. The output omits ship/fleet mission details and always reports `game_actions_enabled: false`. Exit code 2 means the read completed but freshness evidence was not verified.
 - Offline validation on Windows: 148/148 Python unit tests passed; observer JavaScript syntax check and diagnostic `--help` passed. A live read-only diagnostic with a deliberately short 2-second observer timeout read 3 fleets from MCP but correctly returned `FRESHNESS_UNVERIFIED` because no witness was received.
 - This remains an opt-in integration. The default reader does not start an observer, and the diagnostic does not dispatch expeditions. A recent real response and matching current MCP state have not yet been verified through the new stdout handoff. Do not use a historical disk snapshot to set the freshness flag, and do not refresh or interact with the game to force a capture.
+
+
+## Output-mode clarification — 2026-10-31
+
+- Default/ordinary Hand sandbox mode retains the historical compact JSON snapshot file and its summary metadata.
+- When the child process is launched with `KCB_POI_FRESHNESS_WITNESS_STDOUT=1`, the observer now returns `persisted: false` and fleet/ship counts in its status summary, emits the compact witness on stdout, and **does not create the Desktop output directory or write a snapshot file**. The response-body digest remains inside the in-memory witness; the full raw response body is not written.
+- The 2026-10-29 local snapshot and the historical runtime-capture section above describe an earlier ordinary-mode capture only. They are historical evidence, must not be reused as freshness proof, and are not produced by the current child-only witness mode.
+- CI checks the witness-mode source contract and JavaScript syntax. This is not a claim of a new live Poi capture or current MCP freshness match.
