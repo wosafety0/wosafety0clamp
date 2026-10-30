@@ -2435,3 +2435,9 @@ The Hand plugin's read-only probe reported:
 - With the user's second fleet returned but reward settlement not yet clicked, a read-only local Poi MCP `info.fleets` read confirmed three complete four-slot mission arrays, with fleet status codes `0`, `2`, `0` respectively. This is a live observation of `api_mission[0] == 2` for the pending-reward fleet, consistent with the user's visible state; no reward or game input was initiated.
 - Added a minimal planning-only `completed_awaiting_reward` decision for a normalized mission status `2`, preserving the raw status in `ExpeditionFleetSnapshot`. Status `1` with untrusted return time remains `blocked_unknown_return_time`; status `0` remains idle. The change does **not** infer mission return timestamps, initiate collection, or authorize dispatch.
 - Offline verification: **160/160 Python tests**, **17/17 Node tests**, Python compileall, observer JS syntax, and git diff whitespace checks passed. The existing pending-reward fixture now asserts the distinct result. This is a read-only assessment improvement, not an autonomous expedition-loop acceptance.
+
+## 2026-10-30 - Pending-reward rotation safety regression
+
+- Added offline regression coverage proving that a completed/pending-reward mission status remains `completed_awaiting_reward` even when an optional return timestamp has elapsed. This prevents an elapsed clock value from overriding an authoritative pending-settlement status.
+- Added a rotation-selection regression proving a preferred fleet with pending rewards is skipped in favor of an otherwise ready idle fleet. Both are planning-only checks; neither invokes a game adapter or enables dispatch.
+- Verification: full Python suite **162/162 passed**, Node suite **17/17 passed**, Python compileall, passive observer JavaScript syntax and git diff checks passed. Live gameplay execution and reward collection remain disabled and unverified.
