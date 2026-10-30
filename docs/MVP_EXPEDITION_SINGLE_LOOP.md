@@ -1,6 +1,6 @@
 # Single Expedition MVP — Execution Contract
 
-Status: BLOCKED (2026-10-30; passive runtime transition evidence and verified action interface missing)
+Status: BLOCKED (2026-10-30; screenshot transport verified; mission transitions and action interface remain unverified)
 Branch: dev/expedition-closed-loop-mvp
 
 ## One acceptance criterion
@@ -21,13 +21,14 @@ Unknown or stale state, mismatched fleet/expedition, ambiguous completion, unava
 - Historical Poi read-only evidence: info.fleets (3 fleets) and info.ships (91 ships), positive fleet-ship references matched.
 - Existing Python MCP client is read-only; poi_get is allowlisted; poi_hensei_save is explicitly excluded.
 - Fleet/ship reference consistency is not expedition-state recognition.
+- CDP direct WebSocket connection to the embedded KanColle `webview` target and `Page.captureScreenshot`: VERIFIED 2026-10-30; valid PNG 1200x720 matched the CSS viewport. Visual-state classification and coordinate mapping remain NOT_VERIFIED.
 - Real dispatch and reward-collection action interfaces: NOT_VERIFIED.
 - End-to-end live expedition loop: NOT_VERIFIED.
-- Test execution in this work round: NOT_RUN.
+- Current work-round tests: 167 Python unit tests passed; live screenshot was read-only.
 - No game actions authorized or executed.
 
 ## Immediate next implementation task
-Find the exact existing Poi expedition-state fields and response envelope in archived observed evidence; implement only the minimal read-only fixed-fleet state classifier grounded in those fields. If evidence is insufficient, request one passive capture during a manually operated expedition. Do not guess field semantics.
+Build on the verified direct-WebView screenshot path to validate screenshot repeatability, visual-state rejection (loading/black screen/modal versus home-port), and CSS-pixel coordinate mapping in read-only/offline checks. Do not send input during this phase. In parallel, retain the hard blocker for current-server mission-state transitions and a verified, separately authorized action interface; do not infer field semantics or claim the full loop works.
 
 ## Explicitly out of scope
 AI model comparisons, generalized Bot reverse engineering, multi-fleet scheduling, optimal expeditions, battle automation, generic frameworks, extensive security investigations, or GitHub Actions.

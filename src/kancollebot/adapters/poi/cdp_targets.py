@@ -93,8 +93,12 @@ def _get_json(url: str, timeout: float) -> Any:
         raise CdpDiscoveryError("DevTools endpoint did not return valid JSON") from exc
 
 
-def list_page_targets(endpoint: str = DEFAULT_CDP_ENDPOINT, *, timeout: float = 2.0) -> tuple[CdpTarget, ...]:
-    """Return validated page targets without exposing non-loopback endpoints."""
+def _list_targets(
+    endpoint: str,
+    *,
+    allowed_types: frozenset[str],
+    timeout: float,
+) -> tuple[CdpTarget, ...]:
     base = _validate_loopback_http_url(endpoint)
     if timeout <= 0:
         raise ValueError("timeout must be positive")
@@ -103,20 +107,26 @@ def list_page_targets(endpoint: str = DEFAULT_CDP_ENDPOINT, *, timeout: float = 
         raise CdpDiscoveryError("DevTools target list is not an array")
     targets: list[CdpTarget] = []
     for item in raw:
-        if not isinstance(item, dict) or item.get("type") != "page":
+        if not isinstance(item, dict) or item.get("type") not in allowed_types:
             continue
         target_id, title, url, websocket_url = (
             item.get("id"), item.get("title"), item.get("url"), item.get("webSocketDebuggerUrl")
         )
         if not all(isinstance(value, str) and value for value in (target_id, title, url, websocket_url)):
             continue
-        try:
-            validated_ws = _validate_websocket_url(websocket_url)
-        except CdpDiscoveryError:
-            # A suspicious page target invalidates discovery rather than being silently trusted.
-            raise
+        validated_ws = _validate_websocket_url(websocket_url)
         targets.append(CdpTarget(target_id, title, url, validated_ws))
     return tuple(targets)
+
+
+def list_page_targets(endpoint: str = DEFAULT_CDP_ENDPOINT, *, timeout: float = 2.0) -> tuple[CdpTarget, ...]:
+    """Return validated page targets without exposing non-loopback endpoints."""
+    return _list_targets(endpoint, allowed_types=frozenset({"page"}), timeout=timeout)
+
+
+def list_webview_targets(endpoint: str = DEFAULT_CDP_ENDPOINT, *, timeout: float = 2.0) -> tuple[CdpTarget, ...]:
+    """Return validated embedded WebView targets, such as Poi's game renderer."""
+    return _list_targets(endpoint, allowed_types=frozenset({"webview"}), timeout=timeout)
 
 
 def select_poi_renderer(
@@ -125,7 +135,7 @@ def select_poi_renderer(
     title_hint: str = "poi",
     url_hint: str = "",
 ) -> CdpTarget:
-    """Select exactly one page matching explicit hints; ambiguity is an error."""
+    """Select exactly one target matching explicit hints; ambiguity is an error."""
     if not title_hint.strip() and not url_hint.strip():
         raise ValueError("at least one target hint is required")
     title_needle = title_hint.casefold().strip()
@@ -137,7 +147,7 @@ def select_poi_renderer(
     )
     if len(matches) != 1:
         raise CdpDiscoveryError(
-            f"Expected exactly one Poi page target, found {len(matches)}; refusing to guess"
+            f"Expected exactly one matching target, found {len(matches)}; refusing to guess"
         )
     return matches[0]
 

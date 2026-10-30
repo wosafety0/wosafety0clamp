@@ -8,6 +8,7 @@ from kancollebot.adapters.poi.cdp_targets import (
     CdpDiscoveryError,
     CdpTarget,
     list_page_targets,
+    list_webview_targets,
     select_poi_renderer,
 )
 
@@ -25,6 +26,23 @@ class CdpTargetTests(unittest.TestCase):
             targets = list_page_targets()
         self.assertEqual(len(targets), 1)
         self.assertEqual(targets[0].target_id, "poi-1")
+
+    def test_list_webview_targets_selects_embedded_game_not_poi_shell(self) -> None:
+        payload = [
+            {"type": "page", "id": "poi-shell", "title": "poi",
+             "url": "file:///D:/Games/poi/resources/app.asar/index.html",
+             "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/shell"},
+            {"type": "webview", "id": "game-view", "title": "KanColle - DMM",
+             "url": "https://play.games.dmm.com/game/kancolle",
+             "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/game-view"},
+            {"type": "service_worker", "id": "worker", "title": "worker",
+             "url": "https://play.games.dmm.com/sw.js",
+             "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/worker"},
+        ]
+        with patch("kancollebot.adapters.poi.cdp_targets._get_json", return_value=payload):
+            targets = list_webview_targets()
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0].target_id, "game-view")
 
     def test_non_loopback_endpoint_is_rejected(self) -> None:
         with self.assertRaises(ValueError):

@@ -8,6 +8,7 @@ from kancollebot.adapters.poi.cdp_targets import CdpTarget
 from kancollebot.adapters.poi.cdp_websocket import (
     CdpPoiSession,
     CdpWebSocketTransport,
+    connect_game_webview,
     connect_poi_session,
 )
 
@@ -44,6 +45,26 @@ class CdpWebSocketTransportTests(unittest.TestCase):
         self.assertIsInstance(session, CdpPoiSession)
         self.assertIs(session.target, target)
         self.assertIs(session.transport, transport)
+        factory.assert_called_once_with(target.websocket_url, timeout=3.0)
+
+    def test_connect_game_webview_uses_exact_embedded_game_target(self):
+        target = CdpTarget(
+            "game-view", "KanColle - DMM", "https://play.games.dmm.com/game/kancolle",
+            "ws://127.0.0.1:9222/devtools/page/game-view",
+        )
+        transport = object()
+        with (
+            patch("kancollebot.adapters.poi.cdp_targets.list_webview_targets", return_value=(target,)),
+            patch("kancollebot.adapters.poi.cdp_targets.select_poi_renderer", return_value=target) as select,
+            patch("kancollebot.adapters.poi.cdp_websocket.CdpWebSocketTransport", return_value=transport) as factory,
+        ):
+            session = connect_game_webview()
+        self.assertIsInstance(session, CdpPoiSession)
+        self.assertIs(session.target, target)
+        self.assertIs(session.transport, transport)
+        select.assert_called_once_with(
+            (target,), title_hint="", url_hint="https://play.games.dmm.com/game/kancolle"
+        )
         factory.assert_called_once_with(target.websocket_url, timeout=3.0)
 
     def test_connect_fails_closed_when_target_selection_is_ambiguous(self):
