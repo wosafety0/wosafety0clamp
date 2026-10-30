@@ -36,5 +36,18 @@ class PassivePortObserverSourceTests(unittest.TestCase):
         )
 
 
+    def test_target_discovery_rejects_non_array_json_before_filtering(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        parse_at = source.index("targets = JSON.parse(body)")
+        guard_at = source.index("if (!Array.isArray(targets))", parse_at)
+        filter_at = source.index("targets.filter(safeGameTarget)", parse_at)
+        self.assertLess(parse_at, guard_at)
+        self.assertLess(guard_at, filter_at)
+        self.assertIn(
+            "return cleanup('TARGET_DISCOVERY_FAILED', 'Local CDP target list must be an array.');",
+            source[guard_at:filter_at],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
