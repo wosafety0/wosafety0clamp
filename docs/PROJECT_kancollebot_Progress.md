@@ -2642,3 +2642,13 @@ The Hand plugin's read-only probe reported:
 - **Clipboard note:** the remote PowerShell session could not access the clipboard; the result was displayed in the console only. No attempt was made to change permissions or system configuration.
 - **Safety / scope:** no language pack was installed, no global settings were changed, no screenshot was passed through OCR, and no game input was sent. Actual Japanese image recognition remains NOT_TESTED.
 - **Next step:** if the user elects to install the Windows Japanese OCR capability, rerun both the available-language enumeration and `TryCreateFromLanguage("ja-JP")`, then test a known Japanese fixture and a representative game screenshot. Until then, prefer a project-contained optional OCR backend for experiments; keep the existing UI state gate fail-closed and do not infer click success from OCR alone.
+
+
+## 2026-10-30 — OpenCV region-scoped template-matching probe
+
+- **Status: TESTED, preliminary; no production integration.** Installed OpenCV 5.0.0 and NumPy 2.5.4 only in a temporary directory and ran offline template matching against two existing 1200×720 screenshots. The project dependency manifest and source tree were not changed.
+- Both screenshots were visually confirmed as home-port screens, not a home-port/expedition pair. In this pair, the selected top-navigation mission, top-navigation items, and sortie-menu regions scored 1.00000 at their same locations; the ship-art region scored 0.86783 at the same location (0.93811 best full-image score), and the background-window region scored 0.85482. Grayscale changed pixels were 19.85% at a threshold greater than 1 gray level and 14.67% greater than 5; mean absolute grayscale difference was 6.5547.
+- **Verified conclusion:** region-scoped matching can remain stable where selected UI pixels are unchanged while unrelated ship/background regions vary. **Not verified:** scene discrimination, useful threshold, false-positive rate, viewport/theme robustness, or live integration. The fixtures cannot validate home-vs-expedition classification.
+- **Safety:** offline screenshot analysis only. No game input, expedition dispatch, reward collection, page refresh, or production-code change occurred.
+- Research details and per-region measurements: `docs/research/KCAUTO_CUSTOM_VISUAL_RECOGNITION.md`, section “OpenCV offline template-matching probe”.
+- **Next:** obtain correctly labeled offline home-port and expedition-panel samples; test small panel-specific templates in bounded regions and evaluate positive/negative score distributions and ambiguity. Keep uncertain/conflicting evidence as UNKNOWN and do not authorize clicks from template scores alone.
