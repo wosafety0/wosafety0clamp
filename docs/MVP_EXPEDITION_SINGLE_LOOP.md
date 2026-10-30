@@ -134,3 +134,10 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - **Acceptance gate:** a dispatch is workflow-complete only when supply preconditions are verified, the correct active mission tuple is observed, and the UI has returned to the home port. If any check is missing or ambiguous, report the run as incomplete rather than successful.
 - **Evidence status:** these are user-confirmed operational requirements added to the MVP acceptance criteria. They do not claim that supply-check automation or post-dispatch navigation has already been implemented or independently live-tested.
 
+## 2026-10-30 — Simulated timer trigger and home-port state observation
+
+- **Trigger:** recorded as `timer_expired` with `trigger_mode=simulated`; this was a test marker, not a real timer wake-up.
+- **Visible UI sequence:** through the local CDP input domain, a click at the corrected visible Sortie-button coordinate entered the sortie selection screen; a subsequent click at the top-left navigation coordinate returned the game to the home port. Screenshots were captured after both actions. No direct game API call or game-server request was issued.
+- **Read-only Poi observation:** the Poi MCP health endpoint reported `ok` and `storeReady=true`. A sanitized read of `info.fleets` and `info.ships` succeeded at `2026-10-30T15:57:46.052Z` (UTC). Fleet 2 reported `api_mission=[2,3,1793375434202,0]`; fleet 3 reported `[2,1,1793375753312,0]`; fleet 1 reported `[0,0,0,0]`.
+- **Evidence boundary:** this confirms the UI navigation sequence and that Poi's current Redux store exposed the recorded tuples after navigation. The observer did not independently match a newly received natural `api_port/port` response to this snapshot, so source freshness and causal attribution to the home-port navigation are **not independently verified**. Treat this as a useful simulated-trigger/UI-navigation observation, not full refresh-freshness acceptance.
+- **Actions intentionally omitted:** no reward was collected and no fleet was re-dispatched. Supply checks, reward-to-idle transition, and the complete automated loop remain unverified; MVP remains `IN_PROGRESS`.
