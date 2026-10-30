@@ -31,28 +31,47 @@ def classify_template_scores(
             raise ValueError("template scores must map names to finite numbers")
 
     home = scores.get("home_sortie_menu.png", -1.0)
-    success = scores.get("expedition_result_success.png", -1.0)
-    failure = scores.get("expedition_result_failure.png", -1.0)
-    bonus_next = scores.get("result_next_button.png", -1.0)
-    result = max(success, failure)
+    result_scores = {
+        "expedition_result_success.png": scores.get("expedition_result_success.png", -1.0),
+        "expedition_result_failure.png": scores.get("expedition_result_failure.png", -1.0),
+        "return_notice.png": scores.get("return_notice.png", -1.0),
+    }
+    result_ranked = sorted(result_scores.items(), key=lambda item: item[1], reverse=True)
+    result_name, result = result_ranked[0]
+    second_result = result_ranked[1][1]
+    bonus_scores = (
+        scores.get("result_next_button.png", -1.0),
+        scores.get("bonus_title.png", -1.0),
+    )
+    bonus = max(bonus_scores)
 
     candidates: list[tuple[str, float]] = []
-    if home >= minimum_score and result < minimum_score and bonus_next < minimum_score:
+    if home >= minimum_score and result < minimum_score and bonus < minimum_score:
         candidates.append(("HOME_PORT", home))
-    if home < minimum_score and bonus_next < minimum_score and result >= minimum_score and abs(success - failure) >= minimum_margin:
+    if (
+        home < minimum_score
+        and bonus < minimum_score
+        and result >= minimum_score
+        and result - second_result >= minimum_margin
+    ):
         candidates.append(("RETURN_RESULT", result))
-    if bonus_next >= minimum_score and result < minimum_score:
-        candidates.append(("BONUS_ITEMS", bonus_next))
+    if home < minimum_score and result < minimum_score and bonus >= minimum_score:
+        candidates.append(("BONUS_ITEMS", bonus))
 
     if len(candidates) != 1:
         return "UNKNOWN"
     label, best = candidates[0]
+    state_markers = {
+        "home_sortie_menu.png",
+        "expedition_result_success.png",
+        "expedition_result_failure.png",
+        "return_notice.png",
+        "result_next_button.png",
+        "bonus_title.png",
+    }
     competing = max(
         (score for name, score in scores.items()
-         if name not in {
-             "home_sortie_menu.png", "expedition_result_success.png",
-             "expedition_result_failure.png", "result_next_button.png",
-         } and not name.startswith("negative_")),
+         if name not in state_markers and not name.startswith("negative_")),
         default=-1.0,
     )
     if competing >= best - minimum_margin:
@@ -88,23 +107,35 @@ def classify_screenshot_png(
         raise VisualStateError("screenshot payload is not a decodable image")
 
     directory = Path(template_dir)
-    names = (
-        "home_sortie_menu.png",
-        "expedition_result_success.png",
-        "expedition_result_failure.png",
-        "result_next_button.png",
-        "home_expedition_menu.png",
-        "expedition_list_panel.png",
-        "expedition_dispatch_button.png",
-        "negative_home_other_menu.png",
-        "negative_expedition_other_row.png",
-    )
+    templates: dict[str, Path] = {
+        name: directory / name
+        for name in (
+            "home_sortie_menu.png",
+            "expedition_result_success.png",
+            "expedition_result_failure.png",
+            "result_next_button.png",
+            "home_expedition_menu.png",
+            "expedition_list_panel.png",
+            "expedition_dispatch_button.png",
+            "negative_home_other_menu.png",
+            "negative_expedition_other_row.png",
+        )
+    }
+    # Two reviewed local crops contain distinctive Japanese return/bonus labels.
+    for pattern, label in (("*202405.png", "return_notice.png"), ("*202556.png", "bonus_title.png")):
+        matches = sorted(directory.glob(pattern))
+        if matches:
+            templates[label] = matches[0]
+
     scores: dict[str, float] = {}
-    for name in names:
-        path = directory / name
+    for name, path in templates.items():
         if not path.is_file():
             continue
-        template = cv2_module.imread(str(path), cv2_module.IMREAD_GRAYSCALE)
+        try:
+            encoded = numpy_module.frombuffer(path.read_bytes(), dtype=numpy_module.uint8)
+        except OSError:
+            continue
+        template = cv2_module.imdecode(encoded, cv2_module.IMREAD_GRAYSCALE)
         if template is None:
             continue
         if template.shape[0] > image.shape[0] or template.shape[1] > image.shape[1]:
