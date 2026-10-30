@@ -151,7 +151,7 @@ def _wait_for_idle(reader_transport, poll_seconds: float = 1.0, timeout_seconds:
     raise LoopError("Reward collection was not confirmed; refusing to click again")
 
 
-def _dispatch_again(reader_transport, game_input, expected_start_ms: int) -> PoiFleetMissionState:
+def _dispatch(reader_transport, game_input, expected_start_ms: int) -> PoiFleetMissionState:
     before = _fleet(read_poi_fleet_states(reader_transport))
     if not _idle(before):
         raise LoopError(f"Fleet 2 is not idle before re-dispatch: {before.mission}")
@@ -195,11 +195,11 @@ def run(args: argparse.Namespace) -> int:
         _print_event("startup_idle_state_verified", initial)
         _recover_home_port(game_session)
         baseline_ms = int(time.time() * 1000)
-        dispatched = _dispatch_again(state_session.transport, game_session.input, baseline_ms)
+        dispatched = _dispatch(state_session.transport, game_session.input, baseline_ms)
         expected_final_time_ms = dispatched.final_time_ms
         _print_event("dispatch_confirmed_waiting_for_timer", dispatched,
                      expected_final_time_ms=expected_final_time_ms)
-        returned = _wait_for_return(
+        _wait_for_return(
             state_session.transport,
             expected_final_time_ms,
             args.poll_seconds,
