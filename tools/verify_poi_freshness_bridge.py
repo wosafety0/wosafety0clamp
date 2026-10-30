@@ -11,7 +11,7 @@ import argparse
 import json
 import math
 import sys
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +20,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from kancollebot.adapters.poi.expedition_reader import PoiExpeditionReader
 from kancollebot.adapters.poi.port_response_observer import PassivePortResponseObserver
+from kancollebot.expeditions.read_only_assessment import assess_observed_fleets
 
 
 DEFAULT_OBSERVER_SCRIPT = (
@@ -42,6 +43,27 @@ def summarize_state(state: Any, observer_status: str) -> dict[str, Any]:
         "observer_status": observer_status,
         "game_actions_enabled": False,
     }
+
+
+def summarize_assessments(
+    state: Any, *, now: datetime, max_state_age: timedelta
+) -> list[dict[str, Any]]:
+    """Expose planning-only results; no result from this CLI authorizes dispatch."""
+    assessments = assess_observed_fleets(
+        state,
+        now=now,
+        max_state_age=max_state_age,
+    )
+    return [
+        {
+            "fleet_id": item.fleet_id,
+            "observation_accepted": item.observation_accepted,
+            "decision": item.decision.value if item.decision is not None else None,
+            "reason": item.reason,
+            "dispatch_eligible": item.dispatch_eligible,
+        }
+        for item in assessments
+    ]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -90,6 +112,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     result = summarize_state(state, observer.last_status)
+    result["fleet_assessments"] = summarize_assessments(
+        state,
+        now=datetime.now(timezone.utc),
+        max_state_age=timedelta(seconds=args.max_age_seconds),
+    )
     print(json.dumps(result, ensure_ascii=False))
     return 0 if result["source_freshness_verified"] else 2
 
