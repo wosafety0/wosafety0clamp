@@ -208,7 +208,7 @@ module.exports = function() {
 
   function extractAliasCalls(functionText, seedAlias) {
     const aliases = new Set([seedAlias]);
-    const declarationPattern = /\\b(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*([A-Za-z_$][\\w$]*)\\b/g;
+    const declarationPattern = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\b/g;
     let changed = true;
     while (changed) {
       changed = false;
