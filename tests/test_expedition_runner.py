@@ -49,7 +49,7 @@ class FakeAdapter:
             updated = tuple(
                 ExpeditionFleetSnapshot(
                     fleet_id=item.fleet_id, ship_ids=item.ship_ids,
-                    mission_id=mission_id, fuel_ready=item.fuel_ready,
+                    mission_id=mission_id, mission_status=1, fuel_ready=item.fuel_ready,
                     ammo_ready=item.ammo_ready,
                 ) if item.fleet_id == fleet_id else item
                 for item in self.state.payload
@@ -98,6 +98,30 @@ class ExpeditionRunnerTests(unittest.TestCase):
                 )
 
         adapter = LosesSourceEvidence(confirm_dispatch=True)
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ExpeditionActionJournal(Path(directory) / "actions.sqlite")
+            result = ExpeditionRunner(adapter, journal=journal).run_once(
+                mission_id=1, now=NOW, max_state_age=timedelta(seconds=30),
+                policy=self.policy(), confirmed=True,
+            )
+        self.assertEqual(result.status, "dispatch_outcome_unknown")
+        self.assertEqual(adapter.dispatches, [(2, 1)])
+
+    def test_post_dispatch_pending_reward_is_not_dispatch_confirmation(self):
+        class ReturnsPendingReward(FakeAdapter):
+            def dispatch_expedition(self, *, fleet_id, mission_id):
+                super().dispatch_expedition(fleet_id=fleet_id, mission_id=mission_id)
+                self.state = ObservedState(
+                    tuple(ExpeditionFleetSnapshot(
+                        fleet_id=item.fleet_id, ship_ids=item.ship_ids,
+                        mission_id=mission_id, mission_status=2,
+                        fuel_ready=item.fuel_ready, ammo_ready=item.ammo_ready,
+                    ) for item in self.state.payload),
+                    self.state.observed_at, self.state.source,
+                    source_freshness_verified=True,
+                )
+
+        adapter = ReturnsPendingReward(confirm_dispatch=True)
         with tempfile.TemporaryDirectory() as directory:
             journal = ExpeditionActionJournal(Path(directory) / "actions.sqlite")
             result = ExpeditionRunner(adapter, journal=journal).run_once(

@@ -177,7 +177,11 @@ class ExpeditionRunner:
                 (fleet for fleet in after.payload if fleet.fleet_id == fleet_id),
                 None,
             )
-            accepted = observed is not None and observed.mission_id == mission_id
+            accepted = (
+                observed is not None
+                and observed.mission_id == mission_id
+                and observed.mission_status == 1
+            )
         except Exception:
             accepted = False
 

@@ -2447,3 +2447,9 @@ The Hand plugin's read-only probe reported:
 - Tightened the offline expedition coordinator's post-dispatch confirmation: a newer observation with the requested mission ID is not sufficient if its source freshness is unverified or its source identity differs from the pre-action observation. In that case, the outcome remains `dispatch_outcome_unknown`, with no automatic retry.
 - Added an injected-adapter regression that simulates a successful dispatch call followed by loss of source freshness proof. The result is unknown rather than confirmed. This is offline safety logic only; the actual Poi read-only adapter has no dispatch method and live gameplay remains disabled.
 - Verification: full Python suite **163/163 passed**, Node suite **17/17 passed**, Python compileall, observer JS syntax and git diff checks passed. No real dispatch, reward collection, refresh, or game input occurred.
+
+## 2026-10-30 - Post-dispatch confirmation requires underway mission state
+
+- Tightened offline expedition runner confirmation: a newer, source-verified post-action observation must report both the requested mission ID and normalized `mission_status == 1` (underway). A matching mission ID in status `2` (completed, pending reward) is not evidence of a newly accepted dispatch and remains `dispatch_outcome_unknown`, without automatic retry.
+- Updated the fake adapter's successful simulated dispatch to report underway status and added a regression simulating the same mission ID in pending-reward status. No production game action adapter was added or enabled.
+- Verification: Python **164/164**, Node **17/17**, Python compileall, observer JavaScript syntax, and diff whitespace checks passed. Live dispatch and reward collection remain disabled and unverified.
