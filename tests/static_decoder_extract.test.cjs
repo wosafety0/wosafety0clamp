@@ -91,6 +91,22 @@ test('follows chained local decoder aliases and preserves exact factory call off
   assert.ok(result.calls.every(call => call.expression.endsWith(')')));
 });
 
+test('alias analysis ignores declaration-like text inside comments and quoted strings', () => {
+  const fixture = [
+    'function _0x466acb() {',
+    '  const text = "const fakeStringAlias = _0x460358; fakeStringAlias(0x1)";',
+    '  /* const fakeCommentAlias = _0x460358; fakeCommentAlias(0x2); */',
+    '  return _0x460358(0x3);',
+    '}'
+  ].join('\n');
+  const factory = lexer.extractDefinition(fixture, '_0x466acb');
+  assert.ok(factory);
+  const result = lexer.extractAliasCalls(factory.text, '_0x460358');
+  assert.deepEqual(Array.from(result.aliases), ['_0x460358']);
+  assert.equal(result.calls.length, 1);
+  assert.equal(result.calls[0].expression, '_0x460358(0x3)');
+});
+
 test('alias call extraction handles nested arguments and ignores alias declarations', () => {
   const fixture = 'function _0x466acb() { const _0x1298ca = _0x460358; return _0x1298ca(0x1, helper({ value: [1, 2] })) + _0x460358(0x2); }';
   const factory = lexer.extractDefinition(fixture, '_0x466acb');

@@ -206,7 +206,62 @@ module.exports = function() {
     return calls;
   }
 
+  function maskNonCode(text) {
+    const chars = text.split('');
+    let quote = '';
+    let lineComment = false;
+    let blockComment = false;
+    let escaped = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      const n = text[i + 1];
+      if (lineComment) {
+        if (c === '\n' || c === '\r') lineComment = false;
+        else chars[i] = ' ';
+        continue;
+      }
+      if (blockComment) {
+        if (c === '*' && n === '/') {
+          chars[i] = ' ';
+          chars[i + 1] = ' ';
+          i++;
+          blockComment = false;
+          continue;
+        }
+        if (c !== '\n' && c !== '\r') chars[i] = ' ';
+        continue;
+      }
+      if (quote) {
+        if (c !== '\n' && c !== '\r') chars[i] = ' ';
+        if (escaped) { escaped = false; continue; }
+        if (c === '\\') { escaped = true; continue; }
+        if (c === quote) quote = '';
+        continue;
+      }
+      if (c === '/' && n === '/') {
+        chars[i] = ' ';
+        chars[i + 1] = ' ';
+        i++;
+        lineComment = true;
+        continue;
+      }
+      if (c === '/' && n === '*') {
+        chars[i] = ' ';
+        chars[i + 1] = ' ';
+        i++;
+        blockComment = true;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === BACKTICK) {
+        chars[i] = ' ';
+        quote = c;
+      }
+    }
+    return chars.join('');
+  }
+
   function extractAliasCalls(functionText, seedAlias) {
+    const maskedText = maskNonCode(functionText);
     const aliases = new Set([seedAlias]);
     const declarationPattern = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\b/g;
     let changed = true;
@@ -214,7 +269,7 @@ module.exports = function() {
       changed = false;
       declarationPattern.lastIndex = 0;
       let declaration;
-      while ((declaration = declarationPattern.exec(functionText)) !== null) {
+      while ((declaration = declarationPattern.exec(maskedText)) !== null) {
         if (aliases.has(declaration[2]) && !aliases.has(declaration[1])) {
           aliases.add(declaration[1]);
           changed = true;
@@ -226,7 +281,7 @@ module.exports = function() {
     for (const alias of aliases) {
       const pattern = new RegExp('\\b' + alias + '\\s*\\(', 'g');
       let match;
-      while ((match = pattern.exec(functionText)) !== null && calls.length < 1000) {
+      while ((match = pattern.exec(maskedText)) !== null && calls.length < 1000) {
         const open = functionText.indexOf('(', match.index);
         const end = findBalancedEnd(functionText, open, '(', ')');
         if (end < 0) break;
