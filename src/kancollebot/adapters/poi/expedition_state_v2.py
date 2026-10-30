@@ -29,6 +29,7 @@ def normalize_poi_fleets(
     master_ships_payload: Any,
     *,
     observed_at: datetime,
+    source_freshness_verified: bool = False,
 ) -> ObservedState[tuple[ExpeditionFleetSnapshot, ...]]:
     """Normalize fleet, roster, and master ship records.
 
@@ -42,12 +43,17 @@ def normalize_poi_fleets(
     ships = _id_map(ships_payload, "info.ships")
     masters = _id_map(master_ships_payload, "const.$ships")
     snapshots = []
+    seen_fleet_ids: set[int] = set()
+    seen_ship_ids: set[int] = set()
     for index, fleet in enumerate(fleets_payload):
         if not isinstance(fleet, dict):
             raise PoiStateError(f"fleet entry {index} must be an object")
         if "api_id" not in fleet:
             raise PoiStateError(f"fleet entry {index} is missing api_id")
         fleet_id = _int(fleet["api_id"], "fleet api_id", 1)
+        if fleet_id in seen_fleet_ids:
+            raise PoiStateError(f"duplicate fleet ID {fleet_id}")
+        seen_fleet_ids.add(fleet_id)
         raw_ids = fleet.get("api_ship")
         if not isinstance(raw_ids, list) or len(raw_ids) > 6:
             raise PoiStateError(f"fleet {fleet_id} has an invalid api_ship array")
@@ -63,6 +69,11 @@ def normalize_poi_fleets(
         ship_ids = tuple(ship_ids_list)
         if len(set(ship_ids)) != len(ship_ids):
             raise PoiStateError(f"fleet {fleet_id} has duplicate ship IDs")
+        duplicate_ship_ids = seen_ship_ids.intersection(ship_ids)
+        if duplicate_ship_ids:
+            duplicate_id = min(duplicate_ship_ids)
+            raise PoiStateError(f"ship {duplicate_id} appears in multiple fleets")
+        seen_ship_ids.update(ship_ids)
 
         mission_id = None
         raw_mission = fleet.get("api_mission")
@@ -127,4 +138,9 @@ def normalize_poi_fleets(
             ammo_ready=ammo_ready,
             damaged_ship_ids=tuple(damaged),
         ))
-    return ObservedState(tuple(snapshots), observed_at, "poi-redux:info.fleets+info.ships")
+    return ObservedState(
+        tuple(snapshots),
+        observed_at,
+        "poi-redux:info.fleets+info.ships",
+        source_freshness_verified=source_freshness_verified,
+    )
