@@ -109,3 +109,9 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - Added a fixed-expression read-only Poi fleet-state reader and a bounded controller for fleet 2 / mission 3. The controller is guarded by an explicit `--authorize-ui-actions` flag and exact starting mission timestamp; it uses single-click UI input and verifies each state transition before proceeding.
 - Offline verification: **175/175 Python unit tests passed**, plus `compileall` and `git diff --check`. The read-only fleet reader also passed a live Poi runtime check against the active mission tuple.
 - **Live loop status remains IN_PROGRESS.** The same mission's return, reward collection, and re-dispatch have not yet been verified by this controller. Its return-confirmation point remains provisional until observed on the actual return screen.
+
+
+## 2026-10-30 - Return-time refresh gate correction (live verification pending)
+
+- The previous live run remained at mission status 1 after the recorded return timestamp passed. The controller was changed to trigger a visible UI refresh after the scheduled return time and then require the same mission tuple in returned status before one reward-confirmation click.
+- Verification so far: controller syntax check passed; fixed-expression fleet-reader tests passed 6/6. The changed live sequence, reward coordinate, idle transition, and re-dispatch remain NOT_VERIFIED. MVP remains IN_PROGRESS.

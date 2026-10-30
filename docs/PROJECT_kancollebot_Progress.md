@@ -2597,3 +2597,10 @@ The Hand plugin's read-only probe reported:
 - **Verification:** the live read-only fleet reader successfully returned fleet 2 `[1,3,1793354078676,0]` while fleets 1 and 3 remained idle. The full Python unit suite passed **175/175**; `compileall` and `git diff --check` passed.
 - **Runtime limitations:** the controller has not yet been run through the same mission's return/collection/re-dispatch. The return-result confirmation coordinate is provisional and must be verified against the actual result screen; if post-click state does not confirm collection, the controller stops without retry. Do not describe the full loop as complete until live evidence is recorded.
 - **Next step:** run the bounded controller against the already active fleet-2 mission 3 using its exact start timestamp, observe the return, verify collection and re-dispatch, and archive only the successful live outcome.
+
+
+## 2026-10-30 - Return-time refresh gate correction (live verification pending)
+
+- Implementation status: changed and syntax-verified; end-to-end NOT_YET_VERIFIED. The controller now allows the scheduled return time to trigger a visible UI refresh, then requires the same mission tuple to appear in returned status before the one reward-confirmation click.
+- Verification so far: py_compile passed; fixed-expression fleet-reader tests passed 6/6. These checks do not validate the return-screen transition or reward-confirmation coordinate.
+- Runtime remains IN_PROGRESS. The running process uses the previous script version and does not validate this correction. Do not claim loop completion until the updated live sequence is verified.

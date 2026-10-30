@@ -75,6 +75,12 @@ def _wait_for_return(reader_transport, expected_start_ms: int, poll_seconds: flo
             return state
         if state.mission_status != 1 or state.mission_id != MISSION_ID or state.final_time_ms != expected_start_ms:
             raise LoopError(f"Fleet 2 left the expected active mission unexpectedly: {state.mission}")
+        # Poi Redux can retain status=1 after the scheduled return timestamp until
+        # the visible UI requests/refreshes the expedition result. Do not wait for
+        # a status=2 transition that may require opening the result screen first.
+        if int(time.time() * 1000) >= expected_start_ms:
+            _print_event("return_time_reached_refresh_through_ui", state)
+            return state
         now = time.monotonic()
         if now - last_log >= 30:
             _print_event("waiting_for_return", state)
@@ -158,6 +164,17 @@ def run(args: argparse.Namespace) -> int:
         game_session.input.click(SORTIE)
         _print_event("ui_click_sent", point=SORTIE.label)
         time.sleep(1.5)
+        result_deadline = time.monotonic() + 15.0
+        while time.monotonic() < result_deadline:
+            result_state = _fleet(read_poi_fleet_states(state_session.transport))
+            if result_state.mission_status == 2 and result_state.mission_id == MISSION_ID and result_state.final_time_ms == args.expected_start_ms:
+                _print_event("return_result_visible_in_state", result_state)
+                break
+            if result_state.mission_status != 1 or result_state.mission_id != MISSION_ID or result_state.final_time_ms != args.expected_start_ms:
+                raise LoopError("Unexpected state while waiting for return result: " + str(result_state.mission))
+            time.sleep(1.0)
+        else:
+            raise LoopError("Sortie UI did not refresh the return result; no confirmation click sent")
         # Single attempt only. If the point is wrong, idle-state verification fails
         # and the controller will not retry a potentially ambiguous click.
         game_session.input.click(RETURN_CONFIRM)
