@@ -2310,3 +2310,11 @@ The Hand plugin's read-only probe reported:
 - 从正式分支远端直接读取 `scripts/dc_clamp_batch_check.ps1`，在用户 Windows 环境以 PowerShell 5.1 兼容方式完成语法解析与实际只读执行；输出成功列出正式工作区、集成工作区、关键项目路径和 worktree map。
 - 该执行未写入本地文件、未提交/推送本地工作区，也未修改系统设置；正式本地工作区当前仍为 `7e958b4b1ac7e599f2a0d87150985a992603f9d7`，相对远端正式分支落后 10 个提交。脚本文件在本地显示不存在，这是本地尚未同步，而不是远端文件缺失。
 - 因此该入口现在状态为 **TESTED（远端脚本在本机只读执行通过）**；尚无“实际减少 DC 调用次数”的历史对照样本，仍不报告节省比例。
+
+## 2026-10-30 - Static decoder alias-chain analysis
+
+- Updated `tools/hand_sandbox/static_decoder_extract_20261027.js` to trace chained local identifier aliases from the factory's `_0x460358` seed (for example, `_0x1298ca` and aliases derived from it), collect calls through those aliases, and include both factory-relative `offset` and absolute `sourceOffset` in each call record. The report now includes `factoryDecoderAliases`.
+- Added offline regression coverage for chained aliases, nested call arguments, ignoring alias declarations, and exact source-slice/offset consistency in `tests/static_decoder_extract.test.cjs`.
+- Verified on an isolated temporary worktree at remote branch HEAD `bd02451ea24fb13fa1b4af40cd6dd6494eef7e11`: `node --test tests/static_decoder_extract.test.cjs tests/verify_cdp_snapshot.test.cjs` passed **15/15 tests**, exit code 0. The original local worktree was preserved; no local project files were modified by this verification.
+- The current live-session snapshot remains `main-20261030T021952.142Z.js`, 8,495,851 characters / 8,496,723 bytes, SHA-256 `073df7c8e4d4680208070b22806273b332e2f5ba7ae8b80005ad5914f336561e`. This matches the previously captured source exactly.
+- **Verification boundary:** the alias-chain implementation and its fixtures are tested offline; the updated extractor has not yet been run end-to-end against the full 8.5 MB snapshot. This does not verify runtime freshness. No game code, game functions, refresh, dispatch, or reward action was executed; real dispatch remains disabled.
