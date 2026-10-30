@@ -148,9 +148,16 @@ def _recover_home_port(game_session, attempts: int = 3, force_click: bool = Fals
     raise LoopError(f"Home Port was not confirmed after {attempts} bounded attempts")
 
 
-def _wait_for_return(reader_transport, expected_start_ms: int, poll_seconds: float, timeout_seconds: float) -> PoiFleetMissionState:
+def _wait_for_return(
+    reader_transport,
+    expected_start_ms: int,
+    poll_seconds: float,
+    timeout_seconds: float,
+    grace_delay_seconds: float = 10.0,
+) -> PoiFleetMissionState:
     deadline = time.monotonic() + timeout_seconds
     last_log = 0.0
+    grace_applied = False
     while time.monotonic() < deadline:
         state = _fleet(read_poi_fleet_states(reader_transport))
         if state.mission_status == 2 and state.mission_id == MISSION_ID and state.final_time_ms == expected_start_ms:
@@ -158,11 +165,13 @@ def _wait_for_return(reader_transport, expected_start_ms: int, poll_seconds: flo
             return state
         if state.mission_status != 1 or state.mission_id != MISSION_ID or state.final_time_ms != expected_start_ms:
             raise LoopError(f"Fleet 2 left the expected active mission unexpectedly: {state.mission}")
-        # Poi Redux can retain status=1 after the scheduled return timestamp until
-        # the visible UI requests/refreshes the expedition result. Do not wait for
-        # a status=2 transition that may require opening the result screen first.
         if int(time.time() * 1000) >= expected_start_ms:
-            _print_event("return_time_reached_refresh_through_ui", state)
+            if not grace_applied:
+                _print_event("completion_grace_delay_started", state, grace_delay_seconds=grace_delay_seconds)
+                time.sleep(grace_delay_seconds)
+                grace_applied = True
+                continue
+            _print_event("completion_grace_elapsed_refresh_required", state)
             return state
         now = time.monotonic()
         if now - last_log >= 30:
@@ -170,7 +179,6 @@ def _wait_for_return(reader_transport, expected_start_ms: int, poll_seconds: flo
             last_log = now
         time.sleep(poll_seconds)
     raise LoopError("Timed out waiting for the same mission to return; no input was sent after timeout")
-
 
 def _wait_for_idle(reader_transport, poll_seconds: float = 1.0, timeout_seconds: float = 10.0) -> PoiFleetMissionState:
     deadline = time.monotonic() + timeout_seconds
@@ -224,6 +232,8 @@ def run(args: argparse.Namespace) -> int:
         raise LoopError("poll_seconds must be between 1 and 30")
     if not 60 <= args.timeout_seconds <= 3600:
         raise LoopError("timeout_seconds must be between 60 and 3600")
+    if not 0 <= args.grace_delay_seconds <= 300:
+        raise LoopError("grace_delay_seconds must be between 0 and 300")
     with connect_poi_session(timeout=3.0) as state_session, connect_game_webview(timeout=3.0) as game_session:
         initial_states = read_poi_fleet_states(state_session.transport)
         initial = _fleet(initial_states)
@@ -241,6 +251,7 @@ def run(args: argparse.Namespace) -> int:
             expected_final_time_ms,
             args.poll_seconds,
             args.timeout_seconds,
+            args.grace_delay_seconds,
         )
 
         # Follow the requested UI refresh path: open Sortie, then navigate back
@@ -300,6 +311,8 @@ def main() -> int:
                         help="Explicitly authorize this one fixed live UI loop")
     parser.add_argument("--poll-seconds", type=float, default=5.0)
     parser.add_argument("--timeout-seconds", type=float, default=1800.0)
+    parser.add_argument("--grace-delay-seconds", type=float, default=10.0,
+                        help="Wait after the scheduled return time before refreshing through the UI")
     parser.add_argument(
         "--log-path",
         type=Path,
