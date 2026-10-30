@@ -2453,3 +2453,9 @@ The Hand plugin's read-only probe reported:
 - Tightened offline expedition runner confirmation: a newer, source-verified post-action observation must report both the requested mission ID and normalized `mission_status == 1` (underway). A matching mission ID in status `2` (completed, pending reward) is not evidence of a newly accepted dispatch and remains `dispatch_outcome_unknown`, without automatic retry.
 - Updated the fake adapter's successful simulated dispatch to report underway status and added a regression simulating the same mission ID in pending-reward status. No production game action adapter was added or enabled.
 - Verification: Python **164/164**, Node **17/17**, Python compileall, observer JavaScript syntax, and diff whitespace checks passed. Live dispatch and reward collection remain disabled and unverified.
+
+## 2026-10-30 - Pending reward blocks full offline coordinator dispatch
+
+- Added a full coordinator regression with a single pending-reward fleet (`mission_status == 2`) that is explicitly preferred, otherwise supplied and undamaged, and run under an enabled *fake* safety policy with confirmation and a durable temporary journal. The result is `no_ready_fleet`; the fake adapter's dispatch method is never invoked.
+- This verifies the pending-reward block propagates beyond the planner and rotation into the actual offline runner entry point. No live adapter, reward collection or game input was enabled.
+- Validation: Python **165/165**, Node **17/17**, Python compileall, observer JavaScript syntax and diff whitespace checks passed.

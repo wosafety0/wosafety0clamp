@@ -131,6 +131,21 @@ class ExpeditionRunnerTests(unittest.TestCase):
         self.assertEqual(result.status, "dispatch_outcome_unknown")
         self.assertEqual(adapter.dispatches, [(2, 1)])
 
+    def test_pending_reward_fleet_never_reaches_dispatch_adapter(self):
+        pending = ExpeditionFleetSnapshot(
+            fleet_id=2, ship_ids=(1, 2), mission_id=1, mission_status=2,
+            fuel_ready=True, ammo_ready=True,
+        )
+        adapter = FakeAdapter(snapshots=(pending,))
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ExpeditionActionJournal(Path(directory) / "actions.sqlite")
+            result = ExpeditionRunner(adapter, journal=journal).run_once(
+                mission_id=1, now=NOW, max_state_age=timedelta(seconds=30),
+                policy=self.policy(), confirmed=True, preferred_fleet_ids=(2,),
+            )
+        self.assertEqual(result.status, "no_ready_fleet")
+        self.assertEqual(adapter.dispatches, [])
+
     def test_live_dispatch_requires_durable_journal(self):
         adapter = FakeAdapter(confirm_dispatch=True)
         result = ExpeditionRunner(adapter).run_once(
