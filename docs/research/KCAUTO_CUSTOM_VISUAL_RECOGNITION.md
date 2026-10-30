@@ -52,3 +52,15 @@ Relevant files:
 - Status: source-reviewed, not runtime-tested against KancolleBot screenshots.
 - No upstream source code was copied into KancolleBot; this document records observed design mechanics and proposed adaptations.
 - Template-matching accuracy and suitable regions/thresholds remain to be tested offline on correctly labeled samples.
+
+
+## 2026-10-30 — OpenCV offline template-matching probe
+
+- **Status: TESTED, preliminary only.** Python 3.13.16 successfully imported OpenCV 5.0.0 and NumPy 2.5.4 installed into a temporary directory. No dependency was added to `pyproject.toml`; no KancolleBot source was changed.
+- The two existing 1200x720 screenshots `poi_cdp_game.png` and `poi_cdp_game_current.png` were visually inspected; both show the home-port screen. They are not home-port/expedition-panel samples.
+- Grayscale comparison: mean absolute difference 6.5547 intensity levels; 19.85% pixels differed by more than 1 gray level; 14.67% differed by more than 5.
+- Using `cv2.matchTemplate(..., cv2.TM_CCOEFF_NORMED)`, the selected top navigation mission region (775,44,130,58), top navigation items region (540,44,118,58), and sortie-menu region (176,340,245,135) each scored 1.00000 at the same location and as a full-image search. The selected ship-art region scored 0.86783 at the same location (best full-image score 0.93811 at x=520,y=108); the background-window region scored 0.85482.
+- **Interpretation:** in this pair, selected UI regions were pixel-identical while ship artwork/background changed. This supports testing region-scoped visual evidence instead of whole-screen changed-pixel percentages. It does not validate home-vs-expedition classification, a click threshold, or false-positive rates; the high ship-art score also illustrates that visually similar content can match strongly.
+- Grayscale changed-pixel rates are not directly comparable to the earlier RGB per-channel metric because the color space and threshold definition differ.
+- **Safety:** offline image processing only; no game input, dispatch, reward collection, or page refresh occurred. The temporary script is outside the repository and the project dependencies remain unchanged.
+- **Next:** use correctly labeled offline home-port and expedition-panel samples; test small panel-specific templates in bounded regions, record positive/negative score distributions and ambiguity, and keep uncertain or conflicting states as UNKNOWN. Visual scores must not independently authorize clicks.
