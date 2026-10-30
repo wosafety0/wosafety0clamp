@@ -2289,3 +2289,12 @@ The Hand plugin's read-only probe reported:
 - PR 包含 11 个文件，集中整合安全门槛、离线回归测试与只读诊断探针。PR 当前为 Draft/Open/未合并；不自动合并、不修改分支保护。
 - 精确代码提交 `7accb7a7634c463526c953f2fa15a2e36e92942d` 的 CI 已通过；随后只修正了探针文档中的验证状态说明。PR 分支最新头为文档提交 `f25fb75637c471d96b250e46eb770769b3e4ea94`，核心代码仍对应已通过 CI 的提交。
 - 下一项必须完成的验收是：在用户当前 Poi 实例中运行被动探针，核实目标发现、自然发生的成功母港响应、精简快照输出及本地哈希。实机验证完成前，PR 保持 Draft，生产新鲜度门禁不放行，真实派遣继续关闭。
+
+### 2026-10-30 DC 调用成本控制优化
+
+- 按全局唯一权威规则 `Agents-global/main/AGENTS.md` 当前版本执行本轮工具成本优化；当前 `main` 指向提交 `f357d6e54b286a285e058eeff3c1dca0c591fc92`，其中包含第 14.3 节 DC 调用成本控制。
+- 核对正式开发分支 `dev/expedition-closed-loop-mvp` 当前 HEAD 为 `7a04fe48854cae15172e94619fe55e03a1fcb587`；该分支树中未发现独立的 `AGENTS.md` 或 `PROJECT_kancollebot_MASTER.md`，本轮未将 Harness/试验分支文档作为正式项目规则。
+- 发现并修复正式分支中的 `.github/workflows/verify-global-rules.yml`：原流程固定读取 2026-10-28 的旧规则提交 `018707cdbca1031ae94ce0f26edc9854ee78e4ed`，现改为每次从 `Agents-global/main` 解析当前 commit 与 `AGENTS.md` blob SHA，避免重复维护过期规则版本。
+- 成功提交：`6fdbd436fa769889520b5cca7ca3d479ae00d3e9`；远端回读确认工作流内容与提交差异正确。
+- 本轮仅使用 GitHub 连接器处理远端源码、规则、进度和提交核验，未调用 DC；因此没有产生新的 DC 调用。当前没有可核验的 DC 总量/CLAMP 专属调用量统计接口，本轮不报告节省比例。
+- **验证状态：** 工作流修改已远端保存并回读核验；尚未实际运行该 workflow，因此标记为 `IMPLEMENTED`，不是 `TESTED/VERIFIED`。真实本机运行状态未改变。
