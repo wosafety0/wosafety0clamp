@@ -2652,3 +2652,13 @@ The Hand plugin's read-only probe reported:
 - **Safety:** offline screenshot analysis only. No game input, expedition dispatch, reward collection, page refresh, or production-code change occurred.
 - Research details and per-region measurements: `docs/research/KCAUTO_CUSTOM_VISUAL_RECOGNITION.md`, section “OpenCV offline template-matching probe”.
 - **Next:** obtain correctly labeled offline home-port and expedition-panel samples; test small panel-specific templates in bounded regions and evaluate positive/negative score distributions and ambiguity. Keep uncertain/conflicting evidence as UNKNOWN and do not authorize clicks from template scores alone.
+
+
+## 2026-10-31 — Single-entry expedition controller hardening
+
+- **Remote code artifact updated:** `tools/one_expedition_ui_loop.py` now starts from a verified idle fleet-2 state, attempts mission-3 dispatch within the same process, waits for the recorded return timestamp, follows the Sortie → top-left Home Port refresh path, collects only after mission-state checks, and requires a final idle-state readback.
+- **Runtime output policy:** the controller writes append-only JSONL audit records to one configured log path; source checks found no screenshot API calls, PNG output, or explicit temporary/duplicate snapshot writes. Events include UTC timestamps and run IDs, and dispatch clicks have pre-action and wait-completion records.
+- **Bounded recovery:** Home Port navigation retries are capped at three attempts and require the accessible UI gate to confirm the state. If it cannot confirm, the controller stops rather than proceeding blindly.
+- **Validation:** the latest remote source was parsed by Python `ast.parse` successfully; source-level checks and GitHub readback verified the log, bounded retry, no-screenshot, and final-idle gate markers. Unit tests and live UI end-to-end acceptance were **not run**.
+- **Limitations:** the current accessibility state gate may not expose labels from the game's canvas; return-result UI and coordinates are not verified, and automatic supply is not implemented. This is a saved, reusable but **unverified** implementation, not a successful live expedition run. No game input was sent in this work round.
+- **Next:** solve screen-state confirmation without writing screenshots, test the menu/return-result gates and supply-needed decision, then run the authorized single-entry loop only after the preconditions are confirmed.
