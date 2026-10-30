@@ -64,3 +64,15 @@ Relevant files:
 - Grayscale changed-pixel rates are not directly comparable to the earlier RGB per-channel metric because the color space and threshold definition differ.
 - **Safety:** offline image processing only; no game input, dispatch, reward collection, or page refresh occurred. The temporary script is outside the repository and the project dependencies remain unchanged.
 - **Next:** use correctly labeled offline home-port and expedition-panel samples; test small panel-specific templates in bounded regions, record positive/negative score distributions and ambiguity, and keep uncertain or conflicting states as UNKNOWN. Visual scores must not independently authorize clicks.
+
+
+### Additional cross-scene probe using an existing expedition screenshot
+
+- Inspected `D:\\AI_Project\\Project_KancolleBot\\diagnostics\\captures\\poi_game_crop.png` visually. It is a 1200×780 capture showing the expedition selection list with the historical “遠征に向かいました” overlay; it is not a newly captured or newly triggered game action.
+- Cross-scene template search using the 1200×720 home-port image and this historical expedition capture produced:
+  - Home-port sortie-menu template (245×135) searched in expedition capture: best score **0.17895** at (522,272).
+  - Home-port top-navigation mission template (130×58) searched in expedition capture: best score **0.93787** at (775,73). This is expected because the navigation bar remains present across screens; it demonstrates that generic navigation templates do not distinguish scene state.
+  - Expedition list-rows template (660×120) searched in home-port image: best score **0.21317** at (475,97).
+  - Expedition panel-header template (650×50) searched in home-port image: best score **0.54009** at (488,665), showing that not every panel crop is sufficiently distinctive.
+- **Preliminary positive result:** panel-specific regions separated these two known scene samples much better than the persistent navigation template. The sample has a dispatch overlay and is not a clean idle expedition panel, so it cannot establish general accuracy or thresholds.
+- Next, prioritize compact distinctive panel-specific templates, evaluate positive and negative score distributions on more labeled captures, and treat any ambiguous/overlapping score as UNKNOWN. Do not infer action success from these scores alone.
