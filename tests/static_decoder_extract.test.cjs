@@ -216,6 +216,15 @@ test('analyzeSource reports complete extraction only when all required definitio
     assert.equal(report.definitions.factory_0x466acb.kind, 'function');
     assert.equal(report.definitions.localAlias_0x460358.kind, 'assignment');
     assert.equal(report.factoryDecoderCalls.length, 1);
+    assert.ok(report.factoryDecoderAliases.includes('_0x460358'));
+    assert.equal(
+      report.factoryDecoderCalls[0].sourceOffset,
+      report.definitions.factory_0x466acb.start + report.factoryDecoderCalls[0].offset
+    );
+    assert.equal(
+      report.factoryDecoderCalls[0].expression,
+      fixture.slice(report.factoryDecoderCalls[0].sourceOffset, report.factoryDecoderCalls[0].sourceOffset + report.factoryDecoderCalls[0].expression.length)
+    );
     assert.equal(report.safety.pageSourceExecuted, false);
     assert.equal(report.safety.gameFunctionsCalled, false);
   } finally {
