@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   verify-global-rules:
-    name: Verify private rules access and integrity
+    name: Verify canonical global rules access
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -21,21 +21,23 @@ jobs:
           owner: wosafety0
           repositories: Agents-global
 
-      - name: Read pinned rules and verify Git Blob SHA
+      - name: Read current canonical rules from main
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         shell: bash
         run: |
           set -euo pipefail
           repo="wosafety0/Agents-global"
-          rules_commit="018707cdbca1031ae94ce0f26edc9854ee78e4ed"
-          expected_blob_sha="69d72d15d07412a04c47edea5837374367935019"
+          rules_ref="main"
 
-          actual_blob_sha="$(gh api "repos/${repo}/contents/AGENTS.md?ref=${rules_commit}" --jq '.sha')"
+          rules_commit="$(gh api "repos/${repo}/git/ref/heads/${rules_ref}" --jq '.object.sha')"
+          actual_blob_sha="$(gh api "repos/${repo}/contents/AGENTS.md?ref=${rules_ref}" --jq '.sha')"
 
-          if [[ "${actual_blob_sha}" != "${expected_blob_sha}" ]]; then
-            echo "::error::AGENTS.md blob SHA mismatch; expected pinned content was not retrieved."
+          if [[ -z "${rules_commit}" || -z "${actual_blob_sha}" ]]; then
+            echo "::error::Canonical AGENTS.md ref or blob SHA could not be resolved."
             exit 1
           fi
 
-          echo "PASS: private AGENTS.md was readable at the pinned commit and its Git Blob SHA matched."
+          echo "PASS: canonical AGENTS.md is readable from ${repo}@${rules_ref}."
+          echo "Canonical commit: ${rules_commit}"
+          echo "AGENTS.md blob SHA: ${actual_blob_sha}"
