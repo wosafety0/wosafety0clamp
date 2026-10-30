@@ -1,6 +1,6 @@
 """Conservative normalization for Poi fleet snapshots."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from kancollebot.core.observed_state import ObservedState
@@ -92,6 +92,17 @@ def normalize_poi_fleets(
             mission_id = _int(mission_slot, "mission ID", 1)
             if timestamp_slot == 0:
                 raise PoiStateError(f"fleet {fleet_id} has no mission timestamp value")
+            # Current natural port responses expose this slot as Unix epoch
+            # milliseconds. Keep the conversion here (not in the planner) so
+            # every consumer receives a timezone-aware UTC timestamp.
+            try:
+                return_at = datetime.fromtimestamp(
+                    timestamp_slot / 1000, tz=timezone.utc
+                )
+            except (OverflowError, OSError, ValueError) as exc:
+                raise PoiStateError(
+                    f"fleet {fleet_id} has an invalid mission timestamp value"
+                ) from exc
 
         damaged = []
         fuel_ready = bool(ship_ids)
