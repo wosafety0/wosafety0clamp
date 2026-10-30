@@ -9,6 +9,9 @@ description = "A safety-first local KanColle automation framework"
 requires-python = ">=3.11"
 dependencies = []
 
+[project.optional-dependencies]
+vision = ["opencv-python-headless>=4.10", "numpy>=2.0"]
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 

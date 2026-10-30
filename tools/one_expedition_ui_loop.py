@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -33,6 +34,11 @@ from kancollebot.adapters.poi.ui_state_gate import (  # noqa: E402
     UiStateGateError,
     require_state,
 )
+from kancollebot.adapters.poi.visual_state_gate import (
+    VisualStateError,
+    classify_screenshot_png,
+)  # noqa: E402
+
 
 FLEET_ID = 2
 MISSION_ID = 3
@@ -83,19 +89,44 @@ def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra:
             stream.write(line + "\n")
 
 
-def _require_ui_state(game_transport, expected: UiState) -> None:
-    """Require explicit accessible text evidence before a sensitive UI click."""
-    result = game_transport.send("Accessibility.getFullAXTree", {})
+def _require_ui_state(game_session, expected: UiState) -> None:
+    """Require accessible evidence, then use in-memory templates as a guarded fallback."""
+    result = game_session.transport.send("Accessibility.getFullAXTree", {})
     nodes = result.get("nodes") if isinstance(result, dict) else None
-    require_state(nodes, expected)
-    _print_event("ui_state_confirmed", state=expected.value)
+    try:
+        require_state(nodes, expected)
+        _print_event("ui_state_confirmed", ui_state=expected.value, evidence="accessibility")
+        return
+    except (UiStateGateError, ValueError) as accessible_error:
+        template_dir = os.environ.get("KANCOLLEBOT_TEMPLATE_DIR")
+        if not template_dir:
+            raise accessible_error
+        try:
+            payload = game_session.input.capture_screenshot()
+            visual_state, scores = classify_screenshot_png(payload, template_dir)
+        except VisualStateError as visual_error:
+            raise LoopError(
+                f"Accessible state unavailable ({accessible_error}); visual fallback failed ({visual_error})"
+            ) from visual_error
+        _print_event(
+            "ui_visual_state_check",
+            expected=expected.value,
+            observed=visual_state,
+            scores={key: round(value, 4) for key, value in scores.items()},
+            screenshot_written_to_disk=False,
+        )
+        if visual_state != expected.value:
+            raise LoopError(
+                f"Expected {expected.value}; accessible labels were unavailable and visual state was {visual_state}"
+            ) from accessible_error
+        _print_event("ui_state_confirmed", ui_state=expected.value, evidence="in_memory_template_match")
 
 
 def _recover_home_port(game_session, attempts: int = 3, force_click: bool = False) -> None:
     """Use bounded top-left navigation retries, requiring state evidence after each click."""
     if not force_click:
         try:
-            _require_ui_state(game_session.transport, UiState.HOME_PORT)
+            _require_ui_state(game_session, UiState.HOME_PORT)
             _print_event("home_port_recovery_confirmed", attempt=0)
             return
         except UiStateGateError as exc:
@@ -109,7 +140,7 @@ def _recover_home_port(game_session, attempts: int = 3, force_click: bool = Fals
         _print_event("ui_action_wait_completed", point=HOME_PORT.label, attempt=attempt,
                      wait_seconds=1.0)
         try:
-            _require_ui_state(game_session.transport, UiState.HOME_PORT)
+            _require_ui_state(game_session, UiState.HOME_PORT)
             _print_event("home_port_recovery_confirmed", attempt=attempt)
             return
         except UiStateGateError as exc:
@@ -239,7 +270,7 @@ def run(args: argparse.Namespace) -> int:
         if result_state is None:
             raise LoopError("Completion state was not confirmed within 120 seconds after Home Port refresh")
 
-        _require_ui_state(game_session.transport, UiState.RETURN_RESULT)
+        _require_ui_state(game_session, UiState.RETURN_RESULT)
         _print_event("ui_action_precondition", action="collect_expedition_reward",
                      fleet_id=FLEET_ID, mission_id=MISSION_ID, expected_state="RETURN_RESULT")
         game_session.input.click(RETURN_CONFIRM)
@@ -247,7 +278,7 @@ def run(args: argparse.Namespace) -> int:
         time.sleep(1.5)
         _print_event("ui_action_wait_completed", point=RETURN_CONFIRM.label, wait_seconds=1.5)
         idle = _wait_for_idle(state_session.transport)
-        _require_ui_state(game_session.transport, UiState.BONUS_ITEMS)
+        _require_ui_state(game_session, UiState.BONUS_ITEMS)
         _print_event("ui_action_precondition", action="advance_bonus_items", expected_state="BONUS_ITEMS")
         game_session.input.click(RETURN_CONFIRM)
         _print_event("ui_click_sent", point="bonus-next")
