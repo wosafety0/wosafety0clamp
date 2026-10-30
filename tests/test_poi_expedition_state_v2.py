@@ -5,10 +5,19 @@ from kancollebot.adapters.poi.expedition_state_v2 import PoiStateError, normaliz
 NOW = datetime(2026, 10, 22, 12, 0, tzinfo=timezone.utc)
 
 class PoiStateV2Tests(unittest.TestCase):
-    def test_active_mission_timestamp_is_not_guessed(self):
-        state = normalize_poi_fleets([{"api_id": 1, "api_ship": [101], "api_mission": [1, 2, 1234567890, 0]}], {"101": {"api_ship_id": 11, "api_nowhp": 10, "api_maxhp": 10, "api_fuel": 10, "api_bull": 10}}, {"11": {"api_fuel_max": 10, "api_bull_max": 10}}, observed_at=NOW)
+    def test_active_mission_timestamp_is_normalized_as_epoch_milliseconds(self):
+        timestamp_ms = 1793011949741
+        state = normalize_poi_fleets(
+            [{"api_id": 1, "api_ship": [101], "api_mission": [1, 2, timestamp_ms, 0]}],
+            {"101": {"api_ship_id": 11, "api_nowhp": 10, "api_maxhp": 10, "api_fuel": 10, "api_bull": 10}},
+            {"11": {"api_fuel_max": 10, "api_bull_max": 10}},
+            observed_at=NOW,
+        )
         self.assertEqual(state.payload[0].mission_id, 2)
-        self.assertIsNone(state.payload[0].return_at)
+        self.assertEqual(
+            state.payload[0].return_at,
+            datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc),
+        )
 
     def test_missing_mission_data_is_rejected(self):
         with self.assertRaisesRegex(PoiStateError, "api_mission has an unknown shape"):

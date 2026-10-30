@@ -76,6 +76,7 @@ def normalize_poi_fleets(
         seen_ship_ids.update(ship_ids)
 
         mission_id = None
+        return_at = None
         raw_mission = fleet.get("api_mission")
         if not isinstance(raw_mission, list) or len(raw_mission) != 4:
             raise PoiStateError(f"fleet {fleet_id} api_mission has an unknown shape")
@@ -145,7 +146,7 @@ def normalize_poi_fleets(
             ship_ids=ship_ids,
             mission_id=mission_id,
             mission_status=status,
-            return_at=None,
+            return_at=return_at,
             fuel_ready=fuel_ready,
             ammo_ready=ammo_ready,
             damaged_ship_ids=tuple(damaged),
