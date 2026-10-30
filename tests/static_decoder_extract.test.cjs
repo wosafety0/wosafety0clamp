@@ -12,7 +12,7 @@ const sourcePath = path.resolve(__dirname, '../tools/hand_sandbox/static_decoder
 const source = fs.readFileSync(sourcePath, 'utf8');
 const anchor = '  timeout = setTimeout(function() {';
 assert.equal(source.split(anchor).length, 2, 'production extraction hook changed');
-const instrumented = source.replace(anchor, '  return { extractDefinition, findBalancedEnd, scanExpressionEnd, extractAliasCalls, saveSnapshot, sanitizeScriptUrl, analyzeSource };\n' + anchor);
+const instrumented = source.replace(anchor, '  return { extractDefinition, findBalancedEnd, scanExpressionEnd, extractAliasCalls, extractTableRotationBootstrap, saveSnapshot, sanitizeScriptUrl, analyzeSource };\n' + anchor);
 const logMessages = [];
 const sandbox = { module: { exports: {} }, console: { log(...parts) { logMessages.push(parts.map(String).join(' ')); } }, require, Buffer, URL: require('node:url').URL };
 vm.runInNewContext(instrumented, sandbox, { filename: sourcePath, timeout: 1000 });
@@ -105,6 +105,19 @@ test('alias analysis ignores declaration-like text inside comments and quoted st
   assert.deepEqual(Array.from(result.aliases), ['_0x460358']);
   assert.equal(result.calls.length, 1);
   assert.equal(result.calls[0].expression, '_0x460358(0x3)');
+});
+
+test('extracts the string-table rotation bootstrap with exact source bounds', () => {
+  const fixture = 'function decoder() { return 0; }(function(tableFactory, target) { while (true) { try { if (tableFactory() === target) break; } catch (error) {} } }(table, 0xd12ca), next());';
+  const decoder = lexer.extractDefinition(fixture, 'decoder');
+  assert.ok(decoder);
+  const result = lexer.extractTableRotationBootstrap(fixture, 'table', decoder.end);
+  assert.ok(result);
+  assert.equal(result.tableName, 'table');
+  assert.equal(result.invocationTarget, '0xd12ca');
+  assert.equal(result.text, fixture.slice(result.start, result.end));
+  assert.ok(result.text.includes('tableFactory() === target'));
+  assert.equal(lexer.extractTableRotationBootstrap(fixture, 'otherTable', decoder.end), null);
 });
 
 test('alias call extraction handles nested arguments and ignores alias declarations', () => {
@@ -211,8 +224,9 @@ test('analyzeSource reports partial extraction when a required definition is mis
 test('analyzeSource reports complete extraction only when all required definitions exist', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kcb-complete-report-'));
   const fixture = [
-    'function _0x3353(x) { return x; }',
     'function _0x3f23() { return []; }',
+    'function _0x3353(x) { return _0x3f23()[x]; }',
+    '(function(tableFactory, target) { while (true) { try { if (tableFactory() === target) break; } catch (error) {} } }(_0x3f23, 0xd12ca));',
     'function _0x466acb() { return _0x460358(0x1); }',
     'const _0x460358 = _0x3353;'
   ].join('\n');
@@ -227,6 +241,12 @@ test('analyzeSource reports complete extraction only when all required definitio
     const reportEnd = output.indexOf('\n[Sandbox] STATIC_SOURCE_REPORT_END', jsonStart);
     const report = JSON.parse(output.slice(jsonStart, reportEnd));
     assert.equal(report.status, 'STATIC_EXTRACTION_COMPLETE');
+    assert.equal(report.stringTableRotationBootstrap.tableName, '_0x3f23');
+    assert.equal(report.stringTableRotationBootstrap.invocationTarget, '0xd12ca');
+    assert.equal(
+      fixture.slice(report.stringTableRotationBootstrap.start, report.stringTableRotationBootstrap.end).startsWith('(function(tableFactory'),
+      true
+    );
     assert.equal(report.definitions.decoder_0x3353.kind, 'function');
     assert.equal(report.definitions.stringTable_0x3f23.kind, 'function');
     assert.equal(report.definitions.factory_0x466acb.kind, 'function');

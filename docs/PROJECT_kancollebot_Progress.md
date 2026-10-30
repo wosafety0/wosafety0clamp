@@ -2329,3 +2329,16 @@ The Hand plugin's read-only probe reported:
 - Re-ran the updated helper against the full saved snapshot `main-20261030T021952.142Z.js` (8,495,851 characters). It still finds **4 aliases and 33 calls**, and all relative and absolute call offsets resolve to exact source slices.
 - **Scope/limitations:** this remains a lightweight lexical heuristic, not a complete JavaScript parser. It does not resolve lexical scope/shadowing or alias reassignment, does not tokenize regular-expression literals separately, and treats an entire template literal (including its interpolations) as non-code. These choices can still cause false positives in unusual syntax or conservative undercounting; findings must be treated as static leads, not semantic proof.
 - **Safety boundary:** source was read as text only. No page source was executed, no game function or getter was invoked, and no input, refresh, dispatch, or reward action was sent. Runtime source freshness remains unverified; real dispatch remains disabled.
+
+## 2026-10-30 - Static string-table rotation bootstrap extraction
+
+- Extended the static extractor with `extractTableRotationBootstrap()`, which locates the function expression invoked with the string-table factory and captures its exact source range and numeric rotation target without executing the rotation loop.
+- Integrated the structured result into the extraction artifact and bounded console report. Added a synthetic integration fixture verifying the target constant, source boundaries, and absence of execution.
+- On the full saved snapshot `main-20261030T021952.142Z.js`, the extractor identifies:
+  - String-table function `_0x3f23`: source range `[0, 317022)`, 317,022 characters.
+  - Decoder `_0x3353`: source range `[317022, 318153)`, 1,131 characters.
+  - Rotation bootstrap: source range `[318153, 318814)`, 661 characters; invocation target `0xd12ca`. The extracted block matches the exact source slice.
+  - Application factory `_0x466acb`: source range `[8464467, 8465759)`, 1,292 characters.
+- The full-snapshot cross-check still reports 4 factory decoder aliases and 33 calls, with all recorded relative/absolute offsets matching source slices. The rotation target is only reported as a literal from source; the table rotation algorithm was **not run**, and decoded string values were not generated.
+- Validation on isolated worktree at the prior verified branch head `3f43380a9c67438985aad68434448e3d502e8fa6`: JavaScript syntax check passed and `node --test tests\static_decoder_extract.test.cjs tests\verify_cdp_snapshot.test.cjs` passed **17/17 tests**, exit code 0.
+- **Limitations:** this extracts a syntactic bootstrap candidate and constant, not proof that the loop would terminate or that decoded strings are semantically correct. Full source freshness, live runtime behavior, and any gameplay automation remain unverified; real dispatch remains disabled.

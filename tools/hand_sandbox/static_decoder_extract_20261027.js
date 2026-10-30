@@ -347,12 +347,86 @@ module.exports = function() {
     return { ok: true, sourcePath, metadataPath, sha256, sourceBytes, sourceCharacters: source.length };
   }
 
+  function extractTableRotationBootstrap(source, tableName, searchStart) {
+    function skipWhitespace(text, index) {
+      while (index < text.length) {
+        const c = text[index];
+        if (c !== ' ' && c !== '\t' && c !== '\r' && c !== '\n') break;
+        index++;
+      }
+      return index;
+    }
+
+    const searchLimit = Math.min(source.length, searchStart + 20000);
+    let cursor = searchStart;
+    while (cursor < searchLimit) {
+      const functionIndex = source.indexOf('function', cursor);
+      if (functionIndex < 0 || functionIndex >= searchLimit) break;
+      const before = functionIndex > 0 ? source[functionIndex - 1] : '';
+      const afterWord = source[functionIndex + 8] || '';
+      if ((/[A-Za-z0-9_$]/.test(before)) || /[A-Za-z0-9_$]/.test(afterWord)) {
+        cursor = functionIndex + 8;
+        continue;
+      }
+
+      const paramsOpen = source.indexOf('(', functionIndex + 8);
+      if (paramsOpen < 0 || paramsOpen >= searchLimit) break;
+      const paramsEnd = findBalancedEnd(source, paramsOpen, '(', ')');
+      if (paramsEnd < 0) break;
+
+      const bodyOpen = skipWhitespace(source, paramsEnd);
+      if (source[bodyOpen] !== '{') {
+        cursor = paramsEnd;
+        continue;
+      }
+      const bodyEnd = findBalancedEnd(source, bodyOpen, '{', '}');
+      if (bodyEnd < 0) break;
+
+      let i = skipWhitespace(source, bodyEnd);
+      if (source[i] === '(') {
+        i = skipWhitespace(source, i + 1);
+        if (source.slice(i, i + tableName.length) === tableName) {
+          const nameAfter = source[i + tableName.length] || '';
+          if (!/[A-Za-z0-9_$]/.test(nameAfter)) {
+            i = skipWhitespace(source, i + tableName.length);
+            if (source[i] === ',') {
+              i = skipWhitespace(source, i + 1);
+              const targetStart = i;
+              while (i < source.length && /[A-Za-z0-9_xX]/.test(source[i])) i++;
+              const target = source.slice(targetStart, i);
+              i = skipWhitespace(source, i);
+              if (/^(?:0[xX][0-9a-fA-F]+|[0-9]+)$/.test(target) && source[i] === ')') {
+                const start = functionIndex > 0 && source[functionIndex - 1] === '('
+                  ? functionIndex - 1
+                  : functionIndex;
+                const end = i + 1;
+                return {
+                  name: 'tableRotationBootstrap',
+                  tableName,
+                  invocationTarget: target,
+                  start,
+                  end,
+                  text: source.slice(start, end)
+                };
+              }
+            }
+          }
+        }
+      }
+      cursor = bodyEnd;
+    }
+    return null;
+  }
+
   function analyzeSource(source, scriptUrl, scriptId, outputDirOverride) {
     const snapshot = saveSnapshot(source, scriptUrl, scriptId, outputDirOverride);
     const decoder = extractDefinition(source, '_0x3353');
     const table = extractDefinition(source, '_0x3f23');
     const appFactory = extractDefinition(source, '_0x466acb');
     const aliasDecoder = extractDefinition(source, '_0x460358');
+    const tableRotationBootstrap = decoder && table
+      ? extractTableRotationBootstrap(source, table.name, decoder.end)
+      : null;
 
     const tableOffsets = findOccurrences(source, '_0x3f23', 120);
     const rotationContexts = [];
@@ -399,12 +473,14 @@ module.exports = function() {
         localAlias_0x460358: aliasDecoder
       },
       stringTableReferencesOutsideDefinition: rotationContexts,
+      stringTableRotationBootstrap: tableRotationBootstrap,
       factoryDecoderAliases: factoryAliasAnalysis.aliases,
       factoryDecoderCalls: factoryCalls,
       notes: [
         'This file extracts source text only; it does not run the decoder.',
         'Use the saved decoder/table/rotation text for offline analysis outside the game page.',
-        'If a definition is null, inspect the reported contexts and update the lexical matcher rather than evaluating page code.'
+        'If a definition is null, inspect the reported contexts and update the lexical matcher rather than evaluating page code.',
+        'The table rotation bootstrap is extracted as source text only; its loop is never executed.'
       ]
     };
 
@@ -445,6 +521,14 @@ module.exports = function() {
           characters: definition.text.length
         } : null];
       })),
+      stringTableRotationBootstrap: tableRotationBootstrap ? {
+        name: tableRotationBootstrap.name,
+        tableName: tableRotationBootstrap.tableName,
+        invocationTarget: tableRotationBootstrap.invocationTarget,
+        start: tableRotationBootstrap.start,
+        end: tableRotationBootstrap.end,
+        characters: tableRotationBootstrap.text.length
+      } : null,
       stringTableReferencesOutsideDefinition: rotationContexts.slice(0, 12).map(function(context) {
         return Object.assign({}, context, { text: context.text.slice(0, 1200), textTruncated: context.text.length > 1200 });
       }),
