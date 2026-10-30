@@ -197,3 +197,11 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - The Python test runner printed expected usage/error text from negative CLI-argument tests; the suite exit code was 0 and the final summary was `Ran 180 tests ... OK`.
 - The installed environment does not have `pytest`; the repository's authoritative CI uses standard-library `unittest`, which ran successfully. Clipboard copy was unavailable in the remote PowerShell session; this does not affect test execution.
 - **Live-action boundary unchanged:** tests are offline baseline evidence only. The current accessible-text gate cannot classify the game canvas, and the existing runner requires a pre-existing active mission-3 timestamp. No live click was sent; no local screenshot file was created. Full-loop acceptance remains pending and MVP remains `IN_PROGRESS`.
+
+
+## 2026-10-31 — Home-port recovery and log-only runtime output
+- **Bounded recovery:** if the current UI state is uncertain, the runner may click the visible top-left Home Port control up to 3 times. Log each attempt, wait, and post-click state observation. A click alone is not proof of recovery; continue only after the expected Home Port state is confirmed. Never retry indefinitely.
+- **Fail-closed boundary:** if recovery cannot confirm Home Port, stop before reward collection, supply, or dispatch. Record the last known target-fleet mission summary and the stop reason.
+- **Runtime file policy:** the only permitted local file output during a run is the designated append-only log. Normal execution must not call screenshot APIs or write PNGs, images, temporary files, debug dumps, duplicate snapshots, or separate reports.
+- **Auditable actions:** log every action and state transition with UTC time, run ID, action, target label/coordinates where relevant, attempt number, precondition, outcome, wait duration, postcondition, and error/stop reason. Record only the minimal fleet/mission fields needed to explain decisions; never log credentials, cookies, tokens, or full unfiltered game state.
+- **Implementation status:** these are acceptance requirements. They do not claim the current runner implements them or that the live full loop has passed.
