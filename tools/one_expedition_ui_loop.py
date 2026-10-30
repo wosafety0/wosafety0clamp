@@ -1,10 +1,9 @@
-"""Run one explicitly authorized UI-mediated expedition return/collect/re-dispatch loop.
+"""Run one UI-mediated fleet-2 mission-3 expedition from idle back to idle.
 
-This controller is deliberately pinned to fleet 2 and mission 3. It reads only a
-fixed Poi Redux fleet snapshot and uses single-click CDP mouse input against the
-visible game UI. It never constructs or sends game-server requests. This script
-is a live-action prototype; its return-result confirmation point still requires
-validation on the actual return screen before unattended use.
+The controller reads the Poi Redux fleet snapshot and sends mouse input only to
+the visible game UI. It never constructs or sends game-server requests. This is
+an unverified live-action prototype: coordinate mapping and the return-result
+screen gate must pass on the actual client before unattended use.
 """
 from __future__ import annotations
 
@@ -154,30 +153,33 @@ def _wait_for_idle(reader_transport, poll_seconds: float = 1.0, timeout_seconds:
 def _dispatch(reader_transport, game_input, expected_start_ms: int) -> PoiFleetMissionState:
     before = _fleet(read_poi_fleet_states(reader_transport))
     if not _idle(before):
-        raise LoopError(f"Fleet 2 is not idle before re-dispatch: {before.mission}")
-    # The result/bonus flow returns to the mother-port screen after the
-    # verified visible Next controls; Home Port itself is hidden at that point.
-    for point, settle in (
+        raise LoopError(f"Fleet 2 is not idle before dispatch: {before.mission}")
+    # Navigate through the visible expedition menus from the idle Home Port state.
+    for step, (point, settle) in enumerate((
         (SORTIE, 1.0),
         (EXPEDITION_MODE, 1.0),
         (MISSION_ROW, 0.5),
         (MISSION_CONFIRM, 0.7),
         (FLEET_2_TAB, 0.4),
         (EXPEDITION_START, 1.5),
-    ):
+    ), start=1):
+        _print_event("ui_action_precondition", action="dispatch_menu_click",
+                     step=step, point=point.label, fleet_idle=True)
         game_input.click(point)
-        _print_event("ui_click_sent", point=point.label)
+        _print_event("ui_click_sent", point=point.label, step=step)
         time.sleep(settle)
+        _print_event("ui_action_wait_completed", point=point.label, step=step,
+                     wait_seconds=settle)
     deadline = time.monotonic() + 12.0
     while time.monotonic() < deadline:
         state = _fleet(read_poi_fleet_states(reader_transport))
         if state.mission_status == 1 and state.mission_id == MISSION_ID and state.final_time_ms > expected_start_ms:
-            _print_event("redispatch_verified", state)
+            _print_event("dispatch_verified", state)
             return state
         if not _idle(state) and not (state.mission_status == 1 and state.mission_id == MISSION_ID):
             raise LoopError(f"Unexpected state after re-dispatch clicks: {state.mission}")
         time.sleep(1.0)
-    raise LoopError("Re-dispatch was not verified from Poi Redux state; do not repeat clicks")
+    raise LoopError("Dispatch was not verified from Poi Redux state; do not repeat clicks")
 
 
 def run(args: argparse.Namespace) -> int:
@@ -278,7 +280,18 @@ def main() -> int:
         _print_event("run_started", log_path=str(LOG_PATH), output_policy="append-only-jsonl; no screenshots or other runtime files")
         return run(args)
     except (LoopError, CdpInputError, CdpFleetStateError, UiStateGateError, OSError, TimeoutError, ValueError) as exc:
-        _print_event("STOPPED_FAIL_CLOSED", error_type=type(exc).__name__, error=str(exc))
+        try:
+            _print_event("STOPPED_FAIL_CLOSED", error_type=type(exc).__name__, error=str(exc))
+        except OSError as log_error:
+            LOG_PATH = None
+            print(json.dumps({
+                "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+                "run_id": RUN_ID,
+                "event": "STOPPED_FAIL_CLOSED_LOG_UNAVAILABLE",
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+                "log_error_type": type(log_error).__name__,
+            }, ensure_ascii=False), flush=True)
         return 2
 
 
