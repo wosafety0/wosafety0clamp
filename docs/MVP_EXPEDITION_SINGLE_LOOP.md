@@ -247,3 +247,9 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - Startup establishes the reference only when the top navigation marker is strong and expedition-list, dispatch, result, and bonus markers are not strong. Later Home Port checks require a high baseline similarity plus no competing state marker; otherwise the controller fails closed.
 - **Verification:** 192 Python unit tests passed; Python compile checks, `git diff --check`, and Node.js static tests (17/17) passed. A live read-only test captured the reference and immediately rechecked Home Port successfully with `home_reference_similarity=0.9802`, navigation marker `1.0`, and strongest competing marker `0.6276`. No game click was sent during this test and no screenshot file was created. GitHub readback verified the visual gate, controller, and tests.
 - **Full-loop status unchanged:** the one-shot runner still lacks a positively verified supply-screen gate and mission-3 pre-dispatch identity check. No expedition-3 dispatch, supply action, or reward collection has been performed. MVP remains `IN_PROGRESS`.
+
+
+## 2026-10-31 — Explicit browser-level UI recovery capability
+- **Implemented and pushed** at `265cf7cdbe0106c829123cf80a02c6ebb87142f5`: the CDP allowlist now permits only the explicit browser-level `Page.reload` recovery method in addition to its existing read-only inspection and mouse-input methods. Arbitrary `Page.navigate`, network enablement, and game-server methods remain blocked.
+- **Verification:** 194 Python unit tests passed, Python compile checks and `git diff --check` passed; GitHub readback confirms the allowlist and its tests. No reload has been invoked by this change itself.
+- **Use limitation:** reload is for restoring the client UI only. After reload, the controller must re-establish the live Home Port baseline and re-read fleet state before any game action. Full expedition-3 acceptance remains pending.
