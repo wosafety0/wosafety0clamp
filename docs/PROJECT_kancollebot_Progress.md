@@ -2662,3 +2662,39 @@ The Hand plugin's read-only probe reported:
 - **Validation:** the latest remote source was parsed by Python `ast.parse` successfully; source-level checks and GitHub readback verified the log, bounded retry, no-screenshot, and final-idle gate markers. Unit tests and live UI end-to-end acceptance were **not run**.
 - **Limitations:** the current accessibility state gate may not expose labels from the game's canvas; return-result UI and coordinates are not verified, and automatic supply is not implemented. This is a saved, reusable but **unverified** implementation, not a successful live expedition run. No game input was sent in this work round.
 - **Next:** solve screen-state confirmation without writing screenshots, test the menu/return-result gates and supply-needed decision, then run the authorized single-entry loop only after the preconditions are confirmed.
+
+## 2026-10-31 — UI targeting inventory: supply / formation / repair / expedition
+
+### Scope and evidence rules
+- Inventory covers only resupply (補給), formation (編成), repair/docking (入渠), and expedition (遠征). Classify DOM, coordinates, and template matching separately; a DOM node existing is not proof that a game control has a directly operable semantic target.
+- Evidence sources on this branch: `tools/one_expedition_ui_loop.py`, `src/kancollebot/adapters/poi/ui_state_gate.py`, `src/kancollebot/adapters/poi/visual_state_gate.py`, `tools/inspect_accessible_targets.py`, and `docs/research/KCAUTO_CUSTOM_VISUAL_RECOGNITION.md`.
+- This is a source/document inventory, not a new live runtime test. No game input was sent.
+
+### Current targeting inventory
+
+| Module | Direct DOM / accessibility action | Recorded coordinates | Template matching | Status |
+|---|---|---|---|---|
+| Resupply | No stable semantic control target evidenced | No reviewed reusable map evidenced | No labeled, validated resupply templates evidenced | NOT_ASSESSED |
+| Formation | No stable semantic control target evidenced | No reviewed reusable map evidenced | No labeled, validated formation templates evidenced | NOT_ASSESSED |
+| Repair / docking | No stable semantic control target evidenced | No reviewed reusable map evidenced | No labeled, validated repair templates evidenced | NOT_ASSESSED |
+| Expedition | The recorded accessibility scan returned `NO_MATCHING_ACCESSIBLE_TARGETS`; direct semantic operation is not established | Prototype records fixed points for home port, sortie, expedition mode, mission row/confirm, fleet 2 tab, start, and return confirm | `visual_state_gate.py` and the loop prototype can classify screenshots; offline probes are preliminary and labeled positive/negative sample coverage is insufficient for a production gate | PARTIAL / LIVE NOT_VERIFIED |
+
+### Key distinctions
+- The game is hosted in an accessible nested iframe and exposes a Canvas. This proves the document/frame can be inspected; it does not prove that individual game buttons exist as DOM elements.
+- `ui_state_gate.py` reads accessibility-tree labels and fails closed on missing/ambiguous evidence. The recorded expedition-related scan found no matching accessible labels.
+- `tools/one_expedition_ui_loop.py` contains fixed-coordinate mouse actions. Its own module docstring says the live-action prototype remains unverified; the full expedition loop is not accepted.
+- Template matching has reusable code and preliminary offline measurements, but no validated general scene classifier or click authorization based solely on scores. Persistent navigation regions can match across scenes, so future templates must be panel-specific and evaluated against correctly labeled positive and negative samples.
+- Poi/Redux structured snapshots are a separate read-only state-observation route, not DOM-based clicking. They can support preconditions and post-action verification once freshness and field semantics are sufficiently grounded.
+
+### Next sequence
+1. Investigate resupply, formation, and repair independently using read-only DOM/Accessibility structure and existing Poi state sources; record only actual semantic targets and their evidence.
+2. Where no semantic target exists, inventory the minimal coordinate fallback only if it can be calibrated and guarded; avoid assuming all controls require templates.
+3. Build small panel-specific visual templates only for controls/states that cannot be identified semantically or through reliable structured state. Keep screenshots in memory unless a separately authorized diagnostic requires a retained sample.
+4. Add offline tests for target ambiguity, state preconditions, and fail-closed behavior; then perform a bounded live read-only scan. Do not claim a module is operational until its actual controls and resulting state transitions are verified.
+5. Continue to treat dispatch, reward collection, supply, formation, and repair actions as separate live-action acceptance items. This inventory does not authorize or prove those actions.
+
+### Verification status
+- Inventory: source-reviewed against the listed branch files.
+- New runtime tests: NOT_RUN.
+- Live DOM target verification for the four modules: NOT_VERIFIED; expedition-related accessibility scan has the historical negative result stated above.
+- End-to-end expedition and other-module automation: NOT_VERIFIED.
