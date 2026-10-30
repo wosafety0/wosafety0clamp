@@ -2547,3 +2547,9 @@ The Hand plugin's read-only probe reported:
 - `poi_describe(info.fleets)` reported three fleet records and sample fields including `api_mission`. A read-only `poi_get(info.fleets)` returned three cached `api_mission` arrays, each `[0,0,0,0]` at observation time. This establishes the actual local bridge path and cached field shape, not current-server freshness or an expedition state transition.
 - No dispatch, reward collection, mouse input, page refresh, or direct game-server request occurred. No source-freshness witness accompanied this read, so do not treat the idle-looking cache as authoritative live-server state.
 - Next evidence prerequisite: one manually operated expedition must be passively observed before/after so the current server's mission transition can be established without this bot initiating a game action. MVP remains BLOCKED until this evidence and a separate low-risk authorized action mechanism exist.
+
+## 2026-10-30 - Natural port-response freshness witness captured
+
+- A fresh run of `tools/verify_poi_freshness_bridge.py --timeout-seconds 130 --max-age-seconds 120` completed successfully with exit code 0 and `status=FRESHNESS_WITNESS_MATCHED`; the observer captured a natural port response and matched it to the Poi Redux read source `info.fleets+info.ships`.
+- The accepted observation contained three fleet records. Fleet 1 and fleet 3 were assessed as idle/ready based on the observed normalized state; fleet 2 was blocked because its active mission had no trusted return time. All three still had `dispatch_eligible=false`, and `game_actions_enabled=false` remained unchanged.
+- This verifies one successful end-to-end freshness-witness capture through the existing passive observer and local Poi bridge. It does not verify a before/after expedition transition, action execution, or the single-expedition MVP. No game input, dispatch, reward collection, refresh, or observer-initiated game request was performed.
