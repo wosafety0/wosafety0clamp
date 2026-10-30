@@ -80,8 +80,8 @@ def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra:
     line = json.dumps(payload, ensure_ascii=False)
     print(line, flush=True)
     if LOG_PATH is not None:
-        with LOG_PATH.open("a", encoding="utf-8", newline="\\n") as stream:
-            stream.write(line + "\\n")
+        with LOG_PATH.open("a", encoding="utf-8", newline="\n") as stream:
+            stream.write(line + "\n")
 
 
 def _require_ui_state(game_transport, expected: UiState) -> None:
