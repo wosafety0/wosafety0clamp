@@ -226,7 +226,7 @@ test('analyzeSource reports complete extraction only when all required definitio
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kcb-complete-report-'));
   const fixture = [
     'function _0x3f23() { const _0x23d509 = ["alpha", "b,c", "gamma"]; return _0x23d509; }',
-    'function _0x3353(x) { return _0x3f23()[x]; }',
+    'function _0x3353(x) { x = x - 0x1; return _0x3f23()[x]; }',
     '(function(tableFactory, target) { while (true) { try { if (parseInt(tableFactory(0x11))/0x1 + parseInt(tableFactory(0x22))/0x2 === target) break; } catch (error) {} } }(_0x3f23, 0xd12ca));',
     'function _0x466acb() { return _0x460358(0x1); }',
     'const _0x460358 = _0x3353;'
@@ -258,6 +258,10 @@ test('analyzeSource reports complete extraction only when all required definitio
     assert.equal(report.definitions.factory_0x466acb.kind, 'function');
     assert.equal(report.definitions.localAlias_0x460358.kind, 'assignment');
     assert.equal(report.factoryDecoderCalls.length, 1);
+    assert.equal(report.factoryDecoderIndexSummary.decoderShift, '0x1');
+    assert.equal(report.factoryDecoderIndexSummary.tableEntryCount, 3);
+    assert.equal(report.factoryDecoderIndexSummary.inBoundsCount, 1);
+    assert.equal(report.factoryDecoderCalls[0].indexInfo.tableIndex, 0);
     assert.ok(report.factoryDecoderAliases.includes('_0x460358'));
     assert.equal(
       report.factoryDecoderCalls[0].sourceOffset,

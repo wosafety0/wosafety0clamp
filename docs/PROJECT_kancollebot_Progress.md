@@ -2344,3 +2344,11 @@ The Hand plugin's read-only probe reported:
 - The full-snapshot cross-check still reports 4 factory decoder aliases and 33 calls, with all recorded relative/absolute offsets matching source slices. The rotation target is only reported as a literal from source; the table rotation algorithm was **not run**, and decoded string values were not generated.
 - Validation on isolated worktree at the prior verified branch head `3f43380a9c67438985aad68434448e3d502e8fa6`: JavaScript syntax check passed and `node --test tests\static_decoder_extract.test.cjs tests\verify_cdp_snapshot.test.cjs` passed **17/17 tests**, exit code 0.
 - **Limitations:** this extracts a syntactic bootstrap candidate and constant, not proof that the loop would terminate or that decoded strings are semantically correct. Full source freshness, live runtime behavior, and any gameplay automation remain unverified; real dispatch remains disabled.
+
+## 2026-10-30 - Factory decoder index bounds cross-check
+
+- Added static extraction of the decoder's literal index adjustment and annotated each factory decoder call with its raw argument, adjusted table index, and bounds result. The report includes aggregate counts in both the full extraction artifact and the bounded console output.
+- Cross-checked the full snapshot using the same production helpers: decoder adjustment is `0x150`; the table contains 14,271 entries; all **33/33** factory calls have literal first arguments and adjusted indices within the array bounds. There are **0 out-of-bounds** and **0 unresolved** calls.
+- The adjusted table indices range from **981** to **14,226**. Alias counts remain 15 calls through `_0x1298ca`, 10 through `_0x520871`, and 8 through `_0x399f9e`; every call expression still maps to its exact factory-relative source slice.
+- Offline syntax check passed and `node --test tests\static_decoder_extract.test.cjs tests\verify_cdp_snapshot.test.cjs` passed **17/17 tests**, exit code 0.
+- **Verification boundary:** the bounds check is literal parsing plus integer arithmetic only. It does not invoke `_0x3353`, calculate the rotation checksum, rotate the table, decode strings, execute page source, or establish live freshness. Real dispatch remains disabled.

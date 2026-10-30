@@ -386,6 +386,47 @@ module.exports = function() {
     };
   }
 
+  function extractDecoderIndexShift(decoderDefinition) {
+    if (!decoderDefinition || typeof decoderDefinition.text !== 'string') return null;
+    const maskedText = maskNonCode(decoderDefinition.text);
+    const pattern = /\b([A-Za-z_$][\w$]*)\s*=\s*\1\s*-\s*(0x[0-9a-f]+|[0-9]+)/i;
+    const match = pattern.exec(maskedText);
+    if (!match) return null;
+    return {
+      parameter: match[1],
+      literal: match[2],
+      value: parseInt(match[2], /^0x/i.test(match[2]) ? 16 : 10)
+    };
+  }
+
+  function extractFactoryCallIndex(call, decoderIndexShift, tableItemCount) {
+    const maskedExpression = maskNonCode(call.expression);
+    const pattern = /^\s*([A-Za-z_$][\w$]*)\s*\(\s*(0x[0-9a-f]+|[0-9]+)/i;
+    const match = pattern.exec(maskedExpression);
+    if (!match) {
+      return {
+        staticIndex: false,
+        decoderAlias: call.alias,
+        rawArgument: null,
+        tableIndex: null,
+        inBounds: null
+      };
+    }
+
+    const rawIndex = parseInt(match[2], /^0x/i.test(match[2]) ? 16 : 10);
+    const tableIndex = decoderIndexShift ? rawIndex - decoderIndexShift.value : null;
+    return {
+      staticIndex: true,
+      decoderAlias: match[1],
+      rawArgument: match[2],
+      decoderShift: decoderIndexShift ? decoderIndexShift.literal : null,
+      tableIndex,
+      inBounds: tableIndex !== null && Number.isInteger(tableItemCount)
+        ? tableIndex >= 0 && tableIndex < tableItemCount
+        : null
+    };
+  }
+
   function extractRotationTerms(text) {
     const maskedText = maskNonCode(text);
     const terms = [];
@@ -494,9 +535,27 @@ module.exports = function() {
     const factoryAliasAnalysis = appFactory
       ? extractAliasCalls(appFactory.text, '_0x460358')
       : { aliases: [], calls: [] };
+    const decoderIndexShift = decoder ? extractDecoderIndexShift(decoder) : null;
     const factoryCalls = factoryAliasAnalysis.calls.map(function(call) {
-      return Object.assign({}, call, { sourceOffset: appFactory.start + call.offset });
+      const indexInfo = extractFactoryCallIndex(
+        call,
+        decoderIndexShift,
+        stringTableArray ? stringTableArray.itemCount : null
+      );
+      return Object.assign({}, call, {
+        sourceOffset: appFactory.start + call.offset,
+        indexInfo
+      });
     });
+    const factoryDecoderIndexSummary = {
+      decoderShift: decoderIndexShift ? decoderIndexShift.literal : null,
+      tableEntryCount: stringTableArray ? stringTableArray.itemCount : null,
+      callCount: factoryCalls.length,
+      staticIndexCount: factoryCalls.filter(function(call) { return call.indexInfo.staticIndex; }).length,
+      inBoundsCount: factoryCalls.filter(function(call) { return call.indexInfo.inBounds === true; }).length,
+      outOfBoundsCount: factoryCalls.filter(function(call) { return call.indexInfo.inBounds === false; }).length,
+      unresolvedCount: factoryCalls.filter(function(call) { return call.indexInfo.inBounds === null; }).length
+    };
     const missing = [];
     if (!decoder) missing.push('_0x3353');
     if (!table) missing.push('_0x3f23');
@@ -538,12 +597,14 @@ module.exports = function() {
       stringTableReferencesOutsideDefinition: rotationContexts,
       stringTableRotationBootstrap: tableRotationBootstrap,
       factoryDecoderAliases: factoryAliasAnalysis.aliases,
+      factoryDecoderIndexSummary,
       factoryDecoderCalls: factoryCalls,
       notes: [
         'This file extracts source text only; it does not run the decoder.',
         'Use the saved decoder/table/rotation text for offline analysis outside the game page.',
         'If a definition is null, inspect the reported contexts and update the lexical matcher rather than evaluating page code.',
-        'The table rotation bootstrap is extracted as source text only; its loop is never executed.'
+        'The table rotation bootstrap is extracted as source text only; its loop is never executed.',
+        'Factory decoder argument bounds are checked with static integer arithmetic only; the decoder is never called.'
       ]
     };
 
