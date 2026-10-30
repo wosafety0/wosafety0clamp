@@ -27,7 +27,11 @@ module.exports = function() {
   let finished = false;
   let nextId = 1;
   let networkEnabled = false;
+  let cdpEventMessages = 0;
+  let networkRequestWillBeSentEvents = 0;
   let networkResponseEvents = 0;
+  let networkLoadingFinishedEvents = 0;
+  let networkLoadingFailedEvents = 0;
   let kancolleHostResponseEvents = 0;
   let portPathResponseEvents = 0;
   let portHttp200ResponseEvents = 0;
@@ -229,7 +233,11 @@ module.exports = function() {
     cleanup('TIMEOUT', JSON.stringify({
       reason: 'No qualifying natural port response was captured within 120 seconds.',
       networkEnabled,
+      cdpEventMessages,
+      networkRequestWillBeSentEvents,
       networkResponseEvents,
+      networkLoadingFinishedEvents,
+      networkLoadingFailedEvents,
       kancolleHostResponseEvents,
       portPathResponseEvents,
       portHttp200ResponseEvents,
@@ -296,8 +304,11 @@ module.exports = function() {
         }
 
         if (!networkEnabled || !message.method || !message.params) return;
+        cdpEventMessages++;
         const p = message.params;
-        if (message.method === 'Network.responseReceived') {
+        if (message.method === 'Network.requestWillBeSent') {
+          networkRequestWillBeSentEvents++;
+        } else if (message.method === 'Network.responseReceived') {
           networkResponseEvents++;
           const response = p.response || {};
           const url = typeof response.url === 'string' ? response.url : '';
@@ -329,8 +340,10 @@ module.exports = function() {
             fromPrefetchCache
           });
         } else if (message.method === 'Network.loadingFailed') {
+          networkLoadingFailedEvents++;
           responses.delete(p.requestId);
         } else if (message.method === 'Network.loadingFinished') {
+          networkLoadingFinishedEvents++;
           const meta = responses.get(p.requestId);
           if (!meta) return;
           responses.delete(p.requestId);

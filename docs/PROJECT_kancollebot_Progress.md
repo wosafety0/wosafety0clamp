@@ -2408,3 +2408,10 @@ The Hand plugin's read-only probe reported:
 - Added regression coverage for timeout counter propagation and rejection of unexpected detail fields.
 - **Validation:** full Python suite **160/160 passed**; observer wrapper tests **9/9 passed**; Node regression suite **17/17 passed**; `compileall`, observer JS syntax check, and `git diff --check` passed.
 - **Verification boundary:** counter propagation is unit-tested, but a live diagnostic using this corrected reporting path remains pending. The preceding 130-second observation ended with `natural_response_timeout`; no qualifying witness was captured, all fleet assessments remained suppressed, and game actions remained disabled. No game input, refresh, initiated API request, dispatch, or reward action was performed.
+
+
+## 2026-10-30 - Distinguish silent CDP event stream from response filtering
+
+- After the corrected diagnostic surfaced networkEnabled=true but networkResponseEvents=0 throughout a 120-second window, extended timeout-only counters to include total CDP event messages and Network request/finished/failed event counts. These counts can distinguish a wholly silent event stream from request activity without response events; no URLs, request bodies, or page contents are logged.
+- The latest live observation still does not establish whether the game was idle or whether this WebView's CDP event stream omits relevant traffic. The extra counters are diagnostic-only and do not relax freshness or action gates.
+- Implementation status: added to the passive observer, allowlisted Python bridge parser, and wrapper regression fixture. Pending offline test run and a subsequent natural-response observation. No game input, refresh, initiated game API request, dispatch, or reward action was performed.

@@ -108,7 +108,9 @@ class PassivePortResponseObserver:
                     detail = None
                 if isinstance(detail, dict):
                     allowed_keys = {
-                        "reason", "networkEnabled", "networkResponseEvents",
+                        "reason", "networkEnabled", "cdpEventMessages",
+                        "networkRequestWillBeSentEvents", "networkResponseEvents",
+                        "networkLoadingFinishedEvents", "networkLoadingFailedEvents",
                         "kancolleHostResponseEvents", "portPathResponseEvents",
                         "portHttp200ResponseEvents", "cachedResponsesSkipped",
                     }

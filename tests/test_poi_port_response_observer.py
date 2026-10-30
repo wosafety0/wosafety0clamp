@@ -55,7 +55,11 @@ class PassivePortResponseObserverTests(unittest.TestCase):
             detail = {
                 "reason": "timeout",
                 "networkEnabled": True,
+                "cdpEventMessages": 40,
+                "networkRequestWillBeSentEvents": 14,
                 "networkResponseEvents": 12,
+                "networkLoadingFinishedEvents": 11,
+                "networkLoadingFailedEvents": 1,
                 "kancolleHostResponseEvents": 3,
                 "portPathResponseEvents": 1,
                 "portHttp200ResponseEvents": 1,
