@@ -2480,5 +2480,6 @@ The Hand plugin's read-only probe reported:
 - 在本机权威快照目录 `D:\\AI_Project\\Project_KancolleBot\\KancolleBot-CDP-Snapshots` 找回两份由 CDP `Debugger.getScriptSource` 保存的 `main.js` 与对应 metadata；两份快照均为 8,496,723 bytes、8,495,851 characters，SHA-256 均为 `073df7c8e4d4680208070b22806273b332e2f5ba7ae8b80005ad5914f336561e`。
 - 对两份 metadata 分别运行仓库内离线校验器 `tools/hand_sandbox/verify_cdp_snapshot.cjs`，均返回 `verified: true`，文件哈希、字节数、字符数和 UTF-8 往返校验全部匹配。快照源码与 sidecar 仅保留在本机，不上传 GitHub。
 - 在 worktree `D:\\AI_Project\\KancolleBot-Worktrees\\poi-safety-consolidation-20261029` 实际运行 `node --test tests/static_decoder_extract.test.cjs tests/verify_cdp_snapshot.test.cjs`，结果 **14/14 PASS，0 FAIL**；覆盖词法边界、逗号分隔箭头函数声明、快照保存与元数据、输出脱敏、缺失定义的部分提取、快照篡改检测、Unicode 长度及非法 UTF-8/metadata 拒绝。
+- 使用当前生产提取器的词法函数对已核验的真实 `main.js` 快照进行只读离线复核：`_0x466acb` 工厂定义成功提取为 1,292 字符，范围 `[8,464,467, 8,465,759)`；后续声明逗号未包含在片段内。此操作只读取磁盘快照并计算边界，没有连接 CDP、执行页面代码或修改快照。
 - **验证边界：** 本轮验证的是历史静态源码快照完整性与离线提取器/校验器回归，不是重新捕获当前游戏源码，不是运行时语义验证，也不证明 Poi freshness witness 端到端门禁。没有执行页面源码、游戏函数/getter 或游戏输入；没有刷新、主动请求游戏 API、安装或切换插件。真实派遣继续关闭。
 - 快照与 sidecar 含游戏源码，不应上传公开仓库；本条只归档可复用的验证结论和本地定位路径。
