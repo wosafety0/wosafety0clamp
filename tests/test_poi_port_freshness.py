@@ -145,6 +145,29 @@ class PortFreshnessTests(unittest.TestCase):
         self.assertFalse(self.validate(snapshot, duplicate, ships))
         self.assertFalse(self.validate(snapshot, fleets, {}))
 
+    def test_rejects_boolean_current_ship_values_even_if_equal_to_one(self):
+        for field in ("api_fuel", "api_cond"):
+            with self.subTest(field=field):
+                snapshot, fleets, ships = sample_state()
+                snapshot["data"]["api_ship"]["101"][field] = 1
+                ships["101"][field] = True
+                # True == 1 in Python, but a JSON boolean is not a numeric
+                # ship value and cannot establish a matching freshness witness.
+                self.assertFalse(self.validate(snapshot, fleets, ships))
+
+    def test_rejects_float_current_ship_id_even_if_numerically_equal(self):
+        snapshot, fleets, ships = sample_state()
+        ships["101"]["api_id"] = 101.0
+        self.assertFalse(self.validate(snapshot, fleets, ships))
+
+    def test_rejects_boolean_mission_and_float_fleet_ship_slots(self):
+        snapshot, fleets, ships = sample_state()
+        fleets[0]["api_mission"][0] = False
+        self.assertFalse(self.validate(snapshot, fleets, ships))
+        snapshot, fleets, ships = sample_state()
+        fleets[0]["api_ship"][0] = 101.0
+        self.assertFalse(self.validate(snapshot, fleets, ships))
+
     def test_rejects_naive_clock_and_negative_age_limit(self):
         snapshot, fleets, ships = sample_state()
         with self.assertRaisesRegex(ValueError, "timezone-aware"):
