@@ -93,7 +93,7 @@ class SemanticTargetTests(unittest.TestCase):
     def test_refuses_runtime_evaluate_transport_command(self):
         transport = CdpWebSocketTransport.__new__(CdpWebSocketTransport)
         transport._closed = False
-        with self.assertRaisesRegex(CdpInputError, "not allowlisted"):
+        with self.assertRaisesRegex(CdpInputError, "fixed read-only fleet snapshot"):
             transport.send("Runtime.evaluate", {"expression": "document.body.click()"})
 
 

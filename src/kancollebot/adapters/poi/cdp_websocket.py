@@ -1,7 +1,8 @@
 """Loopback-only, allowlisted WebSocket transport for CDP mouse input.
 
-Only viewport inspection, mouse input, and screenshot capture commands are
-allowed. Runtime.evaluate and all other CDP methods are rejected.
+Only viewport inspection, one fixed read-only fleet snapshot expression, mouse
+input, and screenshot capture are allowed. Arbitrary Runtime.evaluate expressions
+and all other CDP methods are rejected.
 """
 from __future__ import annotations
 
@@ -26,8 +27,12 @@ _ALLOWED_METHODS = {
     "Page.captureScreenshot",
     # Mouse input remains the only enabled input method.
     "Input.dispatchMouseEvent",
+    # A single exact read-only Redux snapshot expression; arbitrary evaluation remains blocked.
+    "Runtime.evaluate",
 }
 _MAX_FRAME_BYTES = 8 * 1024 * 1024
+
+READ_ONLY_FLEET_SNAPSHOT_EXPRESSION = "JSON.stringify((window.getStore?window.getStore('info.fleets'):[]).map(f=>({id:f.api_id,name:f.api_name,mission:f.api_mission,ships:f.api_ship})))"
 
 
 class CdpWebSocketTransport:
@@ -157,6 +162,16 @@ class CdpWebSocketTransport:
             raise CdpInputError("CDP transport is closed")
         if method not in _ALLOWED_METHODS:
             raise CdpInputError(f"CDP method is not allowlisted: {method}")
+        if method == "Runtime.evaluate":
+            if (
+                not isinstance(params, dict)
+                or set(params) != {"expression", "returnByValue"}
+                or params.get("expression") != READ_ONLY_FLEET_SNAPSHOT_EXPRESSION
+                or params.get("returnByValue") is not True
+            ):
+                raise CdpInputError(
+                    "Runtime.evaluate is restricted to the fixed read-only fleet snapshot"
+                )
         request_id = self._next_id
         self._next_id += 1
         try:

@@ -102,3 +102,10 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - **Before/after evidence:** fleet 2 changed from `api_mission=[0,0,0,0]` to `[1,3,1793354078676,0]`; fleets 1 and 3 remained idle. The game displayed `遠征に向かいました`. The observed third slot is `2026-10-30T09:54:38.676Z` in Unix milliseconds.
 - **Gate decision:** the action interface is now verified for this specific visible UI click path, but it is not yet integrated into the project Bot and viewport/target guards are not yet implemented. The new mission has not returned; the full same-mission loop and automatic re-dispatch remain pending. Do not mark the MVP complete.
 - **Next acceptance:** observe fleet 2 mission 3 return, collect its reward via the normal UI, read back `api_mission=[0,0,0,0]`, then trigger a new UI-mediated dispatch from Bot-owned guarded automation and verify the new active state. No direct game-server packet/API route is permitted.
+
+
+## 2026-10-30 - Fixed-fleet controller implementation checkpoint
+
+- Added a fixed-expression read-only Poi fleet-state reader and a bounded controller for fleet 2 / mission 3. The controller is guarded by an explicit `--authorize-ui-actions` flag and exact starting mission timestamp; it uses single-click UI input and verifies each state transition before proceeding.
+- Offline verification: **175/175 Python unit tests passed**, plus `compileall` and `git diff --check`. The read-only fleet reader also passed a live Poi runtime check against the active mission tuple.
+- **Live loop status remains IN_PROGRESS.** The same mission's return, reward collection, and re-dispatch have not yet been verified by this controller. Its return-confirmation point remains provisional until observed on the actual return screen.

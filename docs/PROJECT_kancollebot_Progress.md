@@ -389,7 +389,7 @@
 ### 2026-10-24 Shallow inventory identifies Cloud-only directory
 
 - User-provided read-only inventory at 2026-10-24 15:13:33 +08:00 confirms `D:\Project_KancolleBot` exists but contains exactly one immediate child: directory `Cloud`.
-- The path has no `.git`, `05_Docs\PROJECT_RULES.md`, `src`, `tests`, or `.github\workflows\ci.yml`. The inventory also listed immediate children of `D:\`; it did not perform recursive search.
+- The path has no `.git`, `05_Docs\PROJECT_RULES.md`, `src`, `tests`, or `.github\workflows\ci.yml`. The inventory also listed immediate children of `D:`; it did not perform recursive search.
 - No file changes, network requests, game actions, or access to `D:\KancolleBot\Source` occurred.
 - Interpretation: the configured project path is not currently a recognizable checkout. This does **not** prove that source files were deleted; the `Cloud` child may be a sync/workspace entry or unrelated directory.
 - Next step: inspect only the `Cloud` directory's attributes/reparse-point metadata and its immediate children. Do not recurse across the drive, clone into this path, or run tests until the authoritative checkout and local `05_Docs\PROJECT_RULES.md` are located.
@@ -2588,3 +2588,12 @@ The Hand plugin's read-only probe reported:
 - **Before/after evidence:** before the new dispatch, fleet 2 `api_mission=[0,0,0,0]`; fleets 1 and 3 were also idle. After the UI action, the game displayed `遠征に向かいました` (“departed on expedition”), and a read-only Poi Redux read returned fleet 2 `api_mission=[1,3,1793354078676,0]`; fleets 1 and 3 remained `[0,0,0,0]`. The third slot corresponds to `2026-10-30T09:54:38.676Z` as a millisecond Unix timestamp.
 - **What this proves:** a real, user-authorized, client-mediated single-click dispatch can be performed and verified by a before/after state read. The previous returned mission's reward collection was also completed via the visible UI, followed by an idle-state read.
 - **What remains pending:** the newly dispatched mission 3 has not yet returned. Therefore this is **not** full closed-loop acceptance for the same mission, and it does not yet prove automatic scheduling/re-dispatch by the project Bot. The next acceptance step is to observe this same fleet's mission-3 completion, collect its reward through the UI, verify idle state, then dispatch again and verify the new state transition. No tests or project source changes were made in this action round.
+
+
+## 2026-10-30 - Fixed-fleet UI loop controller implemented (runtime pending)
+
+- **Implementation status: IMPLEMENTED; offline tests PASS; live loop NOT_YET_VERIFIED.** Added a read-only Poi Redux fleet reader whose CDP transport accepts only one exact literal `Runtime.evaluate` expression returning fleet IDs, names, mission tuples, and ship membership. Arbitrary expressions, extra parameters, and other unallowlisted CDP methods remain rejected.
+- Added `tools/one_expedition_ui_loop.py`, a bounded controller pinned to fleet 2 / mission 3. It requires `--authorize-ui-actions` and the exact expected active-mission timestamp; it waits for that same mission to return, attempts one UI reward-collection click, verifies the fleet becomes idle, then navigates the normal UI to re-dispatch and verifies a new active mission timestamp. It never constructs or sends a game-server request and never retries an ambiguous click.
+- **Verification:** the live read-only fleet reader successfully returned fleet 2 `[1,3,1793354078676,0]` while fleets 1 and 3 remained idle. The full Python unit suite passed **175/175**; `compileall` and `git diff --check` passed.
+- **Runtime limitations:** the controller has not yet been run through the same mission's return/collection/re-dispatch. The return-result confirmation coordinate is provisional and must be verified against the actual result screen; if post-click state does not confirm collection, the controller stops without retry. Do not describe the full loop as complete until live evidence is recorded.
+- **Next step:** run the bounded controller against the already active fleet-2 mission 3 using its exact start timestamp, observe the return, verify collection and re-dispatch, and archive only the successful live outcome.

@@ -10,6 +10,7 @@ from kancollebot.adapters.poi.cdp_websocket import (
     CdpWebSocketTransport,
     connect_game_webview,
     connect_poi_session,
+    READ_ONLY_FLEET_SNAPSHOT_EXPRESSION,
 )
 
 
@@ -20,11 +21,21 @@ class CdpWebSocketTransportTests(unittest.TestCase):
                 CdpWebSocketTransport("ws://192.0.2.1:9222/devtools/page/1")
             connect.assert_not_called()
 
-    def test_rejects_runtime_evaluate_without_socket_activity(self):
+    def test_rejects_arbitrary_runtime_evaluate_without_socket_activity(self):
         transport = CdpWebSocketTransport.__new__(CdpWebSocketTransport)
         transport._closed = False
-        with self.assertRaisesRegex(CdpInputError, "not allowlisted"):
-            transport.send("Runtime.evaluate", {"expression": "1+1"})
+        with self.assertRaisesRegex(CdpInputError, "fixed read-only fleet snapshot"):
+            transport.send("Runtime.evaluate", {"expression": "1+1", "returnByValue": True})
+
+    def test_rejects_extra_runtime_evaluate_parameters_without_socket_activity(self):
+        transport = CdpWebSocketTransport.__new__(CdpWebSocketTransport)
+        transport._closed = False
+        with self.assertRaisesRegex(CdpInputError, "fixed read-only fleet snapshot"):
+            transport.send("Runtime.evaluate", {
+                "expression": READ_ONLY_FLEET_SNAPSHOT_EXPRESSION,
+                "returnByValue": True,
+                "userGesture": True,
+            })
 
     def test_rejects_non_positive_timeout(self):
         with self.assertRaisesRegex(ValueError, "timeout"):
