@@ -83,7 +83,7 @@ test('follows chained local decoder aliases and preserves exact factory call off
   const result = lexer.extractAliasCalls(factory.text, '_0x460358');
   assert.deepEqual(Array.from(result.aliases).sort(), ['_0x1298ca', '_0x460358', '_0x55fc9b'].sort());
   assert.equal(result.calls.length, 3);
-  assert.deepEqual(result.calls.map(call => call.alias), ['_0x55fc9b', '_0x1298ca', '_0x460358']);
+  assert.deepEqual(Array.from(result.calls, call => call.alias), ['_0x55fc9b', '_0x1298ca', '_0x460358']);
   for (const call of result.calls) {
     assert.equal(factory.text.slice(call.offset, call.offset + call.expression.length), call.expression);
     assert.ok(call.offset >= 0 && call.offset + call.expression.length <= factory.text.length);
