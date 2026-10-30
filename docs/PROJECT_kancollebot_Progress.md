@@ -168,7 +168,7 @@ No plugin execution, MCP request, network/WebSocket dispatch, game action, local
 - Static review found Python's numeric coercion could admit booleans and non-integer values through fields annotated as integers: for example, `True` can pass range checks, and `max_sorties_per_ship=1.5` could leak a fractional batch limit into a plan.
 - Added exact integer checks (excluding booleans) for ship IDs, morale values, target morale, estimated gain, and sortie batch limits; the eligibility flag now requires an actual boolean. Invalid values fail closed with parameter-specific errors.
 - Added offline regressions for boolean, float, and string inputs. The change is isolated to the side-effect-free sparkle planner and its tests; it does not connect to Poi or enable gameplay actions.
-- Branch: `fix/sparkling-planner-strict-integers-20261031`, based on `fc09d9d83afe7c5730cb4a96ee5b90c4ddfe49b8`. Implementation and tests are committed together with this status note; automated verification is pending and must be recorded only after an exact-head CI result is read back.
+- Branch: `dev/sparkling-planner-strict-integers-20261031`, based on `fc09d9d83afe7c5730cb4a96ee5b90c4ddfe49b8`. Implementation/test commit `5718dfa41d9eb04c1239d0c178133586011516cb` passed exact-head Push CI [41110362716](https://github.com/wosafety0/wosafety0clamp/actions/runs/41110362716); the hosted suite ran **77/77 unit tests** and passed `compileall`. No local test execution is claimed.
 - No local test execution, game input, Poi/MCP request, or system setting change was performed in this connector-only run.
 
 
@@ -176,4 +176,4 @@ No plugin execution, MCP request, network/WebSocket dispatch, game action, local
 
 - Read `.github/workflows/ci.yml`: push CI is configured for `main` and `dev/**`, while pull-request CI only targets `main`. The initial `fix/**` candidate did not produce a workflow run, so its validation status remains pending.
 - Created `dev/sparkling-planner-strict-integers-20261031` at the same implementation/test commit and added this evidence note on the eligible `dev/**` branch. No workflow configuration was changed; exact-head CI for the resulting commit is now the required verification.
-- This is a branch-trigger correction only. No local test execution, Poi/MCP request, game input, or system setting change was performed.
+- Archive head `a2590170f1dd861b0916467b1d373847e1973aae` passed exact-head Push CI [41110387892](https://github.com/wosafety0/wosafety0clamp/actions/runs/41110387892); job logs confirm Python compilation and **77/77 unit tests PASS**. This verifies the code/test plus archive tree at that SHA. No workflow configuration changed, and no local test execution, Poi/MCP request, game input, or system setting change was performed.
