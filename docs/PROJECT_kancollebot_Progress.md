@@ -2333,9 +2333,10 @@ The Hand plugin's read-only probe reported:
 ## 2026-10-30 - Static string-table rotation bootstrap extraction
 
 - Extended the static extractor with `extractTableRotationBootstrap()`, which locates the function expression invoked with the string-table factory and captures its exact source range and numeric rotation target without executing the rotation loop.
-- Integrated the structured result into the extraction artifact and bounded console report. Added a synthetic integration fixture verifying the target constant, source boundaries, and absence of execution.
+- Integrated the rotation metadata and a non-duplicating string-table array summary (identifier, exact range, character count, and top-level entry count) into the extraction artifact and bounded console report. The synthetic integration fixture verifies array counting when a string contains a comma, rotation terms/target, exact source bounds, and absence of execution.
 - On the full saved snapshot `main-20261030T021952.142Z.js`, the extractor identifies:
   - String-table function `_0x3f23`: source range `[0, 317022)`, 317,022 characters.
+  - Its array `_0x23d509`: source range `[35, 316965)`, 316,930 characters and **14,271 top-level entries**. The extracted array exactly matches the source slice; commas inside string values do not inflate the count.
   - Decoder `_0x3353`: source range `[317022, 318153)`, 1,131 characters.
   - Rotation bootstrap: source range `[318153, 318814)`, 661 characters; invocation target `0xd12ca`. The extracted block matches the exact source slice.
   - Application factory `_0x466acb`: source range `[8464467, 8465759)`, 1,292 characters.

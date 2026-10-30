@@ -347,6 +347,45 @@ module.exports = function() {
     return { ok: true, sourcePath, metadataPath, sha256, sourceBytes, sourceCharacters: source.length };
   }
 
+  function extractStringTableArray(tableDefinition) {
+    if (!tableDefinition || typeof tableDefinition.text !== 'string') return null;
+    const maskedDefinition = maskNonCode(tableDefinition.text);
+    const declarationPattern = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\[/g;
+    const declaration = declarationPattern.exec(maskedDefinition);
+    if (!declaration) return null;
+
+    const open = maskedDefinition.indexOf('[', declaration.index);
+    const end = findBalancedEnd(tableDefinition.text, open, '[', ']');
+    if (end < 0) return null;
+
+    const arrayText = tableDefinition.text.slice(open, end);
+    const maskedArray = maskNonCode(arrayText);
+    let squareDepth = 0;
+    let braceDepth = 0;
+    let parenDepth = 0;
+    let commas = 0;
+    for (let i = 1; i < maskedArray.length - 1; i++) {
+      const c = maskedArray[i];
+      if (c === '[') squareDepth++;
+      else if (c === ']') squareDepth--;
+      else if (c === '{') braceDepth++;
+      else if (c === '}') braceDepth--;
+      else if (c === '(') parenDepth++;
+      else if (c === ')') parenDepth--;
+      else if (c === ',' && squareDepth === 0 && braceDepth === 0 && parenDepth === 0) commas++;
+    }
+
+    const hasItems = tableDefinition.text.slice(open + 1, end - 1).trim().length > 0;
+    return {
+      name: declaration[1],
+      start: tableDefinition.start + open,
+      end: tableDefinition.start + end,
+      characters: end - open,
+      itemCount: hasItems ? commas + 1 : 0,
+      text: arrayText
+    };
+  }
+
   function extractRotationTerms(text) {
     const maskedText = maskNonCode(text);
     const terms = [];
@@ -438,6 +477,7 @@ module.exports = function() {
     const snapshot = saveSnapshot(source, scriptUrl, scriptId, outputDirOverride);
     const decoder = extractDefinition(source, '_0x3353');
     const table = extractDefinition(source, '_0x3f23');
+    const stringTableArray = table ? extractStringTableArray(table) : null;
     const appFactory = extractDefinition(source, '_0x466acb');
     const aliasDecoder = extractDefinition(source, '_0x460358');
     const tableRotationBootstrap = decoder && table
@@ -488,6 +528,13 @@ module.exports = function() {
         factory_0x466acb: appFactory,
         localAlias_0x460358: aliasDecoder
       },
+      stringTableArray: stringTableArray ? {
+        name: stringTableArray.name,
+        start: stringTableArray.start,
+        end: stringTableArray.end,
+        characters: stringTableArray.characters,
+        itemCount: stringTableArray.itemCount
+      } : null,
       stringTableReferencesOutsideDefinition: rotationContexts,
       stringTableRotationBootstrap: tableRotationBootstrap,
       factoryDecoderAliases: factoryAliasAnalysis.aliases,
@@ -537,6 +584,13 @@ module.exports = function() {
           characters: definition.text.length
         } : null];
       })),
+      stringTableArray: stringTableArray ? {
+        name: stringTableArray.name,
+        start: stringTableArray.start,
+        end: stringTableArray.end,
+        characters: stringTableArray.characters,
+        itemCount: stringTableArray.itemCount
+      } : null,
       stringTableRotationBootstrap: tableRotationBootstrap ? {
         name: tableRotationBootstrap.name,
         tableName: tableRotationBootstrap.tableName,

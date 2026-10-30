@@ -12,7 +12,7 @@ const sourcePath = path.resolve(__dirname, '../tools/hand_sandbox/static_decoder
 const source = fs.readFileSync(sourcePath, 'utf8');
 const anchor = '  timeout = setTimeout(function() {';
 assert.equal(source.split(anchor).length, 2, 'production extraction hook changed');
-const instrumented = source.replace(anchor, '  return { extractDefinition, findBalancedEnd, scanExpressionEnd, extractAliasCalls, extractTableRotationBootstrap, saveSnapshot, sanitizeScriptUrl, analyzeSource };\n' + anchor);
+const instrumented = source.replace(anchor, '  return { extractDefinition, findBalancedEnd, scanExpressionEnd, extractAliasCalls, extractTableRotationBootstrap, extractStringTableArray, saveSnapshot, sanitizeScriptUrl, analyzeSource };\n' + anchor);
 const logMessages = [];
 const sandbox = { module: { exports: {} }, console: { log(...parts) { logMessages.push(parts.map(String).join(' ')); } }, require, Buffer, URL: require('node:url').URL };
 vm.runInNewContext(instrumented, sandbox, { filename: sourcePath, timeout: 1000 });
@@ -225,7 +225,7 @@ test('analyzeSource reports partial extraction when a required definition is mis
 test('analyzeSource reports complete extraction only when all required definitions exist', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kcb-complete-report-'));
   const fixture = [
-    'function _0x3f23() { return []; }',
+    'function _0x3f23() { const _0x23d509 = ["alpha", "b,c", "gamma"]; return _0x23d509; }',
     'function _0x3353(x) { return _0x3f23()[x]; }',
     '(function(tableFactory, target) { while (true) { try { if (parseInt(tableFactory(0x11))/0x1 + parseInt(tableFactory(0x22))/0x2 === target) break; } catch (error) {} } }(_0x3f23, 0xd12ca));',
     'function _0x466acb() { return _0x460358(0x1); }',
@@ -242,6 +242,9 @@ test('analyzeSource reports complete extraction only when all required definitio
     const reportEnd = output.indexOf('\n[Sandbox] STATIC_SOURCE_REPORT_END', jsonStart);
     const report = JSON.parse(output.slice(jsonStart, reportEnd));
     assert.equal(report.status, 'STATIC_EXTRACTION_COMPLETE');
+    assert.equal(report.stringTableArray.name, '_0x23d509');
+    assert.equal(report.stringTableArray.itemCount, 3);
+    assert.equal(report.stringTableArray.characters, fixture.slice(report.stringTableArray.start, report.stringTableArray.end).length);
     assert.equal(report.stringTableRotationBootstrap.tableName, '_0x3f23');
     assert.equal(report.stringTableRotationBootstrap.invocationTarget, '0xd12ca');
     assert.equal(report.stringTableRotationBootstrap.decoderTermCount, 2);
