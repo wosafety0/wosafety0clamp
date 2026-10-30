@@ -115,3 +115,12 @@ This section defines the minimum evidence needed to unblock implementation; it i
 
 - The previous live run remained at mission status 1 after the recorded return timestamp passed. The controller was changed to trigger a visible UI refresh after the scheduled return time and then require the same mission tuple in returned status before one reward-confirmation click.
 - Verification so far: controller syntax check passed; fixed-expression fleet-reader tests passed 6/6. The changed live sequence, reward coordinate, idle transition, and re-dispatch remain NOT_VERIFIED. MVP remains IN_PROGRESS.
+
+
+## 2026-10-30 - Passive Poi freshness observer runtime check
+
+- Ran the existing read-only `tools/verify_poi_freshness_bridge.py` against the local Poi runtime from worktree HEAD `ee13c36475e415912427adbe32a471d27f36b899` (`dev/cdp-screenshot-transport-20261030`; this worktree is 16 commits behind the target branch's configured upstream).
+- Result: exit code 0; `FRESHNESS_WITNESS_MATCHED`; `source_freshness_verified=true`; observer status `captured`; three fleets observed; no game actions enabled. The sanitized planning summary contained one `completed_awaiting_reward` assessment and two `ready_to_dispatch` assessments; all had `dispatch_eligible=false`.
+- This confirms the passive freshness-witness path worked in this runtime check. Because the run used a different local worktree revision and the report intentionally omitted fleet identifiers and mission tuples, it does **not** prove that fleet 2 / mission 3 is the returned fleet, and it does not authorize reward collection or re-dispatch.
+- No game input, refresh, game API call, source edit, or local commit was performed. Clipboard copy was unavailable in the DC session; the diagnostic itself completed successfully.
+- MVP remains `IN_PROGRESS`; exact target-fleet state, normal-UI reward collection, idle readback, and guarded re-dispatch remain unverified.
