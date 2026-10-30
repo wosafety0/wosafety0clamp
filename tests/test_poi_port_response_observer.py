@@ -49,6 +49,47 @@ class PassivePortResponseObserverTests(unittest.TestCase):
                 self.assertIsNone(observer.capture())
             self.assertEqual(observer.last_status, "natural_response_timeout")
 
+    def test_timeout_detail_counters_are_exposed_as_safe_diagnostics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            observer = self.make_observer(directory)
+            detail = {
+                "reason": "timeout",
+                "networkEnabled": True,
+                "networkResponseEvents": 12,
+                "kancolleHostResponseEvents": 3,
+                "portPathResponseEvents": 1,
+                "portHttp200ResponseEvents": 1,
+                "cachedResponsesSkipped": 0,
+            }
+            output = (
+                "[PortObserver] STATUS: TIMEOUT\n"
+                "[PortObserver] DETAIL: " + json.dumps(detail) + "\n"
+            )
+            completed = subprocess.CompletedProcess(args=[], returncode=0, stdout=output, stderr="")
+            with patch(
+                "kancollebot.adapters.poi.port_response_observer.subprocess.run",
+                return_value=completed,
+            ):
+                self.assertIsNone(observer.capture())
+            self.assertEqual(observer.last_status, "natural_response_timeout")
+            self.assertEqual(observer.last_detail, detail)
+
+    def test_timeout_detail_rejects_unexpected_fields(self):
+        with tempfile.TemporaryDirectory() as directory:
+            observer = self.make_observer(directory)
+            detail = {"networkResponseEvents": 2, "url": "https://example.invalid/secret"}
+            output = (
+                "[PortObserver] STATUS: TIMEOUT\n"
+                "[PortObserver] DETAIL: " + json.dumps(detail) + "\n"
+            )
+            completed = subprocess.CompletedProcess(args=[], returncode=0, stdout=output, stderr="")
+            with patch(
+                "kancollebot.adapters.poi.port_response_observer.subprocess.run",
+                return_value=completed,
+            ):
+                self.assertIsNone(observer.capture())
+            self.assertIsNone(observer.last_detail)
+
     def test_target_discovery_failure_is_not_reported_as_no_capture(self):
         with tempfile.TemporaryDirectory() as directory:
             observer = self.make_observer(directory)

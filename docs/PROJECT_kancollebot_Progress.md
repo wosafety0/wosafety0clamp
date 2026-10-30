@@ -2399,3 +2399,12 @@ The Hand plugin's read-only probe reported:
 - Current read-only local CDP discovery found exactly one matching game WebView at `https://play.games.dmm.com/game/kancolle`; it does not by itself prove that a qualifying port response will occur during a given window.
 - **Validation:** full Python unit suite passed **158/158**; `compileall`, observer JavaScript `node --check`, existing Node regression suite **17/17**, and `git diff --check` passed. The 7 focused observer-wrapper tests also passed.
 - **Verification boundary:** the counter behavior is syntactically and offline-regression validated, but the new counters have not yet been exercised by a completed live observation window. No game input, page refresh, initiated game API request, dispatch, or reward action was performed. Source freshness remains unverified; live actions remain disabled.
+
+
+## 2026-10-30 - Surface passive observer timeout counters in bridge diagnostics
+
+- Follow-up verification showed the observer emitted timeout counters as a `DETAIL` line, but the Python wrapper and bridge CLI only propagated the terminal status. Added strict allowlisted parsing of timeout detail fields and included those counters in the diagnostic JSON as `observer_diagnostics`.
+- Only the known counter/reason keys are exposed; arbitrary detail fields (including URLs) are rejected. This is diagnostic metadata only and does not change witness acceptance, freshness limits, planning suppression, or action gates.
+- Added regression coverage for timeout counter propagation and rejection of unexpected detail fields.
+- **Validation:** full Python suite **160/160 passed**; observer wrapper tests **9/9 passed**; Node regression suite **17/17 passed**; `compileall`, observer JS syntax check, and `git diff --check` passed.
+- **Verification boundary:** counter propagation is unit-tested, but a live diagnostic using this corrected reporting path remains pending. The preceding 130-second observation ended with `natural_response_timeout`; no qualifying witness was captured, all fleet assessments remained suppressed, and game actions remained disabled. No game input, refresh, initiated API request, dispatch, or reward action was performed.

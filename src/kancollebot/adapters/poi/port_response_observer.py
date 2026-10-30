@@ -17,6 +17,7 @@ from typing import Any
 
 _WITNESS_PREFIX = "[PortObserver] WITNESS_JSON:"
 _STATUS_PREFIX = "[PortObserver] STATUS:"
+_DETAIL_PREFIX = "[PortObserver] DETAIL:"
 _WITNESS_ENV = "KCB_POI_FRESHNESS_WITNESS_STDOUT"
 _DEFAULT_TIMEOUT_SECONDS = 130.0
 _MAX_STDOUT_CHARS = 1_000_000
@@ -41,9 +42,11 @@ class PassivePortResponseObserver:
         self.node_executable = node_executable
         self.timeout_seconds = timeout_seconds
         self.last_status = "not_started"
+        self.last_detail: dict[str, Any] | None = None
 
     def capture(self) -> dict[str, Any] | None:
         """Wait for one natural response; return its compact witness or None."""
+        self.last_detail = None
         script = self.script_path.resolve()
         if not script.is_file():
             self.last_status = "script_missing"
@@ -92,6 +95,25 @@ class PassivePortResponseObserver:
             self.last_status = "invalid_output"
             return None
         reported_status = status_lines[0] if status_lines else None
+        if reported_status == "TIMEOUT":
+            detail_lines = [
+                line[len(_DETAIL_PREFIX):].strip()
+                for line in result.stdout.splitlines()
+                if line.startswith(_DETAIL_PREFIX)
+            ]
+            if len(detail_lines) == 1 and len(detail_lines[0]) <= 4096:
+                try:
+                    detail = json.loads(detail_lines[0])
+                except json.JSONDecodeError:
+                    detail = None
+                if isinstance(detail, dict):
+                    allowed_keys = {
+                        "reason", "networkEnabled", "networkResponseEvents",
+                        "kancolleHostResponseEvents", "portPathResponseEvents",
+                        "portHttp200ResponseEvents", "cachedResponsesSkipped",
+                    }
+                    if set(detail).issubset(allowed_keys):
+                        self.last_detail = detail
 
         lines = [
             line[len(_WITNESS_PREFIX):]

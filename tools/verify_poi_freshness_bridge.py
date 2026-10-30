@@ -112,6 +112,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     result = summarize_state(state, observer.last_status)
+    if observer.last_detail is not None:
+        result["observer_diagnostics"] = observer.last_detail
     result["fleet_assessments"] = summarize_assessments(
         state,
         now=datetime.now(timezone.utc),
