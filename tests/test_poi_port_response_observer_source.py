@@ -49,5 +49,17 @@ class PassivePortObserverSourceTests(unittest.TestCase):
         )
 
 
+    def test_cdp_socket_remains_loopback_and_network_read_only(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertIn("wsUrl.protocol !== 'ws:'", source)
+        self.assertIn("wsUrl.port !== '9222'", source)
+        self.assertIn("wsUrl.username || wsUrl.password || wsUrl.hash", source)
+        self.assertIn("'127.0.0.1', 'localhost', '[::1]', '::1'", source)
+        self.assertIn("send('Network.enable'", source)
+        self.assertIn("send('Network.getResponseBody'", source)
+        self.assertNotIn("send('Runtime.evaluate'", source)
+        self.assertNotIn("send('Runtime.callFunctionOn'", source)
+
+
 if __name__ == "__main__":
     unittest.main()
