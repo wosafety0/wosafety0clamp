@@ -31,13 +31,17 @@ def classify_template_scores(
             raise ValueError("template scores must map names to finite numbers")
 
     home = scores.get("home_sortie_menu.png", -1.0)
+    home_nav = scores.get("negative_home_other_menu.png", -1.0)
+    expedition_menu = scores.get("home_expedition_menu.png", -1.0)
+    list_panel = scores.get("expedition_list_panel.png", -1.0)
+    dispatch_button = scores.get("expedition_dispatch_button.png", -1.0)
     result_scores = {
         "expedition_result_success.png": scores.get("expedition_result_success.png", -1.0),
         "expedition_result_failure.png": scores.get("expedition_result_failure.png", -1.0),
         "return_notice.png": scores.get("return_notice.png", -1.0),
     }
     result_ranked = sorted(result_scores.items(), key=lambda item: item[1], reverse=True)
-    result_name, result = result_ranked[0]
+    _, result = result_ranked[0]
     second_result = result_ranked[1][1]
     bonus_scores = (
         scores.get("result_next_button.png", -1.0),
@@ -46,7 +50,15 @@ def classify_template_scores(
     bonus = max(bonus_scores)
 
     candidates: list[tuple[str, float]] = []
-    if home >= minimum_score and result < minimum_score and bonus < minimum_score:
+    if (
+        home >= minimum_score
+        and home_nav >= minimum_score
+        and expedition_menu < minimum_score
+        and list_panel < minimum_score
+        and dispatch_button < minimum_score
+        and result < minimum_score
+        and bonus < minimum_score
+    ):
         candidates.append(("HOME_PORT", home))
     if (
         home < minimum_score
@@ -63,6 +75,7 @@ def classify_template_scores(
     label, best = candidates[0]
     state_markers = {
         "home_sortie_menu.png",
+        "negative_home_other_menu.png",
         "expedition_result_success.png",
         "expedition_result_failure.png",
         "return_notice.png",
@@ -121,7 +134,6 @@ def classify_screenshot_png(
             "negative_expedition_other_row.png",
         )
     }
-    # Two reviewed local crops contain distinctive Japanese return/bonus labels.
     for pattern, label in (("*202405.png", "return_notice.png"), ("*202556.png", "bonus_title.png")):
         matches = sorted(directory.glob(pattern))
         if matches:

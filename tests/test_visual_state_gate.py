@@ -6,21 +6,35 @@ from kancollebot.adapters.poi.visual_state_gate import classify_template_scores
 
 
 class VisualStateGateTests(unittest.TestCase):
-    def test_home_requires_a_strong_unique_match(self):
+    def test_home_requires_strong_sortie_and_navigation_markers(self):
         self.assertEqual(classify_template_scores({
             "home_sortie_menu.png": 0.998,
-            "expedition_result_success.png": 0.17,
+            "negative_home_other_menu.png": 1.0,
+            "home_expedition_menu.png": 0.21,
+            "expedition_list_panel.png": 0.63,
+            "expedition_dispatch_button.png": 0.36,
+            "expedition_result_success.png": 0.27,
             "expedition_result_failure.png": 0.17,
-            "result_next_button.png": 0.52,
+            "result_next_button.png": 0.53,
+            "return_notice.png": 0.30,
+            "bonus_title.png": 0.26,
         }), "HOME_PORT")
+
+    def test_home_without_navigation_marker_fails_closed(self):
+        self.assertEqual(classify_template_scores({
+            "home_sortie_menu.png": 0.998,
+            "home_expedition_menu.png": 0.21,
+            "expedition_list_panel.png": 0.63,
+            "expedition_dispatch_button.png": 0.36,
+        }), "UNKNOWN")
 
     def test_negative_control_template_does_not_override_home_match(self):
         self.assertEqual(classify_template_scores({
             "home_sortie_menu.png": 0.998,
+            "negative_home_other_menu.png": 1.0,
             "expedition_result_success.png": 0.17,
             "expedition_result_failure.png": 0.17,
             "result_next_button.png": 0.52,
-            "negative_home_other_menu.png": 1.0,
         }), "HOME_PORT")
 
     def test_return_result_requires_one_result_variant(self):
@@ -55,6 +69,7 @@ class VisualStateGateTests(unittest.TestCase):
         self.assertEqual(classify_template_scores({"home_sortie_menu.png": 0.80}), "UNKNOWN")
         self.assertEqual(classify_template_scores({
             "home_sortie_menu.png": 0.96,
+            "negative_home_other_menu.png": 0.96,
             "expedition_result_success.png": 0.96,
         }), "UNKNOWN")
         self.assertEqual(classify_template_scores({

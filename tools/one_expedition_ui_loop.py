@@ -44,7 +44,7 @@ FLEET_ID = 2
 MISSION_ID = 3
 HOME_PORT = RecordedPoint(65, 85, "home-port")
 SORTIE = RecordedPoint(280, 425, "sortie")
-EXPEDITION_MODE = RecordedPoint(1020, 450, "expedition-mode")
+EXPEDITION_MODE = RecordedPoint(1105, 179, "expedition-mode")
 MISSION_ROW = RecordedPoint(500, 335, "mission-3-security-task")
 MISSION_CONFIRM = RecordedPoint(1030, 670, "mission-confirm")
 FLEET_2_TAB = RecordedPoint(300, 100, "fleet-2-tab")
@@ -102,6 +102,8 @@ def _require_ui_state(game_session, expected: UiState) -> None:
         if not template_dir:
             raise accessible_error
         try:
+            game_session.transport.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 1100, "y": 500})
+            time.sleep(0.35)
             payload = game_session.input.capture_screenshot()
             visual_state, scores = classify_screenshot_png(payload, template_dir)
         except VisualStateError as visual_error:
