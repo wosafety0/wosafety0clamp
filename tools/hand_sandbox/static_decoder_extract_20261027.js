@@ -224,7 +224,7 @@ module.exports = function() {
 
     const calls = [];
     for (const alias of aliases) {
-      const pattern = new RegExp('\\\\b' + alias + '\\\\s*\\\\(', 'g');
+      const pattern = new RegExp('\\b' + alias + '\\s*\\(', 'g');
       let match;
       while ((match = pattern.exec(functionText)) !== null && calls.length < 1000) {
         const open = functionText.indexOf('(', match.index);
