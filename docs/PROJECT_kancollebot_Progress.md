@@ -2474,3 +2474,11 @@ The Hand plugin's read-only probe reported:
 - 最新 PR 元数据回读显示 #15 仍为 open/Draft，当前 head 为 c3190cb5437bf513964502e72b4cf940e0379b0f，GitHub 返回 mergeable=false；当前 base ref 为 dev/expedition-closed-loop-mvp（base SHA 8162646558e0558bf58bf1d351669083ac03c5ef）。
 - 这是 PR 集成/分支基线阻塞，与当前分支 Push CI 通过是两回事。未对 PR 做 rebase、retarget 或 merge，也没有修改 base 分支；在检查完整比较与依赖关系前保持 Draft。
 - 安全状态不变：freshness witness 的实时匹配未完成，生产 source_freshness_verified 仍不得标为 true，live dispatch 继续关闭。
+
+### 2026-10-30 静态源码快照完整性与离线回归复核
+
+- 在本机权威快照目录 `D:\\AI_Project\\Project_KancolleBot\\KancolleBot-CDP-Snapshots` 找回两份由 CDP `Debugger.getScriptSource` 保存的 `main.js` 与对应 metadata；两份快照均为 8,496,723 bytes、8,495,851 characters，SHA-256 均为 `073df7c8e4d4680208070b22806273b332e2f5ba7ae8b80005ad5914f336561e`。
+- 对两份 metadata 分别运行仓库内离线校验器 `tools/hand_sandbox/verify_cdp_snapshot.cjs`，均返回 `verified: true`，文件哈希、字节数、字符数和 UTF-8 往返校验全部匹配。快照源码与 sidecar 仅保留在本机，不上传 GitHub。
+- 在 worktree `D:\\AI_Project\\KancolleBot-Worktrees\\poi-safety-consolidation-20261029` 实际运行 `node --test tests/static_decoder_extract.test.cjs tests/verify_cdp_snapshot.test.cjs`，结果 **14/14 PASS，0 FAIL**；覆盖词法边界、逗号分隔箭头函数声明、快照保存与元数据、输出脱敏、缺失定义的部分提取、快照篡改检测、Unicode 长度及非法 UTF-8/metadata 拒绝。
+- **验证边界：** 本轮验证的是历史静态源码快照完整性与离线提取器/校验器回归，不是重新捕获当前游戏源码，不是运行时语义验证，也不证明 Poi freshness witness 端到端门禁。没有执行页面源码、游戏函数/getter 或游戏输入；没有刷新、主动请求游戏 API、安装或切换插件。真实派遣继续关闭。
+- 快照与 sidecar 含游戏源码，不应上传公开仓库；本条只归档可复用的验证结论和本地定位路径。
