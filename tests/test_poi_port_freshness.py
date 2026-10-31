@@ -153,5 +153,40 @@ class PortFreshnessTests(unittest.TestCase):
             self.validate(snapshot, fleets, ships, max_age=timedelta(seconds=-1))
 
 
+    def test_rejects_non_integer_fleet_slots_before_equality(self):
+        cases = (
+            ("api_mission", 0, False, 0),
+            ("api_mission", 0, 0.0, 0),
+            ("api_ship", 0, 101.0, 101),
+            ("api_ship", 1, -1.0, -1),
+        )
+        for field, index, invalid, counterpart in cases:
+            for invalid_side in ("current", "witness"):
+                with self.subTest(field=field, invalid=repr(invalid), side=invalid_side):
+                    snapshot, fleets, ships = sample_state()
+                    witness_fleet = snapshot["data"]["api_deck_port"][0]
+                    current_fleet = fleets[0]
+                    if invalid_side == "current":
+                        witness_fleet[field][index] = counterpart
+                        current_fleet[field][index] = invalid
+                    else:
+                        witness_fleet[field][index] = invalid
+                        current_fleet[field][index] = counterpart
+                    self.assertFalse(self.validate(snapshot, fleets, ships))
+
+    def test_rejects_boolean_and_float_current_ship_fields_before_equality(self):
+        cases = (
+            ("api_fuel", 1, True),
+            ("api_nowhp", 10, 10.0),
+            ("api_cond", 49, 49.0),
+        )
+        for field, witness_value, current_value in cases:
+            with self.subTest(field=field, current_value=repr(current_value)):
+                snapshot, fleets, ships = sample_state()
+                snapshot["data"]["api_ship"]["101"][field] = witness_value
+                ships["101"][field] = current_value
+                self.assertFalse(self.validate(snapshot, fleets, ships))
+
+
 if __name__ == "__main__":
     unittest.main()
