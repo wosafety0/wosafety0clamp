@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import struct
 import threading
 import unittest
 from collections import deque
@@ -62,7 +63,7 @@ class CdpWebSocketTransportTests(unittest.TestCase):
         transport._dispatch_event({"method": "Network.requestWillBeSent", "params": {"request": {
             "headers": {"Cookie": "password=secret", "Authorization": "Bearer abc", "Accept": "application/json"},
             "postData": json.dumps({"api_token": "sensitive", "fleet": 2}),
-            "url": "https://example.invalid/api?api_token=secret&accessToken=also-secret&clientSecret=another-secret&fleet=2",
+            "url": "https://example.invalid/api?api_token=secret&accessToken=also-secret&clientSecret=another-secret&token=yyy&api%5Ftoken=encodedsecret&fleet=2",
         }}})
         request = transport.drain_events()[0]["params"]["request"]
         self.assertNotIn("headers", request)
@@ -72,6 +73,9 @@ class CdpWebSocketTransportTests(unittest.TestCase):
         self.assertIn("api_token=[REDACTED]", request["url"])
         self.assertIn("accessToken=[REDACTED]", request["url"])
         self.assertIn("clientSecret=[REDACTED]", request["url"])
+        self.assertIn("token=[REDACTED]", request["url"])
+        self.assertIn("api%5Ftoken=[REDACTED]", request["url"])
+        self.assertNotIn("encodedsecret", request["url"])
 
     def test_reader_routes_events_while_no_command_is_pending(self):
         transport = CdpWebSocketTransport.__new__(CdpWebSocketTransport)
@@ -106,6 +110,69 @@ class CdpWebSocketTransportTests(unittest.TestCase):
         transport._active_request_id = None
         transport._route_message({"id": 99, "result": {"ignored": True}})
         self.assertEqual(transport.drain_events(), [])
+
+    def test_command_timeout_fails_closed_without_blind_retry(self):
+        transport = CdpWebSocketTransport.__new__(CdpWebSocketTransport)
+        transport._closed = False
+        transport._next_id = 1
+        transport._timeout = 0.01
+        transport._condition = threading.Condition()
+        transport._command_lock = threading.Lock()
+        transport._active_request_id = None
+        transport._command_response = None
+        transport._reader_error = None
+        transport._send_frame = lambda opcode, payload: None
+        with self.assertRaisesRegex(CdpInputError, "outcome is unknown"):
+            transport.send("Network.enable", {})
+        self.assertIsNone(transport._active_request_id)
+
+    def test_reader_thread_exits_after_websocket_close_error(self):
+        transport = CdpWebSocketTransport.__new__(CdpWebSocketTransport)
+        transport._closed = False
+        transport._condition = threading.Condition()
+        transport._reader_error = None
+
+        def closed_receive():
+            raise CdpInputError("CDP WebSocket closed by peer")
+
+        transport._receive_text = closed_receive
+        reader = threading.Thread(target=transport._reader_loop, name="test-cdp-reader")
+        reader.start()
+        reader.join(timeout=0.5)
+        self.assertFalse(reader.is_alive(), "reader thread must exit after transport closure")
+        self.assertIsInstance(transport._reader_error, CdpInputError)
+
+    def test_receive_rejects_malformed_json_frame(self):
+        class FakeSocket:
+            def __init__(self, data):
+                self.data = bytearray(data)
+
+            def recv(self, size):
+                chunk = self.data[:size]
+                del self.data[:size]
+                return bytes(chunk)
+
+        transport = CdpWebSocketTransport.__new__(CdpWebSocketTransport)
+        transport._socket = FakeSocket(b"\x81\x02no")
+        with self.assertRaisesRegex(CdpInputError, "invalid JSON"):
+            transport._receive_text()
+
+    def test_receive_rejects_frame_larger_than_ten_megabytes_before_reading_body(self):
+        class FakeSocket:
+            def __init__(self, data):
+                self.data = bytearray(data)
+
+            def recv(self, size):
+                chunk = self.data[:size]
+                del self.data[:size]
+                return bytes(chunk)
+
+        oversized_length = 10 * 1024 * 1024
+        frame_header = b"\x81\x7f" + struct.pack("!Q", oversized_length)
+        transport = CdpWebSocketTransport.__new__(CdpWebSocketTransport)
+        transport._socket = FakeSocket(frame_header)
+        with self.assertRaisesRegex(CdpInputError, "size limit"):
+            transport._receive_text()
 
     def test_rejects_non_loopback_before_opening_socket(self):
         with patch("kancollebot.adapters.poi.cdp_websocket.socket.create_connection") as connect:
