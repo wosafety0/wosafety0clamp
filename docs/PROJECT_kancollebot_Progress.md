@@ -2745,3 +2745,13 @@ The Hand plugin's read-only probe reported:
 - **Fail-closed behavior verified:** when no verifier is wired, `_dispatch` emits `dispatch_blocked` with `clicks_sent=0` and raises before any input. The current production `run()` intentionally supplies no verifier, so it cannot perform dispatch until all six UI transitions can be recognized without guessing or manually labeling new templates.
 - **Offline tests:** 197/197 Python unit tests passed; `compileall` and `git diff --check` passed. Added tests cover zero clicks without a verifier, immediate stop after a failed post-click checkpoint, and successful mocked checkpoint ordering plus active-mission readback. The callback-success test is a mocked contract test, not live UI evidence.
 - No game input was sent. The code change is a tested safety gate, not a completed or live-verified expedition loop.
+
+
+## 2026-10-31 — Passive CDP Network Observer design audit
+
+- Reviewed the current `cdp_websocket.py`, `cdp_input.py`, fleet snapshot reader, and related tests against the proposed zero-input Network observer.
+- **Verified blocker:** the CDP transport currently discards event messages while waiting for a command response; Network domain methods are not allowlisted. Adding `Network.enable` alone is insufficient. The observer needs explicit event/response demultiplexing and a bounded event queue before live observation can work.
+- **Security constraint:** request headers and post bodies may contain credentials or other sensitive data. Full headers/raw postData must not be logged; observer output must be path-filtered, bounded, and redacted. Missing `postData` is an unknown result, not proof that no request occurred.
+- Added `docs/research/CDP_PASSIVE_NETWORK_OBSERVER_DESIGN.md` with the proposed architecture, offline test matrix, acceptance gates, and stage-2/3 visual-identification limitations. The document is explicitly DESIGN_ONLY; it does not claim the observer is implemented or tested.
+- Visual review: a three-frame baseline and RGB/pHash threshold alone cannot identify mission 3 or fleet 2. Relative coordinates require viewport/scale/layout validation, and pixel changes prove only visual change unless selected/unselected states are empirically separable. Network payload is post-action evidence and cannot prevent a wrong dispatch.
+- **Status:** design/source audit COMPLETE; observer implementation NOT_IMPLEMENTED; observer tests NOT_RUN; live network observation NOT_RUN. No game input, reload, request interception, or game API request was sent.
