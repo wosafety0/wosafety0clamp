@@ -2772,3 +2772,10 @@ The Hand plugin's read-only probe reported:
 - Added `.github/workflows/passive-observer-tests.yml` on `dev/expedition-closed-loop-mvp`, triggered by relevant source/test/workflow changes or manual dispatch. It installs `.[vision]`, compiles changed modules, and runs the CDP transport and synthetic visual-difference unittest suites on Python 3.11.
 - Remote read-back of the new workflow is pending in this entry; the workflow commit is `914418a35dcc4742854a6b10b59de78394475288`. The commit-status endpoint currently returns an empty status list, which does **not** prove that the workflow ran or passed.
 - **Status:** CI definition committed; CI execution/result NOT_VERIFIED; tests NOT_VERIFIED; live game observation NOT_RUN; no game input performed. Next: verify workflow configuration and actual run result through an authoritative run record; fix any failures; only then mark offline stage-1 acceptance. Continue visual-difference validation with synthetic images first; real screenshot ROI calibration remains separate and must not be inferred from synthetic data.
+
+
+## 2026-10-31 — Additional URL secret redaction coverage (unverified)
+
+- Expanded the passive event sanitizer's URL-query redaction to cover parameter names containing token/key/password/passwd/secret/session/auth/credential/cookie, including camel-case names such as `accessToken` and `clientSecret`.
+- Added regression assertions for camel-case query parameters. The offline CI workflow is configured to rerun on the changed test/helper paths, but the available commit-status endpoint still returns no checks; execution and pass/fail remain unverified.
+- No raw traffic was captured, no game was controlled, and no live observation was started. Treat this change as an unverified security-hardening draft until the actual test run is retrieved and reviewed.
