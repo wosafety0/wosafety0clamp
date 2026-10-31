@@ -253,3 +253,11 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - **Implemented and pushed** at `265cf7cdbe0106c829123cf80a02c6ebb87142f5`: the CDP allowlist now permits only the explicit browser-level `Page.reload` recovery method in addition to its existing read-only inspection and mouse-input methods. Arbitrary `Page.navigate`, network enablement, and game-server methods remain blocked.
 - **Verification:** 194 Python unit tests passed, Python compile checks and `git diff --check` passed; GitHub readback confirms the allowlist and its tests. No reload has been invoked by this change itself.
 - **Use limitation:** reload is for restoring the client UI only. After reload, the controller must re-establish the live Home Port baseline and re-read fleet state before any game action. Full expedition-3 acceptance remains pending.
+
+
+## 2026-10-31 — Fail-closed dispatch checkpoint contract
+
+- **Implemented:** `tools/one_expedition_ui_loop.py::_dispatch` now requires a checkpoint-verifier callback before it can issue any of the six dispatch clicks. Each step declares an expected state before and after the click; a verifier exception stops the sequence immediately. If no verifier is supplied, the controller emits `dispatch_blocked` with `clicks_sent=0` and raises before reading or clicking.
+- **Important limitation:** the current production `run()` does not supply a verifier. This is deliberate: the repository currently cannot reliably identify the mission-selected and fleet-2-selected canvas states without adding manually labeled templates or another recognition provider. The new state labels describe required checkpoints; they are not claims that those states have already been recognized on the live client.
+- **Verification:** 197 Python unit tests passed, including tests for zero clicks when the verifier is absent, stopping after a failed post-click checkpoint, and the six-step callback contract with a mocked verifier. `compileall` and `git diff --check` passed. The mocked verifier tests validate control flow only; no live UI input was sent.
+- **Acceptance status:** safety hardening is tested; live dispatch and the complete expedition loop remain unverified and blocked until a real per-step verifier is available.

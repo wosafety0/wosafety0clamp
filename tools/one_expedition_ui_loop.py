@@ -2,8 +2,10 @@
 
 The controller reads the Poi Redux fleet snapshot and sends mouse input only to
 the visible game UI. It never constructs or sends game-server requests. This is
-an unverified live-action prototype: coordinate mapping and the return-result
-screen gate must pass on the actual client before unattended use.
+an unverified live-action prototype. Dispatch now refuses to send any clicks
+unless a per-step UI checkpoint verifier is supplied; production dispatch remains
+blocked until all six transitions can be recognized without guessing or manually
+labeling new templates.
 """
 from __future__ import annotations
 
@@ -12,6 +14,7 @@ import json
 import os
 import sys
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -52,6 +55,17 @@ MISSION_CONFIRM = RecordedPoint(1030, 670, "mission-confirm")
 FLEET_2_TAB = RecordedPoint(300, 100, "fleet-2-tab")
 EXPEDITION_START = RecordedPoint(920, 670, "expedition-start")
 RETURN_CONFIRM = RecordedPoint(1140, 670, "returned-expedition-confirm")
+
+# Every click needs fresh evidence for its pre- and post-state. The production
+# verifier is deliberately not wired until all six checkpoints can be observed.
+DISPATCH_STEPS = (
+    (SORTIE, 1.0, "HOME_PORT", "SORTIE_MENU"),
+    (EXPEDITION_MODE, 1.0, "SORTIE_MENU", "EXPEDITION_LIST"),
+    (MISSION_ROW, 0.5, "EXPEDITION_LIST", "MISSION_SELECTED"),
+    (MISSION_CONFIRM, 0.7, "MISSION_SELECTED", "FLEET_SELECTION"),
+    (FLEET_2_TAB, 0.4, "FLEET_SELECTION", "FLEET_2_SELECTED"),
+    (EXPEDITION_START, 1.5, "FLEET_2_SELECTED", "EXPEDITION_ACTIVE"),
+)
 
 
 class LoopError(RuntimeError):
@@ -234,26 +248,57 @@ def _wait_for_idle(reader_transport, poll_seconds: float = 1.0, timeout_seconds:
     raise LoopError("Reward collection was not confirmed; refusing to click again")
 
 
-def _dispatch(reader_transport, game_input, expected_start_ms: int) -> PoiFleetMissionState:
+def _dispatch(
+    reader_transport,
+    game_input,
+    expected_start_ms: int,
+    *,
+    checkpoint_verifier: Callable[[int, str, str], None] | None = None,
+) -> PoiFleetMissionState:
+    """Dispatch only when a verifier can confirm every UI transition.
+
+    The callback receives (step_number, phase, expected_state). A failed check
+    raises and prevents every subsequent click. Production remains fail-closed
+    until the canvas-rendered mission and selected-fleet checkpoints are
+    verifiable without guessing or adding manually labeled templates.
+    """
+    if checkpoint_verifier is None:
+        _print_event(
+            "dispatch_blocked",
+            reason="stepwise_ui_checkpoint_verifier_unavailable",
+            clicks_sent=0,
+        )
+        raise LoopError(
+            "Dispatch blocked before any click: a verified per-step UI checkpoint "
+            "provider is not available for all six dispatch transitions"
+        )
+
     before = _fleet(read_poi_fleet_states(reader_transport))
     if not _idle(before):
         raise LoopError(f"Fleet 2 is not idle before dispatch: {before.mission}")
-    # Navigate through the visible expedition menus from the idle Home Port state.
-    for step, (point, settle) in enumerate((
-        (SORTIE, 1.0),
-        (EXPEDITION_MODE, 1.0),
-        (MISSION_ROW, 0.5),
-        (MISSION_CONFIRM, 0.7),
-        (FLEET_2_TAB, 0.4),
-        (EXPEDITION_START, 1.5),
-    ), start=1):
-        _print_event("ui_action_precondition", action="dispatch_menu_click",
-                     step=step, point=point.label, fleet_idle=True)
+
+    for step, (point, settle, expected_before, expected_after) in enumerate(
+        DISPATCH_STEPS, start=1
+    ):
+        checkpoint_verifier(step, "before", expected_before)
+        _print_event(
+            "ui_action_precondition",
+            action="dispatch_menu_click",
+            step=step,
+            point=point.label,
+            expected_ui_state=expected_before,
+            fleet_idle=True,
+        )
         game_input.click(point)
         _print_event("ui_click_sent", point=point.label, step=step)
         time.sleep(settle)
-        _print_event("ui_action_wait_completed", point=point.label, step=step,
-                     wait_seconds=settle)
+        _print_event(
+            "ui_action_wait_completed", point=point.label, step=step,
+            wait_seconds=settle,
+        )
+        if expected_after != "EXPEDITION_ACTIVE":
+            checkpoint_verifier(step, "after", expected_after)
+
     deadline = time.monotonic() + 12.0
     while time.monotonic() < deadline:
         state = _fleet(read_poi_fleet_states(reader_transport))
