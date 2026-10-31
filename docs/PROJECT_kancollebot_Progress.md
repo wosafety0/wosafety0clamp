@@ -2875,3 +2875,11 @@ The Hand plugin's read-only probe reported:
 - **Development scope:** continue autonomous implementation, project-local dependency management, tests, and approved GitHub progress archiving, subject to applicable repository rules and existing remote-write authorization.
 - **Safety/verification distinction:** this authorization changes what operations the assistant may perform; it does **not** prove the production Bot's state recognition, freshness, or end-to-end correctness. Preserve engineering fail-closed checks until independently verified. Avoid unnecessary destructive changes outside the stated project scope.
 - **Future handoff:** consult this standing authorization before requesting repetitive permission for Poi or ordinary game UI actions. Request a new decision only for an operation outside these boundaries or an otherwise independently required approval.
+
+## 2026-10-31 - Explicit prohibition on treating segmented DC scripts as automation
+
+- **Prohibition:** Do not describe, classify, report, or count a DC (Desktop Commander) script that is executed in separate segments/commands as automation merely because its segments are run one after another or because command output is collected.
+- **Evidence standard:** DC segmented execution is an interactive/manual execution workflow unless a genuinely automated mechanism is independently demonstrated. Do not claim automation, unattended execution, an automated loop, or equivalent capability based only on segmented DC commands.
+- **Reporting:** Distinguish clearly between manually issued DC commands, scripts executed as one complete invocation, and a verified automation mechanism. State only the level actually evidenced.
+- **Scope:** This restriction applies to project implementation, testing, runtime operation, progress reports, and handoffs. It does not prohibit genuine automation implemented and verified through an appropriate mechanism; it prohibits misrepresenting segmented DC execution as automation.
+
