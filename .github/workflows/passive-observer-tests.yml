@@ -6,7 +6,9 @@ on:
     paths:
       - 'src/kancollebot/adapters/poi/cdp_websocket.py'
       - 'src/kancollebot/adapters/poi/cdp_network_events.py'
+      - 'src/kancollebot/adapters/poi/cdp_passive_observer.py'
       - 'tests/test_cdp_websocket.py'
+      - 'tests/test_cdp_passive_observer.py'
       - 'tools/visual_diff_probe.py'
       - 'tests/test_visual_diff_probe.py'
       - '.github/workflows/passive-observer-tests.yml'
@@ -29,11 +31,15 @@ jobs:
       - name: Install package and vision test dependencies
         run: python -m pip install -e '.[vision]'
       - name: Compile changed Python modules
-        run: python -m compileall -q src/kancollebot/adapters/poi/cdp_websocket.py src/kancollebot/adapters/poi/cdp_network_events.py tools/visual_diff_probe.py tests/test_cdp_websocket.py tests/test_visual_diff_probe.py
+        run: python -m compileall -q src/kancollebot/adapters/poi/cdp_websocket.py src/kancollebot/adapters/poi/cdp_network_events.py src/kancollebot/adapters/poi/cdp_passive_observer.py tools/visual_diff_probe.py tests/test_cdp_websocket.py tests/test_cdp_passive_observer.py tests/test_visual_diff_probe.py
       - name: Test CDP passive event transport
         env:
           PYTHONPATH: src
         run: python -m unittest discover -s tests -p 'test_cdp_websocket.py' -v
+      - name: Test passive observer facade
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -p 'test_cdp_passive_observer.py' -v
       - name: Test offline visual difference probe
         env:
           PYTHONPATH: src
