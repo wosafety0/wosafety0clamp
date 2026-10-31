@@ -2895,3 +2895,13 @@ The Hand plugin's read-only probe reported:
 - No local Poi/MCP connection, game input, page JavaScript execution, `Runtime.evaluate`, getter access, system setting change, live dispatch, merge, release, or deployment. The production freshness gate remains disabled; live witness/current-state matching and the complete expedition loop remain unverified.
 - Post-write verification: archive head `5db0433e0ca6bc0d6d72bd985ba06efa63a001b0` passed exact-head Push CI [41229387372](https://github.com/wosafety0/wosafety0clamp/actions/runs/41229387372). The job passed Node offline static-extraction tests, observer `node --check`, `python -m compileall -q src tests`, and the full Python suite (**231 tests, OK**). At that head, direct comparison against `af9d962e663f0a81c7e5a137e9473f553d01a436` was 2 ahead / 0 behind; PR #22 was open/Draft, unmerged, and GitHub reported mergeable/clean. This is offline/static verification only.
 - Next priority: local read-only witness validation remains uncompleted; do not use game input. Continue independent static/offline work and recheck PR #22 after any base movement.
+
+
+
+### 2026-11-01 — Passive observer zero-input source contract expanded
+
+- Added a static regression test in `tests/test_poi_port_response_observer_source.py` to reject any observer-script send of `Input.dispatchMouseEvent`, `Input.dispatchKeyEvent`, `Page.navigate`, `Page.reload`, `Runtime.getProperties`, `Fetch.enable`, `Network.setCookie`, or `Network.replayXHR`. Existing assertions continue to reject `Runtime.evaluate` and `Runtime.callFunctionOn`.
+- Existing `tests/test_cdp_passive_observer.py` independently verifies that the passive facade exposes no click/reload/evaluate/intercept/replay methods and that its only transport calls are `Network.enable` and `Network.disable`.
+- Static boundary caveat: the shared `CdpWebSocketTransport` remains a broader transport for other project flows and still allowlists mouse input, page reload, and one fixed read-only `Runtime.evaluate` expression. None of those methods was invoked in this round. The passive observer script/facade is the scoped zero-input path; this test does not claim that every CDP capability in the repository has been globally removed.
+- Test implementation commit on the current MVP safety candidate: `7bead35bb17066942325df8f1c97f41869975b2d`; test-file blob `2637ebc5b3aaf761be27ea744afc76e1a13b60d8`. This documentation follow-up branch includes that exact test tree; exact-head CI is pending and must be checked before marking this addition verified.
+- No Poi connection, CDP session, Runtime command, getter access, screenshot, game input, account operation, or system change was performed.
