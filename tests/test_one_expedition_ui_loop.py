@@ -12,6 +12,28 @@ import one_expedition_ui_loop as controller
 from kancollebot.adapters.poi.cdp_fleet_state import PoiFleetMissionState
 
 
+class ProductionStartupSafetyGateTests(unittest.TestCase):
+    def test_run_fails_before_opening_any_cdp_session(self):
+        args = MagicMock()
+        args.authorize_ui_actions = True
+        args.poll_seconds = 5.0
+        args.timeout_seconds = 1800.0
+        args.grace_delay_seconds = 10.0
+
+        with (
+            patch.object(controller, "connect_poi_session") as connect_poi,
+            patch.object(controller, "connect_game_webview") as connect_game,
+        ):
+            with self.assertRaisesRegex(
+                controller.LoopError,
+                "production checkpoint verifier unavailable",
+            ):
+                controller.run(args)
+
+        connect_poi.assert_not_called()
+        connect_game.assert_not_called()
+
+
 class ReturnGraceDelayTests(unittest.TestCase):
     def setUp(self):
         self.active = PoiFleetMissionState(2, "Fleet 2", (1, 3, 1000, 0), (1, 4, 8, 25))
