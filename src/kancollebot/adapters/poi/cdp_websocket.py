@@ -7,6 +7,7 @@ and all other CDP methods are rejected.
 from __future__ import annotations
 
 import base64
+from collections import deque
 import hashlib
 import json
 import os
@@ -16,6 +17,7 @@ import urllib.parse
 from typing import Any
 
 from .cdp_input import CdpInput, CdpInputError
+from .cdp_network_events import sanitize_network_event
 
 
 _ALLOWED_METHODS = {
@@ -31,6 +33,8 @@ _ALLOWED_METHODS = {
     "Input.dispatchMouseEvent",
     # A single exact read-only Redux snapshot expression; arbitrary evaluation remains blocked.
     "Runtime.evaluate",
+    "Network.enable",
+    "Network.disable",
 }
 _MAX_FRAME_BYTES = 8 * 1024 * 1024
 
@@ -62,6 +66,8 @@ class CdpWebSocketTransport:
         self._socket.settimeout(timeout)
         self._next_id = 1
         self._closed = False
+        self._event_queue = deque(maxlen=100)
+        self._dropped_event_count = 0
         key = base64.b64encode(os.urandom(16)).decode("ascii")
         path = parsed.path or "/"
         if parsed.query:
@@ -186,7 +192,12 @@ class CdpWebSocketTransport:
             )
             while True:
                 response = self._receive_text()
-                if response.get("id") != request_id:
+                if response.get("id") == request_id:
+                    pass
+                elif "id" not in response:
+                    self._dispatch_event(response)
+                    continue
+                else:
                     continue
                 if "error" in response:
                     raise CdpInputError(f"CDP command failed: {method}")
@@ -198,6 +209,24 @@ class CdpWebSocketTransport:
             raise CdpInputError(
                 f"CDP command outcome is unknown for {method}; do not blindly retry input"
             ) from exc
+
+    def _dispatch_event(self, message: dict[str, Any]) -> None:
+        event = sanitize_network_event(message)
+        if event is None:
+            return
+        if len(self._event_queue) == self._event_queue.maxlen:
+            self._dropped_event_count += 1
+        self._event_queue.append(event)
+
+    def drain_events(self, limit: int | None = None) -> list[dict[str, Any]]:
+        if limit is not None and limit < 0:
+            raise ValueError("limit must be non-negative or None")
+        count = len(self._event_queue) if limit is None else min(limit, len(self._event_queue))
+        return [self._event_queue.popleft() for _ in range(count)]
+
+    @property
+    def dropped_event_count(self) -> int:
+        return self._dropped_event_count
 
     def close(self) -> None:
         if self._closed:
