@@ -2811,3 +2811,11 @@ The Hand plugin's read-only probe reported:
 - **尚未验证：** 新增测试实际执行结果；当前提交的 combined status 未返回 CI checks。
 - **安全状态：** live UI loop 继续 fail-closed；未运行真实游戏操作。
 - **下一步：** 在受控测试环境运行 `tests/test_one_expedition_ui_loop.py` 及完整测试套件，修复测试发现的问题；只有独立 UI 状态验证覆盖全部必要转换后，才考虑解除启动门禁。
+
+
+## 2026-10-31 — Startup gate regression CI verified
+
+- Read the authoritative GitHub Actions run records for the startup-guard and progress-archive commits. Both failed in the full unit-test step because the pre-existing CDP allowlist test still expected `Network.enable` to be blocked after passive Network observation had intentionally been allowlisted.
+- Updated `tests/test_cdp_websocket_allowlist.py` to assert that `Network.enable` and `Network.disable` are permitted for passive observation while `Page.navigate`, `Fetch.enable`, and `Network.setCookie` remain blocked. Test change commit: `327035d6f6f55edfc3ff621bf5432431abe7e369`.
+- Verified GitHub Actions run #1120 (`41176151196`, [run log](https://github.com/wosafety0/wosafety0clamp/actions/runs/41176151196)) completed successfully on that commit. The job compiled Python sources and ran the full unit-test suite: **210 tests passed, 3 skipped**. The log explicitly confirms both `test_passive_network_observation_is_allowed_but_mutation_methods_are_blocked` and `test_run_fails_before_opening_any_cdp_session` passed.
+- Scope limit: this is offline CI evidence only. No live Poi Network observation, screenshot calibration, game input, expedition dispatch, reward collection, or complete live closed loop was performed. The production startup gate remains enabled.
