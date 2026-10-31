@@ -2907,3 +2907,5 @@ The Hand plugin's read-only probe reported:
 - No Poi connection, CDP session, Runtime command, getter access, screenshot, game input, account operation, or system change was performed.
 
 - Exact test-head verification: Push CI [41254255173](https://github.com/wosafety0/wosafety0clamp/actions/runs/41254255173) succeeded on code/test SHA `7bead35bb17066942325df8f1c97f41869975b2d`; the run executed the Node static extraction tests, observer `node --check`, Python compileall, and **232 tests, OK (3 skipped)**. The documentation-only follow-up head `3fe04cb06cbe1c380b79a4596fe3a3d758477b1d` has been read back but has no Actions run/status returned; do not describe that doc commit as exact-head CI-verified.
+
+- Final documentation follow-up verification: exact-head Push CI [41254310682](https://github.com/wosafety0/wosafety0clamp/actions/runs/41254310682) passed on `37580e12fd75f4e8ddf196aa8c1c9d2e26dd86d1`; observer static/syntax checks, Python compileall, and **232 tests, OK (3 skipped)** all passed. The progress file at that tested head was read back as blob `6b50f1fdcc3f3516ee453173ab053110a407b79d`.
