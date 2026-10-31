@@ -58,6 +58,24 @@ class PassivePortObserverSourceTests(unittest.TestCase):
         self.assertNotIn("send('Runtime.evaluate'", source)
         self.assertNotIn("send('Runtime.callFunctionOn'", source)
 
+    def test_observer_script_never_sends_input_or_page_mutation_commands(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        forbidden_methods = (
+            "Input.dispatchMouseEvent",
+            "Input.dispatchKeyEvent",
+            "Page.navigate",
+            "Page.reload",
+            "Runtime.getProperties",
+            "Fetch.enable",
+            "Network.setCookie",
+            "Network.replayXHR",
+        )
+        for method in forbidden_methods:
+            with self.subTest(method=method):
+                self.assertNotIn(f"send('{method}'", source)
+                self.assertNotIn(f'send("{method}"', source)
+
+
 
 if __name__ == "__main__":
     unittest.main()
