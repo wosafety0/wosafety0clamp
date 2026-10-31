@@ -1,0 +1,278 @@
+"""Offline contract tests for the read-only Poi expedition reader."""
+import json
+import unittest
+from datetime import datetime, timezone
+
+from kancollebot.adapters.poi.expedition_reader import PoiExpeditionReader
+from kancollebot.adapters.poi.mcp_client import McpTool, PoiMcpError
+
+NOW = datetime(2026, 10, 24, 12, 0, tzinfo=timezone.utc)
+
+
+def sample_payloads():
+    return {
+        "info.fleets": {"kind": "array", "total": 1, "returned": 1, "truncated": False,
+            "items": [{"api_id": 1, "api_ship": [101, -1, 102], "api_mission": [0, 0, 0, 0]}]},
+        "info.ships": {"kind": "object-map", "total": 2, "returned": 2, "truncated": False,
+            "items": {
+                "101": {"api_id": 101, "api_ship_id": 11, "api_nowhp": 10, "api_maxhp": 10, "api_fuel": 10, "api_bull": 10},
+                "102": {"api_id": 102, "api_ship_id": 11, "api_nowhp": 10, "api_maxhp": 10, "api_fuel": 10, "api_bull": 10},
+            }},
+        "lookup": {"11": {"api_fuel_max": 10, "api_bull_max": 10}},
+    }
+
+
+class FakeClient:
+    def __init__(self, *, store_ready=True, payloads=None, tools=None, lookup=None, sequences=None):
+        self.store_ready = store_ready
+        self.payloads = payloads or sample_payloads()
+        self.tools = tools or ("poi_describe", "poi_get", "poi_lookup")
+        self.lookup = lookup
+        self.sequences = sequences or {}
+        self.sequence_counts = {}
+        self.calls = []
+        self.initialize_calls = 0
+
+    def health(self):
+        return {"name": "poi-nanodesu-mcp", "status": "ok", "storeReady": self.store_ready}
+
+    def initialize(self):
+        self.initialize_calls += 1
+        return {"name": "fake-poi"}
+
+    def list_tools(self):
+        return tuple(McpTool(name) for name in self.tools)
+
+    def call_read_tool(self, name, arguments):
+        self.calls.append((name, arguments))
+        if name == "poi_describe":
+            payload = {"kind": "array", "path": arguments.get("path")}
+        elif name == "poi_lookup":
+            payload = self.lookup if self.lookup is not None else self.payloads["lookup"]
+        else:
+            path = arguments["path"]
+            if path in self.sequences:
+                index = self.sequence_counts.get(path, 0)
+                sequence = self.sequences[path]
+                payload = sequence[min(index, len(sequence) - 1)]
+                self.sequence_counts[path] = index + 1
+            else:
+                payload = self.payloads[path]
+        return {"content": [{"type": "text", "text": json.dumps(payload)}]}
+
+
+class PoiExpeditionReaderTests(unittest.TestCase):
+    def make_reader(self, **kwargs):
+        client = FakeClient(**kwargs)
+        return client, PoiExpeditionReader(client=client, clock=lambda: NOW)
+
+    def make_port_snapshot(self, payloads=None):
+        payloads = payloads or sample_payloads()
+        fleets = payloads["info.fleets"]["items"]
+        ships = payloads["info.ships"]["items"]
+        compact_fleets = [
+            {
+                field: fleet[field]
+                for field in ("api_id", "api_name", "api_mission", "api_ship")
+                if field in fleet
+            }
+            for fleet in fleets
+        ]
+        ship_fields = (
+            "api_id", "api_ship_id", "api_nowhp", "api_maxhp",
+            "api_fuel", "api_bull", "api_cond",
+        )
+        compact_ships = {
+            str(key): {
+                field: record[field]
+                for field in ship_fields
+                if field in record
+            }
+            for key, record in ships.items()
+        }
+        return {
+            "schemaVersion": 1,
+            "verificationStatus": "CAPTURED_UNDER_STATICALLY_REVIEWED_PROBE",
+            "source": {
+                "kind": "cdp-network-response",
+                "path": "/kcsapi/api_port/port",
+                "host": "w14h.kancolle-server.com",
+                "httpStatus": 200,
+                "responseReceivedAt": "2026-10-24T11:59:58.000Z",
+                "bodyCapturedAt": "2026-10-24T11:59:59.000Z",
+                "fromDiskCache": False,
+                "fromServiceWorker": False,
+                "fromPrefetchCache": False,
+                "responseBodySha256": "a" * 64,
+                "responseBodyBytes": 1024,
+            },
+            "data": {
+                "api_deck_port": compact_fleets,
+                "api_ship": compact_ships,
+            },
+            "summary": {
+                "fleetCount": len(compact_fleets),
+                "shipCount": len(compact_ships),
+            },
+            "safety": {
+                "gameInputSent": False,
+                "gameApiRequestInitiated": False,
+                "runtimeEvaluateUsed": False,
+                "fullRawResponseSaved": False,
+                "productionFreshnessGateChanged": False,
+            },
+        }
+
+    def test_matching_live_port_snapshot_marks_source_freshness_verified(self):
+        payloads = sample_payloads()
+        snapshot = self.make_port_snapshot(payloads)
+        client = FakeClient(payloads=payloads)
+        reader = PoiExpeditionReader(
+            client=client,
+            clock=lambda: NOW,
+            port_snapshot_provider=lambda: snapshot,
+        )
+        observed = reader.read_fleets()
+        self.assertTrue(observed.source_freshness_verified)
+
+    def test_mismatched_live_port_snapshot_keeps_freshness_unverified(self):
+        payloads = sample_payloads()
+        snapshot = self.make_port_snapshot(payloads)
+        snapshot["data"]["api_ship"]["101"]["api_fuel"] = 9
+        client = FakeClient(payloads=payloads)
+        reader = PoiExpeditionReader(
+            client=client,
+            clock=lambda: NOW,
+            port_snapshot_provider=lambda: snapshot,
+        )
+        observed = reader.read_fleets()
+        self.assertFalse(observed.source_freshness_verified)
+
+    def test_stale_live_port_snapshot_keeps_freshness_unverified(self):
+        payloads = sample_payloads()
+        snapshot = self.make_port_snapshot(payloads)
+        snapshot["source"]["bodyCapturedAt"] = "2026-10-24T11:58:00.000Z"
+        client = FakeClient(payloads=payloads)
+        reader = PoiExpeditionReader(
+            client=client,
+            clock=lambda: NOW,
+            port_snapshot_provider=lambda: snapshot,
+        )
+        observed = reader.read_fleets()
+        self.assertFalse(observed.source_freshness_verified)
+
+    def test_reads_fleet_with_targeted_master_lookup(self):
+        client, reader = self.make_reader()
+        observed = reader.read_fleets()
+        self.assertFalse(observed.source_freshness_verified)
+        self.assertEqual(observed.observed_at, NOW)
+        self.assertEqual(len(observed.payload), 1)
+        self.assertEqual(observed.payload[0].fleet_id, 1)
+        self.assertTrue(observed.payload[0].fuel_ready)
+        self.assertTrue(observed.payload[0].ammo_ready)
+        lookup_calls = [args for name, args in client.calls if name == "poi_lookup"]
+        self.assertEqual(len(lookup_calls), 1)
+        self.assertEqual(lookup_calls[0]["kind"], "ships")
+        self.assertEqual(lookup_calls[0]["ids"], [11])
+        self.assertEqual(lookup_calls[0]["select"], ["api_fuel_max", "api_bull_max"])
+        self.assertFalse(any(args.get("path") == "const.$ships" for _, args in client.calls))
+
+    def test_rejects_state_changed_during_read(self):
+        first = sample_payloads()
+        second_fleets = json.loads(json.dumps(first["info.fleets"]))
+        second_fleets["items"][0]["api_name"] = "changed-between-reads"
+        sequences = {
+            "info.fleets": [first["info.fleets"], second_fleets],
+            "info.ships": [first["info.ships"], first["info.ships"]],
+        }
+        _, reader = self.make_reader(sequences=sequences)
+        with self.assertRaisesRegex(PoiMcpError, "changed during observation"):
+            reader.read_fleets()
+
+    def test_reads_a_stable_snapshot_with_confirmation_reads(self):
+        client, reader = self.make_reader()
+        observed = reader.read_fleets()
+        self.assertEqual(len(observed.payload), 1)
+        read_paths = [args["path"] for name, args in client.calls if name == "poi_get"]
+        self.assertEqual(
+            read_paths,
+            ["info.fleets", "info.ships", "info.fleets", "info.ships"],
+        )
+
+    def test_rejects_truncated_fleet_payload(self):
+        payloads = sample_payloads()
+        payloads["info.fleets"]["truncated"] = True
+        _, reader = self.make_reader(payloads=payloads)
+        with self.assertRaisesRegex(PoiMcpError, "truncated"):
+            reader.read_fleets()
+
+    def test_missing_truncation_marker_fails_closed(self):
+        payloads = sample_payloads()
+        del payloads["info.fleets"]["truncated"]
+        _, reader = self.make_reader(payloads=payloads)
+        with self.assertRaisesRegex(PoiMcpError, "truncation marker"):
+            reader.read_fleets()
+
+    def test_inconsistent_collection_counts_fail_closed(self):
+        payloads = sample_payloads()
+        payloads["info.fleets"]["returned"] = 0
+        _, reader = self.make_reader(payloads=payloads)
+        with self.assertRaisesRegex(PoiMcpError, "counts do not match"):
+            reader.read_fleets()
+
+    def test_missing_mission_data_fails_closed(self):
+        payloads = sample_payloads()
+        del payloads["info.fleets"]["items"][0]["api_mission"]
+        _, reader = self.make_reader(payloads=payloads)
+        with self.assertRaisesRegex(PoiMcpError, "normalization failed closed"):
+            reader.read_fleets()
+
+    def test_missing_master_record_fails_closed(self):
+        _, reader = self.make_reader(lookup={})
+        with self.assertRaisesRegex(PoiMcpError, "omitted master ship record"):
+            reader.read_fleets()
+
+    def test_wrong_lookup_shape_fails_closed(self):
+        _, reader = self.make_reader(lookup={"kind": "ships", "items": {}})
+        with self.assertRaisesRegex(PoiMcpError, "invalid master-record object map"):
+            reader.read_fleets()
+
+    def test_invalid_required_master_field_fails_closed(self):
+        _, reader = self.make_reader(lookup={"11": {"api_fuel_max": True, "api_bull_max": 10}})
+        with self.assertRaisesRegex(PoiMcpError, "invalid api_fuel_max"):
+            reader.read_fleets()
+
+    def test_wrong_bridge_identity_stops_before_initialization(self):
+        class WrongIdentityClient(FakeClient):
+            def health(self):
+                return {"name": "another-service", "status": "ok", "storeReady": True}
+        client = WrongIdentityClient()
+        reader = PoiExpeditionReader(client=client, clock=lambda: NOW)
+        with self.assertRaisesRegex(PoiMcpError, "identity"):
+            reader.read_fleets()
+        self.assertEqual(client.initialize_calls, 0)
+        self.assertEqual(client.calls, [])
+
+    def test_store_not_ready_stops_before_initialization(self):
+        client = FakeClient(store_ready=False)
+        reader = PoiExpeditionReader(client=client, clock=lambda: NOW)
+        with self.assertRaisesRegex(PoiMcpError, "store is not ready"):
+            reader.read_fleets()
+        self.assertEqual(client.initialize_calls, 0)
+        self.assertEqual(client.calls, [])
+
+    def test_missing_lookup_tool_fails_closed(self):
+        _, reader = self.make_reader(tools=("poi_describe", "poi_get"))
+        with self.assertRaisesRegex(PoiMcpError, "missing required"):
+            reader.read_fleets()
+
+    def test_truncated_ship_payload_fails_closed(self):
+        payloads = sample_payloads()
+        payloads["info.ships"]["truncated"] = True
+        _, reader = self.make_reader(payloads=payloads)
+        with self.assertRaisesRegex(PoiMcpError, "truncated"):
+            reader.read_fleets()
+
+
+if __name__ == "__main__":
+    unittest.main()

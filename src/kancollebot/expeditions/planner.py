@@ -11,6 +11,7 @@ class ExpeditionDecision(str, Enum):
     WAITING_FOR_RETURN = "waiting_for_return"
     RETURNED_AWAITING_REFRESH = "returned_awaiting_refresh"
     BLOCKED_UNKNOWN_RETURN_TIME = "blocked_unknown_return_time"
+    COMPLETED_AWAITING_REWARD = "completed_awaiting_reward"
     BLOCKED_EMPTY_FLEET = "blocked_empty_fleet"
     BLOCKED_DAMAGED_SHIPS = "blocked_damaged_ships"
     NEEDS_RESUPPLY = "needs_resupply"
@@ -28,6 +29,7 @@ class ExpeditionFleetSnapshot:
     fuel_ready: bool = False
     ammo_ready: bool = False
     damaged_ship_ids: tuple[int, ...] = ()
+    mission_status: int | None = None
 
     def __post_init__(self) -> None:
         if self.fleet_id < 1:
@@ -42,6 +44,12 @@ class ExpeditionFleetSnapshot:
             raise ValueError("damaged_ship_ids must be unique")
         if not set(self.damaged_ship_ids).issubset(self.ship_ids):
             raise ValueError("damaged_ship_ids must belong to this fleet")
+        if self.mission_status not in (None, 0, 1, 2):
+            raise ValueError("mission_status must be 0, 1, 2, or unknown")
+        if self.mission_status == 0 and self.mission_id is not None:
+            raise ValueError("idle mission_status cannot have an active mission")
+        if self.mission_status in (1, 2) and self.mission_id is None:
+            raise ValueError("active mission_status requires a mission ID")
         if self.mission_id is not None and self.mission_id < 1:
             raise ValueError("mission_id must be positive")
         if self.return_at is not None and (
@@ -78,6 +86,12 @@ def evaluate_expedition_fleet(
         raise ValueError("now must be timezone-aware")
 
     if snapshot.mission_id is not None:
+        if snapshot.mission_status == 2:
+            return ExpeditionPlan(
+                snapshot.fleet_id,
+                ExpeditionDecision.COMPLETED_AWAITING_REWARD,
+                "Expedition completed; reward settlement remains pending.",
+            )
         if snapshot.return_at is None:
             return ExpeditionPlan(
                 snapshot.fleet_id,

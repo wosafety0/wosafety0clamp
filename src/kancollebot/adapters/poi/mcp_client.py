@@ -16,6 +16,13 @@ from dataclasses import dataclass
 from typing import Any
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Prevent loopback requests from being redirected to another host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 class PoiMcpError(RuntimeError):
     """Raised when the local Poi MCP endpoint cannot provide a valid response."""
 
@@ -34,6 +41,8 @@ class PoiMcpClient:
         parsed = urllib.parse.urlsplit(endpoint)
         if parsed.scheme != "http" or not parsed.hostname or not parsed.path:
             raise ValueError("endpoint must be an absolute HTTP URL")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("credentials in endpoint URLs are not allowed")
         try:
             address = ipaddress.ip_address(parsed.hostname)
             is_loopback = address.is_loopback
@@ -62,7 +71,8 @@ class PoiMcpClient:
         data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         request = urllib.request.Request(self.endpoint, data=data, headers=headers, method="POST")
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            opener = urllib.request.build_opener(_NoRedirectHandler())
+            with opener.open(request, timeout=self.timeout) as response:
                 status = response.status
                 content_type = response.headers.get("Content-Type", "").lower()
                 session_id = response.headers.get("Mcp-Session-Id")
@@ -175,7 +185,8 @@ class PoiMcpClient:
         url = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "/health", "", ""))
         request = urllib.request.Request(url, headers={"Accept": "application/json"})
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            opener = urllib.request.build_opener(_NoRedirectHandler())
+            with opener.open(request, timeout=self.timeout) as response:
                 data = response.read(65537)
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise PoiMcpError(f"Cannot read Poi MCP health endpoint: {exc}") from exc
