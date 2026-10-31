@@ -5,7 +5,7 @@ import re
 import urllib.parse
 from typing import Any
 _SENSITIVE = re.compile(r"(?:cookie|authorization|password|passwd|secret|token|credential|session|api[_-]?key)", re.IGNORECASE)
-_QUERY = re.compile(r"(?i)([?&](?:token|api[_-]?token|key|api[_-]?key|password|session|auth|access_token)=)[^&#]*")
+_QUERY = re.compile(r"(?i)([?&][^=&#]*(?:token|key|password|passwd|secret|session|auth|credential|cookie)[^=&#]*=)[^&#]*")
 _TEXT = re.compile(r"(?i)(\b(?:cookie|set-cookie|authorization|password|passwd|secret|token|api[_-]?key|session)\b\s*[=:]\s*)([^&;,\s\"]+)")
 
 def _clean(key: str, value: Any) -> Any:
