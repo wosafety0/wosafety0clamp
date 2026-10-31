@@ -16,8 +16,9 @@
 - Does not call `Runtime.evaluate`, page JavaScript, game functions, or any input method.
 - Does not issue a game API request. It waits up to 120 seconds for a natural response already initiated by the game client.
 - Rejects non-200 responses, cached/service-worker/prefetch responses, failed API results, duplicate IDs, and malformed fleet/ship records.
-- Saves only a compact subset of the response data to `Desktop/KancolleBot-Port-Snapshots`; it does not save the full raw response body. Console output excludes ship/fleet payload values.
+- In normal Hand mode, saves only a compact subset of the response data to `Desktop/KancolleBot-Port-Snapshots`; it never saves the full raw response body. In child-only witness mode (`KCB_POI_FRESHNESS_WITNESS_STDOUT=1`), it emits the compact witness in memory and does not create the output directory or write a snapshot file. Console output excludes ship/fleet payload values.
 - The observer alone does not modify the production freshness gate. The optional in-memory provider can feed a witness to `PoiExpeditionReader`, which sets `source_freshness_verified` only after bounded-age and exact mutable-field matching; the default reader without a provider remains unverified.
+- The child-only output mode reports `persisted: false` and skips `mkdirSync` / `writeFileSync`; normal Hand mode retains the original compact-file and hash-summary behavior. This is an output-mode guarantee only, not source authentication or live freshness proof.
 
 ## Output and limits
 
