@@ -2794,3 +2794,20 @@ The Hand plugin's read-only probe reported:
 - Added offline mock regression coverage for command timeout/no reuse, reader-thread exit after close error, malformed JSON frames, a synthetic 10 MiB frame rejected before body read, and URL redaction variants including api_token, multiple token parameters, and percent-encoded api%5Ftoken. Existing queue-burst coverage verifies the queue stays at 100 and counts dropped events; visual tests remain synthetic-only.
 - Verified CI evidence: GitHub Actions run #10 (https://github.com/wosafety0/wosafety0clamp/actions/runs/41175023030), commit 883be9d7219e1f57c6ae2945535eca8ade367998, completed with conclusion success. The workflow installed .[vision], compiled the changed Python modules, passed all 16 CDP transport tests and all 3 synthetic visual-difference tests. The job and step results and the test log were read back from GitHub.
 - Scope limit: this verifies offline tests only. No live Poi Network observation, live screenshot/noise-baseline collection, game input, dispatch/reward collection, or full expedition closed loop was performed. Real-frame noise thresholds remain unset until actual consecutive read-only frames are collected and measured.
+
+
+## 2026-10-31 — Production startup fail-closed regression guard
+
+### 已保存的改进
+
+- `tools/one_expedition_ui_loop.py` 的 `run()` 在建立 Poi/CDP 会话前即拒绝启动，因为生产级逐步 UI checkpoint verifier 尚未接入；这样避免启动流程先执行母港恢复或其他 UI 输入后才被派遣门禁拦截。
+- 在 `tests/test_one_expedition_ui_loop.py` 新增 `ProductionStartupSafetyGateTests.test_run_fails_before_opening_any_cdp_session`，通过 mock 断言 Poi 与游戏 WebView 会话都不会建立。
+- 控制器改动提交：`996966c9469c6ab3c7bf0dc6cc3fb05f91724844`；测试改动提交：`c927518e932b41894460c05808233c23c3c01c4a`。
+- GitHub 远程回读已确认控制器 guard 与测试方法存在。
+
+### 验证边界
+
+- **已验证：** GitHub 文件内容回读；新增测试方法确实存在。
+- **尚未验证：** 新增测试实际执行结果；当前提交的 combined status 未返回 CI checks。
+- **安全状态：** live UI loop 继续 fail-closed；未运行真实游戏操作。
+- **下一步：** 在受控测试环境运行 `tests/test_one_expedition_ui_loop.py` 及完整测试套件，修复测试发现的问题；只有独立 UI 状态验证覆盖全部必要转换后，才考虑解除启动门禁。
