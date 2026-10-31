@@ -1,28 +1,31 @@
-"""Read-only preflight for the local Poi CDP target and viewport.
+"""Read-only preflight for the embedded KanColle game WebView.
 
-This command opens a loopback CDP WebSocket and reads layout metrics only.
-It never sends mouse/keyboard input or evaluates JavaScript.
+This command selects exactly one WebView whose URL matches the configured
+game URL hint, then reads layout metrics only. It never sends input or
+evaluates JavaScript. The outer Poi shell is not accepted as a game target.
 """
 from __future__ import annotations
 
 import argparse
 import json
 
-from kancollebot.adapters.poi.cdp_websocket import connect_poi_session
+from kancollebot.adapters.poi.cdp_websocket import connect_game_webview
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--endpoint", default="http://127.0.0.1:9222")
-    parser.add_argument("--title-hint", default="poi")
-    parser.add_argument("--url-hint", default="")
+    parser.add_argument(
+        "--url-hint",
+        default="https://play.games.dmm.com/game/kancolle",
+        help="Unique substring for the embedded game WebView URL",
+    )
     parser.add_argument("--timeout", type=float, default=3.0)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     try:
-        with connect_poi_session(
+        with connect_game_webview(
             args.endpoint,
-            title_hint=args.title_hint,
             url_hint=args.url_hint,
             timeout=args.timeout,
         ) as session:
@@ -40,10 +43,12 @@ def main() -> int:
             report = {
                 "status": "PASS_READ_ONLY_CDP_PREFLIGHT",
                 "target": {
+                    "type": "webview",
                     "id": session.target.target_id,
                     "title": session.target.title,
                     "url": session.target.url,
                 },
+                "url_hint": args.url_hint,
                 "viewport_css_pixels": {"width": width, "height": height},
                 "mouse_input_sent": False,
                 "javascript_evaluated": False,

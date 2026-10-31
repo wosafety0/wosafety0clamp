@@ -2841,3 +2841,11 @@ The Hand plugin's read-only probe reported:
 - **Verified:** full CI [41176759637](https://github.com/wosafety0/wosafety0clamp/actions/runs/41176759637) passed **221 tests, 3 skipped**, including the target-hint test. Dedicated offline observer CI [41176752672](https://github.com/wosafety0/wosafety0clamp/actions/runs/41176752672) passed 16 transport tests, 6 observer-facade tests, 4 output-projection tests, and 3 synthetic visual-difference tests.
 - Remote source/test/workflow contents were read back. No live capture or game input was performed.
 - **Next:** run the CLI locally during a manually initiated, naturally occurring game event to confirm the actual port endpoint path and capture sanitized before/after mission tuples. Until that evidence is obtained, no mission-state transition is inferred and the production UI loop remains fail-closed.
+
+
+## 2026-10-31 — Corrected CDP preflight to require the game WebView
+
+- **Implemented:** corrected the read-only CDP preflight to use `connect_game_webview` rather than the outer Poi page selector. It now requires exactly one embedded WebView matching the configured game URL and reports `target.type=webview` plus the URL hint. The default hint matches the observed DMM KanColle WebView URL; ambiguous or missing targets fail closed.
+- **Runtime verification:** the preflight selected the single WebView at `https://play.games.dmm.com/game/kancolle` and read a 1200×720 CSS viewport. It sent no mouse/keyboard input, evaluated no JavaScript, and performed no gameplay action.
+- **Automated verification:** added three regression tests for correct WebView selection, fail-closed behavior when no target matches, and invalid viewport rejection. The full Python suite passed **224/224**; `compileall`, both Node.js static test suites, and `git diff --check` exited successfully.
+- **Scope boundary:** this fixes target identity in the diagnostic preflight only. It does not verify UI state recognition, a fresh port-response witness, supply handling, dispatch, reward collection, or the end-to-end expedition loop. Production game actions remain blocked by the existing startup/checkpoint gates.
