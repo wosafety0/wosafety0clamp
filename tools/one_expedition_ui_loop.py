@@ -281,6 +281,13 @@ def _dispatch(
         DISPATCH_STEPS, start=1
     ):
         checkpoint_verifier(step, "before", expected_before)
+        if point == EXPEDITION_START:
+            # Recheck the target immediately before the irreversible start click.
+            # This Redux read is not freshness proof; the independent visual
+            # checkpoint remains mandatory.
+            pre_start = _fleet(read_poi_fleet_states(reader_transport))
+            if not _idle(pre_start) or pre_start.ship_ids != before.ship_ids:
+                raise LoopError("Fleet 2 changed before expedition start; refusing to click")
         _print_event(
             "ui_action_precondition",
             action="dispatch_menu_click",

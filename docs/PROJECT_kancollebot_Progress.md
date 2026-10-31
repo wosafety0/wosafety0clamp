@@ -2857,3 +2857,10 @@ The Hand plugin's read-only probe reported:
 - **Readiness boundary:** fleet 2 is currently assessed as blocked by damaged ships; fleet 3 needs resupply; fleet 1 is ready in the planning-only assessment. No fleet was dispatch-eligible and no mission action was taken. The fixed fleet-2/mission-3 MVP remains blocked until its damage/readiness preconditions are safely resolved.
 - **Tool usability:** made `tools/verify_cdp_session.py` bootstrap `src/` so it can run directly from the repository root without an externally supplied `PYTHONPATH`. Direct runtime preflight selected the embedded DMM game WebView and verified a 1200x720 CSS viewport without sending input or evaluating JavaScript.
 - **Automated verification:** the full Python suite passed **224 tests (3 skipped)**; the three CDP preflight regression tests passed; `compileall` and `git diff --check` exited successfully. These checks do not constitute end-to-end expedition-loop acceptance.
+
+## 2026-10-31 - Pre-start fleet recheck blocks changed target state
+
+- Implemented an additional fail-closed check immediately before the irreversible expedition-start click in `tools/one_expedition_ui_loop.py`: re-read the target fleet from Poi Redux and reject a newly active mission or changed ship membership compared with the initial idle state. This Redux read alone is not independent freshness evidence; the separate visual checkpoint remains mandatory.
+- Added two regression tests in `tests/test_one_expedition_ui_loop.py` proving that either a changed ship membership or a newly active mission stops before the sixth (start) click.
+- Offline verification: 226 Python tests passed (3 skipped), 17 Node.js tests passed, `compileall` and `git diff --check` passed. All dispatch test inputs were mocked; no live game action was performed.
+- Production `run()` remains fail-closed before CDP connection. Visual checkpoint recognition and actual live-loop acceptance remain pending.

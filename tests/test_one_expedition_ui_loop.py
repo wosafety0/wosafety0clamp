@@ -133,7 +133,7 @@ class DispatchCheckpointGateTests(unittest.TestCase):
             patch.object(
                 controller,
                 "read_poi_fleet_states",
-                side_effect=[(self.idle,), (self.active,)],
+                side_effect=[(self.idle,), (self.idle,), (self.active,)],
             ),
             patch.object(controller.time, "monotonic", side_effect=[0.0, 1.0]),
             patch.object(controller.time, "sleep"),
@@ -150,6 +150,33 @@ class DispatchCheckpointGateTests(unittest.TestCase):
         self.assertEqual(
             game_input.click.call_args_list[-1].args[0], controller.EXPEDITION_START
         )
+
+
+class PreStartFleetRecheckTests(unittest.TestCase):
+    def test_changed_ship_membership_blocks_final_start_click(self):
+        idle = PoiFleetMissionState(2, "Fleet 2", (0, 0, 0, 0), (1, 4, 8, 25))
+        changed = PoiFleetMissionState(2, "Fleet 2", (0, 0, 0, 0), (1, 4, 8, 26))
+        game_input = MagicMock()
+        with (
+            patch.object(controller, "read_poi_fleet_states", side_effect=[(idle,), (changed,)]),
+            patch.object(controller.time, "sleep"),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "changed before expedition start"):
+                controller._dispatch(object(), game_input, 1000, checkpoint_verifier=lambda *_: None)
+        self.assertEqual(game_input.click.call_count, 5)
+        self.assertNotIn(controller.EXPEDITION_START, [call.args[0] for call in game_input.click.call_args_list])
+
+    def test_new_mission_blocks_final_start_click(self):
+        idle = PoiFleetMissionState(2, "Fleet 2", (0, 0, 0, 0), (1, 4, 8, 25))
+        active = PoiFleetMissionState(2, "Fleet 2", (1, 3, 2000, 0), (1, 4, 8, 25))
+        game_input = MagicMock()
+        with (
+            patch.object(controller, "read_poi_fleet_states", side_effect=[(idle,), (active,)]),
+            patch.object(controller.time, "sleep"),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "changed before expedition start"):
+                controller._dispatch(object(), game_input, 1000, checkpoint_verifier=lambda *_: None)
+        self.assertEqual(game_input.click.call_count, 5)
 
 
 if __name__ == "__main__":
