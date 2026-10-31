@@ -5,9 +5,9 @@ Scope: offline design review for a zero-game-input observer. No live capture, no
 
 ## Verified current transport constraints
 
-- `src/kancollebot/adapters/poi/cdp_websocket.py` has an explicit CDP method allowlist. `Network.enable`, `Network.disable`, and `Network.getRequestPostData` are not currently allowlisted.
-- `CdpWebSocketTransport.send()` waits for a response whose `id` matches its command, and silently skips messages with another/no matching ID. CDP event messages received during a command are therefore discarded rather than delivered to an observer.
-- The current transport is synchronous and single-channel. Merely adding `Network.enable` to the allowlist would not implement event capture; event buffering and bounded event consumption are also required.
+- `src/kancollebot/adapters/poi/cdp_websocket.py` has an explicit CDP method allowlist. `Network.enable` and `Network.disable` are allowlisted; `Network.getRequestPostData` remains blocked.
+- `CdpWebSocketTransport.send()` routes responses by active command ID and forwards sanitized Network events into a bounded queue. The queue is capped at 100 events and records dropped-event counts.
+- `src/kancollebot/adapters/poi/cdp_passive_observer.py` provides a separate observation-only facade. It requires explicit exact URL paths, bounds collection duration and batch size, and exposes no click, reload, evaluation, interception, or replay methods.
 - `Page.captureScreenshot` and the fixed read-only Redux snapshot are separately allowlisted. Neither provides passive Network events.
 - Request headers and post bodies can contain cookies, authorization values, account identifiers, or other sensitive fields. Raw headers/postData must never be written to the progress log or unrestricted console output.
 
@@ -41,7 +41,7 @@ Scope: offline design review for a zero-game-input observer. No live capture, no
 ## Current result
 
 - Design and source audit: COMPLETE.
-- Observer implementation: NOT_IMPLEMENTED.
-- Offline tests for observer: NOT_RUN.
-- Live network observation: NOT_RUN.
-- UI clicks/reload/game requests during this work: NONE.
+- Transport event routing and the bounded passive-observer facade: IMPLEMENTED.
+- Offline CI: VERIFIED in [run 41176607303](https://github.com/wosafety0/wosafety0clamp/actions/runs/41176607303): 16 transport tests, 6 observer-facade tests, and 3 synthetic visual-difference tests passed; the full CI run [41176600594](https://github.com/wosafety0/wosafety0clamp/actions/runs/41176600594) passed 216 tests with 3 skipped.
+- Live network observation: NOT_RUN. The candidate `/kcsapi/api_port/port` path is configurable and still requires confirmation against naturally observed traffic.
+- UI clicks/reload/game requests during this work: NONE. The production expedition loop remains fail-closed; these offline tests do not authorize dispatch.
