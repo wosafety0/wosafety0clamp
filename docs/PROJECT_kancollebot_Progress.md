@@ -2779,3 +2779,11 @@ The Hand plugin's read-only probe reported:
 - Expanded the passive event sanitizer's URL-query redaction to cover parameter names containing token/key/password/passwd/secret/session/auth/credential/cookie, including camel-case names such as `accessToken` and `clientSecret`.
 - Added regression assertions for camel-case query parameters. The offline CI workflow is configured to rerun on the changed test/helper paths, but the available commit-status endpoint still returns no checks; execution and pass/fail remain unverified.
 - No raw traffic was captured, no game was controlled, and no live observation was started. Treat this change as an unverified security-hardening draft until the actual test run is retrieved and reviewed.
+
+
+## 2026-10-31 — Strict Network event projection and body omission (unverified)
+
+- Tightened `cdp_network_events.py` to project known Network events into a small allowlist: request URL/method, response URL/status/MIME type, request ID/timestamps, and limited load metadata. Arbitrary fields and all request/response headers (including cookies and Authorization) are excluded before queueing.
+- Request body contents are not retained; only presence, length, and an omission marker are queued. This is intentionally stricter than attempting to redact arbitrary unknown body schemas. URL query values whose parameter names indicate tokens, keys, secrets, credentials, sessions, auth, cookies, or passwords are redacted, with camel-case regression assertions.
+- Added/updated offline tests and a Python 3.11 GitHub Actions workflow. The helper, tests, and workflow have been read back from the authoritative remote. **No test execution result has been verified**: commit status has returned an empty status list; do not treat this as passing CI.
+- Next gate remains: obtain an actual successful CI run (or run the exact commands in a verified local checkout), resolve all failures, and review reader lifecycle/queue bounds. No live Network.enable call, screenshot capture, reload, or game input was performed.
