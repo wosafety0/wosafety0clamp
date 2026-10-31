@@ -65,11 +65,10 @@ class CdpWebSocketTransportTests(unittest.TestCase):
             "url": "https://example.invalid/api?api_token=secret&accessToken=also-secret&clientSecret=another-secret&fleet=2",
         }}})
         request = transport.drain_events()[0]["params"]["request"]
-        self.assertEqual(request["headers"]["Cookie"], "[REDACTED]")
-        self.assertEqual(request["headers"]["Authorization"], "[REDACTED]")
-        self.assertEqual(request["headers"]["Accept"], "application/json")
-        self.assertNotIn("sensitive", request["postData"])
-        self.assertIn("[REDACTED]", request["postData"])
+        self.assertNotIn("headers", request)
+        self.assertNotIn("sensitive", str(request["postData"]))
+        self.assertEqual(request["postData"]["content"], "[OMITTED_FOR_SAFETY]")
+        self.assertEqual(request["postData"]["length"], len(json.dumps({"api_token": "sensitive", "fleet": 2})))
         self.assertIn("api_token=[REDACTED]", request["url"])
         self.assertIn("accessToken=[REDACTED]", request["url"])
         self.assertIn("clientSecret=[REDACTED]", request["url"])
