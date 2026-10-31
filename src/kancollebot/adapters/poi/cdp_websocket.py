@@ -338,6 +338,7 @@ def connect_game_webview(
     endpoint: str = "http://127.0.0.1:9222",
     *,
     timeout: float = 3.0,
+    url_hint: str = "https://play.games.dmm.com/game/kancolle",
 ) -> CdpPoiSession:
     """Connect directly to the exact KanColle WebView target using its own WS URL.
 
@@ -352,7 +353,7 @@ def connect_game_webview(
     target = select_poi_renderer(
         targets,
         title_hint="",
-        url_hint="https://play.games.dmm.com/game/kancolle",
+        url_hint=url_hint,
     )
     transport = CdpWebSocketTransport(target.websocket_url, timeout=timeout)
     return CdpPoiSession(target, transport)
