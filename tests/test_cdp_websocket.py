@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import unittest
+from collections import deque
 from unittest.mock import patch
 
 from kancollebot.adapters.poi.cdp_input import CdpInputError
@@ -15,6 +17,53 @@ from kancollebot.adapters.poi.cdp_websocket import (
 
 
 class CdpWebSocketTransportTests(unittest.TestCase):
+    def test_event_is_demultiplexed_before_matching_command_response(self):
+        transport = CdpWebSocketTransport.__new__(CdpWebSocketTransport)
+        transport._closed = False
+        transport._next_id = 1
+        transport._event_queue = deque(maxlen=100)
+        transport._dropped_event_count = 0
+        replies = iter([
+            {"method": "Network.requestWillBeSent", "params": {"request": {"url": "https://example.invalid/api?token=abc", "method": "POST"}}},
+            {"id": 1, "result": {"ok": True}},
+        ])
+        transport._send_frame = lambda opcode, payload: None
+        transport._receive_text = lambda: next(replies)
+        self.assertEqual(transport.send("Network.enable", {}), {"ok": True})
+        events = transport.drain_events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["method"], "Network.requestWillBeSent")
+        self.assertIn("token=[REDACTED]", events[0]["params"]["request"]["url"])
+
+    def test_event_queue_is_bounded_and_counts_dropped_oldest_events(self):
+        transport = CdpWebSocketTransport.__new__(CdpWebSocketTransport)
+        transport._event_queue = deque(maxlen=100)
+        transport._dropped_event_count = 0
+        for index in range(1000):
+            transport._dispatch_event({"method": "Network.requestWillBeSent", "params": {"requestId": str(index)}})
+        events = transport.drain_events()
+        self.assertEqual(len(events), 100)
+        self.assertEqual(transport.dropped_event_count, 900)
+        self.assertEqual(events[0]["params"]["requestId"], "900")
+        self.assertEqual(events[-1]["params"]["requestId"], "999")
+
+    def test_event_redacts_sensitive_headers_and_post_data_before_queueing(self):
+        transport = CdpWebSocketTransport.__new__(CdpWebSocketTransport)
+        transport._event_queue = deque(maxlen=100)
+        transport._dropped_event_count = 0
+        transport._dispatch_event({"method": "Network.requestWillBeSent", "params": {"request": {
+            "headers": {"Cookie": "password=secret", "Authorization": "Bearer abc", "Accept": "application/json"},
+            "postData": json.dumps({"api_token": "sensitive", "fleet": 2}),
+            "url": "https://example.invalid/api?api_token=secret&fleet=2",
+        }}})
+        request = transport.drain_events()[0]["params"]["request"]
+        self.assertEqual(request["headers"]["Cookie"], "[REDACTED]")
+        self.assertEqual(request["headers"]["Authorization"], "[REDACTED]")
+        self.assertEqual(request["headers"]["Accept"], "application/json")
+        self.assertNotIn("sensitive", request["postData"])
+        self.assertIn("[REDACTED]", request["postData"])
+        self.assertIn("api_token=[REDACTED]", request["url"])
+
     def test_rejects_non_loopback_before_opening_socket(self):
         with patch("kancollebot.adapters.poi.cdp_websocket.socket.create_connection") as connect:
             with self.assertRaisesRegex(CdpInputError, "loopback"):
