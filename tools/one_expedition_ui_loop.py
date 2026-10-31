@@ -314,6 +314,9 @@ def _dispatch(
 def run(args: argparse.Namespace) -> int:
     if not args.authorize_ui_actions:
         raise LoopError("Missing explicit --authorize-ui-actions flag")
+    # No production checkpoint provider is wired. Reject before opening CDP
+    # sessions, moving the pointer, capturing screenshots, or clicking the UI.
+    raise LoopError("Live UI loop disabled: production checkpoint verifier unavailable")
     if not 1 <= args.poll_seconds <= 30:
         raise LoopError("poll_seconds must be between 1 and 30")
     if not 60 <= args.timeout_seconds <= 3600:
