@@ -4,13 +4,13 @@ import re
 from typing import Any
 _SENSITIVE = re.compile(r"(?:cookie|authorization|password|passwd|secret|token|credential|session|api[_-]?key)", re.IGNORECASE)
 _QUERY = re.compile(r"(?i)([?&][^=&#]*(?:token|key|password|passwd|secret|session|auth|credential|cookie)[^=&#]*=)[^&#]*")
-_TEXT = re.compile(r"(?i)(\\b(?:cookie|set-cookie|authorization|password|passwd|secret|token|api[_-]?key|session|credential|access[_-]?token|refresh[_-]?token|client[_-]?secret)\\b\\s*[=:]\\s*)([^&;,\\s\\\"]+)")
+_TEXT = re.compile(r"(?i)(\b(?:cookie|set-cookie|authorization|password|passwd|secret|token|api[_-]?key|session|credential|access[_-]?token|refresh[_-]?token|client[_-]?secret)\b\s*[=:]\s*)([^&;,\s\\"]+)")
 _MAX_URL_LENGTH = 4096
 _MAX_TEXT_LENGTH = 256
 
 def _safe_text(value: Any, *, limit: int = _MAX_TEXT_LENGTH) -> str:
     text = str(value)[:limit]
-    return _TEXT.sub(r'\\1[REDACTED]', _QUERY.sub(r'\\1[REDACTED]', text))
+    return _TEXT.sub(r'\1[REDACTED]', _QUERY.sub(r'\1[REDACTED]', text))
 
 def _request_summary(request: Any) -> dict[str, Any]:
     if not isinstance(request, dict):
