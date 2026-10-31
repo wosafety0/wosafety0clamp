@@ -121,10 +121,15 @@ class CdpWebSocketTransportTests(unittest.TestCase):
         transport._active_request_id = None
         transport._command_response = None
         transport._reader_error = None
-        transport._send_frame = lambda opcode, payload: None
+        sent_frames = []
+        transport._send_frame = lambda opcode, payload: sent_frames.append((opcode, payload))
         with self.assertRaisesRegex(CdpInputError, "outcome is unknown"):
             transport.send("Network.enable", {})
         self.assertIsNone(transport._active_request_id)
+        self.assertTrue(transport._failed)
+        with self.assertRaisesRegex(CdpInputError, "closed or unusable"):
+            transport.send("Network.enable", {})
+        self.assertEqual(len(sent_frames), 1, "a timed-out transport must not send another command")
 
     def test_reader_thread_exits_after_websocket_close_error(self):
         transport = CdpWebSocketTransport.__new__(CdpWebSocketTransport)
