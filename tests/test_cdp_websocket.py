@@ -72,6 +72,40 @@ class CdpWebSocketTransportTests(unittest.TestCase):
         self.assertIn("[REDACTED]", request["postData"])
         self.assertIn("api_token=[REDACTED]", request["url"])
 
+    def test_reader_routes_events_while_no_command_is_pending(self):
+        transport = CdpWebSocketTransport.__new__(CdpWebSocketTransport)
+        transport._closed = False
+        transport._event_queue = deque(maxlen=100)
+        transport._dropped_event_count = 0
+        transport._condition = threading.Condition()
+        transport._active_request_id = None
+        transport._command_response = None
+        transport._reader_error = None
+        messages = iter([
+            {"method": "Network.responseReceived", "params": {"requestId": "idle-1", "response": {"status": 200}}},
+        ])
+        def receive_then_stop():
+            try:
+                return next(messages)
+            except StopIteration:
+                raise RuntimeError("mock reader stop")
+        transport._receive_text = receive_then_stop
+        transport._reader_loop()
+        events = transport.drain_events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["method"], "Network.responseReceived")
+        self.assertEqual(events[0]["params"]["response"]["status"], 200)
+        self.assertIsInstance(transport._reader_error, RuntimeError)
+
+    def test_reader_does_not_route_unmatched_response_as_event(self):
+        transport = CdpWebSocketTransport.__new__(CdpWebSocketTransport)
+        transport._event_queue = deque(maxlen=100)
+        transport._dropped_event_count = 0
+        transport._condition = threading.Condition()
+        transport._active_request_id = None
+        transport._route_message({"id": 99, "result": {"ignored": True}})
+        self.assertEqual(transport.drain_events(), [])
+
     def test_rejects_non_loopback_before_opening_socket(self):
     def test_rejects_non_loopback_before_opening_socket(self):
         with patch("kancollebot.adapters.poi.cdp_websocket.socket.create_connection") as connect:
