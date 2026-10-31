@@ -87,6 +87,7 @@ def project_event(event: Any) -> dict[str, Any] | None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--endpoint", default="http://127.0.0.1:9222")
+    parser.add_argument("--url-hint", default="kcs2/index.php", help="Unique substring for the game WebView URL")
     parser.add_argument("--duration-seconds", type=float, default=60.0)
     parser.add_argument("--max-events", type=int, default=20)
     parser.add_argument("--path", action="append", dest="paths")
@@ -102,7 +103,7 @@ def main() -> int:
 
     records: list[dict[str, Any]] = []
     try:
-        with connect_game_webview(args.endpoint) as session:
+        with connect_game_webview(args.endpoint, url_hint=args.url_hint) as session:
             observer = CdpPassiveNetworkObserver(
                 session.transport, allowed_paths=paths, max_batch_size=100
             )
