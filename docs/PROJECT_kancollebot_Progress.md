@@ -2864,3 +2864,14 @@ The Hand plugin's read-only probe reported:
 - Added two regression tests in `tests/test_one_expedition_ui_loop.py` proving that either a changed ship membership or a newly active mission stops before the sixth (start) click.
 - Offline verification: 226 Python tests passed (3 skipped), 17 Node.js tests passed, `compileall` and `git diff --check` passed. All dispatch test inputs were mocked; no live game action was performed.
 - Production `run()` remains fail-closed before CDP connection. Visual checkpoint recognition and actual live-loop acceptance remain pending.
+
+## 2026-10-31 - Standing user authorization for Poi and UI-mediated game operations
+
+**User authorization record (standing, until revoked or superseded):** The user explicitly authorizes the assistant to autonomously perform **all Poi-related operations** and **all game operations except directly sending packets / game API requests**, without asking for approval for each action. The user expressly accepts the possibility of in-game ship loss (including sinking) and other game-resource consequences.
+
+- **Authorized Poi scope:** Poi application/configuration/plugin operations, CDP debugging, screenshots, passive network observation, environment troubleshooting, and other Poi-related work.
+- **Authorized game scope:** normal game UI operations, including navigation, fleet formation, resupply, repair, expedition dispatch, reward collection, sorties, and other UI-mediated gameplay actions; naturally generated network requests resulting from normal UI interaction are permitted.
+- **Explicit exclusion:** do not directly construct, replay, or send game-server packets/API requests. Do not bypass this exclusion by scripting a direct request through CDP, JavaScript injection, or another transport.
+- **Development scope:** continue autonomous implementation, project-local dependency management, tests, and approved GitHub progress archiving, subject to applicable repository rules and existing remote-write authorization.
+- **Safety/verification distinction:** this authorization changes what operations the assistant may perform; it does **not** prove the production Bot's state recognition, freshness, or end-to-end correctness. Preserve engineering fail-closed checks until independently verified. Avoid unnecessary destructive changes outside the stated project scope.
+- **Future handoff:** consult this standing authorization before requesting repetitive permission for Poi or ordinary game UI actions. Request a new decision only for an operation outside these boundaries or an otherwise independently required approval.
