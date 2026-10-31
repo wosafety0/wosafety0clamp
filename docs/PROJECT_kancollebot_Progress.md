@@ -2729,3 +2729,11 @@ The Hand plugin's read-only probe reported:
 - 实机操作：本次未进行；未发送游戏输入。
 - 测试：本次未运行项目测试；该记录是基于现有远程进度文档及用户补充信息的证据分层整理。
 - 实现/验证状态：CDP 插件来源为用户直接确认、待上游源码独立核验；一次远征派遣已有历史实机验证；补给/编成/收获具体执行链待追溯；完整自动远征闭环仍未通过实机验收。
+
+
+## 2026-10-31 — KCA source cross-check: built-in drivers and separate POI interaction mode
+
+- Reviewed KCA's public `interaction_drivers.py`, `interaction_backend.py`, `nav/nodes.py`, `util/kca.py`, and `expedition/expedition_core.py`. Source confirms KCA's built-in `ChromeCdpDriver` sends mouse events through `PyChromeDevTools.ChromeInterface`, while `wait_and_click` waits for a fresh region-scoped template match and navigation then waits for a destination marker. Its expedition flow waits for the selection control, allows the fleet-selection animation to settle, selects the fleet, checks resupply, and only then clicks dispatch. This is useful implementation evidence, but does **not** identify the separate KCA-authored CDP plugin referred to by the user; that plugin's repository/version/call chain remains unverified.
+- Separately checked KCA's documented POI interaction mode: the `feature/poi-interaction-server` variant of `poi-plugin-forwarder` exposes a loopback screenshot/input service, distinct from Chrome CDP. The local installed `poi-plugin-forwarder@1.1.1` has no `interaction-server.js` or `protocol.js`, and no listener was found on `38591`; do not assume the installed build provides that alternative service. No plugin was installed or changed.
+- Offline baseline verification at source HEAD `265cf7cdbe0106c829123cf80a02c6ebb87142f5`: `PYTHONPATH=src python -m unittest discover -s tests -v` passed **194/194**; `compileall` and `git diff --check` passed. The later remote commits reviewed during archive reconciliation changed documentation only; these results do not establish live UI or end-to-end acceptance.
+- Remaining implementation gap: `_dispatch()` still sends six clicks before checking the active mission tuple, and the current state gate does not classify every intermediate dispatch screen. No game input was sent during this source-review/archival round; full automated closed-loop acceptance remains unverified.
