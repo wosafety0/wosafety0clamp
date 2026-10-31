@@ -2819,3 +2819,15 @@ The Hand plugin's read-only probe reported:
 - Updated `tests/test_cdp_websocket_allowlist.py` to assert that `Network.enable` and `Network.disable` are permitted for passive observation while `Page.navigate`, `Fetch.enable`, and `Network.setCookie` remain blocked. Test change commit: `327035d6f6f55edfc3ff621bf5432431abe7e369`.
 - Verified GitHub Actions run #1120 (`41176151196`, [run log](https://github.com/wosafety0/wosafety0clamp/actions/runs/41176151196)) completed successfully on that commit. The job compiled Python sources and ran the full unit-test suite: **210 tests passed, 3 skipped**. The log explicitly confirms both `test_passive_network_observation_is_allowed_but_mutation_methods_are_blocked` and `test_run_fails_before_opening_any_cdp_session` passed.
 - Scope limit: this is offline CI evidence only. No live Poi Network observation, screenshot calibration, game input, expedition dispatch, reward collection, or complete live closed loop was performed. The production startup gate remains enabled.
+
+
+## 2026-10-31 — Passive CDP observer facade implemented and CI-verified
+
+- Added `src/kancollebot/adapters/poi/cdp_passive_observer.py`, an observation-only facade over the existing sanitized, bounded CDP Network event queue. It requires explicit exact URL paths, caps batch size and collection duration, and does not expose click/reload/evaluate/interception/replay methods.
+- Added `tests/test_cdp_passive_observer.py` for exact path matching, event-type filtering, start/close lifecycle, configuration bounds, and failure handling.
+- Extended `.github/workflows/passive-observer-tests.yml` to compile and test the new facade.
+- Remote read-back verified the source, test, and workflow contents.
+- **CI verified:** full CI run [41176600594](https://github.com/wosafety0/wosafety0clamp/actions/runs/41176600594) passed **216 tests, 3 skipped**. Dedicated passive-observer workflow [41176607303](https://github.com/wosafety0/wosafety0clamp/actions/runs/41176607303) passed 16 CDP transport tests, 6 observer facade tests, and 3 synthetic visual-difference tests.
+- Updated `docs/research/CDP_PASSIVE_NETWORK_OBSERVER_DESIGN.md` to reflect implementation and verified offline status.
+- **Boundary:** no live Network observation, screenshot capture, game input, game request, or end-to-end expedition loop was performed. The candidate `/kcsapi/api_port/port` path remains configurable and must be confirmed against naturally observed traffic. The production UI loop remains fail-closed; this observer does not authorize dispatch.
+- **Next:** use a bounded, manually operated/read-only observation session to confirm the real endpoint path and sanitized before/after mission-state evidence. Until that evidence exists, do not infer mission transitions or enable automatic dispatch.
