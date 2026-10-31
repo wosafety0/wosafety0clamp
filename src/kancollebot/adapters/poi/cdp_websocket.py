@@ -13,6 +13,8 @@ import json
 import os
 import socket
 import struct
+import threading
+import time
 import urllib.parse
 from typing import Any
 
@@ -68,6 +70,13 @@ class CdpWebSocketTransport:
         self._closed = False
         self._event_queue = deque(maxlen=100)
         self._dropped_event_count = 0
+        self._timeout = timeout
+        self._send_lock = threading.Lock()
+        self._condition = threading.Condition()
+        self._command_lock = threading.Lock()
+        self._active_request_id = None
+        self._command_response = None
+        self._reader_error = None
         key = base64.b64encode(os.urandom(16)).decode("ascii")
         path = parsed.path or "/"
         if parsed.query:
@@ -100,6 +109,9 @@ class CdpWebSocketTransport:
             self._socket.close()
             self._closed = True
             raise
+        self._socket.settimeout(None)
+        self._reader_thread = threading.Thread(target=self._reader_loop, name="cdp-event-reader", daemon=True)
+        self._reader_thread.start()
 
     def _read_headers(self) -> bytes:
         data = bytearray()
@@ -130,7 +142,8 @@ class CdpWebSocketTransport:
             header = first + bytes([0x80 | 127]) + struct.pack("!Q", size)
         mask = os.urandom(4)
         masked = bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload))
-        self._socket.sendall(header + mask + masked)
+        with self._send_lock:
+            self._socket.sendall(header + mask + masked)
 
     def _receive_text(self) -> dict[str, Any]:
         while True:
@@ -165,7 +178,7 @@ class CdpWebSocketTransport:
                 return result
 
     def send(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        """Send one allowlisted command and return its result; never auto-retry."""
+        """Send one allowlisted command and await its response while a reader routes events."""
         if self._closed:
             raise CdpInputError("CDP transport is closed")
         if method not in _ALLOWED_METHODS:
@@ -177,66 +190,104 @@ class CdpWebSocketTransport:
                 or params.get("expression") != READ_ONLY_FLEET_SNAPSHOT_EXPRESSION
                 or params.get("returnByValue") is not True
             ):
-                raise CdpInputError(
-                    "Runtime.evaluate is restricted to the fixed read-only fleet snapshot"
-                )
-        request_id = self._next_id
-        self._next_id += 1
-        try:
-            self._send_frame(
-                1,
-                json.dumps(
-                    {"id": request_id, "method": method, "params": params},
-                    separators=(",", ":"),
-                ).encode("utf-8"),
-            )
-            while True:
-                response = self._receive_text()
-                if response.get("id") == request_id:
-                    pass
-                elif "id" not in response:
-                    self._dispatch_event(response)
-                    continue
-                else:
-                    continue
-                if "error" in response:
-                    raise CdpInputError(f"CDP command failed: {method}")
-                result = response.get("result", {})
-                if not isinstance(result, dict):
-                    raise CdpInputError(f"CDP returned an invalid result for {method}")
-                return result
-        except (OSError, TimeoutError) as exc:
-            raise CdpInputError(
-                f"CDP command outcome is unknown for {method}; do not blindly retry input"
-            ) from exc
+                raise CdpInputError("Runtime.evaluate is restricted to the fixed read-only fleet snapshot")
+        with self._command_lock:
+            request_id = self._next_id
+            self._next_id += 1
+            with self._condition:
+                self._active_request_id = request_id
+                self._command_response = None
+            try:
+                self._send_frame(1, json.dumps({"id": request_id, "method": method, "params": params}, separators=(",", ":")).encode("utf-8"))
+            except (OSError, TimeoutError) as exc:
+                with self._condition:
+                    self._active_request_id = None
+                raise CdpInputError(f"CDP command outcome is unknown for {method}; do not blindly retry input") from exc
+            deadline = time.monotonic() + self._timeout
+            with self._condition:
+                while self._command_response is None and self._reader_error is None and not self._closed:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        self._active_request_id = None
+                        raise CdpInputError(f"CDP command outcome is unknown for {method}; do not blindly retry input")
+                    self._condition.wait(remaining)
+                if self._reader_error is not None:
+                    self._active_request_id = None
+                    raise CdpInputError(f"CDP reader failed while awaiting {method}; command outcome is unknown") from self._reader_error
+                response = self._command_response
+                self._active_request_id = None
+                self._command_response = None
+            if response is None:
+                raise CdpInputError(f"CDP transport closed while awaiting {method}")
+            if "error" in response:
+                raise CdpInputError(f"CDP command failed: {method}")
+            result = response.get("result", {})
+            if not isinstance(result, dict):
+                raise CdpInputError(f"CDP returned an invalid result for {method}")
+            return result
+
+    def _reader_loop(self) -> None:
+        while True:
+            with self._condition:
+                if self._closed:
+                    return
+            try:
+                message = self._receive_text()
+            except Exception as exc:
+                with self._condition:
+                    if not self._closed:
+                        self._reader_error = exc
+                    self._condition.notify_all()
+                return
+            self._route_message(message)
+
+    def _route_message(self, message: dict[str, Any]) -> None:
+        if "id" in message:
+            with self._condition:
+                if message.get("id") == self._active_request_id:
+                    self._command_response = message
+                    self._condition.notify_all()
+            return
+        self._dispatch_event(message)
 
     def _dispatch_event(self, message: dict[str, Any]) -> None:
         event = sanitize_network_event(message)
         if event is None:
             return
-        if len(self._event_queue) == self._event_queue.maxlen:
-            self._dropped_event_count += 1
-        self._event_queue.append(event)
+        with self._condition:
+            if len(self._event_queue) == self._event_queue.maxlen:
+                self._dropped_event_count += 1
+            self._event_queue.append(event)
 
     def drain_events(self, limit: int | None = None) -> list[dict[str, Any]]:
         if limit is not None and limit < 0:
             raise ValueError("limit must be non-negative or None")
-        count = len(self._event_queue) if limit is None else min(limit, len(self._event_queue))
-        return [self._event_queue.popleft() for _ in range(count)]
+        with self._condition:
+            count = len(self._event_queue) if limit is None else min(limit, len(self._event_queue))
+            return [self._event_queue.popleft() for _ in range(count)]
 
     @property
     def dropped_event_count(self) -> int:
-        return self._dropped_event_count
+        with self._condition:
+            return self._dropped_event_count
 
     def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
+        with self._condition:
+            if self._closed:
+                return
+            self._closed = True
+            self._condition.notify_all()
         try:
             self._send_frame(8, b"")
         except OSError:
             pass
+        try:
+            self._socket.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
         self._socket.close()
+        if threading.current_thread() is not self._reader_thread:
+            self._reader_thread.join(timeout=1.0)
 
     def __enter__(self) -> "CdpWebSocketTransport":
         return self
