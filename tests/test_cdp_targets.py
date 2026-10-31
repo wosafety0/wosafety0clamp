@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from kancollebot.adapters.poi.cdp_targets import (
     CdpDiscoveryError,
@@ -11,6 +11,7 @@ from kancollebot.adapters.poi.cdp_targets import (
     list_webview_targets,
     select_poi_renderer,
 )
+from kancollebot.adapters.poi.cdp_websocket import connect_game_webview
 
 
 class CdpTargetTests(unittest.TestCase):
@@ -43,6 +44,23 @@ class CdpTargetTests(unittest.TestCase):
             targets = list_webview_targets()
         self.assertEqual(len(targets), 1)
         self.assertEqual(targets[0].target_id, "game-view")
+
+
+    def test_game_webview_accepts_configurable_url_hint(self) -> None:
+        target = CdpTarget(
+            "game-view", "KanColle", "https://w14h.kancolle-server.com/kcs2/index.php",
+            "ws://127.0.0.1:9222/devtools/page/game-view",
+        )
+        transport = MagicMock()
+        with (
+            patch("kancollebot.adapters.poi.cdp_targets.list_webview_targets", return_value=(target,)),
+            patch("kancollebot.adapters.poi.cdp_targets.select_poi_renderer", return_value=target) as select,
+            patch("kancollebot.adapters.poi.cdp_websocket.CdpWebSocketTransport", return_value=transport),
+        ):
+            session = connect_game_webview(url_hint="kcs2/index.php")
+        select.assert_called_once_with((target,), title_hint="", url_hint="kcs2/index.php")
+        self.assertIs(session.transport, transport)
+        session.close()
 
     def test_non_loopback_endpoint_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
