@@ -77,6 +77,7 @@ class CdpWebSocketTransport:
         self._active_request_id = None
         self._command_response = None
         self._reader_error = None
+        self._failed = False
         key = base64.b64encode(os.urandom(16)).decode("ascii")
         path = parsed.path or "/"
         if parsed.query:
@@ -179,8 +180,8 @@ class CdpWebSocketTransport:
 
     def send(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         """Send one allowlisted command and await its response while a reader routes events."""
-        if self._closed:
-            raise CdpInputError("CDP transport is closed")
+        if self._closed or getattr(self, "_failed", False):
+            raise CdpInputError("CDP transport is closed or unusable")
         if method not in _ALLOWED_METHODS:
             raise CdpInputError(f"CDP method is not allowlisted: {method}")
         if method == "Runtime.evaluate":
@@ -202,6 +203,7 @@ class CdpWebSocketTransport:
             except (OSError, TimeoutError) as exc:
                 with self._condition:
                     self._active_request_id = None
+                self._mark_failed()
                 raise CdpInputError(f"CDP command outcome is unknown for {method}; do not blindly retry input") from exc
             deadline = time.monotonic() + self._timeout
             with self._condition:
@@ -209,6 +211,7 @@ class CdpWebSocketTransport:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         self._active_request_id = None
+                        self._mark_failed()
                         raise CdpInputError(f"CDP command outcome is unknown for {method}; do not blindly retry input")
                     self._condition.wait(remaining)
                 if self._reader_error is not None:
@@ -226,6 +229,18 @@ class CdpWebSocketTransport:
                 raise CdpInputError(f"CDP returned an invalid result for {method}")
             return result
 
+    def _mark_failed(self) -> None:
+        """Poison a transport after an ambiguous command outcome; never reuse it."""
+        with self._condition:
+            self._failed = True
+            self._condition.notify_all()
+        sock = getattr(self, "_socket", None)
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
     def _reader_loop(self) -> None:
         while True:
             with self._condition:
@@ -237,6 +252,7 @@ class CdpWebSocketTransport:
                 with self._condition:
                     if not self._closed:
                         self._reader_error = exc
+                        self._failed = True
                     self._condition.notify_all()
                 return
             self._route_message(message)
