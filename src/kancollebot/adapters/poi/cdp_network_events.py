@@ -4,7 +4,7 @@ import re
 from typing import Any
 _SENSITIVE = re.compile(r"(?:cookie|authorization|password|passwd|secret|token|credential|session|api[_-]?key)", re.IGNORECASE)
 _QUERY = re.compile(r"(?i)([?&][^=&#]*(?:token|key|password|passwd|secret|session|auth|credential|cookie)[^=&#]*=)[^&#]*")
-_TEXT = re.compile(r"(?i)(\b(?:cookie|set-cookie|authorization|password|passwd|secret|token|api[_-]?key|session|credential|access[_-]?token|refresh[_-]?token|client[_-]?secret)\b\s*[=:]\s*)([^&;,\s\\"]+)")
+_TEXT = re.compile(r'(?i)(\b(?:cookie|set-cookie|authorization|password|passwd|secret|token|api[_-]?key|session|credential|access[_-]?token|refresh[_-]?token|client[_-]?secret)\b\s*[=:]\s*)([^&;,\s"\\]+)')
 _MAX_URL_LENGTH = 4096
 _MAX_TEXT_LENGTH = 256
 
