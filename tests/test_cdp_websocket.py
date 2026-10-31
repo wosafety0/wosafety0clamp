@@ -107,7 +107,6 @@ class CdpWebSocketTransportTests(unittest.TestCase):
         self.assertEqual(transport.drain_events(), [])
 
     def test_rejects_non_loopback_before_opening_socket(self):
-    def test_rejects_non_loopback_before_opening_socket(self):
         with patch("kancollebot.adapters.poi.cdp_websocket.socket.create_connection") as connect:
             with self.assertRaisesRegex(CdpInputError, "loopback"):
                 CdpWebSocketTransport("ws://192.0.2.1:9222/devtools/page/1")
