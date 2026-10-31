@@ -1,3 +1,10 @@
+### 2026-11-01 — Exact-head CI verification of the CDP target-list guard
+
+- Re-read the workflow run for PR #21's exact pre-archive head `84078e9707ae18b1c4db967b33cd7c452e4196fb`. Push CI [41147792661](https://github.com/wosafety0/wosafety0clamp/actions/runs/41147792661) completed with conclusion `success` on that exact SHA.
+- Job `test` succeeded. The offline JavaScript static-extraction tests and passive observer syntax check completed successfully; `python -m compileall -q src tests` passed; `PYTHONPATH=src python -m unittest discover -s tests -v` reported **200 tests, OK**.
+- This corrects the earlier statement that exact-head hosted CI was not verified. The run verifies offline/static behavior only; no live Poi/CDP witness, current-state freshness, or expedition loop was tested.
+- This round performed no local Poi/MCP connection, game input, page JavaScript execution, `Runtime.evaluate`, getter access, system change, live dispatch, merge, release, or deployment. PR #21 remains Draft/open.
+
 # KancolleBot 开发进度
 
 ## 2026-10-21
@@ -2746,5 +2753,5 @@ The Hand plugin's read-only probe reported:
 - Source inspection found that valid non-array JSON from the loopback CDP `/json/list` endpoint previously reached `targets.filter(...)`, causing an uncaught TypeError instead of the observer's structured failure outcome. Added an `Array.isArray(targets)` prefilter guard returning `TARGET_DISCOVERY_FAILED`. Source commit `cbff602ffcb7aa57c90a6a02ede5e2906b183b2a`.
 - Added static regression tests for guard ordering, loopback WebSocket restrictions and absence of `Runtime.evaluate`/`Runtime.callFunctionOn` send calls. Test commits `ce0d0d8a8735947ee9131b4ea502c0ee7ca08674` and `06297b0d73161467bff0c038b976d202be9e998a`.
 - VERIFIED (static only): remote source blob `71edfb1d38711d6fbbfdcca79dc61e030a8b334a` and test blob `eaec12c53e466d5a99ca9f5bdeb9ca0419abeccf` were read back; targeted assertions on remote text passed and the full observer JavaScript parsed in V8 without invocation. GitHub Compare showed three commits ahead, zero behind, only two source/test files changed before this archive.
-- NOT VERIFIED: exact-head hosted CI, full Python/JavaScript test suite, and any live Poi/CDP witness. Next: check `node --check tools/hand_sandbox/poi_port_response_observer_20261029.js`, `python -m compileall -q src tests`, `PYTHONPATH=src python -m unittest discover -s tests -v` and existing JS offline tests on the final archive head; inspect Actions run ID and job steps before declaring CI PASS.
+- Superseded by the exact-head CI verification recorded at the top of this log: commit `84078e9707ae18b1c4db967b33cd7c452e4196fb` passed Push CI [41147792661](https://github.com/wosafety0/wosafety0clamp/actions/runs/41147792661). The hosted `test` job completed the offline JavaScript static-extraction tests, observer `node --check`, `python -m compileall -q src tests`, and `PYTHONPATH=src python -m unittest discover -s tests -v`; the Python suite reported 200 tests and `OK`. Live Poi/CDP witness remains unverified.
 - Safety: no local connection, game input, game API request, page JS evaluation, system change, live dispatch, release or deployment. All game actions remain disabled.
