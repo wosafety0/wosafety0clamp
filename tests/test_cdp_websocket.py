@@ -62,7 +62,7 @@ class CdpWebSocketTransportTests(unittest.TestCase):
         transport._dispatch_event({"method": "Network.requestWillBeSent", "params": {"request": {
             "headers": {"Cookie": "password=secret", "Authorization": "Bearer abc", "Accept": "application/json"},
             "postData": json.dumps({"api_token": "sensitive", "fleet": 2}),
-            "url": "https://example.invalid/api?api_token=secret&fleet=2",
+            "url": "https://example.invalid/api?api_token=secret&accessToken=also-secret&clientSecret=another-secret&fleet=2",
         }}})
         request = transport.drain_events()[0]["params"]["request"]
         self.assertEqual(request["headers"]["Cookie"], "[REDACTED]")
@@ -71,6 +71,8 @@ class CdpWebSocketTransportTests(unittest.TestCase):
         self.assertNotIn("sensitive", request["postData"])
         self.assertIn("[REDACTED]", request["postData"])
         self.assertIn("api_token=[REDACTED]", request["url"])
+        self.assertIn("accessToken=[REDACTED]", request["url"])
+        self.assertIn("clientSecret=[REDACTED]", request["url"])
 
     def test_reader_routes_events_while_no_command_is_pending(self):
         transport = CdpWebSocketTransport.__new__(CdpWebSocketTransport)
