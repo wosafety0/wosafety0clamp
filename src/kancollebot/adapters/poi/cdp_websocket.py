@@ -1,8 +1,8 @@
-"""Loopback-only, allowlisted WebSocket transport for CDP mouse input.
+"""Loopback-only CDP transport with allowlisted input and passive observation.
 
-Only viewport inspection, one fixed read-only fleet snapshot expression, mouse
-input, screenshot capture, and explicit page reload for UI recovery are allowed. Arbitrary Runtime.evaluate expressions
-and all other CDP methods are rejected.
+Supports viewport inspection, one fixed read-only fleet snapshot, screenshot
+capture, explicit UI recovery, mouse input, and passive Network event reading.
+Request interception/replay and arbitrary Runtime.evaluate remain forbidden.
 """
 from __future__ import annotations
 
