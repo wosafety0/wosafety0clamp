@@ -2831,3 +2831,13 @@ The Hand plugin's read-only probe reported:
 - Updated `docs/research/CDP_PASSIVE_NETWORK_OBSERVER_DESIGN.md` to reflect implementation and verified offline status.
 - **Boundary:** no live Network observation, screenshot capture, game input, game request, or end-to-end expedition loop was performed. The candidate `/kcsapi/api_port/port` path remains configurable and must be confirmed against naturally observed traffic. The production UI loop remains fail-closed; this observer does not authorize dispatch.
 - **Next:** use a bounded, manually operated/read-only observation session to confirm the real endpoint path and sanitized before/after mission-state evidence. Until that evidence exists, do not infer mission transitions or enable automatic dispatch.
+
+
+## 2026-10-31 — Read-only Poi Network observation CLI and target selection
+
+- Added `tools/observe_poi_network.py`, a bounded local CLI that observes naturally generated Network events through CDP and prints only a minimal sanitized projection. It does not send UI input, reload the page, intercept/replay requests, or save raw headers/body contents.
+- Added regression tests proving URL host/query and body content are omitted, malformed events are rejected, and non-finite metadata is excluded.
+- Added configurable WebView URL-hint support to `connect_game_webview`; the CLI defaults to the previously observed `kcs2/index.php` URL pattern and allows an explicit override.
+- **Verified:** full CI [41176759637](https://github.com/wosafety0/wosafety0clamp/actions/runs/41176759637) passed **221 tests, 3 skipped**, including the target-hint test. Dedicated offline observer CI [41176752672](https://github.com/wosafety0/wosafety0clamp/actions/runs/41176752672) passed 16 transport tests, 6 observer-facade tests, 4 output-projection tests, and 3 synthetic visual-difference tests.
+- Remote source/test/workflow contents were read back. No live capture or game input was performed.
+- **Next:** run the CLI locally during a manually initiated, naturally occurring game event to confirm the actual port endpoint path and capture sanitized before/after mission tuples. Until that evidence is obtained, no mission-state transition is inferred and the production UI loop remains fail-closed.
