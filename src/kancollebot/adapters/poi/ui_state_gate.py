@@ -71,7 +71,8 @@ def classify_accessible_state(nodes: Any) -> UiState:
         return UiState.HOME_PORT_RETURN_NOTICE
     matched = [
         state for state, markers in _STATE_MARKERS.items()
-        if any(marker.casefold() in text for marker in markers for text in texts)
+        if state is not UiState.HOME_PORT_RETURN_NOTICE
+        and any(marker.casefold() in text for marker in markers for text in texts)
     ]
     return matched[0] if len(matched) == 1 else UiState.UNKNOWN
 
