@@ -58,8 +58,12 @@ class DispatchIntent:
         if isinstance(self.reserved, bool) or not isinstance(self.reserved, int) or self.reserved < 0:
             raise ValueError("reserved must be a non-negative integer")
         if self.action_completed_at is not None:
-            if (self.action_completed_at.tzinfo is None or self.action_completed_at.utcoffset() is None
-                    or self.action_completed_at < self.prepared_at):
+            if (
+                not isinstance(self.action_completed_at, datetime)
+                or self.action_completed_at.tzinfo is None
+                or self.action_completed_at.utcoffset() is None
+                or self.action_completed_at < self.prepared_at
+            ):
                 raise ValueError("action_completed_at must be timezone-aware and after preparation")
 
 
@@ -158,8 +162,14 @@ class SqliteDispatchIntentStore:
         return tuple(self._decode(row) for row in rows)
 
     def mark_action_completed(self, fleet_id: int, completed_at: datetime) -> DispatchIntent:
-        if completed_at.tzinfo is None or completed_at.utcoffset() is None:
-            raise DispatchIntentError("UI action completion timestamp must be timezone-aware")
+        if (
+            not isinstance(completed_at, datetime)
+            or completed_at.tzinfo is None
+            or completed_at.utcoffset() is None
+        ):
+            raise DispatchIntentError(
+                "UI action completion timestamp must be a timezone-aware datetime"
+            )
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
