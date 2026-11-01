@@ -30,6 +30,7 @@ class ExpeditionFleetSnapshot:
     ammo_ready: bool = False
     damaged_ship_ids: tuple[int, ...] = ()
     mission_status: int | None = None
+    reserved: int = 0
 
     def __post_init__(self) -> None:
         if self.fleet_id < 1:
@@ -46,6 +47,8 @@ class ExpeditionFleetSnapshot:
             raise ValueError("damaged_ship_ids must belong to this fleet")
         if self.mission_status not in (None, 0, 1, 2):
             raise ValueError("mission_status must be 0, 1, 2, or unknown")
+        if isinstance(self.reserved, bool) or not isinstance(self.reserved, int) or self.reserved < 0:
+            raise ValueError("reserved must be a non-negative integer")
         if self.mission_status == 0 and self.mission_id is not None:
             raise ValueError("idle mission_status cannot have an active mission")
         if self.mission_status in (1, 2) and self.mission_id is None:
