@@ -84,13 +84,23 @@ def project_event(event: Any) -> dict[str, Any] | None:
     return result
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """Build the bounded observer CLI with supported-target auto-detection by default."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--endpoint", default="http://127.0.0.1:9222")
-    parser.add_argument("--url-hint", default="kcs2/index.php", help="Unique substring for the game WebView URL")
+    parser.add_argument(
+        "--url-hint",
+        default="",
+        help="Optional explicit WebView URL substring; otherwise auto-select one supported DMM or Ooi game WebView",
+    )
     parser.add_argument("--duration-seconds", type=float, default=60.0)
     parser.add_argument("--max-events", type=int, default=20)
     parser.add_argument("--path", action="append", dest="paths")
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
     args = parser.parse_args()
 
     if not math.isfinite(args.duration_seconds) or not 5 <= args.duration_seconds <= 300:

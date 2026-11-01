@@ -2,7 +2,17 @@ from __future__ import annotations
 
 import unittest
 
-from tools.observe_poi_network import project_event
+from tools.observe_poi_network import build_parser, project_event
+
+
+class ObserverCliTests(unittest.TestCase):
+    def test_default_target_selection_auto_detects_supported_dmm_or_ooi_webview(self):
+        args = build_parser().parse_args([])
+        self.assertEqual(args.url_hint, "")
+
+    def test_explicit_target_hint_remains_supported(self):
+        args = build_parser().parse_args(["--url-hint", "ooi.moe/poi"])
+        self.assertEqual(args.url_hint, "ooi.moe/poi")
 
 
 class ProjectEventTests(unittest.TestCase):
