@@ -2975,3 +2975,34 @@ The Hand plugin's read-only probe reported:
 - **Verification:** full Python unittest discovery passed **234 tests (3 skipped)**; Node.js static tests passed **17/17**; compileall and git diff --check passed.
 - **Acceptance boundary:** the Fleet 2 tab coordinate is now live-verified for the current Ooi 1200x720 layout. The six visual state checkpoints and end-to-end expedition loop remain unverified; production dispatch remains fail-closed.
 - **Safety:** screenshots were analyzed only in memory and not saved locally. No game API request was constructed or sent.
+
+
+## 2026-11-01 — Ooi 视觉指纹识别原型（未完成视觉验收）
+
+- **已实现并本地提交：** 新增无第三方依赖的 PNG 解码、RGB 网格指纹计算与相似度分类模块 `src/kancollebot/adapters/poi/visual_fingerprint.py`，专项测试 `tests/test_visual_fingerprint.py`，以及从 Ooi 当前 WebView 内存截图提取指纹的工具 `tools/capture_ooi_visual_fingerprint.py`。指纹数据位于 `src/kancollebot/adapters/poi/ooi_1200x720_fingerprints.json`。
+- **原型数据范围：** 当前包含 HOME_PORT、SORTIE_MENU、EXPEDITION_LIST、MISSION_SELECTED、FLEET_SELECTION、FLEET_2_SELECTED 六组状态；每组使用 24×16 网格、1,152 个 RGB 数值，采样 3 次。截图仅在内存中处理，未保存原始截图文件。
+- **标签可信度限制：** 数据中的 `label_source=manually_confirmed_current_screen` 只表示捕获时使用了人工确认的当前画面标签；六组标签、裁剪区域及分类阈值尚未逐一通过独立的现场视觉核验。当前六组指纹均为原型数据，不得作为生产环境可信 checkpoint，也不得据此放行派遣点击。
+- **后续本地增量（本条记录时尚未提交）：** `EXPEDITION_LIST` 指纹重新采样，裁剪区域调整为 `[850, 140, 340, 520]`；新增一次性只读诊断工具 `tools/verify_ooi_visual_fingerprint.py`。该工具只捕获当前画面并在内存中分类，不导航、不点击、不保存截图。该脚本尚未经过完整独立验证。
+- **当前画面诊断边界：** 一次实时诊断以 EXPEDITION_LIST 为预期状态，分类器返回 UNKNOWN：MISSION_SELECTED 得分 1.0，EXPEDITION_LIST 得分 0.94823，两者差值 0.05177，小于配置的最小区分度 0.06。该结果证明当前阈值会对这组相近匹配 fail-closed；它不证明当前画面的真实标签，也不构成任何状态识别准确率验收。
+- **测试证据边界：** 本轮既有验证记录为 Python 243 passed / 3 skipped、Node.js 17/17、compileall 通过、git diff --check 通过；这些结果来自本轮先前执行，不能自动覆盖后续未提交的指纹重采样及诊断脚本。后续应在合并本地增量后重新运行相关验证。
+- **生产状态：** 六阶段视觉 checkpoint 尚未完成逐项视觉核验；真实画面变化下的准确率、阈值鲁棒性、与现有 checkpoint verifier 的集成，以及端到端自动远征闭环均未验收。生产派遣保持 fail-closed。
+- **安全边界：** 本轮指纹采集与诊断均为 CDP 内存截图读取；未构造、重放或发送游戏 API/服务器请求，未执行派遣或其他游戏点击，未保存截图文件，未修改代理或系统代理设置。
+
+
+## 2026-11-01 — Ooi 现场视觉核验与派遣步骤安全复核
+
+- **SORTIE_MENU 现场确认：** Ooi 1200×720 画面显示「出撃選択」及出撃、演習、遠征三个入口。对该人工确认画面重新采集 3 份内存样本（24×16 RGB 网格，裁剪区域 `[180,130,950,520]`）；紧接着的只读分类结果为 `SORTIE_MENU=0.99150`，次高 `HOME_PORT=0.73152`。该次截图未保存为文件。
+- **EXPEDITION_LIST 现场确认：** 远征入口打开后，画面显示远征任务行列表，未选中任务时右侧详情区为空。一次即时分类结果为 `EXPEDITION_LIST=1.0`、`MISSION_SELECTED=0.94830`。随后重新采集时画面状态在连续检查间发生变化，使用新裁剪区域的后续分类未达到阈值，因此该次重新采集数据不作为已验收指纹。
+- **MISSION_SELECTED 标签问题：** 指针停留在第 3 行时，行高亮并显示右侧任务详情；将指针移到中性区域后，高亮和详情消失。这是悬停预览，不是稳定的已选中状态。通过普通 UI 点击第 3 行后，界面直接进入舰队选择画面。因此 `MISSION_SELECTED` 不能按当前定义作为点击后的稳定 checkpoint；需重新定义为悬停预览或从生产派遣状态序列中移除，不能用它授权后续点击。
+- **FLEET_SELECTION / FLEET_2_SELECTED 现场确认：** 点击第 3 行后出现舰队选择界面，默认显示舰队 3 的 6 艘舰船；点击舰队 2 标签 `(590,170)` 后，舰队 2 标签高亮并显示 4 艘舰船。两次操作均未点击远征开始按钮。当前指纹分类器对舰队 2 画面返回 `UNKNOWN`，最佳分数仅为 `HOME_PORT=0.72748`，故这些画面虽然可人工识别，指纹识别仍未通过验收。
+- **关键安全风险：** 当前 `tools/one_expedition_ui_loop.py` 中 `MISSION_CONFIRM=(1030,670)`；现场舰队选择画面中的「遠征開始!」按钮覆盖约 `x=796..1045, y=640..700`，该坐标落在远征开始按钮内。若将当前悬停预览误判为稳定的 `MISSION_SELECTED`，旧步骤序列可能在舰队选择阶段提前触发派遣。现有 `run()` 仍在建立 CDP 会话和任何输入前直接 fail-closed；不得解除此门禁，必须先纠正状态序列和坐标定义。
+- **当前本地工作树限制：** 指纹 JSON、`visual_fingerprint.py` 阈值及一次性验证脚本仍有未提交修改；验证脚本当前运行会因缺少 `time` 导入而报错。上述本地增量尚未纳入本次远程归档，也不应被视为已验证成果。保留这些改动，待逐项审查后再决定提交。
+- **安全边界：** 仅进行了可逆的普通 UI 导航/选择及内存截图读取；没有点击「遠征開始!」，没有派遣舰队，没有构造、重放或发送游戏 API/服务器请求，没有保存截图文件，也没有修改代理设置。
+- **验收结论：** 已获得 SORTIE_MENU 的一次正向指纹匹配，以及远征列表、舰队选择和舰队 2 选择的人工视觉证据；六组指纹尚未全部独立核验。MISSION_SELECTED 定义及旧派遣点击序列存在安全性问题，视觉 checkpoint 集成和端到端自动远征继续保持 BLOCKED / fail-closed。
+
+
+## 2026-11-01 — 本地增量复核补充
+
+- **脚本状态更正：** 上一条记录中的 `NameError: time` 是第一次运行时的实际结果。随后复读当前未提交文件，确认 `tools/verify_ooi_visual_fingerprint.py` 已出现 `import time`；修正后的脚本尚未重新执行，因此仍标记为未验证。该脚本会发送一次 `mouseMoved` 事件将指针移至中性位置，不点击、不导航、不保存截图；不应将其描述为完全无输入的纯只读脚本。
+- **工作树测试复核：** 在设置 `PYTHONPATH=src` 后，对当时完整本地工作树重新执行：Python unittest **243 passed / 3 skipped**；Node.js **17/17 passed**；compileall、指纹 JSON 解析和 `git diff --check` 均通过。该结果仅覆盖离线测试及静态检查，不代表视觉状态分类或真实远征闭环验收通过。
+- **归档范围：** 本次远程归档只包含已提交的视觉指纹原型提交及本进度记录；其余本地未提交源码、数据和诊断脚本继续保留在工作树中，不纳入本次推送。
