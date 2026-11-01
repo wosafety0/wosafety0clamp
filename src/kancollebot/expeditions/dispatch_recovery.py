@@ -212,6 +212,11 @@ class DurableDispatchCoordinator:
         state = self.scheduler.fleet(fleet_id)
         if state.phase is not FleetPhase.READY:
             raise DispatchIntentError("dispatch preparation requires a READY fleet")
+        if self.intent_store.get(fleet_id) is not None:
+            self.scheduler.block(
+                fleet_id, "an earlier dispatch intent is still pending; recovery is required before retry"
+            )
+            raise DispatchIntentError("a pending dispatch intent forbids a new dispatch attempt")
         try:
             baseline.require_fresh(now=now, max_age=max_age)
         except ValueError as exc:
