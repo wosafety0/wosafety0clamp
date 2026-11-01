@@ -7,6 +7,7 @@ import unittest
 from kancollebot.expeditions.continuous_scheduler import (
     ContinuousExpeditionScheduler,
     FleetPhase,
+    FleetRuntime,
     MissionTuple,
     SchedulerInvariantError,
     UiOperationArbiter,
@@ -107,6 +108,14 @@ class ContinuousSchedulerTests(unittest.TestCase):
         self.scheduler.confirm_bonus_items(2, ui_state="BONUS_ITEMS")
         with self.assertRaises(SchedulerInvariantError):
             self.scheduler.confirm_reward_claimed(2, claimed=False)
+
+    def test_active_phase_rejects_returned_status_tuple(self):
+        with self.assertRaisesRegex(ValueError, "status 1"):
+            FleetRuntime(2, phase=FleetPhase.EXPEDITION_ACTIVE, mission=self.returned(self.mission2))
+
+    def test_settlement_phase_rejects_active_status_tuple(self):
+        with self.assertRaisesRegex(ValueError, "status 2"):
+            FleetRuntime(2, phase=FleetPhase.RETURN_RESULT, mission=self.mission2)
 
     def test_blocked_fleet_cannot_dispatch(self):
         self.scheduler.block(2, "state unknown")
