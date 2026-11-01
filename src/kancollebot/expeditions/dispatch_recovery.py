@@ -217,8 +217,11 @@ class DurableDispatchCoordinator:
         if len(matches) != 1:
             raise DispatchIntentError("dispatch baseline must contain exactly one target fleet")
         observed = matches[0]
-        if observed.mission_status != 0 or observed.mission_id is not None or observed.return_at is not None:
+        if (observed.mission_status != 0 or observed.mission_id is not None
+                or observed.return_at is not None or observed.reserved != 0):
             raise DispatchIntentError("dispatch baseline must prove an idle fleet")
+        if not baseline.source.startswith("poi-redux:"):
+            raise DispatchIntentError("dispatch baseline must come from a Poi Redux observation")
         if not observed.ship_ids:
             raise DispatchIntentError("empty fleet cannot be dispatched")
         intent = DispatchIntent(
@@ -269,7 +272,8 @@ class DurableDispatchCoordinator:
         if state.phase is FleetPhase.EXPEDITION_ACTIVE and intent is not None:
             mission = state.mission
             if (mission is not None and mission.mission_id == intent.mission_id
-                    and mission.ship_ids == intent.ship_ids and mission.reserved == intent.reserved):
+                    and mission.ship_ids == intent.ship_ids and mission.reserved == intent.reserved
+                    and mission.final_time_ms > int(intent.prepared_at.timestamp() * 1000)):
                 self.intent_store.delete(fleet_id)
                 return state
             return self.scheduler.block(fleet_id, "persisted active mission conflicts with pending dispatch intent")
@@ -298,7 +302,10 @@ class DurableDispatchCoordinator:
             state = self.scheduler.confirm_dispatch(fleet_id, mission)
             self.intent_store.delete(fleet_id)
             return state
-        if observed.mission_status == 2 and observed.mission_id == intent.mission_id:
+        if (observed.mission_status == 2 and observed.mission_id == intent.mission_id
+                and observed.ship_ids == intent.ship_ids and observed.return_at is not None
+                and observed.reserved == intent.reserved
+                and int(observed.return_at.timestamp() * 1000) > int(intent.prepared_at.timestamp() * 1000)):
             reason = "mission already returned during interruption; manual UI settlement is required"
         elif observed.mission_status == 0:
             reason = "fresh Poi state remains idle after interrupted dispatch; automatic retry is forbidden"
