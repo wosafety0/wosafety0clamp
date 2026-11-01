@@ -1,0 +1,188 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from kancollebot.core.observed_state import ObservedState
+from kancollebot.expeditions.continuous_scheduler import (
+    ContinuousExpeditionScheduler,
+    FleetPhase,
+    MissionTuple,
+)
+from kancollebot.expeditions.dispatch_recovery import (
+    DispatchIntent,
+    DispatchIntentError,
+    DurableDispatchCoordinator,
+    SqliteDispatchIntentStore,
+)
+from kancollebot.expeditions.fleet_state_store import SqliteFleetStateStore
+from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
+
+
+UTC = timezone.utc
+T0 = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
+SHIPS = (11, 22, 33, 44)
+
+
+class DurableDispatchRecoveryTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.db = Path(self.temp.name) / "dispatch.sqlite3"
+        self.fleet_store = SqliteFleetStateStore(self.db)
+        self.intent_store = SqliteDispatchIntentStore(self.db)
+        self.scheduler = ContinuousExpeditionScheduler(state_store=self.fleet_store)
+        self.scheduler.mark_ready(2)
+        self.coordinator = DurableDispatchCoordinator(self.scheduler, self.intent_store)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def observation(self, fleet, *, at, fresh=True):
+        return ObservedState((fleet,), at, "poi-redux:info.fleets+info.ships", fresh)
+
+    def idle_fleet(self, fleet_id=2, ships=SHIPS):
+        return ExpeditionFleetSnapshot(
+            fleet_id, ships, mission_id=None, return_at=None,
+            fuel_ready=True, ammo_ready=True, mission_status=0, reserved=0,
+        )
+
+    def active_fleet(self, *, at, status=1, mission_id=3, ships=SHIPS):
+        return ExpeditionFleetSnapshot(
+            2, ships, mission_id=mission_id, return_at=at,
+            fuel_ready=True, ammo_ready=True, mission_status=status, reserved=0,
+        )
+
+    def prepare(self):
+        baseline = self.observation(
+            self.idle_fleet(), at=T0 - timedelta(seconds=1)
+        )
+        return self.coordinator.prepare_dispatch(
+            2, 3, baseline, now=T0, reserved=0
+        )
+
+    def test_intent_is_durable_before_dispatch_state_advances(self):
+        intent = self.prepare()
+        self.assertEqual(self.scheduler.fleet(2).phase, FleetPhase.DISPATCHING)
+        self.assertEqual(self.intent_store.get(2), intent)
+
+    def test_action_completion_marker_survives_store_reload(self):
+        self.prepare()
+        completed = T0 + timedelta(seconds=2)
+        self.coordinator.mark_ui_action_completed(2, completed_at=completed)
+        restored = SqliteDispatchIntentStore(self.db).get(2)
+        self.assertEqual(restored.action_completed_at, completed)
+
+    def test_fresh_matching_active_mission_reconciles_without_home_port_bypass(self):
+        self.prepare()
+        self.coordinator.mark_ui_action_completed(
+            2, completed_at=T0 + timedelta(seconds=1)
+        )
+        observed_at = T0 + timedelta(seconds=3)
+        observation = self.observation(
+            self.active_fleet(at=T0 + timedelta(minutes=15)),
+            at=observed_at,
+        )
+        state = self.coordinator.reconcile_after_restart(
+            2, observation, now=observed_at + timedelta(seconds=1)
+        )
+        self.assertEqual(state.phase, FleetPhase.EXPEDITION_ACTIVE)
+        self.assertFalse(state.home_port_verified)
+        self.assertFalse(self.scheduler.may_wait_for_return(2))
+        self.assertIsNone(self.intent_store.get(2))
+
+    def test_idle_state_after_interrupted_click_blocks_without_retry(self):
+        self.prepare()
+        observed_at = T0 + timedelta(seconds=3)
+        state = self.coordinator.reconcile_after_restart(
+            2, self.observation(self.idle_fleet(), at=observed_at),
+            now=observed_at + timedelta(seconds=1),
+        )
+        self.assertEqual(state.phase, FleetPhase.BLOCKED)
+        self.assertIn("automatic retry is forbidden", state.blocked_reason)
+        self.assertIsNotNone(self.intent_store.get(2))
+
+    def test_mismatched_mission_or_roster_blocks(self):
+        self.prepare()
+        observed_at = T0 + timedelta(seconds=3)
+        state = self.coordinator.reconcile_after_restart(
+            2, self.observation(
+                self.active_fleet(at=T0 + timedelta(minutes=15), mission_id=1),
+                at=observed_at,
+            ), now=observed_at + timedelta(seconds=1),
+        )
+        self.assertEqual(state.phase, FleetPhase.BLOCKED)
+        self.assertIsNotNone(self.intent_store.get(2))
+
+    def test_already_returned_mission_requires_manual_settlement(self):
+        self.prepare()
+        observed_at = T0 + timedelta(minutes=20)
+        state = self.coordinator.reconcile_after_restart(
+            2, self.observation(
+                self.active_fleet(at=T0 + timedelta(minutes=15), status=2),
+                at=observed_at,
+            ), now=observed_at + timedelta(seconds=1),
+        )
+        self.assertEqual(state.phase, FleetPhase.BLOCKED)
+        self.assertIn("manual UI settlement", state.blocked_reason)
+
+    def test_unverified_or_stale_observation_is_rejected_without_state_change(self):
+        self.prepare()
+        observed_at = T0 + timedelta(seconds=3)
+        unverified = self.observation(
+            self.active_fleet(at=T0 + timedelta(minutes=15)),
+            at=observed_at, fresh=False,
+        )
+        with self.assertRaisesRegex(DispatchIntentError, "not trusted"):
+            self.coordinator.reconcile_after_restart(
+                2, unverified, now=observed_at + timedelta(seconds=1)
+            )
+        stale = self.observation(
+            self.active_fleet(at=T0 + timedelta(minutes=15)),
+            at=T0 - timedelta(seconds=1),
+        )
+        with self.assertRaisesRegex(DispatchIntentError, "not trusted"):
+            self.coordinator.reconcile_after_restart(
+                2, stale, now=T0 + timedelta(minutes=1), max_age=timedelta(seconds=5)
+            )
+        self.assertEqual(self.scheduler.fleet(2).phase, FleetPhase.DISPATCHING)
+
+    def test_observation_must_be_from_poi_reader(self):
+        self.prepare()
+        at = T0 + timedelta(seconds=3)
+        observation = ObservedState(
+            (self.active_fleet(at=T0 + timedelta(minutes=15)),),
+            at, "synthetic", True,
+        )
+        with self.assertRaisesRegex(DispatchIntentError, "Poi Redux"):
+            self.coordinator.reconcile_after_restart(
+                2, observation, now=at + timedelta(seconds=1)
+            )
+
+    def test_orphan_intent_before_scheduler_transition_blocks_on_restart(self):
+        intent = DispatchIntent(
+            2, 3, SHIPS, (0, 0, 0, 0), T0 - timedelta(seconds=1), T0,
+        )
+        self.intent_store.save(intent)
+        unresolved = self.coordinator.recover_pending_intents()
+        self.assertEqual(unresolved, (2,))
+        self.assertEqual(self.scheduler.fleet(2).phase, FleetPhase.BLOCKED)
+
+    def test_intent_left_after_scheduler_confirmation_is_reconciled(self):
+        intent = self.prepare()
+        mission = MissionTuple(1, intent.mission_id, int((T0 + timedelta(minutes=15)).timestamp() * 1000),
+                               intent.reserved, intent.ship_ids)
+        self.scheduler.confirm_dispatch(2, mission)
+        unresolved = self.coordinator.recover_pending_intents()
+        self.assertEqual(unresolved, ())
+        self.assertIsNone(self.intent_store.get(2))
+
+    def test_intent_store_rejects_duplicate_pending_dispatch(self):
+        self.prepare()
+        with self.assertRaises(DispatchIntentError):
+            self.intent_store.save(self.intent_store.get(2))
+
+
+if __name__ == "__main__":
+    unittest.main()
