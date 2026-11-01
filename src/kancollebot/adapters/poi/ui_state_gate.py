@@ -31,7 +31,7 @@ class UiStateGateError(RuntimeError):
 _STATE_MARKERS: dict[UiState, tuple[str, ...]] = {
     UiState.HOME_PORT: ("母港", "home port"),
     UiState.RETURN_RESULT: ("遠征 失敗", "遠征 成功", "expedition failed", "expedition success"),
-    UiState.BONUS_ITEMS: ("獲得資源", "獲得アイテム", "bonus items", "reward items"),
+    UiState.BONUS_ITEMS: ("獲得資源", "獲得アイテム", "獲得ボーナス", "bonus items", "reward items"),
     UiState.ERROR_DIALOG: ("エラーが発生したため", "an error occurred"),
 }
 _CANCEL_MARKERS = ("取消", "キャンセル", "cancel")

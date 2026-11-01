@@ -20,6 +20,7 @@ class UiStateGateTests(unittest.TestCase):
         self.assertIs(classify_accessible_state([node("母港")]), UiState.HOME_PORT)
         self.assertIs(classify_accessible_state([node("遠征 失敗！")]), UiState.RETURN_RESULT)
         self.assertIs(classify_accessible_state([node("獲得アイテム")]), UiState.BONUS_ITEMS)
+        self.assertIs(classify_accessible_state([node("獲得ボーナス")]), UiState.BONUS_ITEMS)
 
     def test_ambiguous_or_missing_evidence_is_unknown(self):
         self.assertIs(classify_accessible_state([]), UiState.UNKNOWN)
