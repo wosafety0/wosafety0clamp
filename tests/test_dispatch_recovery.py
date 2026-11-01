@@ -42,10 +42,12 @@ class DurableDispatchRecoveryTests(unittest.TestCase):
     def observation(self, fleet, *, at, fresh=True):
         return ObservedState((fleet,), at, "poi-redux:info.fleets+info.ships", fresh)
 
-    def idle_fleet(self, fleet_id=2, ships=SHIPS):
+    def idle_fleet(
+        self, fleet_id=2, ships=SHIPS, *, fuel_ready=True, ammo_ready=True
+    ):
         return ExpeditionFleetSnapshot(
             fleet_id, ships, mission_id=None, return_at=None,
-            fuel_ready=True, ammo_ready=True, mission_status=0, reserved=0,
+            fuel_ready=fuel_ready, ammo_ready=ammo_ready, mission_status=0, reserved=0,
         )
 
     def active_fleet(self, *, at, status=1, mission_id=3, ships=SHIPS):
@@ -68,6 +70,30 @@ class DurableDispatchRecoveryTests(unittest.TestCase):
                 2, 3, SHIPS, (False, 0, 0, 0),
                 T0 - timedelta(seconds=1), T0,
             )
+
+    def test_prepare_dispatch_requires_fuel_and_ammunition_ready(self):
+        for field in ("fuel_ready", "ammo_ready"):
+            with self.subTest(field=field):
+                fleet = self.idle_fleet(**{field: False})
+                baseline = self.observation(fleet, at=T0 - timedelta(seconds=1))
+                with self.assertRaisesRegex(
+                    DispatchIntentError, "fuel and ammunition are ready"
+                ):
+                    self.coordinator.prepare_dispatch(2, 3, baseline, now=T0)
+                self.assertEqual(self.scheduler.fleet(2).phase, FleetPhase.READY)
+                self.assertIsNone(self.intent_store.get(2))
+
+    def test_prepare_dispatch_rejects_non_boolean_supply_flags(self):
+        for field, value in (("fuel_ready", 1), ("ammo_ready", "false")):
+            with self.subTest(field=field):
+                fleet = self.idle_fleet(**{field: value})
+                baseline = self.observation(fleet, at=T0 - timedelta(seconds=1))
+                with self.assertRaisesRegex(
+                    DispatchIntentError, "boolean fuel and ammunition readiness"
+                ):
+                    self.coordinator.prepare_dispatch(2, 3, baseline, now=T0)
+                self.assertEqual(self.scheduler.fleet(2).phase, FleetPhase.READY)
+                self.assertIsNone(self.intent_store.get(2))
 
     def test_intent_is_durable_before_dispatch_state_advances(self):
         intent = self.prepare()
