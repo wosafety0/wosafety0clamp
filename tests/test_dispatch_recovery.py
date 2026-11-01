@@ -62,6 +62,13 @@ class DurableDispatchRecoveryTests(unittest.TestCase):
             2, 3, baseline, now=T0, reserved=0
         )
 
+    def test_dispatch_intent_rejects_boolean_baseline_slots(self):
+        with self.assertRaisesRegex(ValueError, "integer idle baseline"):
+            DispatchIntent(
+                2, 3, SHIPS, (False, 0, 0, 0),
+                T0 - timedelta(seconds=1), T0,
+            )
+
     def test_intent_is_durable_before_dispatch_state_advances(self):
         intent = self.prepare()
         self.assertEqual(self.scheduler.fleet(2).phase, FleetPhase.DISPATCHING)
