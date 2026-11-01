@@ -66,18 +66,33 @@ class VisualStateGateTests(unittest.TestCase):
         }), "UNKNOWN")
 
     def test_live_home_port_return_notice_scores_classify_as_distinct_state(self):
-        scores = {
-            "home_sortie_menu.png": 0.99608,
-            "negative_home_other_menu.png": 0.87841,
-            "expedition_result_success.png": 0.16670,
-            "expedition_result_failure.png": 0.16829,
-            "home_expedition_menu.png": 0.20931,
-            "expedition_list_panel.png": 0.38027,
-            "expedition_dispatch_button.png": 0.35229,
-            "return_notice.png": 0.98995,
-            "bonus_title.png": 0.25640,
-        }
-        self.assertEqual(classify_template_scores(scores), "HOME_PORT_RETURN_NOTICE")
+        frame_scores = (
+            {
+                "home_sortie_menu.png": 0.99608,
+                "negative_home_other_menu.png": 0.87841,
+                "expedition_result_success.png": 0.16670,
+                "expedition_result_failure.png": 0.16829,
+                "home_expedition_menu.png": 0.20931,
+                "expedition_list_panel.png": 0.38027,
+                "expedition_dispatch_button.png": 0.35229,
+                "return_notice.png": 0.98995,
+                "bonus_title.png": 0.25640,
+            },
+            {
+                "home_sortie_menu.png": 0.99608,
+                "negative_home_other_menu.png": 0.87841,
+                "expedition_result_success.png": 0.16743,
+                "expedition_result_failure.png": 0.16412,
+                "home_expedition_menu.png": 0.20765,
+                "expedition_list_panel.png": 0.37734,
+                "expedition_dispatch_button.png": 0.35688,
+                "return_notice.png": 0.98995,
+                "bonus_title.png": 0.25517,
+            },
+        )
+        for scores in frame_scores:
+            with self.subTest(scores=scores):
+                self.assertEqual(classify_template_scores(scores), "HOME_PORT_RETURN_NOTICE")
 
     def test_return_notice_without_home_evidence_fails_closed(self):
         self.assertEqual(classify_template_scores({
