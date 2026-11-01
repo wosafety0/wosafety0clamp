@@ -2967,3 +2967,11 @@ The Hand plugin's read-only probe reported:
 - **Game boundary:** no game-server API request was constructed or sent, and no gameplay action was performed. Actual DMM/Ooi game login through this restored route has not yet been verified.
 - **Combined post-switch check:** with `JP-LN` active and the proxy egress verified as Japan, Poi remained running and CDP still exposed the `webview` target titled `OOI - 舰娘在线缓存系统` at `ooi.moe/poi`. The route switch therefore did not remove the Ooi WebView. DMM authentication, the current child-frame game readiness, and Bot state extraction remain unverified. Earlier Germany/Italy egress readings are historical snapshots from before `JP-LN` was activated and do not describe the current verified route.
 
+## 2026-11-01 - Ooi Fleet 2 tab coordinate corrected
+
+- **Live UI evidence:** in the Ooi-hosted 1200x720 fleet-selection screen, selecting the Fleet 3 tab at (630, 170) visibly changed the selected fleet; selecting the Fleet 2 tab at (590, 170) returned to the Fleet 2 view with four ship cards. The separate Poi Redux snapshot independently reported Fleet 2 with 4 ships.
+- **Implementation:** corrected FLEET_2_TAB in tools/one_expedition_ui_loop.py from (300, 100) to the observed (590, 170), and added test_fleet_2_tab_coordinate_matches_ooi_fleet_tab to tests/test_one_expedition_ui_loop.py.
+- **Post-navigation state:** after returning to Home Port, the Poi Redux snapshot still showed three fleets with mission_status=0 and mission_id=0 (Fleet 1: 5 ships; Fleet 2: 4 ships; Fleet 3: 6 ships). No expedition was started.
+- **Verification:** full Python unittest discovery passed **234 tests (3 skipped)**; Node.js static tests passed **17/17**; compileall and git diff --check passed.
+- **Acceptance boundary:** the Fleet 2 tab coordinate is now live-verified for the current Ooi 1200x720 layout. The six visual state checkpoints and end-to-end expedition loop remain unverified; production dispatch remains fail-closed.
+- **Safety:** screenshots were analyzed only in memory and not saved locally. No game API request was constructed or sent.
