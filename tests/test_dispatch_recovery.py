@@ -42,10 +42,12 @@ class DurableDispatchRecoveryTests(unittest.TestCase):
     def observation(self, fleet, *, at, fresh=True):
         return ObservedState((fleet,), at, "poi-redux:info.fleets+info.ships", fresh)
 
-    def idle_fleet(self, fleet_id=2, ships=SHIPS):
+    def idle_fleet(
+        self, fleet_id=2, ships=SHIPS, *, fuel_ready=True, ammo_ready=True
+    ):
         return ExpeditionFleetSnapshot(
             fleet_id, ships, mission_id=None, return_at=None,
-            fuel_ready=True, ammo_ready=True, mission_status=0, reserved=0,
+            fuel_ready=fuel_ready, ammo_ready=ammo_ready, mission_status=0, reserved=0,
         )
 
     def active_fleet(self, *, at, status=1, mission_id=3, ships=SHIPS):
@@ -69,6 +71,30 @@ class DurableDispatchRecoveryTests(unittest.TestCase):
                 T0 - timedelta(seconds=1), T0,
             )
 
+    def test_prepare_dispatch_requires_fuel_and_ammunition_ready(self):
+        for field in ("fuel_ready", "ammo_ready"):
+            with self.subTest(field=field):
+                fleet = self.idle_fleet(**{field: False})
+                baseline = self.observation(fleet, at=T0 - timedelta(seconds=1))
+                with self.assertRaisesRegex(
+                    DispatchIntentError, "fuel and ammunition are ready"
+                ):
+                    self.coordinator.prepare_dispatch(2, 3, baseline, now=T0)
+                self.assertEqual(self.scheduler.fleet(2).phase, FleetPhase.READY)
+                self.assertIsNone(self.intent_store.get(2))
+
+    def test_prepare_dispatch_rejects_non_boolean_supply_flags(self):
+        for field, value in (("fuel_ready", 1), ("ammo_ready", "false")):
+            with self.subTest(field=field):
+                fleet = self.idle_fleet(**{field: value})
+                baseline = self.observation(fleet, at=T0 - timedelta(seconds=1))
+                with self.assertRaisesRegex(
+                    DispatchIntentError, "boolean fuel and ammunition readiness"
+                ):
+                    self.coordinator.prepare_dispatch(2, 3, baseline, now=T0)
+                self.assertEqual(self.scheduler.fleet(2).phase, FleetPhase.READY)
+                self.assertIsNone(self.intent_store.get(2))
+
     def test_intent_is_durable_before_dispatch_state_advances(self):
         intent = self.prepare()
         self.assertEqual(self.scheduler.fleet(2).phase, FleetPhase.DISPATCHING)
@@ -80,6 +106,35 @@ class DurableDispatchRecoveryTests(unittest.TestCase):
         self.coordinator.mark_ui_action_completed(2, completed_at=completed)
         restored = SqliteDispatchIntentStore(self.db).get(2)
         self.assertEqual(restored.action_completed_at, completed)
+
+    def test_intent_rejects_non_datetime_or_naive_action_completion(self):
+        with self.assertRaisesRegex(ValueError, "action_completed_at must be timezone-aware"):
+            DispatchIntent(
+                2, 3, SHIPS, (0, 0, 0, 0),
+                T0 - timedelta(seconds=1), T0,
+                action_completed_at="not-a-datetime",
+            )
+        with self.assertRaisesRegex(ValueError, "action_completed_at must be timezone-aware"):
+            DispatchIntent(
+                2, 3, SHIPS, (0, 0, 0, 0),
+                T0 - timedelta(seconds=1), T0,
+                action_completed_at=datetime(2026, 11, 1, 12, 0),
+            )
+
+    def test_store_rejects_invalid_action_completion_without_mutating_intent(self):
+        self.prepare()
+        invalid_values = (
+            "not-a-datetime",
+            datetime(2026, 11, 1, 12, 0),
+        )
+        for value in invalid_values:
+            with self.subTest(value=type(value).__name__):
+                with self.assertRaisesRegex(
+                    DispatchIntentError, "timezone-aware datetime"
+                ):
+                    self.coordinator.mark_ui_action_completed(2, completed_at=value)
+        self.assertIsNone(self.intent_store.get(2).action_completed_at)
+        self.assertEqual(self.scheduler.fleet(2).phase, FleetPhase.DISPATCHING)
 
     def test_fresh_matching_active_mission_reconciles_without_home_port_bypass(self):
         self.prepare()
