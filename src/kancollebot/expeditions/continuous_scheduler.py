@@ -80,8 +80,14 @@ class FleetRuntime:
             raise ValueError("mission must be a MissionTuple or None")
         if not isinstance(self.home_port_verified, bool):
             raise ValueError("home_port_verified must be a bool")
-        if self.phase is FleetPhase.EXPEDITION_ACTIVE and self.mission is None:
-            raise ValueError("active fleet requires a mission tuple")
+        if self.phase is FleetPhase.EXPEDITION_ACTIVE and (
+            self.mission is None or self.mission.mission_status != 1
+        ):
+            raise ValueError("active fleet requires an active mission tuple with status 1")
+        if self.phase in (
+            FleetPhase.RETURNED_PENDING_UI, FleetPhase.RETURN_RESULT, FleetPhase.BONUS_ITEMS
+        ) and (self.mission is None or self.mission.mission_status != 2):
+            raise ValueError("returned/settlement phases require a returned mission tuple with status 2")
         if self.home_port_verified and self.phase is not FleetPhase.EXPEDITION_ACTIVE:
             raise ValueError("Home Port verification is valid only for an active expedition")
         if self.phase is FleetPhase.BLOCKED:
