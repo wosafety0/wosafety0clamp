@@ -119,8 +119,12 @@ def classify_template_scores(
     ):
         candidates.append(("HOME_PORT", max(home, home_reference)))
     return_notice = scores.get("return_notice.png", -1.0)
+    notice_home_markers = (
+        home_reference >= minimum_score
+        or (home >= minimum_score and return_notice >= minimum_score)
+    )
     if (
-        home_markers
+        notice_home_markers
         and expedition_menu < minimum_score
         and list_panel < minimum_score
         and dispatch_button < minimum_score
