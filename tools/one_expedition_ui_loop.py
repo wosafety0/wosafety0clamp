@@ -52,7 +52,7 @@ SORTIE = RecordedPoint(280, 425, "sortie")
 EXPEDITION_MODE = RecordedPoint(1000, 360, "expedition-mode")
 MISSION_ROW = RecordedPoint(500, 335, "mission-3-security-task")
 MISSION_CONFIRM = RecordedPoint(1030, 670, "mission-confirm")
-FLEET_2_TAB = RecordedPoint(300, 100, "fleet-2-tab")
+FLEET_2_TAB = RecordedPoint(590, 170, "fleet-2-tab")
 EXPEDITION_START = RecordedPoint(920, 670, "expedition-start")
 RETURN_CONFIRM = RecordedPoint(1140, 670, "returned-expedition-confirm")
 
