@@ -17,8 +17,11 @@ class FakeTransport:
         return {"result": {"type": "string", "value": json.dumps(self.value)}}
 
 
-def fleet(fid, mission=(0, 0, 0, 0), ships=(1, 2, 3)):
-    return {"id": fid, "name": f"第{fid}艦隊", "mission": list(mission), "ships": list(ships)}
+def fleet(fid, mission=(0, 0, 0, 0), ships=(1, 2, 3), supply=None):
+    record = {"id": fid, "name": f"第{fid}艦隊", "mission": list(mission), "ships": list(ships)}
+    if supply is not None:
+        record["supply"] = list(supply)
+    return record
 
 
 class CdpFleetStateTests(unittest.TestCase):
@@ -37,6 +40,48 @@ class CdpFleetStateTests(unittest.TestCase):
             "expression": READ_ONLY_FLEET_SNAPSHOT_EXPRESSION,
             "returnByValue": True,
         })])
+
+    def test_reads_fleet2_supply_fields_and_marks_full_supply(self):
+        supply = [
+            {"id": 1, "fuel": 10, "ammo": 20, "max_fuel": 10, "max_ammo": 20},
+            {"id": 4, "fuel": 11, "ammo": 21, "max_fuel": 11, "max_ammo": 21},
+            {"id": 8, "fuel": 12, "ammo": 22, "max_fuel": 12, "max_ammo": 22},
+        ]
+        states = read_poi_fleet_states(FakeTransport([
+            fleet(1),
+            fleet(2, ships=(1, 4, 8), supply=supply),
+            fleet(3),
+        ]))
+        fleet2 = states[1]
+        self.assertEqual([item.ship_id for item in fleet2.supply], [1, 4, 8])
+        self.assertTrue(all(item.is_fully_supplied for item in fleet2.supply))
+
+    def test_missing_supply_values_are_not_treated_as_fully_supplied(self):
+        supply = [{"id": 1, "fuel": 10, "ammo": None, "max_fuel": 10, "max_ammo": 20}]
+        states = read_poi_fleet_states(FakeTransport([
+            fleet(1),
+            fleet(2, ships=(1,), supply=supply),
+            fleet(3),
+        ]))
+        self.assertFalse(states[1].supply[0].is_fully_supplied)
+
+    def test_rejects_supply_records_for_non_member_ships(self):
+        supply = [{"id": 99, "fuel": 10, "ammo": 20, "max_fuel": 10, "max_ammo": 20}]
+        with self.assertRaisesRegex(CdpFleetStateError, "not a unique fleet member"):
+            read_poi_fleet_states(FakeTransport([
+                fleet(1),
+                fleet(2, ships=(1,), supply=supply),
+                fleet(3),
+            ]))
+
+    def test_rejects_incomplete_nonempty_supply_snapshot(self):
+        supply = [{"id": 1, "fuel": 10, "ammo": 20, "max_fuel": 10, "max_ammo": 20}]
+        with self.assertRaisesRegex(CdpFleetStateError, "supply snapshot is incomplete"):
+            read_poi_fleet_states(FakeTransport([
+                fleet(1),
+                fleet(2, ships=(1, 4), supply=supply),
+                fleet(3),
+            ]))
 
     def test_rejects_duplicate_fleet_ids(self):
         with self.assertRaisesRegex(CdpFleetStateError, "unique"):

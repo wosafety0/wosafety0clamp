@@ -1,11 +1,10 @@
 """Run one UI-mediated fleet-2 mission-3 expedition from idle back to idle.
 
 The controller reads the Poi Redux fleet snapshot and sends mouse input only to
-the visible game UI. It never constructs or sends game-server requests. This is
-an unverified live-action prototype. Dispatch now refuses to send any clicks
-unless a per-step UI checkpoint verifier is supplied; production dispatch remains
-blocked until all six transitions can be recognized without guessing or manually
-labeling new templates.
+the visible game UI. It never constructs or sends game-server requests. The four
+navigation transitions leading to Fleet 2 selection have live Ooi fingerprint
+checkpoints. The expedition-start action and full return/result/bonus flow remain
+blocked until their remaining production checkpoints are independently verified.
 """
 from __future__ import annotations
 
@@ -59,6 +58,7 @@ MISSION_ROW = RecordedPoint(350, 350, "mission-3-security-task")
 # The pre-click MISSION_SELECTED checkpoint is mandatory.
 MISSION_CONFIRM = RecordedPoint(1030, 670, "mission-confirm")
 FLEET_2_TAB = RecordedPoint(590, 170, "fleet-2-tab")
+FLEET_3_TAB = RecordedPoint(630, 170, "fleet-3-tab")
 EXPEDITION_START = RecordedPoint(920, 670, "expedition-start")
 RETURN_CONFIRM = RecordedPoint(1140, 670, "returned-expedition-confirm")
 
@@ -69,8 +69,7 @@ DISPATCH_STEPS = (
     (SORTIE, 1.0, "HOME_PORT", "SORTIE_MENU"),
     (EXPEDITION_MODE, 1.0, "SORTIE_MENU", "EXPEDITION_LIST"),
     (MISSION_ROW, 0.5, "EXPEDITION_LIST", "MISSION_SELECTED"),
-    (MISSION_CONFIRM, 0.7, "MISSION_SELECTED", "FLEET_SELECTION"),
-    (FLEET_2_TAB, 0.4, "FLEET_SELECTION", "FLEET_2_SELECTED"),
+    (MISSION_CONFIRM, 0.7, "MISSION_SELECTED", "FLEET_2_SELECTED"),
     (EXPEDITION_START, 1.5, "FLEET_2_SELECTED", "EXPEDITION_ACTIVE"),
 )
 
@@ -356,7 +355,7 @@ def _dispatch(
         )
         raise LoopError(
             "Dispatch blocked before any click: a verified per-step UI checkpoint "
-            "provider is not available for all six dispatch transitions"
+            "provider is not available for all five dispatch transitions"
         )
 
     before = _fleet(read_poi_fleet_states(reader_transport))
@@ -374,6 +373,16 @@ def _dispatch(
             pre_start = _fleet(read_poi_fleet_states(reader_transport))
             if not _idle(pre_start) or pre_start.ship_ids != before.ship_ids:
                 raise LoopError("Fleet 2 changed before expedition start; refusing to click")
+            expected_supply_ids = {ship_id for ship_id in pre_start.ship_ids if ship_id > 0}
+            actual_supply_ids = {item.ship_id for item in pre_start.supply}
+            if not expected_supply_ids or actual_supply_ids != expected_supply_ids:
+                raise LoopError("Fleet 2 supply snapshot is missing or incomplete; refusing to click")
+            unsupplied = [item.ship_id for item in pre_start.supply if not item.is_fully_supplied]
+            if unsupplied:
+                raise LoopError(
+                    f"Fleet 2 has {len(unsupplied)} ship(s) not fully supplied; refusing to click"
+                )
+            _print_event("fleet_supply_verified", pre_start, fully_supplied_ship_count=len(pre_start.supply))
         _print_event(
             "ui_action_precondition",
             action="dispatch_menu_click",

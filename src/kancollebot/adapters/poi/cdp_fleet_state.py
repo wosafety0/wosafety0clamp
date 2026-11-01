@@ -18,11 +18,34 @@ class CdpReadTransport(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class PoiShipSupplyState:
+    ship_id: int
+    fuel: int | None
+    ammo: int | None
+    max_fuel: int | None
+    max_ammo: int | None
+
+    @property
+    def is_fully_supplied(self) -> bool:
+        return (
+            self.fuel is not None
+            and self.ammo is not None
+            and self.max_fuel is not None
+            and self.max_ammo is not None
+            and self.max_fuel > 0
+            and self.max_ammo > 0
+            and self.fuel == self.max_fuel
+            and self.ammo == self.max_ammo
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class PoiFleetMissionState:
     fleet_id: int
     name: str | None
     mission: tuple[int, int, int, int]
     ship_ids: tuple[int, ...]
+    supply: tuple[PoiShipSupplyState, ...] = ()
 
     @property
     def mission_status(self) -> int:
@@ -43,8 +66,17 @@ def _safe_int(value: Any, label: str) -> int:
     return value
 
 
+def _optional_nonnegative_int(value: Any, label: str) -> int | None:
+    if value is None:
+        return None
+    result = _safe_int(value, label)
+    if result < 0:
+        raise CdpFleetStateError(f"{label} must be non-negative")
+    return result
+
+
 def read_poi_fleet_states(transport: CdpReadTransport) -> tuple[PoiFleetMissionState, ...]:
-    """Read only fleet IDs, names, mission tuples, and ship membership from Poi's cached Redux state."""
+    """Read fleet mission, ship membership, and Fleet 2 supply from Poi's cached Redux state."""
     result = transport.send(
         "Runtime.evaluate",
         {"expression": READ_ONLY_FLEET_SNAPSHOT_EXPRESSION, "returnByValue": True},
@@ -79,7 +111,31 @@ def read_poi_fleet_states(transport: CdpReadTransport) -> tuple[PoiFleetMissionS
         if not isinstance(ships, list) or len(ships) > 6:
             raise CdpFleetStateError(f"Fleet {fleet_id} ship membership is invalid")
         ship_tuple = tuple(_safe_int(value, f"Fleet {fleet_id} ship ID") for value in ships)
-        states.append(PoiFleetMissionState(fleet_id, name, mission_tuple, ship_tuple))
+        expected_supply_ids = {ship_id for ship_id in ship_tuple if ship_id > 0}
+        supply_raw = item.get("supply", [])
+        if not isinstance(supply_raw, list) or len(supply_raw) > 6:
+            raise CdpFleetStateError(f"Fleet {fleet_id} supply snapshot is invalid")
+        supply_states: list[PoiShipSupplyState] = []
+        seen_supply_ids: set[int] = set()
+        for supply_index, supply_item in enumerate(supply_raw):
+            if not isinstance(supply_item, dict):
+                raise CdpFleetStateError(f"Fleet {fleet_id} supply record {supply_index} is invalid")
+            supply_ship_id = _safe_int(supply_item.get("id"), f"Fleet {fleet_id} supply ship ID")
+            if supply_ship_id not in expected_supply_ids or supply_ship_id in seen_supply_ids:
+                raise CdpFleetStateError(f"Fleet {fleet_id} supply ship ID is not a unique fleet member")
+            seen_supply_ids.add(supply_ship_id)
+            fuel = _optional_nonnegative_int(supply_item.get("fuel"), f"Fleet {fleet_id} ship fuel")
+            ammo = _optional_nonnegative_int(supply_item.get("ammo"), f"Fleet {fleet_id} ship ammo")
+            max_fuel = _optional_nonnegative_int(supply_item.get("max_fuel"), f"Fleet {fleet_id} ship max fuel")
+            max_ammo = _optional_nonnegative_int(supply_item.get("max_ammo"), f"Fleet {fleet_id} ship max ammo")
+            if fuel is not None and max_fuel is not None and fuel > max_fuel:
+                raise CdpFleetStateError(f"Fleet {fleet_id} ship fuel exceeds its maximum")
+            if ammo is not None and max_ammo is not None and ammo > max_ammo:
+                raise CdpFleetStateError(f"Fleet {fleet_id} ship ammo exceeds its maximum")
+            supply_states.append(PoiShipSupplyState(supply_ship_id, fuel, ammo, max_fuel, max_ammo))
+        if supply_states and seen_supply_ids != expected_supply_ids:
+            raise CdpFleetStateError(f"Fleet {fleet_id} supply snapshot is incomplete")
+        states.append(PoiFleetMissionState(fleet_id, name, mission_tuple, ship_tuple, tuple(supply_states)))
     if seen != set(range(1, len(items) + 1)):
         raise CdpFleetStateError("Fleet IDs are not a contiguous set starting at 1")
     return tuple(sorted(states, key=lambda state: state.fleet_id))

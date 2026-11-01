@@ -40,7 +40,16 @@ _ALLOWED_METHODS = {
 }
 _MAX_FRAME_BYTES = 8 * 1024 * 1024
 
-READ_ONLY_FLEET_SNAPSHOT_EXPRESSION = "JSON.stringify((window.getStore?window.getStore('info.fleets'):[]).map(f=>({id:f.api_id,name:f.api_name,mission:f.api_mission,ships:f.api_ship})))"
+READ_ONLY_FLEET_SNAPSHOT_EXPRESSION = (
+    "JSON.stringify((()=>{"
+    "const fleets=(window.getStore?window.getStore('info.fleets'):[])||[];"
+    "const ships=(window.getStore?window.getStore('info.ships'):[])||[];"
+    "const masterShips=(window.getStore?window.getStore('const.$ships'):[])||[];"
+    "const findShip=id=>Array.isArray(ships)?ships.find(s=>s&&Number(s.api_id)===Number(id)):((ships&&ships[id])||Object.values(ships||{}).find(s=>s&&Number(s.api_id)===Number(id)));"
+    "return fleets.map(f=>({id:f.api_id,name:f.api_name,mission:f.api_mission,ships:f.api_ship,"
+    "supply:f.api_id===2?(f.api_ship||[]).filter(id=>Number(id)>0).map(id=>{const s=findShip(id);const m=s&&masterShips[s.api_ship_id];return{id,fuel:s&&s.api_fuel,ammo:s&&s.api_bull,max_fuel:m&&m.api_fuel_max,max_ammo:m&&m.api_bull_max}}):[]}));"
+    "})())"
+)
 
 
 class CdpWebSocketTransport:

@@ -9,7 +9,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 import one_expedition_ui_loop as controller
-from kancollebot.adapters.poi.cdp_fleet_state import PoiFleetMissionState
+from kancollebot.adapters.poi.cdp_fleet_state import PoiFleetMissionState, PoiShipSupplyState
+
+
+def _full_supply(ship_ids):
+    return tuple(PoiShipSupplyState(ship_id, 10, 20, 10, 20) for ship_id in ship_ids)
 
 
 class ProductionStartupSafetyGateTests(unittest.TestCase):
@@ -60,7 +64,7 @@ class LiveCheckpointVerifierTests(unittest.TestCase):
         with patch.object(
             controller, "read_poi_fleet_states", return_value=[self.active]
         ) as read_states:
-            verifier(6, "after", "EXPEDITION_ACTIVE")
+            verifier(5, "after", "EXPEDITION_ACTIVE")
         read_states.assert_called_once_with(self.reader)
 
     def test_active_checkpoint_rejects_stale_mission_timestamp(self):
@@ -72,7 +76,7 @@ class LiveCheckpointVerifierTests(unittest.TestCase):
         )
         with patch.object(controller, "read_poi_fleet_states", return_value=[stale]):
             with self.assertRaisesRegex(controller.LoopError, "same newly started expedition"):
-                verifier(6, "after", "EXPEDITION_ACTIVE")
+                verifier(5, "after", "EXPEDITION_ACTIVE")
 
     def test_unknown_checkpoint_state_is_rejected(self):
         verifier = controller.build_checkpoint_verifier(
@@ -155,8 +159,9 @@ class ReturnGraceDelayTests(unittest.TestCase):
 
 class DispatchCheckpointGateTests(unittest.TestCase):
     def setUp(self):
-        self.idle = PoiFleetMissionState(2, "Fleet 2", (0, 0, 0, 0), (1, 4, 8, 25))
-        self.active = PoiFleetMissionState(2, "Fleet 2", (1, 3, 2000, 0), (1, 4, 8, 25))
+        supply = _full_supply((1, 4, 8, 25))
+        self.idle = PoiFleetMissionState(2, "Fleet 2", (0, 0, 0, 0), (1, 4, 8, 25), supply)
+        self.active = PoiFleetMissionState(2, "Fleet 2", (1, 3, 2000, 0), (1, 4, 8, 25), supply)
 
     def test_dispatch_refuses_to_click_without_checkpoint_verifier(self):
         game_input = MagicMock()
@@ -220,10 +225,10 @@ class DispatchCheckpointGateTests(unittest.TestCase):
             )
 
         self.assertEqual(result, self.active)
-        self.assertEqual(game_input.click.call_count, 6)
-        self.assertEqual(len(observed), 11)
+        self.assertEqual(game_input.click.call_count, 5)
+        self.assertEqual(len(observed), 9)
         self.assertEqual(observed[0], (1, "before", "HOME_PORT"))
-        self.assertEqual(observed[-1], (6, "before", "FLEET_2_SELECTED"))
+        self.assertEqual(observed[-1], (5, "before", "FLEET_2_SELECTED"))
         self.assertEqual(
             game_input.click.call_args_list[-1].args[0], controller.EXPEDITION_START
         )
@@ -231,8 +236,9 @@ class DispatchCheckpointGateTests(unittest.TestCase):
 
 class PreStartFleetRecheckTests(unittest.TestCase):
     def test_changed_ship_membership_blocks_final_start_click(self):
-        idle = PoiFleetMissionState(2, "Fleet 2", (0, 0, 0, 0), (1, 4, 8, 25))
-        changed = PoiFleetMissionState(2, "Fleet 2", (0, 0, 0, 0), (1, 4, 8, 26))
+        supply = _full_supply((1, 4, 8, 25))
+        idle = PoiFleetMissionState(2, "Fleet 2", (0, 0, 0, 0), (1, 4, 8, 25), supply)
+        changed = PoiFleetMissionState(2, "Fleet 2", (0, 0, 0, 0), (1, 4, 8, 26), supply)
         game_input = MagicMock()
         with (
             patch.object(controller, "read_poi_fleet_states", side_effect=[(idle,), (changed,)]),
@@ -240,12 +246,13 @@ class PreStartFleetRecheckTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(controller.LoopError, "changed before expedition start"):
                 controller._dispatch(object(), game_input, 1000, checkpoint_verifier=lambda *_: None)
-        self.assertEqual(game_input.click.call_count, 5)
+        self.assertEqual(game_input.click.call_count, 4)
         self.assertNotIn(controller.EXPEDITION_START, [call.args[0] for call in game_input.click.call_args_list])
 
     def test_new_mission_blocks_final_start_click(self):
-        idle = PoiFleetMissionState(2, "Fleet 2", (0, 0, 0, 0), (1, 4, 8, 25))
-        active = PoiFleetMissionState(2, "Fleet 2", (1, 3, 2000, 0), (1, 4, 8, 25))
+        supply = _full_supply((1, 4, 8, 25))
+        idle = PoiFleetMissionState(2, "Fleet 2", (0, 0, 0, 0), (1, 4, 8, 25), supply)
+        active = PoiFleetMissionState(2, "Fleet 2", (1, 3, 2000, 0), (1, 4, 8, 25), supply)
         game_input = MagicMock()
         with (
             patch.object(controller, "read_poi_fleet_states", side_effect=[(idle,), (active,)]),
@@ -253,7 +260,39 @@ class PreStartFleetRecheckTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(controller.LoopError, "changed before expedition start"):
                 controller._dispatch(object(), game_input, 1000, checkpoint_verifier=lambda *_: None)
-        self.assertEqual(game_input.click.call_count, 5)
+        self.assertEqual(game_input.click.call_count, 4)
+
+
+    def test_missing_supply_snapshot_blocks_final_start_click(self):
+        idle = PoiFleetMissionState(2, "Fleet 2", (0, 0, 0, 0), (1, 4, 8, 25))
+        game_input = MagicMock()
+        with (
+            patch.object(controller, "read_poi_fleet_states", side_effect=[(idle,), (idle,)]),
+            patch.object(controller.time, "sleep"),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "supply snapshot is missing or incomplete"):
+                controller._dispatch(object(), game_input, 1000, checkpoint_verifier=lambda *_: None)
+        self.assertEqual(game_input.click.call_count, 4)
+        self.assertNotIn(controller.EXPEDITION_START, [call.args[0] for call in game_input.click.call_args_list])
+
+    def test_partially_supplied_ship_blocks_final_start_click(self):
+        full = _full_supply((1, 4, 8, 25))
+        partial = tuple(
+            PoiShipSupplyState(item.ship_id, item.fuel, 19 if item.ship_id == 1 else item.ammo,
+                               item.max_fuel, item.max_ammo)
+            for item in full
+        )
+        idle = PoiFleetMissionState(2, "Fleet 2", (0, 0, 0, 0), (1, 4, 8, 25), full)
+        under_supplied = PoiFleetMissionState(2, "Fleet 2", (0, 0, 0, 0), (1, 4, 8, 25), partial)
+        game_input = MagicMock()
+        with (
+            patch.object(controller, "read_poi_fleet_states", side_effect=[(idle,), (under_supplied,)]),
+            patch.object(controller.time, "sleep"),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "not fully supplied"):
+                controller._dispatch(object(), game_input, 1000, checkpoint_verifier=lambda *_: None)
+        self.assertEqual(game_input.click.call_count, 4)
+        self.assertNotIn(controller.EXPEDITION_START, [call.args[0] for call in game_input.click.call_args_list])
 
 
 class LiveUiCoordinateEvidenceTests(unittest.TestCase):
@@ -275,7 +314,7 @@ class LiveUiCoordinateEvidenceTests(unittest.TestCase):
         point, _, expected_before, expected_after = controller.DISPATCH_STEPS[3]
         self.assertEqual(point, controller.MISSION_CONFIRM)
         self.assertEqual(expected_before, "MISSION_SELECTED")
-        self.assertEqual(expected_after, "FLEET_SELECTION")
+        self.assertEqual(expected_after, "FLEET_2_SELECTED")
 
 
     def test_mission_row_coordinate_matches_ooi_mission_name(self):
@@ -285,5 +324,22 @@ class LiveUiCoordinateEvidenceTests(unittest.TestCase):
         )
 
 
+    def test_fleet_3_tab_coordinate_matches_ooi_fleet_tab(self):
+        self.assertEqual(
+            (controller.FLEET_3_TAB.x, controller.FLEET_3_TAB.y),
+            (630, 170),
+        )
+
+    def test_dispatch_skips_redundant_fleet_2_tab_click_after_mission_confirm(self):
+        self.assertEqual(
+            [step[0] for step in controller.DISPATCH_STEPS],
+            [
+                controller.SORTIE,
+                controller.EXPEDITION_MODE,
+                controller.MISSION_ROW,
+                controller.MISSION_CONFIRM,
+                controller.EXPEDITION_START,
+            ],
+        )
 if __name__ == "__main__":
     unittest.main()

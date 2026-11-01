@@ -3028,3 +3028,18 @@ The Hand plugin's read-only probe reported:
 - **收尾 UI 状态：** 未点击远征开始按钮；通过已验证的 Home Port 控件返回母港，随后生产状态门禁连续两次识别 HOME_PORT（0.9987 / 0.9981）并 PASS。游戏留在母港，舰队未派遣。
 - **当前生产结论：** 六个派遣前视觉 checkpoint 均已通过现场双帧核验；RETURN_RESULT 与 BONUS_ITEMS 尚未核验，故 `run()` 仍在任何 CDP 连接或输入前拒绝执行。端到端自动远征仍为 BLOCKED，不得因前置六状态通过而启用。
 - **自动化边界：** 本轮的六状态核验是逐状态调用的一次性诊断与普通 UI 导航，不是无人值守远征自动化；没有运行 `one_expedition_ui_loop.py --authorize-ui-actions`，没有派遣舰队。
+
+
+## 2026-11-01 — Ooi 默认舰队状态修正与补给门禁现场验收
+
+- **六状态现场核验：** 使用生产 `_require_ui_state` 双帧门禁，逐项确认 HOME_PORT、SORTIE_MENU、EXPEDITION_LIST、MISSION_SELECTED、FLEET_3_SELECTED、FLEET_2_SELECTED；每项均要求连续两帧识别为预期状态。所有截图仅在内存中处理，没有保存截图文件。
+- **舰队状态命名修正：** 原 `FLEET_SELECTION` 指纹实际采自舰队 3 标签选中、显示 6 艘舰船的画面，现重命名为 `FLEET_3_SELECTED`；指纹向量及裁剪数据未改变。舰队 2 选中状态仍为 `FLEET_2_SELECTED`。
+- **生产步骤纠正：** 现场确认点击 MISSION_CONFIRM 后，Ooi 默认直接进入 `FLEET_2_SELECTED`，而非通用 `FLEET_SELECTION`。因此 `DISPATCH_STEPS` 将任务确认的后置状态改为 `FLEET_2_SELECTED`，移除冗余的 Fleet 2 标签点击；完整点击序列由 6 次变为 5 次，其中前 4 次为导航/选择，最后一次才是远征开始。新增对应坐标和步骤顺序回归测试。
+- **补给数据来源：** 在保持 CDP 只读表达式白名单的前提下，扩展现有固定 Poi Redux 快照：当前燃料/弹药取自 `info.ships` 的 `api_fuel` / `api_bull`，最大值取自 Poi 主数据 `const.$ships` 的 `api_fuel_max` / `api_bull_max`。字段映射参考 Poi 自身的远征补给检查实现：<https://github.com/poooi/poi/blob/master/views/services/sortie-expedition-resupply-check.ts>。没有开放任意 `Runtime.evaluate`。
+- **补给门禁实现：** 新增 `PoiShipSupplyState`，解析每艘舰船的当前值与最大值；未知、缺失、不完整或超出上限的数据不会被当作满补。生产 `_dispatch` 在最后一次远征开始点击前重新读取 Fleet 2 快照，要求成员集合一致且所有舰船燃料、弹药均满补，否则拒绝点击。
+- **现场补给结果：** Fleet 2 当前任务状态为 idle，4 艘舰船燃料均为 11/15；弹药分别为 20/20、15/15、20/20、20/20。4 艘舰船均未满足满补条件。
+- **现场 fail-closed 验收：** 使用真实 Poi/Ooi 会话执行生产 `_dispatch`，实际完成出击菜单、远征入口、任务选择、任务确认 4 次普通 UI 导航；在最终远征开始点击前，门禁抛出 `Fleet 2 has 4 ship(s) not fully supplied; refusing to click`。额外诊断保护也禁止最终开始点击。随后重新确认 FLEET_2_SELECTED，返回 HOME_PORT 并通过双帧核验；前后 Poi 任务状态和舰船成员未变化，没有派遣舰队。
+- **自动化日志：** 本次 live gate 事件写入本地忽略目录 `logs/ooi_supply_gate_live_20261101.jsonl`，逐项记录状态识别、UI 点击、等待、补给拒绝及返回母港；日志未纳入 Git。
+- **离线验证：** Python unittest **259 passed / 3 skipped**；Node.js 测试进程退出码 0（17 项既有测试）；compileall、指纹 JSON 解析及 `git diff --check` 均通过。
+- **生产门禁仍关闭：** 以上仅验收派遣前视觉状态、状态顺序和补给不足时的拒绝行为；没有验证满补时放行的真实派遣，没有点击远征开始。RETURN_RESULT、BONUS_ITEMS 及完整返航/收取/补给/再派遣闭环仍未独立验收，生产 `run()` 继续在建立 CDP 会话或发送输入前 fail-closed。
+- **安全边界：** 没有构造、重放或发送游戏 API/服务器请求；没有保存原始截图；没有执行补给点击或消耗游戏资源；没有修改代理或系统代理设置。
