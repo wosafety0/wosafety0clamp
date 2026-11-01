@@ -1,6 +1,6 @@
 # Continuous Dual-Fleet Expedition Scheduler — Design Contract
 
-Status: IN_PROGRESS. The offline fleet lifecycle state machine, shared-UI arbiter, SQLite fleet-state store, and durable dispatch-intent recovery coordinator are implemented. The dispatch-recovery path passed 40 targeted tests and the 345-test local offline suite; GitHub Actions CI for commit 0987574d succeeded. Poi/production-runner integration, generic result-page advancement, and unattended live operation remain pending. The production runner's BONUS_ITEMS fail-closed guard remains mandatory.
+Status: IN_PROGRESS. The offline fleet lifecycle state machine, shared-UI arbiter, SQLite fleet-state store, durable dispatch-intent recovery coordinator, injected-port ContinuousDispatchController, and read-only ContinuousExpeditionMonitor are implemented. The controller enforces fresh Poi Redux observations, supply and mission composition, durable dispatch intent, exact post-dispatch identity, and two-frame HOME_PORT verification; the monitor reconciles both fleets from one fresh observation and never treats timer expiry as return. Live UI driver/supervisor integration, freshness witness acquisition, result/reward progression, and unattended operation remain pending. The production runner's BONUS_ITEMS fail-closed guard remains mandatory.
 
 Branch: dev/expedition-closed-loop-mvp
 
@@ -60,7 +60,7 @@ A failure or mismatch blocks that fleet and stops further UI actions. The client
 - Planner snapshots now retain the `api_mission[3]` reserved slot so reconciliation can compare it rather than silently defaulting it.
 - The existing action journal still covers dispatch attempts separately from lifecycle state persistence.
 - Not integrated: the coordinator is not yet connected to the visible UI controller or production runner; no game action is enabled by this module.
-- Verified offline: dispatch-recovery targeted tests (40/40), full Python unittest discovery (345/345), Python compileall, JavaScript static tests (17/17), passive observer syntax, and GitHub Actions CI for commit 0987574d (success). The local environment included NumPy 2.5.4 and OpenCV 5.0.0. This is offline verification only.
+- Verified offline: controller, monitor, and Poi normalization focused tests (43/43); regression across the intended archive scope (377/377, excluding the separate unarchived supervisor prototype); Python compileall; JavaScript static tests (17/17); passive observer syntax; and git diff --check. NumPy 2.5.4 and OpenCV 5.0.0 were available. The controller and monitor share the PoiExpeditionReader.read_fleets contract, explicit per-fleet mission requirements, and append-only SQLite event logging. This is offline verification only; no production UI driver or unattended loop is connected.
 - Production guard: do not remove the unconditional `BONUS_ITEMS` fail-closed guard until live two-frame BONUS_ITEMS verification and the required end-to-end acceptance have passed.
 
 ---
@@ -342,3 +342,21 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - **Current game state:** Poi reports all three fleets idle. Fleet 2 has four ships, each at fuel 11/15; ammunition is 20/20, 15/15, 20/20, and 20/20. No fleet is currently returning, so positive live RETURN_RESULT/BONUS_ITEMS verification cannot be obtained from the current screen.
 - **Production remains blocked:** the runner's startup fail-closed gate is unchanged. No supply action, dispatch, reward collection, or resource-consuming action was performed. Full live return/reward transitions and end-to-end acceptance remain pending.
 - **Local environment:** the ignored worktree `.venv` was provisioned with the declared optional vision extra (`opencv-python-headless 5.0.0.93`, `numpy 2.5.4`); this is local environment state, not a repository dependency change.
+
+## Injected-port continuous dispatch controller
+
+- The controller consumes one PoiExpeditionReader-compatible state reader through read_fleets(), one shared visible-UI driver/CDP session, one shared UiOperationArbiter, one ContinuousExpeditionScheduler, and one DurableDispatchCoordinator.
+- The controller requires a durable event sink. SqliteDispatchEventLog provides append-only dispatch_events records and can share the same SQLite database file as fleet state and dispatch intents.
+- Mission requirements are explicit and must cover every and only dispatchable fleet. The current configuration is Fleet 2 → mission 1 (minimum two ships, flagship level 1) and Fleet 3 → mission 3 (minimum three ships, flagship level 3).
+- Poi normalization retains ordered ship levels and master ship types. Missing or incomplete composition metadata fails closed; the controller will not dispatch based only on fuel/ammunition readiness.
+- Dispatch transaction: read a fresh source-verified idle baseline; check supply and mission composition; persist intent; perform visible UI dispatch; persist UI action completion; read a newer Poi observation; confirm exact mission ID, ordered ship IDs, reserved slot, and future return time; navigate to Home Port; require two consecutive HOME_PORT UI states; read a newer Poi observation and confirm the exact active tuple is unchanged.
+- Ambiguous UI/observation outcomes block the fleet and forbid automatic retry. UI actions are disabled by default. The production composition root must inject one shared arbiter and a reviewed UI driver; no production driver is currently wired.
+- This controller is a dispatch transaction primitive, not yet the unattended supervisor. Return-result settlement, BONUS_ITEMS progression, timer monitoring, and resupply remain separate pending integration work. The BONUS_ITEMS fail-closed guard remains unchanged.
+
+## Read-only continuous fleet monitor
+
+- ContinuousExpeditionMonitor reads one fresh, source-verified Poi Redux observation for all dispatchable fleets before changing any scheduler state. Missing or duplicate fleet records reject the whole tick before partial reconciliation.
+- EXPEDITION_ACTIVE remains active while status 1 and the exact mission tuple match, even after the planned return timestamp. Only Poi mission status 2 with the same mission ID, final timestamp, reserved slot, and ordered ship IDs can confirm return.
+- Return confirmation also requires the scheduler's post-dispatch Home Port proof. A returned fleet then remains in RETURNED_PENDING_UI / RETURN_RESULT / BONUS_ITEMS while the same returned mission identity remains present.
+- IDLE and RESUPPLY_REQUIRED fleets become READY only after full supply and mission composition are observed. BLOCKED never auto-unblocks; DISPATCHING remains the responsibility of DurableDispatchCoordinator restart reconciliation.
+- The monitor is read-only and emits durable events only for scheduler phase transitions, not every unchanged polling tick. It does not click, dispatch, collect rewards, or resupply.

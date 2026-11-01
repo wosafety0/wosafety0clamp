@@ -106,6 +106,9 @@ def normalize_poi_fleets(
                 ) from exc
 
         damaged = []
+        ship_levels = []
+        ship_types = []
+        composition_complete = True
         fuel_ready = bool(ship_ids)
         ammo_ready = bool(ship_ids)
         for ship_id in ship_ids:
@@ -126,6 +129,16 @@ def normalize_poi_fleets(
             master = masters.get(str(master_id))
             if not isinstance(master, dict):
                 raise PoiStateError(f"master ship record {master_id} is missing")
+            level = ship.get("api_lv")
+            ship_type = master.get("api_stype")
+            if (
+                isinstance(level, bool) or not isinstance(level, int) or level < 1
+                or isinstance(ship_type, bool) or not isinstance(ship_type, int) or ship_type < 1
+            ):
+                composition_complete = False
+            else:
+                ship_levels.append(level)
+                ship_types.append(ship_type)
             fuel, fuel_max = ship.get("api_fuel"), master.get("api_fuel_max")
             ammo, ammo_max = ship.get("api_bull"), master.get("api_bull_max")
             if (
@@ -151,6 +164,8 @@ def normalize_poi_fleets(
             ammo_ready=ammo_ready,
             damaged_ship_ids=tuple(damaged),
             reserved=reserved_slot,
+            ship_levels=tuple(ship_levels) if composition_complete and len(ship_levels) == len(ship_ids) else (),
+            ship_types=tuple(ship_types) if composition_complete and len(ship_types) == len(ship_ids) else (),
         ))
     return ObservedState(
         tuple(snapshots),

@@ -19,11 +19,12 @@ SHIPS = {
         "api_nowhp": 10,
         "api_maxhp": 10,
         "api_ship_id": 1,
+        "api_lv": 1,
         "api_fuel": 10,
         "api_bull": 10,
     }
 }
-MASTERS = {"1": {"api_fuel_max": 10, "api_bull_max": 10}}
+MASTERS = {"1": {"api_fuel_max": 10, "api_bull_max": 10, "api_stype": 1}}
 
 
 def normalize(mission):
@@ -56,6 +57,18 @@ class PoiMissionStateTests(unittest.TestCase):
             plan.decision, ExpeditionDecision.WAITING_FOR_RETURN
         )
 
+    def test_ship_composition_metadata_is_normalized_in_fleet_order(self):
+        snapshot = normalize([0, 0, 0, 0])
+        self.assertEqual(snapshot.ship_levels, (1,))
+        self.assertEqual(snapshot.ship_types, (1,))
+
+    def test_missing_composition_metadata_is_preserved_as_unknown(self):
+        ships = {"101": dict(SHIPS["101"])}
+        ships["101"].pop("api_lv")
+        payload = [{"api_id": 2, "api_ship": [101], "api_mission": [0, 0, 0, 0]}]
+        snapshot = normalize_fleets(payload, ships).payload[0]
+        self.assertEqual(snapshot.ship_levels, ())
+        self.assertEqual(snapshot.ship_types, ())
     def test_reserved_mission_slot_is_preserved(self):
         timestamp_ms = int(datetime(2026, 10, 26, 13, 0, tzinfo=timezone.utc).timestamp() * 1000)
         snapshot = normalize([1, 1, timestamp_ms, 2])
