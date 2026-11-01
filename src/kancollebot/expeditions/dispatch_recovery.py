@@ -241,6 +241,14 @@ class DurableDispatchCoordinator:
         if (observed.mission_status != 0 or observed.mission_id is not None
                 or observed.return_at is not None or observed.reserved != 0):
             raise DispatchIntentError("dispatch baseline must prove an idle fleet")
+        if not isinstance(observed.fuel_ready, bool) or not isinstance(observed.ammo_ready, bool):
+            raise DispatchIntentError(
+                "dispatch baseline must provide boolean fuel and ammunition readiness"
+            )
+        if not observed.fuel_ready or not observed.ammo_ready:
+            raise DispatchIntentError(
+                "dispatch baseline must prove fuel and ammunition are ready"
+            )
         if not baseline.source.startswith("poi-redux:"):
             raise DispatchIntentError("dispatch baseline must come from a Poi Redux observation")
         if not observed.ship_ids:
