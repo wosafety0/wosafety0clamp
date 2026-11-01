@@ -2901,3 +2901,10 @@ The Hand plugin's read-only probe reported:
 - **Interpretation boundary:** these findings strongly explain why many existing profiles cannot start and why the Japan-labeled profile has no successful delay measurement, but do not yet identify which subscription should provide a Japan node or prove that every Japan endpoint is unusable. No subscription URL, credential, server address, or profile secret was exposed or changed.
 - **Safety:** inspection was read-only. No core downgrade, insecure TLS bypass, subscription edit, system proxy change, game input, or game API request was performed. Next step is to identify the subscription refresh failure and the exact Japan profile/group relationship without exposing subscription secrets, then choose a secure supported route.
 
+## 2026-11-01 - JP-labelled profile traced to the gemini subscription
+
+- A second read-only SQLite query mapped the only Japan-region label found in the 282 stored profiles (`JP`) to the enabled `gemini` subscription, which contains 123 profiles. The other enabled subscriptions contain 148 (`d`) and 11 (`zou`) profiles.
+- No other profile remark matched Japan, JP, Tokyo, Osaka, Kyoto, Nagoya, Fukuoka, or their Chinese names. This is a remark-based inventory only; it does not inspect server endpoints or prove that unlabelled profiles cannot be Japan-based.
+- The JP-labelled record has `ConfigType=3`, no `CoreType`, no measured delay (`-1`), zero measured speed, and no stream-security/certificate metadata. The associated subscription's stored `UpdateTime` is zero and `AutoUpdateInterval` is zero. These are stored metadata values, not proof of the provider's current service state.
+- No subscription URL, password, UUID, server address, or token was read or disclosed. No subscription update or profile test was initiated.
+
