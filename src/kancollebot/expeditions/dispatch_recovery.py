@@ -45,8 +45,11 @@ class DispatchIntent:
             raise ValueError("ship_ids must contain positive integers")
         if len(set(self.ship_ids)) != len(self.ship_ids):
             raise ValueError("ship_ids must be unique")
-        if self.baseline_mission != (0, 0, 0, 0):
-            raise ValueError("dispatch intent requires an idle baseline mission tuple")
+        if (not isinstance(self.baseline_mission, tuple) or len(self.baseline_mission) != 4
+                or any(isinstance(value, bool) or not isinstance(value, int)
+                       for value in self.baseline_mission)
+                or self.baseline_mission != (0, 0, 0, 0)):
+            raise ValueError("dispatch intent requires an integer idle baseline mission tuple")
         for label, value in (("baseline_observed_at", self.baseline_observed_at), ("prepared_at", self.prepared_at)):
             if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
                 raise ValueError(f"{label} must be timezone-aware")
