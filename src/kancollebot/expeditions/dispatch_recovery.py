@@ -137,6 +137,7 @@ class SqliteDispatchIntentStore:
 
     def get(self, fleet_id: int) -> DispatchIntent | None:
         with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 """SELECT fleet_id, mission_id, ship_ids_json, baseline_mission_json,
                           baseline_observed_at, prepared_at, reserved, action_completed_at
@@ -172,9 +173,11 @@ class SqliteDispatchIntentStore:
             if intent.action_completed_at is not None:
                 raise DispatchIntentError("UI action completion was already recorded")
             db.execute(
-                "UPDATE dispatch_intents SET action_completed_at = ? WHERE fleet_id = ?",
+                "UPDATE dispatch_intents SET action_completed_at = ? WHERE fleet_id = ? AND action_completed_at IS NULL",
                 (completed_at.isoformat(), fleet_id),
             )
+            if db.execute("SELECT changes()").fetchone()[0] != 1:
+                raise DispatchIntentError("UI action completion was concurrently updated")
         return DispatchIntent(
             intent.fleet_id, intent.mission_id, intent.ship_ids, intent.baseline_mission,
             intent.baseline_observed_at, intent.prepared_at, intent.reserved, completed_at,
@@ -321,7 +324,8 @@ class DurableDispatchCoordinator:
             if state.phase is FleetPhase.EXPEDITION_ACTIVE and state.mission is not None:
                 mission = state.mission
                 if (mission.mission_id == intent.mission_id and mission.ship_ids == intent.ship_ids
-                        and mission.reserved == intent.reserved):
+                        and mission.reserved == intent.reserved
+                        and mission.final_time_ms > int(intent.prepared_at.timestamp() * 1000)):
                     self.intent_store.delete(intent.fleet_id)
                     continue
             if state.phase not in (FleetPhase.DISPATCHING, FleetPhase.BLOCKED):
