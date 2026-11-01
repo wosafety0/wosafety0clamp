@@ -79,10 +79,10 @@ class PassivePortObserverSourceTests(unittest.TestCase):
 
     def test_observer_send_call_sites_are_literal_network_allowlist(self):
         source = SOURCE.read_text(encoding="utf-8")
-        source = re.sub(r"function\\s+send\\s*\\([^)]*\\)\\s*\\{", "", source, count=1)
-        call_sites = re.findall(r"(?<![\\w.])send\\s*\\(", source)
+        source = re.sub(r"function\s+send\s*\([^)]*\)\s*\{", "", source, count=1)
+        call_sites = re.findall(r"(?<![\w.])send\s*\(", source)
         literal_calls = re.findall(
-            r"(?<![\\w.])send\\s*\\(\\s*(['\\"])([^'\\"]+)\\1",
+            r"(?<![\w.])send\s*\(\s*(['\"])([^'\"]+)\1",
             source,
         )
         self.assertEqual(len(call_sites), len(literal_calls))
