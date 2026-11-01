@@ -340,6 +340,47 @@ class RewardScreenOrderingTests(unittest.TestCase):
         )
 
 
+class PostDispatchHomePortTests(unittest.TestCase):
+    def setUp(self):
+        supply = _full_supply((1, 4, 8, 25))
+        self.active = PoiFleetMissionState(
+            2, "Fleet 2", (1, 1, 2000, 0), (1, 4, 8, 25), supply
+        )
+
+    def test_dispatch_returns_to_home_port_and_rechecks_same_active_mission(self):
+        with (
+            patch.object(controller, "_recover_home_port") as recover,
+            patch.object(controller, "read_poi_fleet_states", return_value=(self.active,)) as read_state,
+            patch.object(controller, "_print_event") as log_event,
+        ):
+            result = controller._return_home_port_after_dispatch(
+                MagicMock(), object(), self.active
+            )
+
+        self.assertEqual(result, self.active)
+        recover.assert_called_once()
+        read_state.assert_called_once()
+        log_event.assert_called_once_with(
+            "dispatch_home_port_verified",
+            self.active,
+            evidence="two_consecutive_in_memory_ooi_fingerprints_and_poi_active_tuple",
+        )
+
+    def test_dispatch_home_port_recheck_fails_if_mission_tuple_changed(self):
+        returned = PoiFleetMissionState(
+            2, "Fleet 2", (2, 1, 2000, 0), (1, 4, 8, 25), self.active.supply
+        )
+        with (
+            patch.object(controller, "_recover_home_port") as recover,
+            patch.object(controller, "read_poi_fleet_states", return_value=(returned,)),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "mission changed while returning"):
+                controller._return_home_port_after_dispatch(
+                    MagicMock(), object(), self.active
+                )
+        recover.assert_called_once()
+
+
 class DispatchCheckpointGateTests(unittest.TestCase):
     def setUp(self):
         supply = _full_supply((1, 4, 8, 25))

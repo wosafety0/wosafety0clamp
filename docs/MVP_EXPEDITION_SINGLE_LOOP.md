@@ -12,7 +12,8 @@ ready -> dispatched -> completed -> reward collected -> ready.
 2. Identify readiness and expedition-in-progress/completed states using observed fields.
 3. Identify the shortest feasible action mechanism for one dispatch and one reward collection.
 4. Implement guarded single-dispatch and reward collection only after separate user authorization for live game actions.
-5. Observe return to ready; stop. No continuous re-dispatch is required.
+5. Immediately after the active mission tuple is verified, navigate back to HOME_PORT through the visible UI, require two consecutive in-memory HOME_PORT fingerprints, and re-read Poi to confirm the same mission remains active. Never leave the client parked on the expedition list while the timer runs.
+6. Observe return to ready; stop. No continuous re-dispatch is required.
 
 ## Stop conditions
 Unknown or stale state, mismatched fleet/expedition, ambiguous completion, unavailable action interface, or any unexpected response -> STOP without game actions.

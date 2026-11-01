@@ -474,6 +474,30 @@ def _dispatch(
     raise LoopError("Dispatch was not verified from Poi Redux state; do not repeat clicks")
 
 
+def _return_home_port_after_dispatch(
+    game_session, reader_transport, dispatched: PoiFleetMissionState
+) -> PoiFleetMissionState:
+    """Return from the expedition list to Home Port and revalidate the active mission."""
+    _recover_home_port(game_session)
+    observed = _fleet(read_poi_fleet_states(reader_transport))
+    if (
+        observed.mission_status != 1
+        or observed.mission_id != dispatched.mission_id
+        or observed.final_time_ms != dispatched.final_time_ms
+        or observed.ship_ids != dispatched.ship_ids
+    ):
+        raise LoopError(
+            "Fleet mission changed while returning to Home Port; "
+            f"expected {dispatched.mission}, observed {observed.mission}"
+        )
+    _print_event(
+        "dispatch_home_port_verified",
+        observed,
+        evidence="two_consecutive_in_memory_ooi_fingerprints_and_poi_active_tuple",
+    )
+    return observed
+
+
 def run(args: argparse.Namespace) -> int:
     if not args.authorize_ui_actions:
         raise LoopError("Missing explicit --authorize-ui-actions flag")
@@ -501,6 +525,9 @@ def run(args: argparse.Namespace) -> int:
         dispatched = _dispatch(
             state_session.transport, game_session.input, baseline_ms,
             checkpoint_verifier=checkpoint_verifier,
+        )
+        dispatched = _return_home_port_after_dispatch(
+            game_session, state_session.transport, dispatched
         )
         expected_final_time_ms = dispatched.final_time_ms
         _print_event("dispatch_confirmed_waiting_for_timer", dispatched,
