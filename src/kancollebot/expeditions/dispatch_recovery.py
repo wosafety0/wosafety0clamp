@@ -137,7 +137,6 @@ class SqliteDispatchIntentStore:
 
     def get(self, fleet_id: int) -> DispatchIntent | None:
         with self._connect() as db:
-            db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 """SELECT fleet_id, mission_id, ship_ids_json, baseline_mission_json,
                           baseline_observed_at, prepared_at, reserved, action_completed_at
@@ -159,6 +158,7 @@ class SqliteDispatchIntentStore:
         if completed_at.tzinfo is None or completed_at.utcoffset() is None:
             raise DispatchIntentError("UI action completion timestamp must be timezone-aware")
         with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 """SELECT fleet_id, mission_id, ship_ids_json, baseline_mission_json,
                           baseline_observed_at, prepared_at, reserved, action_completed_at
