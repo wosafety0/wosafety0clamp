@@ -1,7 +1,7 @@
 """Offline state machine for continuous multi-fleet expedition scheduling.
 
-This module owns fleet lifecycle invariants only. It performs no Poi I/O,
-screen recognition, game input, waiting, or persistence.
+This module owns fleet lifecycle invariants and optional durable state-store
+integration. It performs no Poi I/O, screen recognition, game input, or waiting.
 """
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from enum import Enum
 from threading import Lock
-from typing import Iterator
+from typing import Iterator, Protocol
 
 
 class FleetPhase(str, Enum):
@@ -37,12 +37,18 @@ class MissionTuple:
     ship_ids: tuple[int, ...]
 
     def __post_init__(self) -> None:
+        numeric_fields = (self.mission_status, self.mission_id, self.final_time_ms, self.reserved)
+        if any(isinstance(value, bool) or not isinstance(value, int) for value in numeric_fields):
+            raise ValueError("mission tuple fields must be integers")
         if self.mission_status not in (1, 2):
             raise ValueError("mission_status must be active (1) or returned (2)")
         if self.mission_id < 1 or self.final_time_ms < 1 or self.reserved < 0:
             raise ValueError("mission tuple numeric fields are invalid")
-        if not self.ship_ids or any(ship_id < 1 for ship_id in self.ship_ids):
-            raise ValueError("mission ship_ids must be non-empty and positive")
+        if not isinstance(self.ship_ids, tuple) or not self.ship_ids:
+            raise ValueError("mission ship_ids must be a non-empty tuple")
+        if any(isinstance(ship_id, bool) or not isinstance(ship_id, int) or ship_id < 1
+               for ship_id in self.ship_ids):
+            raise ValueError("mission ship_ids must be positive integers")
         if len(set(self.ship_ids)) != len(self.ship_ids):
             raise ValueError("mission ship_ids must be unique")
 
@@ -65,6 +71,33 @@ class FleetRuntime:
     home_port_verified: bool = False
     blocked_reason: str | None = None
 
+    def __post_init__(self) -> None:
+        if isinstance(self.fleet_id, bool) or not isinstance(self.fleet_id, int) or self.fleet_id < 1:
+            raise ValueError("fleet_id must be a positive integer")
+        if not isinstance(self.phase, FleetPhase):
+            raise ValueError("phase must be a FleetPhase")
+        if self.mission is not None and not isinstance(self.mission, MissionTuple):
+            raise ValueError("mission must be a MissionTuple or None")
+        if not isinstance(self.home_port_verified, bool):
+            raise ValueError("home_port_verified must be a bool")
+        if self.phase is FleetPhase.EXPEDITION_ACTIVE and self.mission is None:
+            raise ValueError("active fleet requires a mission tuple")
+        if self.home_port_verified and self.phase is not FleetPhase.EXPEDITION_ACTIVE:
+            raise ValueError("Home Port verification is valid only for an active expedition")
+        if self.phase is FleetPhase.BLOCKED:
+            if not isinstance(self.blocked_reason, str) or not self.blocked_reason.strip():
+                raise ValueError("blocked fleet requires a stop reason")
+        elif self.blocked_reason is not None:
+            raise ValueError("blocked_reason is valid only for BLOCKED phase")
+
+
+class FleetStateStore(Protocol):
+    def load_all(self) -> tuple[FleetRuntime, ...]:
+        ...
+
+    def save(self, state: FleetRuntime) -> None:
+        ...
+
 
 class ContinuousExpeditionScheduler:
     """Pure fleet lifecycle coordinator; only configured fleets are dispatchable."""
@@ -75,6 +108,7 @@ class ContinuousExpeditionScheduler:
         dispatch_fleet_ids: tuple[int, ...] = (2, 3),
         read_only_fleet_ids: tuple[int, ...] = (1,),
         deferred_fleet_ids: tuple[int, ...] = (4,),
+        state_store: FleetStateStore | None = None,
     ) -> None:
         groups = (dispatch_fleet_ids, read_only_fleet_ids, deferred_fleet_ids)
         flattened = tuple(item for group in groups for item in group)
@@ -88,6 +122,20 @@ class ContinuousExpeditionScheduler:
         self.read_only_fleet_ids = read_only_fleet_ids
         self.deferred_fleet_ids = deferred_fleet_ids
         self._fleets = {fleet_id: FleetRuntime(fleet_id) for fleet_id in dispatch_fleet_ids}
+        self._state_store = state_store
+        if state_store is not None:
+            restored_ids = set()
+            for restored in state_store.load_all():
+                if restored.fleet_id not in self._fleets:
+                    raise SchedulerInvariantError(
+                        f"persisted fleet {restored.fleet_id} is outside the configured dispatch scope"
+                    )
+                if restored.fleet_id in restored_ids:
+                    raise SchedulerInvariantError(
+                        f"duplicate persisted state for fleet {restored.fleet_id}"
+                    )
+                restored_ids.add(restored.fleet_id)
+                self._fleets[restored.fleet_id] = restored
 
     def fleet(self, fleet_id: int) -> FleetRuntime:
         try:
@@ -148,7 +196,10 @@ class ContinuousExpeditionScheduler:
             raise SchedulerInvariantError("return confirmation requires returned mission status 2")
         if not observed_mission.same_expedition(current.mission):
             raise SchedulerInvariantError("returned mission identity does not match dispatched mission")
-        return self._set(replace(current, phase=FleetPhase.RETURNED_PENDING_UI))
+        return self._set(replace(
+            current, phase=FleetPhase.RETURNED_PENDING_UI, mission=observed_mission,
+            home_port_verified=False
+        ))
 
     def confirm_return_result(self, fleet_id: int, *, ui_state: str) -> FleetRuntime:
         current = self.fleet(fleet_id)
@@ -182,6 +233,8 @@ class ContinuousExpeditionScheduler:
         return self._set(replace(current, phase=FleetPhase.BLOCKED, blocked_reason=reason))
 
     def _set(self, state: FleetRuntime) -> FleetRuntime:
+        if self._state_store is not None:
+            self._state_store.save(state)
         self._fleets[state.fleet_id] = state
         return state
 

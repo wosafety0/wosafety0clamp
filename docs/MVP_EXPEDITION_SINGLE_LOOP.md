@@ -54,7 +54,9 @@ A failure or mismatch blocks that fleet and stops further UI actions. The client
 - Implemented: `src/kancollebot/expeditions/continuous_scheduler.py` provides the pure fleet state machine, mission tuple equality gate, Fleet 1 read-only / Fleet 4 deferred role separation, and a shared-window mutex.
 - Implemented: `tests/test_continuous_scheduler.py` covers independent Fleet 2 / Fleet 3 lifecycles, the mandatory post-dispatch Home Port gate, mission tuple stability, settlement order, reward confirmation, resupply, blocked state, and serialized UI access.
 - Corrected: `visual_target_gate.py` returns a `LocatedVisualTarget`; visual localization no longer grants CDP click authority.
-- Not implemented: durable persistence and restart reconciliation of all fleet lifecycle states; the existing action journal currently covers dispatch attempts only.
+- Implemented: `src/kancollebot/expeditions/fleet_state_store.py` provides SQLite persistence for fleet lifecycle states. Scheduler transitions are persisted before the in-memory state advances; restart restores active, returned, blocked, and interrupted DISPATCHING states.
+- Recovery limitation: an interrupted `DISPATCHING` state is restored without retry permission. Automated reconciliation against fresh Poi state is not implemented; ambiguous states require a separate guarded reconciliation workflow.
+- The existing action journal still covers dispatch attempts separately from lifecycle state persistence.
 - Not integrated: the pure scheduler is not yet connected to the Poi reader, visible UI controller, or production runner.
 - Not verified live: generic result/bonus page progression and unattended dual-fleet operation.
 - Production guard: do not remove the unconditional `BONUS_ITEMS` fail-closed guard until live two-frame BONUS_ITEMS verification and the required end-to-end acceptance have passed.

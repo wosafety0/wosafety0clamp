@@ -3246,3 +3246,12 @@ The Hand plugin's read-only probe reported:
 - **Design update:** the top of `docs/MVP_EXPEDITION_SINGLE_LOOP.md` now supersedes the retired single-fleet contract with the dual-fleet operating scope, immediate Home Port return rule, UI arbitration, safety constraints, and explicit integration gaps.
 - **Offline verification:** full Python unittest discovery **320/320 passed**; `compileall -q src tests tools` passed; Node static suites **17/17 passed**; `git diff --check` passed.
 - **Implementation boundary:** the state machine and arbiter are not yet connected to Poi or the production runner. Fleet lifecycle persistence/restart reconciliation is not implemented. Generic result-page progression is not yet implemented or live-verified. The production `BONUS_ITEMS` fail-closed guard remains unchanged; no game UI input, dispatch, reward claim, game API/server request, or proxy/system setting change was performed in this development step.
+
+
+## 2026-11-01 - Durable fleet lifecycle state and restart recovery
+
+- **Implemented:** added `src/kancollebot/expeditions/fleet_state_store.py`, a SQLite-backed store for Fleet 2 / Fleet 3 lifecycle state, mission status and identity tuple, ordered ship membership, Home Port verification, and blocked reason.
+- **Scheduler integration:** `ContinuousExpeditionScheduler` now optionally restores configured fleet state on startup and persists every state transition before updating in-memory state. Corrupt records, duplicate/out-of-scope fleet records, and storage failures fail closed.
+- **Restart safety:** active missions with a verified Home Port postcondition are restored with the wait gate intact. Returned status 2 and settlement phase survive restart. An interrupted `DISPATCHING` state is restored as unresolved and cannot be dispatched again automatically; automated reconciliation against a fresh Poi observation remains unimplemented.
+- **Verification:** full Python unittest discovery **327/327 passed**; `compileall -q src tests tools` passed; Node static suites **17/17 passed**; `git diff --check` passed. New persistence tests cover active restart, interrupted dispatch no-retry, blocked-state restore, returned-state restore, corrupt tuple rejection, out-of-scope fleet rejection, and write-failure atomicity.
+- **Implementation boundary:** persistence is implemented and offline-tested but is not yet connected to the live Poi runner. No unattended operation, live UI action, game API/server request, or proxy/system setting change was performed.
