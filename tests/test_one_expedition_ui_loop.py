@@ -187,5 +187,12 @@ class LiveUiCoordinateEvidenceTests(unittest.TestCase):
         )
 
 
+    def test_fleet_2_tab_coordinate_matches_ooi_fleet_tab(self):
+        self.assertEqual(
+            (controller.FLEET_2_TAB.x, controller.FLEET_2_TAB.y),
+            (590, 170),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
