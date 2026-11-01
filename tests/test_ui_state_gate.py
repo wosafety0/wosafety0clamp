@@ -18,9 +18,19 @@ def node(name: str, role: str = "text", *, ignored: bool = False) -> dict:
 class UiStateGateTests(unittest.TestCase):
     def test_classifies_only_explicit_unique_state_markers(self):
         self.assertIs(classify_accessible_state([node("母港")]), UiState.HOME_PORT)
+        self.assertIs(
+            classify_accessible_state([node("母港"), node("第3艦隊 遠征から戻ってきました。")]),
+            UiState.HOME_PORT_RETURN_NOTICE,
+        )
         self.assertIs(classify_accessible_state([node("遠征 失敗！")]), UiState.RETURN_RESULT)
         self.assertIs(classify_accessible_state([node("獲得アイテム")]), UiState.BONUS_ITEMS)
         self.assertIs(classify_accessible_state([node("獲得ボーナス")]), UiState.BONUS_ITEMS)
+
+    def test_return_notice_without_home_marker_is_not_a_home_port_state(self):
+        self.assertIs(
+            classify_accessible_state([node("第3艦隊 遠征から戻ってきました。")]),
+            UiState.HOME_PORT_RETURN_NOTICE,
+        )
 
     def test_ambiguous_or_missing_evidence_is_unknown(self):
         self.assertIs(classify_accessible_state([]), UiState.UNKNOWN)
