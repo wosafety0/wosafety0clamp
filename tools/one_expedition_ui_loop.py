@@ -309,12 +309,43 @@ def _wait_for_idle(reader_transport, poll_seconds: float = 1.0, timeout_seconds:
     while time.monotonic() < deadline:
         state = _fleet(read_poi_fleet_states(reader_transport))
         if _idle(state):
-            _print_event("reward_collection_confirmed_idle", state)
+            _print_event("fleet_idle_confirmed_after_bonus_advance", state)
             return state
         if state.mission_status != 2 or state.mission_id != MISSION_ID:
             raise LoopError(f"Unexpected fleet 2 state after reward confirmation: {state.mission}")
         time.sleep(poll_seconds)
-    raise LoopError("Reward collection was not confirmed; refusing to click again")
+    raise LoopError("Fleet 2 did not become idle after bonus advance; refusing further UI actions")
+
+
+def _collect_returned_expedition_reward(game_session, reader_transport) -> PoiFleetMissionState:
+    """Advance the verified result and bonus screens, then verify return to Home Port.
+
+    Fleet mission-idle is checked only after the BONUS_ITEMS screen has been
+    confirmed and its normal UI advance has been sent. The idle tuple alone is
+    not treated as proof that the reward screen was collected.
+    """
+    _print_event("ui_action_precondition", action="collect_expedition_reward",
+                 fleet_id=FLEET_ID, mission_id=MISSION_ID, expected_state="RETURN_RESULT")
+    game_session.input.click(RETURN_CONFIRM)
+    _print_event("ui_click_sent", point=RETURN_CONFIRM.label)
+    time.sleep(1.5)
+    _print_event("ui_action_wait_completed", point=RETURN_CONFIRM.label, wait_seconds=1.5)
+
+    _require_ui_state(game_session, UiState.BONUS_ITEMS)
+    _print_event("ui_action_precondition", action="advance_bonus_items", expected_state="BONUS_ITEMS")
+    game_session.input.click(RETURN_CONFIRM)
+    _print_event("ui_click_sent", point="bonus-next")
+    time.sleep(1.0)
+    _print_event("ui_action_wait_completed", point="bonus-next", wait_seconds=1.0)
+
+    _wait_for_idle(reader_transport)
+    _recover_home_port(game_session)
+    final_state = _fleet(read_poi_fleet_states(reader_transport))
+    if not _idle(final_state):
+        raise LoopError(f"Fleet 2 did not return to idle after collection: {final_state.mission}")
+    _print_event("ONE_EXPEDITION_LOOP_VERIFIED_READY", final_state,
+                 dispatch_final_time_ms=final_state.final_time_ms)
+    return final_state
 
 
 def build_checkpoint_verifier(reader_transport, game_session, expected_start_ms: int):
@@ -505,26 +536,7 @@ def run(args: argparse.Namespace) -> int:
             raise LoopError("Completion state was not confirmed within 120 seconds after Home Port refresh")
 
         _require_ui_state(game_session, UiState.RETURN_RESULT)
-        _print_event("ui_action_precondition", action="collect_expedition_reward",
-                     fleet_id=FLEET_ID, mission_id=MISSION_ID, expected_state="RETURN_RESULT")
-        game_session.input.click(RETURN_CONFIRM)
-        _print_event("ui_click_sent", point=RETURN_CONFIRM.label)
-        time.sleep(1.5)
-        _print_event("ui_action_wait_completed", point=RETURN_CONFIRM.label, wait_seconds=1.5)
-        idle = _wait_for_idle(state_session.transport)
-        _require_ui_state(game_session, UiState.BONUS_ITEMS)
-        _print_event("ui_action_precondition", action="advance_bonus_items", expected_state="BONUS_ITEMS")
-        game_session.input.click(RETURN_CONFIRM)
-        _print_event("ui_click_sent", point="bonus-next")
-        time.sleep(1.0)
-        _print_event("ui_action_wait_completed", point="bonus-next", wait_seconds=1.0)
-        _recover_home_port(game_session)
-        final_state = _fleet(read_poi_fleet_states(state_session.transport))
-        if not _idle(final_state):
-            raise LoopError(f"Fleet 2 did not return to idle after collection: {final_state.mission}")
-        _print_event("ONE_EXPEDITION_LOOP_VERIFIED_READY", final_state,
-                     previous_idle_state=idle.mission_status == 0,
-                     dispatch_final_time_ms=expected_final_time_ms)
+        _collect_returned_expedition_reward(game_session, state_session.transport)
     return 0
 
 

@@ -253,10 +253,44 @@ class RewardCollectionIdleGateTests(unittest.TestCase):
             patch.object(controller.time, "monotonic", side_effect=[0.0, 0.0, 2.0, 11.0]),
             patch.object(controller.time, "sleep") as sleep,
         ):
-            with self.assertRaisesRegex(controller.LoopError, "Reward collection was not confirmed"):
+            with self.assertRaisesRegex(controller.LoopError, "did not become idle after bonus advance"):
                 controller._wait_for_idle(object(), timeout_seconds=10.0)
         self.assertEqual(sleep.call_count, 2)
         self.assertEqual([item.args for item in sleep.call_args_list], [(1.0,), (1.0,)])
+
+
+class RewardScreenOrderingTests(unittest.TestCase):
+    def test_bonus_screen_is_verified_before_idle_gate_and_home_recovery(self):
+        events = []
+        game_session = MagicMock()
+        game_session.input.click.side_effect = lambda point: events.append(("click", point.label))
+        idle = PoiFleetMissionState(2, "Fleet 2", (0, 0, 0, 0), (1, 4, 8, 25))
+
+        with (
+            patch.object(controller, "_print_event"),
+            patch.object(controller, "time") as clock,
+            patch.object(controller, "_require_ui_state",
+                         side_effect=lambda _session, state: events.append(("state", state.value))),
+            patch.object(controller, "_wait_for_idle", side_effect=lambda _reader: events.append(("idle",))),
+            patch.object(controller, "_recover_home_port", side_effect=lambda _session: events.append(("home",))),
+            patch.object(controller, "read_poi_fleet_states", return_value=(idle,)),
+        ):
+            clock.sleep.side_effect = lambda seconds: events.append(("sleep", seconds))
+            result = controller._collect_returned_expedition_reward(game_session, object())
+
+        self.assertEqual(result, idle)
+        self.assertEqual(
+            events,
+            [
+                ("click", "returned-expedition-confirm"),
+                ("sleep", 1.5),
+                ("state", "BONUS_ITEMS"),
+                ("click", "returned-expedition-confirm"),
+                ("sleep", 1.0),
+                ("idle",),
+                ("home",),
+            ],
+        )
 
 
 class DispatchCheckpointGateTests(unittest.TestCase):
