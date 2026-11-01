@@ -81,6 +81,35 @@ class DurableDispatchRecoveryTests(unittest.TestCase):
         restored = SqliteDispatchIntentStore(self.db).get(2)
         self.assertEqual(restored.action_completed_at, completed)
 
+    def test_intent_rejects_non_datetime_or_naive_action_completion(self):
+        with self.assertRaisesRegex(ValueError, "action_completed_at must be timezone-aware"):
+            DispatchIntent(
+                2, 3, SHIPS, (0, 0, 0, 0),
+                T0 - timedelta(seconds=1), T0,
+                action_completed_at="not-a-datetime",
+            )
+        with self.assertRaisesRegex(ValueError, "action_completed_at must be timezone-aware"):
+            DispatchIntent(
+                2, 3, SHIPS, (0, 0, 0, 0),
+                T0 - timedelta(seconds=1), T0,
+                action_completed_at=datetime(2026, 11, 1, 12, 0),
+            )
+
+    def test_store_rejects_invalid_action_completion_without_mutating_intent(self):
+        self.prepare()
+        invalid_values = (
+            "not-a-datetime",
+            datetime(2026, 11, 1, 12, 0),
+        )
+        for value in invalid_values:
+            with self.subTest(value=type(value).__name__):
+                with self.assertRaisesRegex(
+                    DispatchIntentError, "timezone-aware datetime"
+                ):
+                    self.coordinator.mark_ui_action_completed(2, completed_at=value)
+        self.assertIsNone(self.intent_store.get(2).action_completed_at)
+        self.assertEqual(self.scheduler.fleet(2).phase, FleetPhase.DISPATCHING)
+
     def test_fresh_matching_active_mission_reconciles_without_home_port_bypass(self):
         self.prepare()
         self.coordinator.mark_ui_action_completed(
