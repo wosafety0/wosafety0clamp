@@ -1,6 +1,6 @@
 # Continuous Dual-Fleet Expedition Scheduler — Design Contract
 
-Status: IN_PROGRESS. An offline fleet lifecycle state machine and shared-UI operation arbiter are implemented and unit-tested. Poi integration, durable scheduler-state recovery, generic result-page advancement, and unattended live operation remain pending. The production runner's BONUS_ITEMS fail-closed guard remains mandatory.
+Status: IN_PROGRESS. The offline fleet lifecycle state machine, shared-UI arbiter, SQLite fleet-state store, and durable dispatch-intent recovery coordinator are implemented. The new dispatch-recovery path is saved but has not yet completed its test run. Poi/production-runner integration, generic result-page advancement, and unattended live operation remain pending. The production runner's BONUS_ITEMS fail-closed guard remains mandatory.
 
 Branch: dev/expedition-closed-loop-mvp
 
@@ -55,10 +55,12 @@ A failure or mismatch blocks that fleet and stops further UI actions. The client
 - Implemented: `tests/test_continuous_scheduler.py` covers independent Fleet 2 / Fleet 3 lifecycles, the mandatory post-dispatch Home Port gate, mission tuple stability, settlement order, reward confirmation, resupply, blocked state, and serialized UI access.
 - Corrected: `visual_target_gate.py` returns a `LocatedVisualTarget`; visual localization no longer grants CDP click authority.
 - Implemented: `src/kancollebot/expeditions/fleet_state_store.py` provides SQLite persistence for fleet lifecycle states. Scheduler transitions are persisted before the in-memory state advances; restart restores active, returned, blocked, and interrupted DISPATCHING states.
-- Recovery limitation: an interrupted `DISPATCHING` state is restored without retry permission. Automated reconciliation against fresh Poi state is not implemented; ambiguous states require a separate guarded reconciliation workflow.
+- Implemented (verification pending): `src/kancollebot/expeditions/dispatch_recovery.py` persists the intended mission, baseline idle observation, ordered ship roster, preparation time, and UI-action completion marker before/around dispatch. On restart it reconciles only a fresh source-verified Poi Redux observation that positively matches the intended active mission; the Home Port postcondition remains unverified and timer waiting stays forbidden.
+- Fail-closed recovery: fresh idle state, already-returned state, mission/roster mismatch, or orphaned intent blocks the fleet and never authorizes automatic retry. Already-returned recovery requires a separate manual UI settlement path.
+- Planner snapshots now retain the `api_mission[3]` reserved slot so reconciliation can compare it rather than silently defaulting it.
 - The existing action journal still covers dispatch attempts separately from lifecycle state persistence.
-- Not integrated: the pure scheduler is not yet connected to the Poi reader, visible UI controller, or production runner.
-- Not verified live: generic result/bonus page progression and unattended dual-fleet operation.
+- Not integrated: the coordinator is not yet connected to the visible UI controller or production runner; no game action is enabled by this module.
+- Not yet verified: the new dispatch-recovery tests, generic result/bonus page progression, and unattended dual-fleet operation.
 - Production guard: do not remove the unconditional `BONUS_ITEMS` fail-closed guard until live two-frame BONUS_ITEMS verification and the required end-to-end acceptance have passed.
 
 ---
