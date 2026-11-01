@@ -55,7 +55,7 @@ HOME_PORT = RecordedPoint(50, 50, "home-port")
 SORTIE = RecordedPoint(280, 425, "sortie")
 EXPEDITION_MODE = RecordedPoint(1000, 360, "expedition-mode")
 MISSION_ROW = RecordedPoint(350, 350, "mission-3-security-task")
-# State-dependent: this is ?? on MISSION_SELECTED but overlaps ????! on fleet selection.
+# State-dependent: this is the mission-confirm control on MISSION_SELECTED, but overlaps the expedition-start control on fleet selection.
 # The pre-click MISSION_SELECTED checkpoint is mandatory.
 MISSION_CONFIRM = RecordedPoint(1030, 670, "mission-confirm")
 FLEET_2_TAB = RecordedPoint(590, 170, "fleet-2-tab")
