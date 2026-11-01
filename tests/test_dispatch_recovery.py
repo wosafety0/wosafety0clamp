@@ -148,6 +148,21 @@ class DurableDispatchRecoveryTests(unittest.TestCase):
             )
         self.assertEqual(self.scheduler.fleet(2).phase, FleetPhase.DISPATCHING)
 
+    def test_reconciliation_observation_must_follow_recorded_ui_action_completion(self):
+        self.prepare()
+        completed_at = T0 + timedelta(seconds=5)
+        self.coordinator.mark_ui_action_completed(2, completed_at=completed_at)
+        observed_at = T0 + timedelta(seconds=4)
+        observation = self.observation(
+            self.active_fleet(at=T0 + timedelta(minutes=15)),
+            at=observed_at,
+        )
+        with self.assertRaisesRegex(DispatchIntentError, "predates the persisted UI action"):
+            self.coordinator.reconcile_after_restart(
+                2, observation, now=T0 + timedelta(seconds=6)
+            )
+        self.assertEqual(self.scheduler.fleet(2).phase, FleetPhase.DISPATCHING)
+
     def test_observation_must_be_from_poi_reader(self):
         self.prepare()
         at = T0 + timedelta(seconds=3)
