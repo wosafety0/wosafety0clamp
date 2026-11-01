@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -113,6 +114,58 @@ class LiveCheckpointVerifierTests(unittest.TestCase):
                 self.game_session, controller.UiState.HOME_PORT
             )
         self.assertEqual(classify.call_count, 3)
+
+    def test_template_only_checkpoint_requires_two_consecutive_matches(self):
+        self.game_session.transport.send.return_value = {"nodes": []}
+        self.game_session.input.capture_screenshot.return_value = "in-memory-payload"
+        scores = {"return_notice.png": 0.99}
+        with (
+            patch.dict(os.environ, {
+                "KANCOLLEBOT_FINGERPRINTS_PATH": "fingerprints.json",
+                "KANCOLLEBOT_TEMPLATE_DIR": "templates",
+            }),
+            patch.object(Path, "is_file", return_value=True),
+            patch.object(Path, "read_text", return_value='{"states":{}}'),
+            patch.object(Path, "is_dir", return_value=True),
+            patch.object(controller, "classify_screenshot_png",
+                         side_effect=[("UNKNOWN", {}), ("RETURN_RESULT", scores), ("RETURN_RESULT", scores)]) as classify,
+            patch.object(controller.time, "sleep"),
+        ):
+            controller._require_ui_state(self.game_session, controller.UiState.RETURN_RESULT)
+        self.assertEqual(classify.call_count, 3)
+        self.assertEqual(self.game_session.input.capture_screenshot.call_count, 3)
+
+    def test_template_only_checkpoint_rejects_a_different_known_state(self):
+        self.game_session.transport.send.return_value = {"nodes": []}
+        self.game_session.input.capture_screenshot.return_value = "in-memory-payload"
+        with (
+            patch.dict(os.environ, {
+                "KANCOLLEBOT_FINGERPRINTS_PATH": "fingerprints.json",
+                "KANCOLLEBOT_TEMPLATE_DIR": "templates",
+            }),
+            patch.object(Path, "is_file", return_value=True),
+            patch.object(Path, "read_text", return_value='{"states":{}}'),
+            patch.object(Path, "is_dir", return_value=True),
+            patch.object(controller, "classify_screenshot_png", return_value=("HOME_PORT", {})) as classify,
+            patch.object(controller.time, "sleep"),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "classifier returned HOME_PORT"):
+                controller._require_ui_state(self.game_session, controller.UiState.RETURN_RESULT)
+        classify.assert_called_once()
+        self.game_session.input.capture_screenshot.assert_called_once()
+
+    def test_template_only_checkpoint_without_template_directory_fails_before_capture(self):
+        self.game_session.transport.send.return_value = {"nodes": []}
+        with (
+            patch.dict(os.environ, {
+                "KANCOLLEBOT_FINGERPRINTS_PATH": "missing-fingerprints.json",
+                "KANCOLLEBOT_TEMPLATE_DIR": "",
+            }),
+            patch.object(Path, "is_file", return_value=False),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "no fingerprint for this state"):
+                controller._require_ui_state(self.game_session, controller.UiState.RETURN_RESULT)
+        self.game_session.input.capture_screenshot.assert_not_called()
 
 
 class ReturnGraceDelayTests(unittest.TestCase):

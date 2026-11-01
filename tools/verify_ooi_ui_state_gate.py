@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -22,7 +23,19 @@ from one_expedition_ui_loop import _require_ui_state
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--expected", required=True, choices=[state.value for state in UiState if state is not UiState.UNKNOWN])
+    parser.add_argument(
+        "--template-dir",
+        type=Path,
+        default=Path(os.environ["KANCOLLEBOT_TEMPLATE_DIR"]) if os.environ.get("KANCOLLEBOT_TEMPLATE_DIR") else None,
+        help="Directory containing local visual templates for states without Ooi fingerprints",
+    )
     args = parser.parse_args(argv)
+    if args.template_dir is not None:
+        if not args.template_dir.is_dir():
+            print(json.dumps({"status": "FAIL_CLOSED", "expected": args.expected,
+                              "error": f"template directory does not exist: {args.template_dir}"}, ensure_ascii=False))
+            return 2
+        os.environ["KANCOLLEBOT_TEMPLATE_DIR"] = str(args.template_dir.expanduser().resolve())
     try:
         expected = UiState(args.expected)
         with connect_game_webview() as session:

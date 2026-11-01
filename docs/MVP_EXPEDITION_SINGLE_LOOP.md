@@ -1,6 +1,6 @@
 # Single Expedition MVP — Execution Contract
 
-Status: IN_PROGRESS (2026-10-30; user-authorized UI-mediated dispatch for fleet 2 mission 3 verified; same-mission return/reward/re-dispatch and Bot integration remain pending)
+Status: IN_PROGRESS (2026-11-01; dispatch navigation, fleet-2 supply fail-closed gate, and six pre-dispatch visual checkpoints verified; RETURN_RESULT/BONUS_ITEMS template pipeline implemented with synthetic positive controls and live negative controls; positive live return/reward verification and end-to-end loop remain pending)
 Branch: dev/expedition-closed-loop-mvp
 
 ## One acceptance criterion
@@ -261,3 +261,16 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - **Important limitation:** the current production `run()` does not supply a verifier. This is deliberate: the repository currently cannot reliably identify the mission-selected and fleet-2-selected canvas states without adding manually labeled templates or another recognition provider. The new state labels describe required checkpoints; they are not claims that those states have already been recognized on the live client.
 - **Verification:** 197 Python unit tests passed, including tests for zero clicks when the verifier is absent, stopping after a failed post-click checkpoint, and the six-step callback contract with a mocked verifier. `compileall` and `git diff --check` passed. The mocked verifier tests validate control flow only; no live UI input was sent.
 - **Acceptance status:** safety hardening is tested; live dispatch and the complete expedition loop remain unverified and blocked until a real per-step verifier is available.
+
+
+## 2026-11-01 — Return-result and bonus-item template checkpoint implementation
+
+- **Local template assets recovered:** `D:\AI_Project\Project_KancolleBot\kancolle_templates` contains success/failure result templates (521×473 / 482×414), a Japanese return-notice crop (220×49), and a Japanese bonus-title crop (221×69). These assets are local and are not tracked by this repository; callers must explicitly provide their directory.
+- **Mismatched asset excluded:** `result_next_button.png` is an 81×495 vertical FRIEND FLEET AREA strip, not the reward-page next button. It is no longer loaded or accepted as a BONUS_ITEMS marker. The verified Japanese `bonus_title` crop is currently the only positive bonus-state marker.
+- **Template-only state path fixed:** `_require_ui_state` previously could not evaluate RETURN_RESULT or BONUS_ITEMS because those states are absent from the Ooi fingerprint JSON and no screenshot payload was created for them. It now falls back directly to the configured template directory and requires two consecutive matching in-memory frames. Known conflicting states, missing directories, and unknown frames fail closed.
+- **Configuration:** both `one_expedition_ui_loop.py` and `verify_ooi_ui_state_gate.py` accept `--template-dir`; the path is validated and passed through `KANCOLLEBOT_TEMPLATE_DIR`. No machine-specific absolute path is hard-coded in the repository.
+- **Offline verification:** Python unittest **263 tests passed**; compileall and `git diff --check` passed. Synthetic in-memory positive controls classified success result, failure result, return-notice crop as RETURN_RESULT and bonus-title crop as BONUS_ITEMS (all exact-template scores 1.0). These controls validate template loading/matching only, not real game-screen accuracy.
+- **Live negative verification:** the production checkpoint gate recognized the current Ooi HOME_PORT screen twice (fingerprint scores 0.9990 / 0.9990). When RETURN_RESULT and BONUS_ITEMS were expected against that same live HOME_PORT screen, the template-only path correctly classified HOME_PORT and returned FAIL_CLOSED. All screenshots remained in memory; no clicks or navigation were sent.
+- **Current game state:** Poi reports all three fleets idle. Fleet 2 has four ships, each at fuel 11/15; ammunition is 20/20, 15/15, 20/20, and 20/20. No fleet is currently returning, so positive live RETURN_RESULT/BONUS_ITEMS verification cannot be obtained from the current screen.
+- **Production remains blocked:** the runner's startup fail-closed gate is unchanged. No supply action, dispatch, reward collection, or resource-consuming action was performed. Full live return/reward transitions and end-to-end acceptance remain pending.
+- **Local environment:** the ignored worktree `.venv` was provisioned with the declared optional vision extra (`opencv-python-headless 5.0.0.93`, `numpy 2.5.4`); this is local environment state, not a repository dependency change.

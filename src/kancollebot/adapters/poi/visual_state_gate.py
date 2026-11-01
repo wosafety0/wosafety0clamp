@@ -98,10 +98,11 @@ def classify_template_scores(
     result_ranked = sorted(result_scores.items(), key=lambda item: item[1], reverse=True)
     _, result = result_ranked[0]
     second_result = result_ranked[1][1]
-    bonus = max(
-        scores.get("result_next_button.png", -1.0),
-        scores.get("bonus_title.png", -1.0),
-    )
+    # result_next_button.png is a known mismatched local asset (FRIEND FLEET
+    # AREA), so it must never authorize BONUS_ITEMS. The Japanese bonus-title
+    # crop is the only accepted positive marker until a real next-button crop
+    # is independently identified.
+    bonus = scores.get("bonus_title.png", -1.0)
 
     candidates: list[tuple[str, float]] = []
     home_markers = (
@@ -143,7 +144,6 @@ def classify_template_scores(
         "expedition_result_success.png",
         "expedition_result_failure.png",
         "return_notice.png",
-        "result_next_button.png",
         "bonus_title.png",
     }
     competing = max(
@@ -176,7 +176,6 @@ def classify_screenshot_png(
             "home_sortie_menu.png",
             "expedition_result_success.png",
             "expedition_result_failure.png",
-            "result_next_button.png",
             "home_expedition_menu.png",
             "expedition_list_panel.png",
             "expedition_dispatch_button.png",

@@ -3043,3 +3043,16 @@ The Hand plugin's read-only probe reported:
 - **离线验证：** Python unittest **259 passed / 3 skipped**；Node.js 测试进程退出码 0（17 项既有测试）；compileall、指纹 JSON 解析及 `git diff --check` 均通过。
 - **生产门禁仍关闭：** 以上仅验收派遣前视觉状态、状态顺序和补给不足时的拒绝行为；没有验证满补时放行的真实派遣，没有点击远征开始。RETURN_RESULT、BONUS_ITEMS 及完整返航/收取/补给/再派遣闭环仍未独立验收，生产 `run()` 继续在建立 CDP 会话或发送输入前 fail-closed。
 - **安全边界：** 没有构造、重放或发送游戏 API/服务器请求；没有保存原始截图；没有执行补给点击或消耗游戏资源；没有修改代理或系统代理设置。
+
+
+## 2026-11-01 — RETURN_RESULT / BONUS_ITEMS 模板识别路径修复与现场负向核验
+
+- **本地模板资产核查：** 恢复并检查 `D:\AI_Project\Project_KancolleBot\kancolle_templates`。成功/失败返航结果模板尺寸分别为 521×473、482×414；返航提示日文裁剪图 220×49；奖励标题「獲得ボーナス」裁剪图 221×69。以上素材位于本机独立目录，不在 Git 仓库中，调用方必须显式配置模板目录。
+- **错误素材排除：** `result_next_button.png` 实际为 81×495 的纵向 FRIEND FLEET AREA 区域，不是奖励页下一步按钮。已从模板加载清单及 BONUS_ITEMS 正向条件中移除；当前仅允许真实奖励标题裁剪图作为 BONUS_ITEMS 的正向模板标记。
+- **识别路径缺陷修复：** 原 `_require_ui_state` 仅在预期状态已存在于指纹 JSON 且已产生截图 payload 时才进入模板回退，导致不在指纹 JSON 中的 RETURN_RESULT / BONUS_ITEMS 无法被识别。现新增模板专用识别路径：通过 `--template-dir` 或 `KANCOLLEBOT_TEMPLATE_DIR` 指定目录，最多采样三帧，要求连续两帧命中预期状态；其他已知状态、未知帧、目录缺失均 fail-closed。生产 `run()` 启动拒绝门未解除。
+- **诊断入口：** `tools/verify_ooi_ui_state_gate.py` 与 `tools/one_expedition_ui_loop.py` 均增加 `--template-dir` 参数，并在使用前验证目录存在。仓库没有写入机器专属模板绝对路径。
+- **离线自动化验证：** Python unittest **263 tests passed**；Node.js **17/17 passed**；compileall、pip check 与 `git diff --check` 均通过。用内存合成 PNG 对成功结果、失败结果、返航提示和奖励标题进行正向模板测试，四项均分类为预期状态，精确模板分数均为 1.0。合成测试只证明素材加载及匹配管线，不代表真实游戏画面识别准确率。
+- **真实 Ooi 负向现场核验：** 生产门禁连续两帧将当前画面识别为 HOME_PORT（指纹分数 0.9990 / 0.9990）。分别将 RETURN_RESULT 和 BONUS_ITEMS 作为预期状态调用模板专用路径，二者均正确识别当前画面为 HOME_PORT 并返回 FAIL_CLOSED。该结果验证了当前母港画面不会被误判为返航或奖励页，不是返航/奖励页的正向现场验收。
+- **当前游戏状态：** Poi 只读快照显示舰队 1、2、3 的 `api_mission` 均为 `[0,0,0,0]`。Fleet 2 有 4 艘舰船，燃料均为 11/15；弹药分别为 20/20、15/15、20/20、20/20。当前没有正在返航的舰队，无法从现有画面获得真实 RETURN_RESULT / BONUS_ITEMS 正向证据。
+- **本地视觉依赖：** 在被 Git 忽略的工作树 `.venv` 中安装项目已声明的可选视觉依赖：`opencv-python-headless 5.0.0.93`、`numpy 2.5.4`。没有修改 `pyproject.toml` 的依赖声明，也没有把虚拟环境纳入 Git。
+- **生产及安全边界：** RETURN_RESULT / BONUS_ITEMS 的正向真实游戏画面识别仍未验收；生产 `run()` 继续在建立 CDP 会话和发送任何输入前 fail-closed。没有执行补给、派遣、收取奖励或其他消耗资源的游戏动作；没有保存截图；没有构造、重放或发送游戏 API/服务器请求；没有修改代理或系统代理设置。

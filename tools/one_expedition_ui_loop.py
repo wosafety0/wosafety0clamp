@@ -113,7 +113,7 @@ def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra:
 
 
 def _require_ui_state(game_session, expected: UiState) -> None:
-    """Require accessible labels or two consecutive high-confidence Ooi fingerprints."""
+    """Require accessible labels or two consecutive in-memory visual matches."""
     result = game_session.transport.send("Accessibility.getFullAXTree", {})
     nodes = result.get("nodes") if isinstance(result, dict) else None
     try:
@@ -132,28 +132,26 @@ def _require_ui_state(game_session, expected: UiState) -> None:
             document = None
             if fingerprint_path.is_file():
                 document = json.loads(fingerprint_path.read_text(encoding="utf-8"))
-            if document and expected.value in document.get("states", {}):
+            fingerprint_states = document.get("states", {}) if isinstance(document, dict) else {}
+            if expected.value in fingerprint_states:
                 consecutive_matches = 0
-                last_payload = None
-                last_scores = {}
-                last_state = "UNKNOWN"
                 for attempt in range(3):
                     game_session.transport.send(
                         "Input.dispatchMouseEvent",
                         {"type": "mouseMoved", "x": 1195, "y": 715},
                     )
                     time.sleep(0.15)
-                    last_payload = game_session.input.capture_screenshot()
-                    last_state, last_scores = classify_screenshot_fingerprints(last_payload, document)
+                    payload = game_session.input.capture_screenshot()
+                    observed, scores = classify_screenshot_fingerprints(payload, document)
                     _print_event(
                         "ui_fingerprint_state_check",
                         attempt=attempt + 1,
                         expected=expected.value,
-                        observed=last_state,
-                        scores={key: round(value, 4) for key, value in last_scores.items()},
+                        observed=observed,
+                        scores={key: round(value, 4) for key, value in scores.items()},
                         screenshot_written_to_disk=False,
                     )
-                    if last_state == expected.value:
+                    if observed == expected.value:
                         consecutive_matches += 1
                         if consecutive_matches >= 2:
                             _print_event(
@@ -162,46 +160,73 @@ def _require_ui_state(game_session, expected: UiState) -> None:
                                 evidence="two_consecutive_in_memory_ooi_fingerprints",
                             )
                             return
-                    elif last_state != "UNKNOWN":
+                    elif observed != "UNKNOWN":
                         raise LoopError(
-                            f"Expected {expected.value}; Ooi fingerprint classified {last_state}"
+                            f"Expected {expected.value}; Ooi fingerprint classified {observed}"
                         ) from accessible_error
                     else:
                         consecutive_matches = 0
                     if attempt < 2:
                         time.sleep(0.25)
-            else:
-                last_payload = None
-                last_scores = {}
-                last_state = "UNKNOWN"
+                if not template_dir:
+                    raise LoopError(
+                        f"Expected {expected.value}; no stable fingerprint match was obtained after three attempts"
+                    ) from accessible_error
 
-            if not template_dir or last_payload is None:
+            if not template_dir:
                 raise LoopError(
-                    f"Expected {expected.value}; no stable fingerprint match was obtained after three attempts"
+                    f"Expected {expected.value}; no fingerprint for this state and no KANCOLLEBOT_TEMPLATE_DIR configured"
                 ) from accessible_error
-            visual_state, scores = classify_screenshot_png(last_payload, template_dir)
-            if HOME_REFERENCE_BASE64:
-                scores["home_reference_similarity"] = home_reference_similarity(
-                    last_payload, HOME_REFERENCE_BASE64
+            template_path = Path(template_dir)
+            if not template_path.is_dir():
+                raise LoopError(f"Visual template directory does not exist: {template_path}") from accessible_error
+
+            consecutive_matches = 0
+            for attempt in range(3):
+                game_session.transport.send(
+                    "Input.dispatchMouseEvent",
+                    {"type": "mouseMoved", "x": 1195, "y": 715},
                 )
-                visual_state = classify_template_scores(scores)
-        except (VisualFingerprintError, VisualStateError, OSError, json.JSONDecodeError) as visual_error:
+                time.sleep(0.15)
+                payload = game_session.input.capture_screenshot()
+                visual_state, scores = classify_screenshot_png(payload, template_path)
+                if HOME_REFERENCE_BASE64:
+                    scores["home_reference_similarity"] = home_reference_similarity(
+                        payload, HOME_REFERENCE_BASE64
+                    )
+                    visual_state = classify_template_scores(scores)
+                _print_event(
+                    "ui_template_state_check",
+                    attempt=attempt + 1,
+                    expected=expected.value,
+                    observed=visual_state,
+                    scores={key: round(value, 4) for key, value in scores.items()},
+                    screenshot_written_to_disk=False,
+                )
+                if visual_state == expected.value:
+                    consecutive_matches += 1
+                    if consecutive_matches >= 2:
+                        _print_event(
+                            "ui_state_confirmed",
+                            ui_state=expected.value,
+                            evidence="two_consecutive_in_memory_template_matches",
+                        )
+                        return
+                elif visual_state != "UNKNOWN":
+                    raise LoopError(
+                        f"Expected {expected.value}; visual template classifier returned {visual_state}"
+                    ) from accessible_error
+                else:
+                    consecutive_matches = 0
+                if attempt < 2:
+                    time.sleep(0.25)
+            raise LoopError(
+                f"Expected {expected.value}; no stable template match was obtained after three attempts"
+            ) from accessible_error
+        except (VisualFingerprintError, VisualStateError, OSError, ValueError) as visual_error:
             raise LoopError(
                 f"Accessible state unavailable ({accessible_error}); visual fallback failed ({visual_error})"
             ) from visual_error
-
-        _print_event(
-            "ui_visual_state_check",
-            expected=expected.value,
-            observed=visual_state,
-            scores={key: round(value, 4) for key, value in scores.items()},
-            screenshot_written_to_disk=False,
-        )
-        if visual_state != expected.value:
-            raise LoopError(
-                f"Expected {expected.value}; accessible labels were unavailable and visual state was {visual_state}"
-            ) from accessible_error
-        _print_event("ui_state_confirmed", ui_state=expected.value, evidence="in_memory_template_match")
 
 
 def _capture_home_reference(game_session) -> None:
@@ -512,12 +537,22 @@ def main() -> int:
     parser.add_argument("--grace-delay-seconds", type=float, default=10.0,
                         help="Wait after the scheduled return time before refreshing through the UI")
     parser.add_argument(
+        "--template-dir",
+        type=Path,
+        default=Path(os.environ["KANCOLLEBOT_TEMPLATE_DIR"]) if os.environ.get("KANCOLLEBOT_TEMPLATE_DIR") else None,
+        help="Directory containing local visual templates for RETURN_RESULT and BONUS_ITEMS",
+    )
+    parser.add_argument(
         "--log-path",
         type=Path,
         default=ROOT / "logs" / "one_expedition_ui_loop.jsonl",
         help="The sole permitted local output file; defaults to logs/one_expedition_ui_loop.jsonl",
     )
     args = parser.parse_args()
+    if args.template_dir is not None:
+        if not args.template_dir.is_dir():
+            parser.error(f"template directory does not exist: {args.template_dir}")
+        os.environ["KANCOLLEBOT_TEMPLATE_DIR"] = str(args.template_dir.expanduser().resolve())
     global LOG_PATH, RUN_ID, HOME_REFERENCE_BASE64
     LOG_PATH = args.log_path.expanduser().resolve()
     HOME_REFERENCE_BASE64 = None

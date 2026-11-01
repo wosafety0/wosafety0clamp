@@ -57,7 +57,6 @@ class VisualStateGateTests(unittest.TestCase):
             "home_sortie_menu.png": 0.20,
             "expedition_result_success.png": 0.96,
             "expedition_result_failure.png": 0.30,
-            "result_next_button.png": 0.70,
         }), "RETURN_RESULT")
         self.assertEqual(classify_template_scores({
             "home_sortie_menu.png": 0.20,
@@ -66,19 +65,21 @@ class VisualStateGateTests(unittest.TestCase):
             "expedition_result_failure.png": 0.24,
         }), "RETURN_RESULT")
 
-    def test_bonus_page_requires_next_or_bonus_title_without_result_marker(self):
-        self.assertEqual(classify_template_scores({
-            "home_sortie_menu.png": 0.20,
-            "expedition_result_success.png": 0.35,
-            "expedition_result_failure.png": 0.28,
-            "result_next_button.png": 0.97,
-        }), "BONUS_ITEMS")
+    def test_bonus_page_requires_the_verified_bonus_title_marker(self):
         self.assertEqual(classify_template_scores({
             "home_sortie_menu.png": 0.20,
             "expedition_result_success.png": 0.35,
             "expedition_result_failure.png": 0.28,
             "bonus_title.png": 0.98,
         }), "BONUS_ITEMS")
+
+    def test_known_mismatched_next_button_asset_cannot_authorize_bonus_state(self):
+        self.assertEqual(classify_template_scores({
+            "home_sortie_menu.png": 0.20,
+            "expedition_result_success.png": 0.35,
+            "expedition_result_failure.png": 0.28,
+            "result_next_button.png": 1.0,
+        }), "UNKNOWN")
 
     def test_ambiguous_and_weak_matches_fail_closed(self):
         self.assertEqual(classify_template_scores({"home_sortie_menu.png": 0.80}), "UNKNOWN")
