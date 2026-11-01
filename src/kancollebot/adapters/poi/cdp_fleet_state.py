@@ -76,7 +76,7 @@ def _optional_nonnegative_int(value: Any, label: str) -> int | None:
 
 
 def read_poi_fleet_states(transport: CdpReadTransport) -> tuple[PoiFleetMissionState, ...]:
-    """Read fleet mission, ship membership, and Fleet 2 supply from Poi's cached Redux state."""
+    """Read fleet mission, ship membership, and Fleet 2/3 supply from Poi's cached Redux state."""
     result = transport.send(
         "Runtime.evaluate",
         {"expression": READ_ONLY_FLEET_SNAPSHOT_EXPRESSION, "returnByValue": True},

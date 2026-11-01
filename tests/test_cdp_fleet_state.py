@@ -56,6 +56,22 @@ class CdpFleetStateTests(unittest.TestCase):
         self.assertEqual([item.ship_id for item in fleet2.supply], [1, 4, 8])
         self.assertTrue(all(item.is_fully_supplied for item in fleet2.supply))
 
+    def test_reads_fleet3_supply_fields_for_four_ship_formation(self):
+        supply = [
+            {"id": 6, "fuel": 8, "ammo": 12, "max_fuel": 10, "max_ammo": 15},
+            {"id": 52, "fuel": 10, "ammo": 15, "max_fuel": 10, "max_ammo": 15},
+            {"id": 32, "fuel": 9, "ammo": 15, "max_fuel": 10, "max_ammo": 15},
+            {"id": 63, "fuel": 10, "ammo": 14, "max_fuel": 10, "max_ammo": 15},
+        ]
+        states = read_poi_fleet_states(FakeTransport([
+            fleet(1),
+            fleet(2),
+            fleet(3, ships=(6, 52, 32, 63, -1, -1), supply=supply),
+        ]))
+        fleet3 = states[2]
+        self.assertEqual([item.ship_id for item in fleet3.supply], [6, 52, 32, 63])
+        self.assertEqual(sum(item.is_fully_supplied for item in fleet3.supply), 1)
+
     def test_missing_supply_values_are_not_treated_as_fully_supplied(self):
         supply = [{"id": 1, "fuel": 10, "ammo": None, "max_fuel": 10, "max_ammo": 20}]
         states = read_poi_fleet_states(FakeTransport([

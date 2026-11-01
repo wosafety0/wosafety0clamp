@@ -3114,3 +3114,14 @@ The Hand plugin's read-only probe reported:
 - **What this establishes:** the operator-driven reward-page-to-Home-Port transition is complete, Home Port is positively verified, and all three Poi fleet mission states are idle in the captured snapshot.
 - **What this does not establish:** the `BONUS_ITEMS` checkpoint was not independently verified by the production two-frame gate before the operator advanced the page. Fleet-idle state does not prove reward collection. Therefore the live `BONUS_ITEMS` acceptance gate remains open, the production `run()` startup guard must remain fail-closed, and the full automated expedition loop remains unaccepted.
 - **Safety:** verification used the existing read-only Ooi visual gate and fixed Poi Redux snapshot only. No game API/server request was constructed, replayed, or sent; no screenshot was persisted; no game resources were consumed; no proxy or system settings were changed.
+
+
+## 2026-11-01 - Fleet 3 four-ship formation and live supply snapshot coverage
+
+- **Operator fleet adjustment:** after the operator refreshed the game data through the normal Sortie-to-Home-Port UI route, the fresh Poi Redux snapshot showed Fleet 3 configured with four ships (instance IDs `6, 52, 32, 63`) and two empty slots. Fleet 2 and Fleet 3 both reported idle mission tuples `(0, 0, 0, 0)`.
+- **Read-only adapter extension:** expanded the existing exact, allowlisted Poi Redux snapshot expression to collect current/max fuel and ammunition for Fleet 3 as well as Fleet 2. The adapter remains a fixed read-only snapshot; arbitrary `Runtime.evaluate`, game API requests, and mutation methods were not added.
+- **Live Fleet 3 supply evidence:** all four Fleet 3 ships were observed at fuel `11/15` and ammunition `9/15`; none is fully supplied. Fleet 2 remains at fuel `11/15` for all four ships and ammunition `16/20`, `12/15`, `16/20`, `16/20`; none is fully supplied. These values are a point-in-time Poi cache snapshot, not a damage/repair assessment.
+- **Regression coverage:** added a four-ship Fleet 3 fixture proving member-aligned supply parsing and per-ship full-supply classification.
+- **Verification:** focused fleet-state suite **11 tests passed**; full Python unittest discovery **271 tests passed**; `compileall -q src tests tools` and `git diff --check` passed. A fresh live Poi read confirmed the updated Fleet 3 membership and supply fields through the extended fixed snapshot.
+- **Operational boundary:** no replenishment or expedition dispatch was performed in this change. Both fleets remain idle and under-supplied, so neither is currently ready for the proposed dispatch. The existing single-Fleet-2 production loop and its unverified live `BONUS_ITEMS` fail-closed guard remain unchanged; no multi-fleet dispatch automation is claimed.
+- **Safety:** no game API/server request was constructed, replayed, or sent; no screenshot was persisted; no proxy or system settings were changed.
