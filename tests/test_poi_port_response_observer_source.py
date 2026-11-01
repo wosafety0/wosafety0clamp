@@ -1,4 +1,5 @@
 """Static safety contract for passive observer output and target discovery."""
+import re
 import unittest
 from pathlib import Path
 
@@ -74,6 +75,22 @@ class PassivePortObserverSourceTests(unittest.TestCase):
             with self.subTest(method=method):
                 self.assertNotIn(f"send('{method}'", source)
                 self.assertNotIn(f'send("{method}"', source)
+
+
+    def test_observer_send_call_sites_are_literal_network_allowlist(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        source = re.sub(r"function\\s+send\\s*\\([^)]*\\)\\s*\\{", "", source, count=1)
+        call_sites = re.findall(r"(?<![\\w.])send\\s*\\(", source)
+        literal_calls = re.findall(
+            r"(?<![\\w.])send\\s*\\(\\s*(['\\"])([^'\\"]+)\\1",
+            source,
+        )
+        self.assertEqual(len(call_sites), len(literal_calls))
+        self.assertEqual(
+            {method for _, method in literal_calls},
+            {"Network.enable", "Network.getResponseBody"},
+        )
+        self.assertEqual(len(literal_calls), 2)
 
 
 
