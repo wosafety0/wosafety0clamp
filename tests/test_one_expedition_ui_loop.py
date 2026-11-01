@@ -260,6 +260,23 @@ class RewardCollectionIdleGateTests(unittest.TestCase):
 
 
 class RewardScreenOrderingTests(unittest.TestCase):
+    def test_bonus_screen_failure_blocks_next_click_idle_check_and_home_recovery(self):
+        game_session = MagicMock()
+        with (
+            patch.object(controller, "_print_event"),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_require_ui_state",
+                         side_effect=controller.LoopError("BONUS_ITEMS was not confirmed")),
+            patch.object(controller, "_wait_for_idle") as wait_idle,
+            patch.object(controller, "_recover_home_port") as recover_home,
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "BONUS_ITEMS was not confirmed"):
+                controller._collect_returned_expedition_reward(game_session, object())
+
+        game_session.input.click.assert_called_once_with(controller.RETURN_CONFIRM)
+        wait_idle.assert_not_called()
+        recover_home.assert_not_called()
+
     def test_bonus_screen_is_verified_before_idle_gate_and_home_recovery(self):
         events = []
         game_session = MagicMock()
