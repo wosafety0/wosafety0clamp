@@ -210,6 +210,55 @@ class ReturnGraceDelayTests(unittest.TestCase):
         sleep.assert_not_called()
 
 
+class RewardCollectionIdleGateTests(unittest.TestCase):
+    def setUp(self):
+        self.idle = PoiFleetMissionState(2, "Fleet 2", (0, 0, 0, 0), (1, 4, 8, 25))
+        self.returned = PoiFleetMissionState(2, "Fleet 2", (2, 3, 1000, 0), (1, 4, 8, 25))
+
+    def test_idle_state_is_confirmed_without_waiting(self):
+        with (
+            patch.object(controller, "read_poi_fleet_states", return_value=(self.idle,)),
+            patch.object(controller.time, "monotonic", return_value=0.0),
+            patch.object(controller.time, "sleep") as sleep,
+        ):
+            result = controller._wait_for_idle(object())
+        self.assertEqual(result, self.idle)
+        sleep.assert_not_called()
+
+    def test_completed_mission_must_transition_to_idle_before_success(self):
+        with (
+            patch.object(controller, "read_poi_fleet_states", side_effect=[(self.returned,), (self.idle,)]),
+            patch.object(controller.time, "monotonic", side_effect=[0.0, 0.0, 1.0]),
+            patch.object(controller.time, "sleep") as sleep,
+        ):
+            result = controller._wait_for_idle(object())
+        self.assertEqual(result, self.idle)
+        sleep.assert_called_once_with(1.0)
+
+    def test_active_mission_is_rejected_without_retrying(self):
+        active = PoiFleetMissionState(2, "Fleet 2", (1, 3, 1000, 0), (1, 4, 8, 25))
+        with (
+            patch.object(controller, "read_poi_fleet_states", return_value=(active,)) as read_state,
+            patch.object(controller.time, "monotonic", return_value=0.0),
+            patch.object(controller.time, "sleep") as sleep,
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "Unexpected fleet 2 state"):
+                controller._wait_for_idle(object())
+        read_state.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_missing_idle_confirmation_times_out(self):
+        with (
+            patch.object(controller, "read_poi_fleet_states", return_value=(self.returned,)),
+            patch.object(controller.time, "monotonic", side_effect=[0.0, 0.0, 2.0, 11.0]),
+            patch.object(controller.time, "sleep") as sleep,
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "Reward collection was not confirmed"):
+                controller._wait_for_idle(object(), timeout_seconds=10.0)
+        self.assertEqual(sleep.call_count, 2)
+        self.assertEqual([item.args for item in sleep.call_args_list], [(1.0,), (1.0,)])
+
+
 class DispatchCheckpointGateTests(unittest.TestCase):
     def setUp(self):
         supply = _full_supply((1, 4, 8, 25))
