@@ -2,8 +2,8 @@
 
 The tool never writes screenshot bytes. It stores only low-resolution RGB cell
 averages so visual checkpoints can be compared without local screenshot files.
-Each invocation captures the screen currently displayed; it does not navigate
-or click the game UI.
+Each invocation captures the screen currently displayed; it moves the pointer
+to a neutral position to clear hover overlays, but does not navigate or click.
 """
 from __future__ import annotations
 
@@ -76,6 +76,8 @@ def capture_descriptor(state: str, crop: tuple[int, int, int, int], grid: tuple[
         height = int(viewport.get("clientHeight", viewport.get("height", 0)))
         if (width, height) != (1200, 720):
             raise VisualFingerprintError(f"expected 1200x720 Ooi viewport, observed {width}x{height}")
+        session.transport.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 1195, "y": 715})
+        time.sleep(0.15)
         for index in range(samples):
             payload = session.transport.send(
                 "Page.captureScreenshot",

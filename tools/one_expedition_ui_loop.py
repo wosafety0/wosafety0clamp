@@ -43,6 +43,10 @@ from kancollebot.adapters.poi.visual_state_gate import (
     classify_template_scores,
     home_reference_similarity,
 )  # noqa: E402
+from kancollebot.adapters.poi.visual_fingerprint import (  # noqa: E402
+    VisualFingerprintError,
+    classify_screenshot_fingerprints,
+)
 
 
 FLEET_ID = 2
@@ -50,14 +54,17 @@ MISSION_ID = 3
 HOME_PORT = RecordedPoint(50, 50, "home-port")
 SORTIE = RecordedPoint(280, 425, "sortie")
 EXPEDITION_MODE = RecordedPoint(1000, 360, "expedition-mode")
-MISSION_ROW = RecordedPoint(500, 335, "mission-3-security-task")
+MISSION_ROW = RecordedPoint(350, 350, "mission-3-security-task")
+# State-dependent: this is ?? on MISSION_SELECTED but overlaps ????! on fleet selection.
+# The pre-click MISSION_SELECTED checkpoint is mandatory.
 MISSION_CONFIRM = RecordedPoint(1030, 670, "mission-confirm")
 FLEET_2_TAB = RecordedPoint(590, 170, "fleet-2-tab")
 EXPEDITION_START = RecordedPoint(920, 670, "expedition-start")
 RETURN_CONFIRM = RecordedPoint(1140, 670, "returned-expedition-confirm")
 
-# Every click needs fresh evidence for its pre- and post-state. The production
-# verifier is deliberately not wired until all six checkpoints can be observed.
+# Every click needs fresh evidence for its pre- and post-state. Pre-dispatch
+# checkpoints use two consecutive in-memory Ooi fingerprints. Return/bonus
+# checkpoints remain a separate production-readiness gate.
 DISPATCH_STEPS = (
     (SORTIE, 1.0, "HOME_PORT", "SORTIE_MENU"),
     (EXPEDITION_MODE, 1.0, "SORTIE_MENU", "EXPEDITION_LIST"),
@@ -107,7 +114,7 @@ def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra:
 
 
 def _require_ui_state(game_session, expected: UiState) -> None:
-    """Require accessible evidence, then use in-memory templates as a guarded fallback."""
+    """Require accessible labels or two consecutive high-confidence Ooi fingerprints."""
     result = game_session.transport.send("Accessibility.getFullAXTree", {})
     nodes = result.get("nodes") if isinstance(result, dict) else None
     try:
@@ -115,21 +122,75 @@ def _require_ui_state(game_session, expected: UiState) -> None:
         _print_event("ui_state_confirmed", ui_state=expected.value, evidence="accessibility")
         return
     except (UiStateGateError, ValueError) as accessible_error:
+        fingerprint_path = Path(
+            os.environ.get(
+                "KANCOLLEBOT_FINGERPRINTS_PATH",
+                ROOT / "src" / "kancollebot" / "adapters" / "poi" / "ooi_1200x720_fingerprints.json",
+            )
+        )
         template_dir = os.environ.get("KANCOLLEBOT_TEMPLATE_DIR")
-        if not template_dir:
-            raise accessible_error
         try:
-            game_session.transport.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 1100, "y": 500})
-            time.sleep(0.35)
-            payload = game_session.input.capture_screenshot()
-            visual_state, scores = classify_screenshot_png(payload, template_dir)
+            document = None
+            if fingerprint_path.is_file():
+                document = json.loads(fingerprint_path.read_text(encoding="utf-8"))
+            if document and expected.value in document.get("states", {}):
+                consecutive_matches = 0
+                last_payload = None
+                last_scores = {}
+                last_state = "UNKNOWN"
+                for attempt in range(3):
+                    game_session.transport.send(
+                        "Input.dispatchMouseEvent",
+                        {"type": "mouseMoved", "x": 1195, "y": 715},
+                    )
+                    time.sleep(0.15)
+                    last_payload = game_session.input.capture_screenshot()
+                    last_state, last_scores = classify_screenshot_fingerprints(last_payload, document)
+                    _print_event(
+                        "ui_fingerprint_state_check",
+                        attempt=attempt + 1,
+                        expected=expected.value,
+                        observed=last_state,
+                        scores={key: round(value, 4) for key, value in last_scores.items()},
+                        screenshot_written_to_disk=False,
+                    )
+                    if last_state == expected.value:
+                        consecutive_matches += 1
+                        if consecutive_matches >= 2:
+                            _print_event(
+                                "ui_state_confirmed",
+                                ui_state=expected.value,
+                                evidence="two_consecutive_in_memory_ooi_fingerprints",
+                            )
+                            return
+                    elif last_state != "UNKNOWN":
+                        raise LoopError(
+                            f"Expected {expected.value}; Ooi fingerprint classified {last_state}"
+                        ) from accessible_error
+                    else:
+                        consecutive_matches = 0
+                    if attempt < 2:
+                        time.sleep(0.25)
+            else:
+                last_payload = None
+                last_scores = {}
+                last_state = "UNKNOWN"
+
+            if not template_dir or last_payload is None:
+                raise LoopError(
+                    f"Expected {expected.value}; no stable fingerprint match was obtained after three attempts"
+                ) from accessible_error
+            visual_state, scores = classify_screenshot_png(last_payload, template_dir)
             if HOME_REFERENCE_BASE64:
-                scores["home_reference_similarity"] = home_reference_similarity(payload, HOME_REFERENCE_BASE64)
+                scores["home_reference_similarity"] = home_reference_similarity(
+                    last_payload, HOME_REFERENCE_BASE64
+                )
                 visual_state = classify_template_scores(scores)
-        except VisualStateError as visual_error:
+        except (VisualFingerprintError, VisualStateError, OSError, json.JSONDecodeError) as visual_error:
             raise LoopError(
                 f"Accessible state unavailable ({accessible_error}); visual fallback failed ({visual_error})"
             ) from visual_error
+
         _print_event(
             "ui_visual_state_check",
             expected=expected.value,
@@ -145,37 +206,21 @@ def _require_ui_state(game_session, expected: UiState) -> None:
 
 
 def _capture_home_reference(game_session) -> None:
-    """Capture a transient Home Port baseline in memory for later visual comparisons."""
+    """Capture a transient Home Port baseline only after fingerprint confirmation."""
     global HOME_REFERENCE_BASE64
-    template_dir = os.environ.get("KANCOLLEBOT_TEMPLATE_DIR")
-    if not template_dir:
-        raise LoopError("KANCOLLEBOT_TEMPLATE_DIR is required for visual state verification")
-    game_session.transport.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 1100, "y": 500})
-    time.sleep(0.35)
-    payload = game_session.input.capture_screenshot()
-    _, scores = classify_screenshot_png(payload, template_dir)
-    home_nav = scores.get("negative_home_other_menu.png", -1.0)
-    competing = max(
-        scores.get("home_expedition_menu.png", -1.0),
-        scores.get("expedition_list_panel.png", -1.0),
-        scores.get("expedition_dispatch_button.png", -1.0),
-        scores.get("expedition_result_success.png", -1.0),
-        scores.get("expedition_result_failure.png", -1.0),
-        scores.get("return_notice.png", -1.0),
-        scores.get("bonus_title.png", -1.0),
-        scores.get("result_next_button.png", -1.0),
+    _require_ui_state(game_session, UiState.HOME_PORT)
+    game_session.transport.send(
+        "Input.dispatchMouseEvent",
+        {"type": "mouseMoved", "x": 1195, "y": 715},
     )
-    if home_nav < 0.90 or competing >= 0.85:
-        raise LoopError(
-            f"Cannot establish a Home Port reference safely: navigation_marker={home_nav:.3f}, competing_marker={competing:.3f}"
-        )
-    HOME_REFERENCE_BASE64 = payload
+    time.sleep(0.15)
+    HOME_REFERENCE_BASE64 = game_session.input.capture_screenshot()
     _print_event(
         "home_reference_captured",
-        home_navigation_marker=round(home_nav, 4),
-        strongest_competing_marker=round(competing, 4),
+        evidence="in_memory_ooi_fingerprint",
         screenshot_written_to_disk=False,
     )
+
 
 def _recover_home_port(game_session, attempts: int = 3, force_click: bool = False) -> None:
     """Use bounded top-left navigation retries, requiring state evidence after each click."""
@@ -248,6 +293,47 @@ def _wait_for_idle(reader_transport, poll_seconds: float = 1.0, timeout_seconds:
     raise LoopError("Reward collection was not confirmed; refusing to click again")
 
 
+def build_checkpoint_verifier(reader_transport, game_session, expected_start_ms: int):
+    """Build the per-step verifier used by the one-shot dispatch sequence."""
+
+    def verify(step: int, phase: str, expected_state: str) -> None:
+        if expected_state == "EXPEDITION_ACTIVE":
+            state = _fleet(read_poi_fleet_states(reader_transport))
+            if (
+                state.mission_status != 1
+                or state.mission_id != MISSION_ID
+                or state.final_time_ms <= expected_start_ms
+            ):
+                raise LoopError(
+                    f"Expected the same newly started expedition; observed {state.mission}"
+                )
+            _print_event(
+                "dispatch_checkpoint_confirmed",
+                step=step,
+                phase=phase,
+                expected_state=expected_state,
+                evidence="poi_redux_same_mission_new_final_time",
+            )
+            return
+
+        try:
+            expected = UiState(expected_state)
+        except ValueError as exc:
+            raise LoopError(f"Unknown UI checkpoint state: {expected_state}") from exc
+        if expected is UiState.UNKNOWN:
+            raise LoopError("UNKNOWN is not an acceptable dispatch checkpoint")
+        _require_ui_state(game_session, expected)
+        _print_event(
+            "dispatch_checkpoint_confirmed",
+            step=step,
+            phase=phase,
+            expected_state=expected_state,
+            evidence="two_consecutive_in_memory_ooi_fingerprints",
+        )
+
+    return verify
+
+
 def _dispatch(
     reader_transport,
     game_input,
@@ -258,9 +344,9 @@ def _dispatch(
     """Dispatch only when a verifier can confirm every UI transition.
 
     The callback receives (step_number, phase, expected_state). A failed check
-    raises and prevents every subsequent click. Production remains fail-closed
-    until the canvas-rendered mission and selected-fleet checkpoints are
-    verifiable without guessing or adding manually labeled templates.
+    raises and prevents every subsequent click. Pre-dispatch Ooi states require
+    two consecutive high-confidence in-memory fingerprints. Production remains
+    disabled until RETURN_RESULT and BONUS_ITEMS are independently verified.
     """
     if checkpoint_verifier is None:
         _print_event(
@@ -321,9 +407,9 @@ def _dispatch(
 def run(args: argparse.Namespace) -> int:
     if not args.authorize_ui_actions:
         raise LoopError("Missing explicit --authorize-ui-actions flag")
-    # No production checkpoint provider is wired. Reject before opening CDP
-    # sessions, moving the pointer, capturing screenshots, or clicking the UI.
-    raise LoopError("Live UI loop disabled: production checkpoint verifier unavailable")
+    # Pre-dispatch Ooi checkpoints are wired, but return-result and bonus-item
+    # checkpoints are not yet verified. Reject before opening CDP or sending input.
+    raise LoopError("Live UI loop disabled: return-result and bonus-item checkpoints are not yet verified")
     if not 1 <= args.poll_seconds <= 30:
         raise LoopError("poll_seconds must be between 1 and 30")
     if not 60 <= args.timeout_seconds <= 3600:
@@ -339,7 +425,13 @@ def run(args: argparse.Namespace) -> int:
         _capture_home_reference(game_session)
         _recover_home_port(game_session)
         baseline_ms = int(time.time() * 1000)
-        dispatched = _dispatch(state_session.transport, game_session.input, baseline_ms)
+        checkpoint_verifier = build_checkpoint_verifier(
+            state_session.transport, game_session, baseline_ms
+        )
+        dispatched = _dispatch(
+            state_session.transport, game_session.input, baseline_ms,
+            checkpoint_verifier=checkpoint_verifier,
+        )
         expected_final_time_ms = dispatched.final_time_ms
         _print_event("dispatch_confirmed_waiting_for_timer", dispatched,
                      expected_final_time_ms=expected_final_time_ms)

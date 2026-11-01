@@ -26,12 +26,89 @@ class ProductionStartupSafetyGateTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(
                 controller.LoopError,
-                "production checkpoint verifier unavailable",
+                "return-result and bonus-item checkpoints are not yet verified",
             ):
                 controller.run(args)
 
         connect_poi.assert_not_called()
         connect_game.assert_not_called()
+
+
+class LiveCheckpointVerifierTests(unittest.TestCase):
+    def setUp(self):
+        self.reader = MagicMock()
+        self.game_session = MagicMock()
+        self.expected_start_ms = 1000
+        self.active = PoiFleetMissionState(
+            2, "Fleet 2", (1, 3, 2000, 0), (1, 4, 8, 25)
+        )
+
+    def test_visual_checkpoint_routes_to_live_ui_state_gate(self):
+        verifier = controller.build_checkpoint_verifier(
+            self.reader, self.game_session, self.expected_start_ms
+        )
+        with patch.object(controller, "_require_ui_state") as require_state:
+            verifier(2, "after", "EXPEDITION_LIST")
+        require_state.assert_called_once_with(
+            self.game_session, controller.UiState.EXPEDITION_LIST
+        )
+
+    def test_active_checkpoint_requires_same_new_mission(self):
+        verifier = controller.build_checkpoint_verifier(
+            self.reader, self.game_session, self.expected_start_ms
+        )
+        with patch.object(
+            controller, "read_poi_fleet_states", return_value=[self.active]
+        ) as read_states:
+            verifier(6, "after", "EXPEDITION_ACTIVE")
+        read_states.assert_called_once_with(self.reader)
+
+    def test_active_checkpoint_rejects_stale_mission_timestamp(self):
+        stale = PoiFleetMissionState(
+            2, "Fleet 2", (1, 3, 1000, 0), (1, 4, 8, 25)
+        )
+        verifier = controller.build_checkpoint_verifier(
+            self.reader, self.game_session, self.expected_start_ms
+        )
+        with patch.object(controller, "read_poi_fleet_states", return_value=[stale]):
+            with self.assertRaisesRegex(controller.LoopError, "same newly started expedition"):
+                verifier(6, "after", "EXPEDITION_ACTIVE")
+
+    def test_unknown_checkpoint_state_is_rejected(self):
+        verifier = controller.build_checkpoint_verifier(
+            self.reader, self.game_session, self.expected_start_ms
+        )
+        with self.assertRaisesRegex(controller.LoopError, "Unknown UI checkpoint state"):
+            verifier(1, "before", "NOT_A_REAL_STATE")
+
+    def test_unknown_visual_state_is_bounded_and_fails_closed(self):
+        self.game_session.transport.send.return_value = {"nodes": []}
+        self.game_session.input.capture_screenshot.return_value = "in-memory-payload"
+        scores = {"HOME_PORT": 0.5}
+        with (
+            patch.object(controller, "classify_screenshot_fingerprints",
+                         side_effect=[("UNKNOWN", scores)] * 3) as classify,
+            patch.object(controller.time, "sleep"),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "no stable fingerprint match"):
+                controller._require_ui_state(
+                    self.game_session, controller.UiState.HOME_PORT
+                )
+        self.assertEqual(classify.call_count, 3)
+
+    def test_visual_state_requires_two_consecutive_matches(self):
+        self.game_session.transport.send.return_value = {"nodes": []}
+        self.game_session.input.capture_screenshot.return_value = "in-memory-payload"
+        scores = {"HOME_PORT": 1.0}
+        with (
+            patch.object(controller, "classify_screenshot_fingerprints",
+                         side_effect=[("UNKNOWN", scores), ("HOME_PORT", scores), ("HOME_PORT", scores)]) as classify,
+            patch.object(controller.time, "sleep"),
+        ):
+            controller._require_ui_state(
+                self.game_session, controller.UiState.HOME_PORT
+            )
+        self.assertEqual(classify.call_count, 3)
 
 
 class ReturnGraceDelayTests(unittest.TestCase):
@@ -191,6 +268,20 @@ class LiveUiCoordinateEvidenceTests(unittest.TestCase):
         self.assertEqual(
             (controller.FLEET_2_TAB.x, controller.FLEET_2_TAB.y),
             (590, 170),
+        )
+
+
+    def test_mission_confirm_is_gated_by_mission_selected_state(self):
+        point, _, expected_before, expected_after = controller.DISPATCH_STEPS[3]
+        self.assertEqual(point, controller.MISSION_CONFIRM)
+        self.assertEqual(expected_before, "MISSION_SELECTED")
+        self.assertEqual(expected_after, "FLEET_SELECTION")
+
+
+    def test_mission_row_coordinate_matches_ooi_mission_name(self):
+        self.assertEqual(
+            (controller.MISSION_ROW.x, controller.MISSION_ROW.y),
+            (350, 350),
         )
 
 

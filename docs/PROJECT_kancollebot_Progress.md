@@ -3006,3 +3006,25 @@ The Hand plugin's read-only probe reported:
 - **脚本状态更正：** 上一条记录中的 `NameError: time` 是第一次运行时的实际结果。随后复读当前未提交文件，确认 `tools/verify_ooi_visual_fingerprint.py` 已出现 `import time`；修正后的脚本尚未重新执行，因此仍标记为未验证。该脚本会发送一次 `mouseMoved` 事件将指针移至中性位置，不点击、不导航、不保存截图；不应将其描述为完全无输入的纯只读脚本。
 - **工作树测试复核：** 在设置 `PYTHONPATH=src` 后，对当时完整本地工作树重新执行：Python unittest **243 passed / 3 skipped**；Node.js **17/17 passed**；compileall、指纹 JSON 解析和 `git diff --check` 均通过。该结果仅覆盖离线测试及静态检查，不代表视觉状态分类或真实远征闭环验收通过。
 - **归档范围：** 本次远程归档只包含已提交的视觉指纹原型提交及本进度记录；其余本地未提交源码、数据和诊断脚本继续保留在工作树中，不纳入本次推送。
+
+
+## 2026-11-01 — 六个 Ooi 派遣前视觉 checkpoint 全部通过现场双帧核验
+
+- **核验方式：** 使用当前生产路径 `_require_ui_state`，先尝试 Ooi Accessibility 证据；AX 树无可用游戏控件标签时，回退到 1200×720 内存截图指纹。每个预期状态最多采样 3 次，要求至少连续 2 次分类为同一预期状态；任何其他已知状态都会立即 fail-closed。诊断工具 `tools/verify_ooi_ui_state_gate.py` 只调用该门禁，不点击或导航；门禁会将鼠标移到中性位置以消除悬停干扰，不写入截图文件。
+- **六个状态结果：** HOME_PORT（0.9989 / 0.9988）、SORTIE_MENU（1.0000 / 1.0000）、EXPEDITION_LIST（1.0000 / 1.0000）、MISSION_SELECTED（1.0000 / 1.0000）、FLEET_SELECTION（1.0000 / 1.0000）、FLEET_2_SELECTED（1.0000 / 1.0000）均在两次连续采样后返回 PASS。以上分数为各状态在本次现场画面中的匹配分数，不代表跨分辨率或跨主题泛化准确率。
+- **EXPEDITION_LIST / MISSION_SELECTED 区分：** 在未选中任务的远征列表画面上，门禁将预期 MISSION_SELECTED 拒绝为 `FAIL_CLOSED`，实际识别为 EXPEDITION_LIST（1.0000；MISSION_SELECTED 竞争分数 0.9483）。点击第 3 行任务名称后，右侧任务详情及「決定」按钮出现；将指针移开后，行高亮消失，但详情和「決定」按钮仍保留。由此确认 MISSION_SELECTED 是稳定的任务已选状态；先前记录将详情也描述为随悬停消失，是不准确的观察，现以本条为准。
+- **任务点击坐标修正：** 现场点击任务名称区域 `(350,350)` 可进入 MISSION_SELECTED；原 `MISSION_ROW=(500,335)` 未能稳定点击任务名称。已将其改为 `(350,350)`，并新增回归测试。
+- **任务确认与舰队选择：** 在 MISSION_SELECTED 上点击 `MISSION_CONFIRM=(1030,670)` 的「決定」后进入舰队选择。界面进入时显示舰队 2；切换舰队 3 标签 `(630,170)` 后，FLEET_SELECTION 连续双帧通过（6 艘舰船）；切回舰队 2 标签 `(590,170)` 后，FLEET_2_SELECTED 连续双帧通过（4 艘舰船）。
+- **坐标安全约束：** `(1030,670)` 是 MISSION_SELECTED 页面上的「決定」按钮，但在舰队选择页面会落入「遠征開始!」按钮区域。因此它只能在两次连续确认 MISSION_SELECTED 后点击；不得省略前置状态门禁。实际远征开始按钮 `(920,670)` 仍只允许在 FLEET_2_SELECTED 已确认后进入下一步骤。
+- **实现状态：** `_require_ui_state` 已接入双帧 Ooi 指纹门禁；`build_checkpoint_verifier` 将每个 UI 步骤的前后状态检查接入 `_dispatch`。新增一次性诊断脚本 `tools/verify_ooi_ui_state_gate.py` 和 `tools/verify_ooi_visual_fingerprint.py`。指纹阈值为 minimum_score=0.97、minimum_margin=0.04；采集器和诊断器会先移动鼠标到中性位置，以避免将悬停状态误当作稳定状态。
+- **生产门禁仍关闭：** `run()` 在建立 CDP 会话或发送任何输入前仍直接拒绝执行，因为 RETURN_RESULT 与 BONUS_ITEMS 两个返航/奖励 checkpoint 尚未完成独立核验。六个派遣前 checkpoint 通过，不等于自动远征闭环通过；本轮没有点击「遠征開始!」，没有派遣舰队。
+- **离线验证：** 本地工作树在本轮坐标和安全注释更新前，Python unittest 执行 250 项且退出码为 0，Node.js 17/17 通过，compileall、指纹 JSON 解析及 `git diff --check` 通过。坐标修正和新增回归测试后的完整复测结果另见后续记录。
+- **安全边界：** 仅使用普通 Ooi UI 导航/选择及 CDP 内存截图；没有构造、重放或发送游戏 API/服务器请求，没有保存截图文件，没有修改代理设置。上述单次诊断调用不是自动远征运行，也不计作端到端自动化验收。
+
+
+## 2026-11-01 — 双帧 checkpoint 接入后的最终离线复测与安全收尾
+
+- **最终离线复测：** Python unittest 执行 **251 tests**，结果 **OK（3 skipped）**；Node.js **17/17 passed**；compileall、指纹 JSON 解析和 `git diff --check` 均通过。该轮包含任务行坐标修正、MISSION_CONFIRM 前置状态回归测试及门禁注释修正。
+- **收尾 UI 状态：** 未点击远征开始按钮；通过已验证的 Home Port 控件返回母港，随后生产状态门禁连续两次识别 HOME_PORT（0.9987 / 0.9981）并 PASS。游戏留在母港，舰队未派遣。
+- **当前生产结论：** 六个派遣前视觉 checkpoint 均已通过现场双帧核验；RETURN_RESULT 与 BONUS_ITEMS 尚未核验，故 `run()` 仍在任何 CDP 连接或输入前拒绝执行。端到端自动远征仍为 BLOCKED，不得因前置六状态通过而启用。
+- **自动化边界：** 本轮的六状态核验是逐状态调用的一次性诊断与普通 UI 导航，不是无人值守远征自动化；没有运行 `one_expedition_ui_loop.py --authorize-ui-actions`，没有派遣舰队。

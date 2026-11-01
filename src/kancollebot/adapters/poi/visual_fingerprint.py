@@ -219,8 +219,8 @@ def classify_screenshot_fingerprints(
     screenshot_base64: str,
     document: Mapping[str, object],
     *,
-    minimum_score: float = 0.94,
-    minimum_margin: float = 0.06,
+    minimum_score: float = 0.97,
+    minimum_margin: float = 0.04,
 ) -> tuple[str, dict[str, float]]:
     """Classify one screenshot against state-specific crops stored as RGB descriptors."""
     if not math.isfinite(minimum_score) or not 0 < minimum_score <= 1:
@@ -287,7 +287,7 @@ def classify_fingerprints(
     templates: Mapping[str, Sequence[int]],
     *,
     minimum_score: float = 0.92,
-    minimum_margin: float = 0.06,
+    minimum_margin: float = 0.04,
 ) -> tuple[str, dict[str, float]]:
     """Classify only one clearly separated fingerprint match; otherwise UNKNOWN."""
     if not math.isfinite(minimum_score) or not 0 < minimum_score <= 1:

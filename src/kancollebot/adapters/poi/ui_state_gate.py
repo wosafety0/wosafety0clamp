@@ -12,11 +12,15 @@ from typing import Any
 
 class UiState(str, Enum):
     HOME_PORT = "HOME_PORT"
+    SORTIE_MENU = "SORTIE_MENU"
+    EXPEDITION_LIST = "EXPEDITION_LIST"
+    MISSION_SELECTED = "MISSION_SELECTED"
+    FLEET_SELECTION = "FLEET_SELECTION"
+    FLEET_2_SELECTED = "FLEET_2_SELECTED"
     RETURN_RESULT = "RETURN_RESULT"
     BONUS_ITEMS = "BONUS_ITEMS"
     ERROR_DIALOG = "ERROR_DIALOG"
     UNKNOWN = "UNKNOWN"
-
 
 class UiStateGateError(RuntimeError):
     """Raised when accessible evidence cannot authorize the expected UI action."""
