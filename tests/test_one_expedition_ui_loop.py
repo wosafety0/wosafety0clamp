@@ -271,7 +271,7 @@ class RewardScreenOrderingTests(unittest.TestCase):
             patch.object(controller, "_recover_home_port") as recover_home,
         ):
             with self.assertRaisesRegex(controller.LoopError, "BONUS_ITEMS was not confirmed"):
-                controller._collect_returned_expedition_reward(game_session, object())
+                controller._collect_returned_expedition_reward(game_session, object(), 123456)
 
         game_session.input.click.assert_called_once_with(controller.RETURN_CONFIRM)
         wait_idle.assert_not_called()
@@ -284,7 +284,7 @@ class RewardScreenOrderingTests(unittest.TestCase):
         idle = PoiFleetMissionState(2, "Fleet 2", (0, 0, 0, 0), (1, 4, 8, 25))
 
         with (
-            patch.object(controller, "_print_event"),
+            patch.object(controller, "_print_event") as event_log,
             patch.object(controller, "time") as clock,
             patch.object(controller, "_require_ui_state",
                          side_effect=lambda _session, state: events.append(("state", state.value))),
@@ -293,9 +293,12 @@ class RewardScreenOrderingTests(unittest.TestCase):
             patch.object(controller, "read_poi_fleet_states", return_value=(idle,)),
         ):
             clock.sleep.side_effect = lambda seconds: events.append(("sleep", seconds))
-            result = controller._collect_returned_expedition_reward(game_session, object())
+            result = controller._collect_returned_expedition_reward(game_session, object(), 123456)
 
         self.assertEqual(result, idle)
+        event_log.assert_any_call(
+            "ONE_EXPEDITION_LOOP_VERIFIED_READY", idle, dispatch_final_time_ms=123456
+        )
         self.assertEqual(
             events,
             [

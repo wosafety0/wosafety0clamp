@@ -317,7 +317,9 @@ def _wait_for_idle(reader_transport, poll_seconds: float = 1.0, timeout_seconds:
     raise LoopError("Fleet 2 did not become idle after bonus advance; refusing further UI actions")
 
 
-def _collect_returned_expedition_reward(game_session, reader_transport) -> PoiFleetMissionState:
+def _collect_returned_expedition_reward(
+    game_session, reader_transport, expected_final_time_ms: int
+) -> PoiFleetMissionState:
     """Advance the verified result and bonus screens, then verify return to Home Port.
 
     Fleet mission-idle is checked only after the BONUS_ITEMS screen has been
@@ -344,7 +346,7 @@ def _collect_returned_expedition_reward(game_session, reader_transport) -> PoiFl
     if not _idle(final_state):
         raise LoopError(f"Fleet 2 did not return to idle after collection: {final_state.mission}")
     _print_event("ONE_EXPEDITION_LOOP_VERIFIED_READY", final_state,
-                 dispatch_final_time_ms=final_state.final_time_ms)
+                 dispatch_final_time_ms=expected_final_time_ms)
     return final_state
 
 
@@ -536,7 +538,9 @@ def run(args: argparse.Namespace) -> int:
             raise LoopError("Completion state was not confirmed within 120 seconds after Home Port refresh")
 
         _require_ui_state(game_session, UiState.RETURN_RESULT)
-        _collect_returned_expedition_reward(game_session, state_session.transport)
+        _collect_returned_expedition_reward(
+            game_session, state_session.transport, expected_final_time_ms
+        )
     return 0
 
 
