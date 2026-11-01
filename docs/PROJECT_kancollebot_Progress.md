@@ -2956,3 +2956,13 @@ The Hand plugin's read-only probe reported:
 - **Verification:** full Python unittest discovery passed **233 tests (3 skipped)**; Node.js static tests passed **17/17**; compileall and git diff --check passed. The Ooi read-only CDP preflight continued to select the Ooi WebView and report a 1200x720 viewport.
 - **Acceptance boundary:** this verifies the observed Ooi menu/navigation coordinates only. The fleet-tab coordinate and all six visual state checkpoints are not yet independently verified; the Ooi accessibility tree exposes no useful game controls. Production dispatch remains fail-closed until every checkpoint and the end-to-end loop are verified.
 - **Safety:** screenshots were captured and analyzed only in memory; no screenshot files were saved. No game API request was constructed or sent.
+
+## 2026-11-01 - JP-LN selected and Japanese proxy egress restored
+
+- **Confirmed root cause:** v2rayN had the `JP` subscription available, but its active profile was `IT-LN`. This explains why the proxy egress checks before the switch reported Italy rather than Japan.
+- **Local profile inventory:** the current v2rayN database contains four enabled subscriptions and 289 profiles. The `JP` subscription contains seven regional profiles, including `JP-LN` (VLESS over TLS + WebSocket). Subscription URLs, server addresses, UUIDs, and credentials were not included in this record.
+- **Change:** selected `JP-LN` as the default profile through v2rayN's own UI action. The saved active profile now resolves to `JP-LN` in subscription `JP`; the Xray core restarted. This was a one-off UI operation, not an automation milestone.
+- **Live route verification:** the local proxy listener `127.0.0.1:7890` remained available. A request through it to Cloudflare's diagnostic endpoint returned **HTTP 200**, `loc=JP`, and `colo=KIX`, verifying Japanese proxy egress at the time of the check.
+- **System configuration boundary:** the Windows system proxy remains enabled and pointed at the same local listener `127.0.0.1:7890`; its settings were not changed. No subscription refresh, profile rewrite, TLS-verification bypass, or core downgrade was performed.
+- **Game boundary:** no game-server API request was constructed or sent, and no gameplay action was performed. Actual DMM/Ooi game login through this restored route has not yet been verified. Earlier Germany/Italy egress readings are historical snapshots from before `JP-LN` was activated and do not describe the current verified route.
+
