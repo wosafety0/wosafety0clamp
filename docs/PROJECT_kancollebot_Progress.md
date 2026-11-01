@@ -3083,7 +3083,7 @@ The Hand plugin's read-only probe reported:
 
 ## 2026-11-01 - Bonus-title accessibility marker aligned with the actual UI label
 
-- **Source inspection:** visually inspected the operator-provided 221x69 bonus-title reference. Its visible Japanese heading is `獲得ボーナス`. The accessibility classifier previously recognized `????` and `??????` but omitted this actual title wording, so a renderer exposing the title through its accessibility tree could be incorrectly classified as `UNKNOWN`.
+- **Source inspection:** visually inspected the operator-provided 221x69 bonus-title reference. Its visible Japanese heading is `獲得ボーナス`. The accessibility classifier previously recognized `獲得資源` and `獲得アイテム` but omitted this actual title wording, so a renderer exposing the title through its accessibility tree could be incorrectly classified as `UNKNOWN`.
 - **Implementation:** added the exact `獲得ボーナス` label as an explicit `BONUS_ITEMS` accessibility marker while preserving the unique-state requirement and fail-closed behavior. Added a regression assertion for that label.
 - **Verification:** focused UI-state and visual-state gate tests passed **14 tests**; full Python unittest discovery passed **269 tests**; `compileall -q src tests tools` and `git diff --check` passed.
 - **Acceptance boundary:** this is an offline accessibility-classifier correction based on the known title asset. It does not establish that the live renderer exposes this accessible label, does not change the visual-template threshold, and does not verify a live `BONUS_ITEMS` screen. No game UI input, API/server request, replenishment, dispatch, or proxy change was performed; the production `run()` guard remains fail-closed.
