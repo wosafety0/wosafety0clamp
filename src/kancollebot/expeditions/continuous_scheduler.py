@@ -230,7 +230,10 @@ class ContinuousExpeditionScheduler:
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("blocked reason must not be empty")
         current = self.fleet(fleet_id)
-        return self._set(replace(current, phase=FleetPhase.BLOCKED, blocked_reason=reason))
+        return self._set(replace(
+            current, phase=FleetPhase.BLOCKED, blocked_reason=reason,
+            home_port_verified=False,
+        ))
 
     def _set(self, state: FleetRuntime) -> FleetRuntime:
         if self._state_store is not None:
