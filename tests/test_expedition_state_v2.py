@@ -56,6 +56,11 @@ class PoiMissionStateTests(unittest.TestCase):
             plan.decision, ExpeditionDecision.WAITING_FOR_RETURN
         )
 
+    def test_reserved_mission_slot_is_preserved(self):
+        timestamp_ms = int(datetime(2026, 10, 26, 13, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        snapshot = normalize([1, 1, timestamp_ms, 2])
+        self.assertEqual(snapshot.reserved, 2)
+
     def test_completed_pending_reward_state_blocks_dispatch(self):
         snapshot = normalize([2, 1, 1793011949741, 0])
         self.assertEqual(snapshot.mission_id, 1)
