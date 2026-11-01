@@ -136,6 +136,14 @@ class ContinuousSchedulerTests(unittest.TestCase):
             thread.join()
         self.assertEqual(peak, 1)
 
+    def test_blocking_an_active_fleet_clears_home_port_wait_permission(self):
+        self.dispatch(2, self.mission2)
+        self.home_port(2, self.mission2)
+        blocked = self.scheduler.block(2, "post-dispatch evidence conflict")
+        self.assertEqual(blocked.phase, FleetPhase.BLOCKED)
+        self.assertFalse(blocked.home_port_verified)
+        self.assertFalse(self.scheduler.may_wait_for_return(2))
+
     def test_ui_arbiter_requires_a_label(self):
         arbiter = UiOperationArbiter()
         with self.assertRaises(ValueError):
