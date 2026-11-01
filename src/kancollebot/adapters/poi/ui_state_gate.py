@@ -12,6 +12,7 @@ from typing import Any
 
 class UiState(str, Enum):
     HOME_PORT = "HOME_PORT"
+    HOME_PORT_RETURN_NOTICE = "HOME_PORT_RETURN_NOTICE"
     SORTIE_MENU = "SORTIE_MENU"
     EXPEDITION_LIST = "EXPEDITION_LIST"
     MISSION_SELECTED = "MISSION_SELECTED"
@@ -30,6 +31,7 @@ class UiStateGateError(RuntimeError):
 # are not enough to infer a game screen.
 _STATE_MARKERS: dict[UiState, tuple[str, ...]] = {
     UiState.HOME_PORT: ("母港", "home port"),
+    UiState.HOME_PORT_RETURN_NOTICE: ("遠征から戻ってきました", "returned from expedition"),
     UiState.RETURN_RESULT: ("遠征 失敗", "遠征 成功", "expedition failed", "expedition success"),
     UiState.BONUS_ITEMS: ("獲得資源", "獲得アイテム", "獲得ボーナス", "bonus items", "reward items"),
     UiState.ERROR_DIALOG: ("エラーが発生したため", "an error occurred"),
@@ -55,6 +57,18 @@ def _accessible_text(nodes: Any) -> tuple[str, ...]:
 def classify_accessible_state(nodes: Any) -> UiState:
     """Classify only when exactly one state has explicit accessible evidence."""
     texts = _accessible_text(nodes)
+    has_home = any(
+        marker.casefold() in text
+        for marker in _STATE_MARKERS[UiState.HOME_PORT]
+        for text in texts
+    )
+    has_return_notice = any(
+        marker.casefold() in text
+        for marker in _STATE_MARKERS[UiState.HOME_PORT_RETURN_NOTICE]
+        for text in texts
+    )
+    if has_home and has_return_notice:
+        return UiState.HOME_PORT_RETURN_NOTICE
     matched = [
         state for state, markers in _STATE_MARKERS.items()
         if any(marker.casefold() in text for marker in markers for text in texts)
