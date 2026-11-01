@@ -178,6 +178,15 @@ class DurableDispatchRecoveryTests(unittest.TestCase):
         self.assertEqual(unresolved, ())
         self.assertIsNone(self.intent_store.get(2))
 
+    def test_prepare_dispatch_blocks_when_an_orphan_intent_already_exists(self):
+        self.intent_store.save(DispatchIntent(
+            2, 3, SHIPS, (0, 0, 0, 0), T0 - timedelta(seconds=1), T0,
+        ))
+        baseline = self.observation(self.idle_fleet(), at=T0 - timedelta(seconds=1))
+        with self.assertRaisesRegex(DispatchIntentError, "pending dispatch intent"):
+            self.coordinator.prepare_dispatch(2, 3, baseline, now=T0)
+        self.assertEqual(self.scheduler.fleet(2).phase, FleetPhase.BLOCKED)
+
     def test_intent_store_rejects_duplicate_pending_dispatch(self):
         self.prepare()
         with self.assertRaises(DispatchIntentError):
