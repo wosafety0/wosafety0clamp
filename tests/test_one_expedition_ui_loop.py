@@ -179,5 +179,13 @@ class PreStartFleetRecheckTests(unittest.TestCase):
         self.assertEqual(game_input.click.call_count, 5)
 
 
+class LiveUiCoordinateEvidenceTests(unittest.TestCase):
+    def test_expedition_mode_coordinate_matches_ooi_menu_card(self):
+        self.assertEqual(
+            (controller.EXPEDITION_MODE.x, controller.EXPEDITION_MODE.y),
+            (1000, 360),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
