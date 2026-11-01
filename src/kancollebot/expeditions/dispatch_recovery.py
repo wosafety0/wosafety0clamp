@@ -293,8 +293,9 @@ class DurableDispatchCoordinator:
             raise DispatchIntentError(f"restart observation is not trusted: {exc}") from exc
         if not observation.source.startswith("poi-redux:"):
             raise DispatchIntentError("restart reconciliation requires a Poi Redux observation")
-        if observation.observed_at <= intent.prepared_at:
-            raise DispatchIntentError("restart observation predates the persisted dispatch intent")
+        required_after = intent.action_completed_at or intent.prepared_at
+        if observation.observed_at <= required_after:
+            raise DispatchIntentError("restart observation predates the persisted UI action completion boundary")
         matches = [item for item in observation.payload if item.fleet_id == fleet_id]
         if len(matches) != 1:
             raise DispatchIntentError("restart observation must contain exactly one target fleet")
