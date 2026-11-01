@@ -24,6 +24,8 @@ class PoiShipSupplyState:
     ammo: int | None
     max_fuel: int | None
     max_ammo: int | None
+    level: int | None = None
+    ship_type: int | None = None
 
     @property
     def is_fully_supplied(self) -> bool:
@@ -128,11 +130,15 @@ def read_poi_fleet_states(transport: CdpReadTransport) -> tuple[PoiFleetMissionS
             ammo = _optional_nonnegative_int(supply_item.get("ammo"), f"Fleet {fleet_id} ship ammo")
             max_fuel = _optional_nonnegative_int(supply_item.get("max_fuel"), f"Fleet {fleet_id} ship max fuel")
             max_ammo = _optional_nonnegative_int(supply_item.get("max_ammo"), f"Fleet {fleet_id} ship max ammo")
+            level = _optional_nonnegative_int(supply_item.get("level"), f"Fleet {fleet_id} ship level")
+            ship_type = _optional_nonnegative_int(supply_item.get("ship_type"), f"Fleet {fleet_id} ship type")
+            if level == 0 or ship_type == 0:
+                raise CdpFleetStateError(f"Fleet {fleet_id} ship level and type must be positive")
             if fuel is not None and max_fuel is not None and fuel > max_fuel:
                 raise CdpFleetStateError(f"Fleet {fleet_id} ship fuel exceeds its maximum")
             if ammo is not None and max_ammo is not None and ammo > max_ammo:
                 raise CdpFleetStateError(f"Fleet {fleet_id} ship ammo exceeds its maximum")
-            supply_states.append(PoiShipSupplyState(supply_ship_id, fuel, ammo, max_fuel, max_ammo))
+            supply_states.append(PoiShipSupplyState(supply_ship_id, fuel, ammo, max_fuel, max_ammo, level, ship_type))
         if supply_states and seen_supply_ids != expected_supply_ids:
             raise CdpFleetStateError(f"Fleet {fleet_id} supply snapshot is incomplete")
         states.append(PoiFleetMissionState(fleet_id, name, mission_tuple, ship_tuple, tuple(supply_states)))

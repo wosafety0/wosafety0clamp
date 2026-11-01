@@ -3142,3 +3142,12 @@ The Hand plugin's read-only probe reported:
 - **Regression coverage:** added 10 tests covering the observed Fleet 2 composition satisfying a supplied mission-1 requirement, the current Fleet 3 flagship level blocking a supplied mission-3 requirement, a qualifying flagship promotion, insufficient ship count, disallowed type, empty fleet, and malformed inputs.
 - **Verification:** focused tests **10 passed**; full Python unittest discovery **281 passed**; Node static suites **17 passed**; `compileall -q src tests tools` and `git diff --check` passed.
 - **Limitations:** this is a composition-only planner primitive. It does not verify current live game state, supply, damage, mission selection on the UI, or actual dispatch acceptance. The requirements used in tests are fixtures based on the separately recorded mission reference, not a bundled authoritative game database. No live game action was performed.
+
+
+## 2026-11-01 - Poi live composition metadata for mission preflight
+
+- **Read-only adapter extension:** the fixed Poi Redux snapshot now includes each Fleet 2/3 member's level and master ship-type ID alongside existing supply fields. The allowlisted expression remains exact and read-only; no arbitrary evaluation or mutation capability was added.
+- **Parser hardening:** `PoiShipSupplyState` now carries optional level/type metadata; when present, zero or malformed values are rejected. Existing supply-only fixtures remain compatible.
+- **Live integration check:** the real Poi snapshot populated all four Fleet 2/3 members with level/type metadata. The offline evaluator applied the supplied mission requirements to those live observations: Fleet 2 → mission 1 returned `eligible`; Fleet 3 → mission 3 returned `blocked_flagship_level` because its Lv2 flagship is below Lv3. Both fleets remained idle in the snapshot.
+- **Verification:** focused adapter + mission-eligibility tests **22 passed**; full Python unittest discovery **282 passed**; Node static suites **17 passed**; compileall and `git diff --check` passed.
+- **Limitations:** live data is Poi's cached Redux snapshot, not a server freshness witness. The evaluator does not alter fleet order, supply, repair, or dispatch. No game UI input or resource-consuming action was performed; production `BONUS_ITEMS` fail-closed behavior remains unchanged.
