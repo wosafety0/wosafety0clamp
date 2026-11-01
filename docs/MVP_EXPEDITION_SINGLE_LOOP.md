@@ -1,3 +1,66 @@
+# Continuous Dual-Fleet Expedition Scheduler — Design Contract
+
+Status: IN_PROGRESS. An offline fleet lifecycle state machine and shared-UI operation arbiter are implemented and unit-tested. Poi integration, durable scheduler-state recovery, generic result-page advancement, and unattended live operation remain pending. The production runner's BONUS_ITEMS fail-closed guard remains mandatory.
+
+Branch: dev/expedition-closed-loop-mvp
+
+## Authoritative operating scope
+
+- Fleet 2 and Fleet 3 are independent dispatch candidates.
+- Fleet 1 is read-only and must never be dispatched.
+- Fleet 4 is deferred until the game unlocks it; its absence must not block Fleet 2 / Fleet 3 scheduling.
+- Mission assignments remain explicit configuration, currently Fleet 2 → mission 1 and Fleet 3 → mission 3. The scheduler must not silently change formations, missions, repair policy, or supply policy.
+- The design supports additional configured fleets without making Fleet 4 a startup dependency.
+
+## Fleet lifecycle
+
+Each dispatchable fleet has an independent lifecycle:
+
+`IDLE → READY → DISPATCHING → EXPEDITION_ACTIVE → RETURNED_PENDING_UI → RETURN_RESULT → BONUS_ITEMS → RESUPPLY_REQUIRED → READY`
+
+Any uncertain observation or failed invariant transitions that fleet to `BLOCKED`; no automatic retry of an ambiguous action is allowed.
+
+## Mandatory dispatch-to-Home-Port invariant
+
+After the UI reports dispatch success and Poi confirms the requested active mission, the client must immediately return to `HOME_PORT`. Before waiting for the expedition timer, the controller must:
+
+1. Confirm the visible UI state is `HOME_PORT` using the accepted two-frame state gate.
+2. Re-read Poi fleet state.
+3. Compare the exact active mission tuple: status, mission ID, final-time timestamp, reserved slot, and ordered ship membership.
+4. Permit timer monitoring only when both the Home Port state and unchanged tuple are confirmed.
+
+A failure or mismatch blocks that fleet and stops further UI actions. The client must never remain on the expedition list while the timer runs.
+
+## Shared UI arbitration
+
+- Fleet lifecycle state is independent; Poi UI and CDP input are shared.
+- Every visible UI operation must pass through one process-wide serialized arbiter.
+- One Poi state reader and one CDP input session are shared by the runtime.
+- A fleet waiting for its return timer does not hold the UI arbiter; the other fleet may be processed.
+- Result settlement, reward handling, resupply, and dispatch operations are serialized. After each settlement the client returns to Home Port and rescans all configured fleets.
+
+## Safety and recovery
+
+- Never dispatch Fleet 1 or require Fleet 4 before unlock.
+- Never infer dispatch acceptance from a click return; require a newer Poi observation.
+- Never wait after dispatch until the Home Port + unchanged mission tuple postcondition passes.
+- Never collect a reward until the expected return/result state and BONUS_ITEMS state each pass the production two-frame gate.
+- Never use notification-template coordinates as click authorization. A located visual element is evidence of location only; it does not prove that the region is a valid control or safe progression target.
+- Never send or replay game API/server requests. Use only normal visible game UI actions.
+- Unknown, stale, conflicting, or incomplete evidence fails closed.
+
+## Current implementation boundary
+
+- Implemented: `src/kancollebot/expeditions/continuous_scheduler.py` provides the pure fleet state machine, mission tuple equality gate, Fleet 1 read-only / Fleet 4 deferred role separation, and a shared-window mutex.
+- Implemented: `tests/test_continuous_scheduler.py` covers independent Fleet 2 / Fleet 3 lifecycles, the mandatory post-dispatch Home Port gate, mission tuple stability, settlement order, reward confirmation, resupply, blocked state, and serialized UI access.
+- Corrected: `visual_target_gate.py` returns a `LocatedVisualTarget`; visual localization no longer grants CDP click authority.
+- Not implemented: durable persistence and restart reconciliation of all fleet lifecycle states; the existing action journal currently covers dispatch attempts only.
+- Not integrated: the pure scheduler is not yet connected to the Poi reader, visible UI controller, or production runner.
+- Not verified live: generic result/bonus page progression and unattended dual-fleet operation.
+- Production guard: do not remove the unconditional `BONUS_ITEMS` fail-closed guard until live two-frame BONUS_ITEMS verification and the required end-to-end acceptance have passed.
+
+---
+
 # Single Expedition MVP — Execution Contract
 
 Status: IN_PROGRESS (2026-11-01; dispatch navigation, fleet-2 supply fail-closed gate, and six pre-dispatch visual checkpoints verified; RETURN_RESULT/BONUS_ITEMS template pipeline implemented with synthetic positive controls and live negative controls; positive live return/reward verification and end-to-end loop remain pending)
