@@ -150,6 +150,7 @@ def normalize_poi_fleets(
             fuel_ready=fuel_ready,
             ammo_ready=ammo_ready,
             damaged_ship_ids=tuple(damaged),
+            reserved=reserved_slot,
         ))
     return ObservedState(
         tuple(snapshots),
