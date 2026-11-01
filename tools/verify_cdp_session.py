@@ -23,8 +23,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--endpoint", default="http://127.0.0.1:9222")
     parser.add_argument(
         "--url-hint",
-        default="https://play.games.dmm.com/game/kancolle",
-        help="Unique substring for the embedded game WebView URL",
+        default="",
+        help="Optional explicit WebView URL substring; otherwise auto-select one supported DMM or Ooi game WebView",
     )
     parser.add_argument("--timeout", type=float, default=3.0)
     args = parser.parse_args(argv)
@@ -54,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
                     "title": session.target.title,
                     "url": session.target.url,
                 },
-                "url_hint": args.url_hint,
+                "url_hint": args.url_hint or "auto_supported_dmm_or_ooi",
                 "viewport_css_pixels": {"width": width, "height": height},
                 "mouse_input_sent": False,
                 "javascript_evaluated": False,

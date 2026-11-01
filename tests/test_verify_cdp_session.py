@@ -18,7 +18,7 @@ class VerifyCdpSessionTests(unittest.TestCase):
         session.target = SimpleNamespace(
             target_id="game-webview",
             title="KanColle",
-            url="https://play.games.dmm.com/game/kancolle",
+            url="https://ooi.moe/poi",
         )
         session.transport.send.return_value = {
             "cssVisualViewport": {"clientWidth": 1200, "clientHeight": 720}
@@ -37,15 +37,15 @@ class VerifyCdpSessionTests(unittest.TestCase):
         self.assertEqual(result, 0)
         connect.assert_called_once_with(
             "http://127.0.0.1:9222",
-            url_hint="https://play.games.dmm.com/game/kancolle",
+            url_hint="",
             timeout=3.0,
         )
         session.transport.send.assert_called_once_with("Page.getLayoutMetrics", {})
         report = json.loads(output.getvalue())
         self.assertEqual(report["status"], "PASS_READ_ONLY_CDP_PREFLIGHT")
         self.assertEqual(report["target"]["type"], "webview")
-        self.assertEqual(report["target"]["url"], "https://play.games.dmm.com/game/kancolle")
-        self.assertEqual(report["url_hint"], "https://play.games.dmm.com/game/kancolle")
+        self.assertEqual(report["target"]["url"], "https://ooi.moe/poi")
+        self.assertEqual(report["url_hint"], "auto_supported_dmm_or_ooi")
         self.assertFalse(report["mouse_input_sent"])
         self.assertFalse(report["javascript_evaluated"])
         self.assertFalse(report["gameplay_action_sent"])

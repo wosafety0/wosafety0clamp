@@ -9,6 +9,7 @@ from kancollebot.adapters.poi.cdp_targets import (
     CdpTarget,
     list_page_targets,
     list_webview_targets,
+    select_game_webview,
     select_poi_renderer,
 )
 from kancollebot.adapters.poi.cdp_websocket import connect_game_webview
@@ -54,13 +55,47 @@ class CdpTargetTests(unittest.TestCase):
         transport = MagicMock()
         with (
             patch("kancollebot.adapters.poi.cdp_targets.list_webview_targets", return_value=(target,)),
-            patch("kancollebot.adapters.poi.cdp_targets.select_poi_renderer", return_value=target) as select,
+            patch("kancollebot.adapters.poi.cdp_targets.select_game_webview", return_value=target) as select,
             patch("kancollebot.adapters.poi.cdp_websocket.CdpWebSocketTransport", return_value=transport),
         ):
             session = connect_game_webview(url_hint="kcs2/index.php")
-        select.assert_called_once_with((target,), title_hint="", url_hint="kcs2/index.php")
+        select.assert_called_once_with((target,), url_hint="kcs2/index.php")
         self.assertIs(session.transport, transport)
         session.close()
+
+    def test_auto_selects_ooi_hosted_game_webview(self) -> None:
+        targets = (
+            CdpTarget("shell", "Poi", "file:///D:/Games/poi/index.html",
+                      "ws://127.0.0.1:9222/devtools/page/shell"),
+            CdpTarget("ooi", "OOI - KanColle", "https://ooi.moe/poi",
+                      "ws://127.0.0.1:9222/devtools/page/ooi"),
+        )
+        self.assertEqual(select_game_webview(targets).target_id, "ooi")
+
+    def test_auto_selects_direct_dmm_game_webview(self) -> None:
+        target = CdpTarget(
+            "dmm", "KanColle", "https://play.games.dmm.com/game/kancolle",
+            "ws://127.0.0.1:9222/devtools/page/dmm",
+        )
+        self.assertEqual(select_game_webview((target,)).target_id, "dmm")
+
+    def test_auto_selection_refuses_ambiguous_supported_webviews(self) -> None:
+        targets = (
+            CdpTarget("dmm", "KanColle", "https://play.games.dmm.com/game/kancolle",
+                      "ws://127.0.0.1:9222/devtools/page/dmm"),
+            CdpTarget("ooi", "OOI", "https://ooi.moe/poi",
+                      "ws://127.0.0.1:9222/devtools/page/ooi"),
+        )
+        with self.assertRaisesRegex(CdpDiscoveryError, "found 2"):
+            select_game_webview(targets)
+
+    def test_auto_selection_rejects_unsupported_webview(self) -> None:
+        target = CdpTarget(
+            "other", "Other", "https://example.invalid/game",
+            "ws://127.0.0.1:9222/devtools/page/other",
+        )
+        with self.assertRaisesRegex(CdpDiscoveryError, "found 0"):
+            select_game_webview((target,))
 
     def test_non_loopback_endpoint_is_rejected(self) -> None:
         with self.assertRaises(ValueError):

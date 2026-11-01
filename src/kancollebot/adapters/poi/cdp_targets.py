@@ -152,6 +152,37 @@ def select_poi_renderer(
     return matches[0]
 
 
+def select_game_webview(
+    targets: tuple[CdpTarget, ...],
+    *,
+    url_hint: str = "",
+) -> CdpTarget:
+    """Select one supported direct-DMM or Ooi-hosted game WebView.
+
+    Ooi embeds the game in a child frame of its own Poi WebView. The WebView
+    target (rather than the nested frame URL) is the correct surface for
+    viewport screenshots and mouse input. State reads remain on the Poi shell.
+    """
+    if url_hint.strip():
+        return select_poi_renderer(targets, title_hint="", url_hint=url_hint)
+
+    supported_hints = (
+        "https://play.games.dmm.com/game/kancolle",
+        "https://ooi.moe/poi",
+    )
+    matches = tuple(
+        target
+        for target in targets
+        if any(hint in target.url.casefold() for hint in supported_hints)
+    )
+    if len(matches) != 1:
+        raise CdpDiscoveryError(
+            "Expected exactly one supported KanColle WebView "
+            f"(direct DMM or Ooi); found {len(matches)}; refusing to guess"
+        )
+    return matches[0]
+
+
 def main() -> int:
     import argparse
 

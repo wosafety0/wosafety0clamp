@@ -230,16 +230,14 @@ class CdpWebSocketTransportTests(unittest.TestCase):
         transport = object()
         with (
             patch("kancollebot.adapters.poi.cdp_targets.list_webview_targets", return_value=(target,)),
-            patch("kancollebot.adapters.poi.cdp_targets.select_poi_renderer", return_value=target) as select,
+            patch("kancollebot.adapters.poi.cdp_targets.select_game_webview", return_value=target) as select,
             patch("kancollebot.adapters.poi.cdp_websocket.CdpWebSocketTransport", return_value=transport) as factory,
         ):
             session = connect_game_webview()
         self.assertIsInstance(session, CdpPoiSession)
         self.assertIs(session.target, target)
         self.assertIs(session.transport, transport)
-        select.assert_called_once_with(
-            (target,), title_hint="", url_hint="https://play.games.dmm.com/game/kancolle"
-        )
+        select.assert_called_once_with((target,), url_hint="")
         factory.assert_called_once_with(target.websocket_url, timeout=3.0)
 
     def test_connect_fails_closed_when_target_selection_is_ambiguous(self):

@@ -338,23 +338,20 @@ def connect_game_webview(
     endpoint: str = "http://127.0.0.1:9222",
     *,
     timeout: float = 3.0,
-    url_hint: str = "https://play.games.dmm.com/game/kancolle",
+    url_hint: str = "",
 ) -> CdpPoiSession:
-    """Connect directly to the exact KanColle WebView target using its own WS URL.
+    """Connect to one supported direct-DMM or Ooi game WebView.
 
-    Poi's outer shell is a ``page`` target; the embedded DMM game renderer is a
-    separate ``webview`` target. This function selects only the expected game
-    URL and opens that target's loopback WebSocket directly. It does not need
-    browser-level Target.attachToTarget and does not perform game input.
+    Poi's outer shell is a ``page`` target; the game surface is a separate
+    ``webview`` target. With no explicit hint, select exactly one known
+    direct-DMM or Ooi WebView. Ooi's game document is a child frame, but the
+    containing WebView remains the correct surface for screenshots and input.
+    Poi Redux state must be read through a separate ``connect_poi_session``.
     """
-    from .cdp_targets import list_webview_targets, select_poi_renderer
+    from .cdp_targets import list_webview_targets, select_game_webview
 
     targets = list_webview_targets(endpoint, timeout=min(timeout, 2.0))
-    target = select_poi_renderer(
-        targets,
-        title_hint="",
-        url_hint=url_hint,
-    )
+    target = select_game_webview(targets, url_hint=url_hint)
     transport = CdpWebSocketTransport(target.websocket_url, timeout=timeout)
     return CdpPoiSession(target, transport)
 
