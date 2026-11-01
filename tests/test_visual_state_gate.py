@@ -63,7 +63,29 @@ class VisualStateGateTests(unittest.TestCase):
             "return_notice.png": 0.97,
             "expedition_result_success.png": 0.25,
             "expedition_result_failure.png": 0.24,
-        }), "RETURN_RESULT")
+        }), "UNKNOWN")
+
+    def test_live_home_port_return_notice_scores_classify_as_distinct_state(self):
+        scores = {
+            "home_sortie_menu.png": 0.99608,
+            "negative_home_other_menu.png": 0.87841,
+            "expedition_result_success.png": 0.16670,
+            "expedition_result_failure.png": 0.16829,
+            "home_expedition_menu.png": 0.20931,
+            "expedition_list_panel.png": 0.38027,
+            "expedition_dispatch_button.png": 0.35229,
+            "return_notice.png": 0.98995,
+            "bonus_title.png": 0.25640,
+        }
+        self.assertEqual(classify_template_scores(scores), "HOME_PORT_RETURN_NOTICE")
+
+    def test_return_notice_without_home_evidence_fails_closed(self):
+        self.assertEqual(classify_template_scores({
+            "return_notice.png": 0.99,
+            "expedition_result_success.png": 0.16,
+            "expedition_result_failure.png": 0.17,
+            "bonus_title.png": 0.25,
+        }), "UNKNOWN")
 
     def test_bonus_page_requires_the_verified_bonus_title_marker(self):
         self.assertEqual(classify_template_scores({
