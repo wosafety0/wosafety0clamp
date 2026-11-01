@@ -93,7 +93,6 @@ def classify_template_scores(
     result_scores = {
         "expedition_result_success.png": scores.get("expedition_result_success.png", -1.0),
         "expedition_result_failure.png": scores.get("expedition_result_failure.png", -1.0),
-        "return_notice.png": scores.get("return_notice.png", -1.0),
     }
     result_ranked = sorted(result_scores.items(), key=lambda item: item[1], reverse=True)
     _, result = result_ranked[0]
@@ -115,13 +114,26 @@ def classify_template_scores(
         and list_panel < minimum_score
         and dispatch_button < minimum_score
         and result < minimum_score
+        and scores.get("return_notice.png", -1.0) < minimum_score
         and bonus < minimum_score
     ):
         candidates.append(("HOME_PORT", max(home, home_reference)))
+    return_notice = scores.get("return_notice.png", -1.0)
+    if (
+        home_markers
+        and expedition_menu < minimum_score
+        and list_panel < minimum_score
+        and dispatch_button < minimum_score
+        and result < minimum_score
+        and bonus < minimum_score
+        and return_notice >= minimum_score
+    ):
+        candidates.append(("HOME_PORT_RETURN_NOTICE", return_notice))
     if (
         home < minimum_score
         and home_reference < minimum_score
         and bonus < minimum_score
+        and return_notice < minimum_score
         and result >= minimum_score
         and result - second_result >= minimum_margin
     ):
