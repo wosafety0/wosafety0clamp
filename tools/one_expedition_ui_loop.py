@@ -112,14 +112,15 @@ def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra:
             stream.write(line + "\n")
 
 
-def _require_ui_state(game_session, expected: UiState) -> None:
+def _require_ui_state(game_session, expected: UiState) -> str:
     """Require accessible labels or two consecutive in-memory visual matches."""
     result = game_session.transport.send("Accessibility.getFullAXTree", {})
     nodes = result.get("nodes") if isinstance(result, dict) else None
     try:
         require_state(nodes, expected)
-        _print_event("ui_state_confirmed", ui_state=expected.value, evidence="accessibility")
-        return
+        evidence = "accessibility"
+        _print_event("ui_state_confirmed", ui_state=expected.value, evidence=evidence)
+        return evidence
     except (UiStateGateError, ValueError) as accessible_error:
         fingerprint_path = Path(
             os.environ.get(
@@ -154,12 +155,13 @@ def _require_ui_state(game_session, expected: UiState) -> None:
                     if observed == expected.value:
                         consecutive_matches += 1
                         if consecutive_matches >= 2:
+                            evidence = "two_consecutive_in_memory_ooi_fingerprints"
                             _print_event(
                                 "ui_state_confirmed",
                                 ui_state=expected.value,
-                                evidence="two_consecutive_in_memory_ooi_fingerprints",
+                                evidence=evidence,
                             )
-                            return
+                            return evidence
                     elif observed != "UNKNOWN":
                         raise LoopError(
                             f"Expected {expected.value}; Ooi fingerprint classified {observed}"
@@ -206,12 +208,13 @@ def _require_ui_state(game_session, expected: UiState) -> None:
                 if visual_state == expected.value:
                     consecutive_matches += 1
                     if consecutive_matches >= 2:
+                        evidence = "two_consecutive_in_memory_template_matches"
                         _print_event(
                             "ui_state_confirmed",
                             ui_state=expected.value,
-                            evidence="two_consecutive_in_memory_template_matches",
+                            evidence=evidence,
                         )
-                        return
+                        return evidence
                 elif visual_state != "UNKNOWN":
                     raise LoopError(
                         f"Expected {expected.value}; visual template classifier returned {visual_state}"
@@ -379,13 +382,13 @@ def build_checkpoint_verifier(reader_transport, game_session, expected_start_ms:
             raise LoopError(f"Unknown UI checkpoint state: {expected_state}") from exc
         if expected is UiState.UNKNOWN:
             raise LoopError("UNKNOWN is not an acceptable dispatch checkpoint")
-        _require_ui_state(game_session, expected)
+        evidence = _require_ui_state(game_session, expected)
         _print_event(
             "dispatch_checkpoint_confirmed",
             step=step,
             phase=phase,
             expected_state=expected_state,
-            evidence="two_consecutive_in_memory_ooi_fingerprints",
+            evidence=evidence,
         )
 
     return verify

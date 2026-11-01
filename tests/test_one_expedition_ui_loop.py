@@ -52,8 +52,18 @@ class LiveCheckpointVerifierTests(unittest.TestCase):
         verifier = controller.build_checkpoint_verifier(
             self.reader, self.game_session, self.expected_start_ms
         )
-        with patch.object(controller, "_require_ui_state") as require_state:
+        with (
+            patch.object(controller, "_require_ui_state", return_value="accessibility") as require_state,
+            patch.object(controller, "_print_event") as event_log,
+        ):
             verifier(2, "after", "EXPEDITION_LIST")
+        event_log.assert_called_once_with(
+            "dispatch_checkpoint_confirmed",
+            step=2,
+            phase="after",
+            expected_state="EXPEDITION_LIST",
+            evidence="accessibility",
+        )
         require_state.assert_called_once_with(
             self.game_session, controller.UiState.EXPEDITION_LIST
         )
@@ -101,6 +111,21 @@ class LiveCheckpointVerifierTests(unittest.TestCase):
                 )
         self.assertEqual(classify.call_count, 3)
 
+    def test_accessibility_checkpoint_returns_accessibility_evidence(self):
+        with (
+            patch.object(controller, "require_state") as require_state,
+            patch.object(controller, "_print_event") as event_log,
+        ):
+            evidence = controller._require_ui_state(
+                self.game_session, controller.UiState.HOME_PORT
+            )
+        self.assertEqual(evidence, "accessibility")
+        require_state.assert_called_once_with(None, controller.UiState.HOME_PORT)
+        event_log.assert_called_once_with(
+            "ui_state_confirmed", ui_state="HOME_PORT", evidence="accessibility"
+        )
+        self.game_session.input.capture_screenshot.assert_not_called()
+
     def test_visual_state_requires_two_consecutive_matches(self):
         self.game_session.transport.send.return_value = {"nodes": []}
         self.game_session.input.capture_screenshot.return_value = "in-memory-payload"
@@ -110,9 +135,10 @@ class LiveCheckpointVerifierTests(unittest.TestCase):
                          side_effect=[("UNKNOWN", scores), ("HOME_PORT", scores), ("HOME_PORT", scores)]) as classify,
             patch.object(controller.time, "sleep"),
         ):
-            controller._require_ui_state(
+            evidence = controller._require_ui_state(
                 self.game_session, controller.UiState.HOME_PORT
             )
+        self.assertEqual(evidence, "two_consecutive_in_memory_ooi_fingerprints")
         self.assertEqual(classify.call_count, 3)
 
     def test_template_only_checkpoint_requires_two_consecutive_matches(self):
@@ -131,7 +157,8 @@ class LiveCheckpointVerifierTests(unittest.TestCase):
                          side_effect=[("UNKNOWN", {}), ("RETURN_RESULT", scores), ("RETURN_RESULT", scores)]) as classify,
             patch.object(controller.time, "sleep"),
         ):
-            controller._require_ui_state(self.game_session, controller.UiState.RETURN_RESULT)
+            evidence = controller._require_ui_state(self.game_session, controller.UiState.RETURN_RESULT)
+        self.assertEqual(evidence, "two_consecutive_in_memory_template_matches")
         self.assertEqual(classify.call_count, 3)
         self.assertEqual(self.game_session.input.capture_screenshot.call_count, 3)
 
