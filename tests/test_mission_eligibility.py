@@ -28,8 +28,8 @@ class FleetCompositionSnapshotTests(unittest.TestCase):
 
 class MissionEligibilityTests(unittest.TestCase):
     def setUp(self):
-        self.mission_1 = MissionCompositionRequirement(1, 2, 1, (2,))
-        self.mission_3 = MissionCompositionRequirement(3, 3, 3, (2,))
+        self.mission_1 = MissionCompositionRequirement(1, 2, 1)
+        self.mission_3 = MissionCompositionRequirement(3, 3, 3)
 
     def test_fleet_2_observed_composition_meets_mission_1(self):
         fleet = FleetCompositionSnapshot((1, 4, 8, 25), (8, 4, 4, 4), (2, 2, 2, 2))
@@ -53,7 +53,8 @@ class MissionEligibilityTests(unittest.TestCase):
 
     def test_disallowed_ship_type_blocks_mission(self):
         fleet = FleetCompositionSnapshot((1, 4, 8), (8, 4, 4), (2, 3, 2))
-        plan = evaluate_mission_composition(fleet, self.mission_3)
+        destroyer_only = MissionCompositionRequirement(3, 3, 3, (2,))
+        plan = evaluate_mission_composition(fleet, destroyer_only)
         self.assertEqual(plan.decision, MissionEligibilityDecision.BLOCKED_SHIP_TYPE)
 
     def test_empty_fleet_is_blocked(self):
