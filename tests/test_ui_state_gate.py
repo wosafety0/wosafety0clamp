@@ -26,10 +26,10 @@ class UiStateGateTests(unittest.TestCase):
         self.assertIs(classify_accessible_state([node("獲得アイテム")]), UiState.BONUS_ITEMS)
         self.assertIs(classify_accessible_state([node("獲得ボーナス")]), UiState.BONUS_ITEMS)
 
-    def test_return_notice_without_home_marker_is_not_a_home_port_state(self):
+    def test_return_notice_without_home_marker_fails_closed(self):
         self.assertIs(
             classify_accessible_state([node("第3艦隊 遠征から戻ってきました。")]),
-            UiState.HOME_PORT_RETURN_NOTICE,
+            UiState.UNKNOWN,
         )
 
     def test_ambiguous_or_missing_evidence_is_unknown(self):
