@@ -2947,3 +2947,12 @@ The Hand plugin's read-only probe reported:
 - **Required interpretation:** An automation milestone must be executed as one coherent, self-contained process/script with its own orchestration, logging, error handling, and verifiable completion evidence. Splitting a workflow into multiple DC calls and manually carrying state/output between them is not automation and must not be described as such.
 - **Tool preference:** Prefer Personal-Windows-MCP and purpose-built connectors for local inspection and project work. Use DC only when necessary and within the user's authorization; DC availability does not relax this prohibition.
 - **Reporting:** Clearly distinguish a one-off diagnostic command, a manually assisted sequence, and a genuinely automated end-to-end run. Never claim the latter based on the former two.
+
+## 2026-11-01 - Ooi expedition menu click coordinate corrected
+
+- **Live UI evidence:** on the actual Ooi-hosted 1200x720 game WebView, the Home Port sortie control at (280, 425) opened the sortie menu, and the expedition card at (1000, 360) opened the expedition list. The previous EXPEDITION_MODE coordinate (1105, 179) did not point to that card and was replaced with the observed (1000, 360).
+- **Navigation sequence verified:** selected mission row 3 (警備任務) at (500, 335), confirmed the mission selection at (1030, 670), entered fleet selection, then returned to Home Port using (50, 50). The game was left at Home Port. No expedition-start control was clicked and no mission was dispatched.
+- **Implementation:** updated tools/one_expedition_ui_loop.py and added a regression assertion for the Ooi expedition-card coordinate in tests/test_one_expedition_ui_loop.py.
+- **Verification:** full Python unittest discovery passed **233 tests (3 skipped)**; Node.js static tests passed **17/17**; compileall and git diff --check passed. The Ooi read-only CDP preflight continued to select the Ooi WebView and report a 1200x720 viewport.
+- **Acceptance boundary:** this verifies the observed Ooi menu/navigation coordinates only. The fleet-tab coordinate and all six visual state checkpoints are not yet independently verified; the Ooi accessibility tree exposes no useful game controls. Production dispatch remains fail-closed until every checkpoint and the end-to-end loop are verified.
+- **Safety:** screenshots were captured and analyzed only in memory; no screenshot files were saved. No game API request was constructed or sent.
