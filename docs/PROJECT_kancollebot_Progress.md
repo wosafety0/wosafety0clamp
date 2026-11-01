@@ -3267,3 +3267,13 @@ The Hand plugin's read-only probe reported:
 - **Related invariant correction:** blocking a fleet now clears `home_port_verified`, preventing a blocked fleet from retaining permission to wait on a mission timer.
 - **Verification state:** implementation saved to the authoritative branch. The new test suite and full regression suite have **NOT_RUN / NOT_VERIFIED** in this round; no test pass is claimed. The artifact is retained under the unverified-reusable-artifact rule until execution evidence is available.
 - **Operational boundary:** no Poi/game UI input, dispatch, reward collection, game API/server request, or proxy/system setting change was performed. The production `BONUS_ITEMS` fail-closed guard remains unchanged.
+
+## 2026-11-02 - Dispatch recovery offline verification
+
+- **Workspace recovery and synchronization:** the Windows device returned online. The local worktree was clean at a9787ae9f097cba4374f0bac554dfcb285525bc6; after fetching the authoritative branch, the local commit was confirmed to be an ancestor of remote 0987574d8b493828ee5d6377929766358f98e7f7 by 21 commits. A fast-forward-only update synchronized the worktree to 0987574d8b493828ee5d6377929766358f98e7f7; no local edits were discarded.
+- **Targeted verification:** tests.test_dispatch_recovery, tests.test_continuous_scheduler, and tests.test_expedition_state_v2 passed **40/40**.
+- **Full offline regression:** python -m unittest discover -s tests -q passed **345/345**. The local venv had NumPy 2.5.4 and OpenCV 5.0.0 available, so optional visual tests were not skipped due to missing dependencies.
+- **Static checks:** python -m compileall -q src tests tools, Node static extraction tests (**17/17**), passive Poi observer node --check, and git diff --check all passed.
+- **GitHub Actions:** CI run https://github.com/wosafety0/wosafety0clamp/actions/runs/41319959737 for commit 0987574d8b493828ee5d6377929766358f98e7f7 on dev/expedition-closed-loop-mvp completed with conclusion success; its JavaScript tests, passive observer syntax, Python compile, and unit-test steps all succeeded.
+- **Verification boundary:** this verifies the offline implementation and regression suite, not Poi production-runner integration, real UI settlement, live RETURN_RESULT/BONUS_ITEMS two-frame recognition, reward collection, or unattended dual-fleet operation. The production BONUS_ITEMS fail-closed guard remains mandatory and unchanged.
+- **Operational boundary:** no game UI input, dispatch, reward collection, game API/server request, proxy/system setting change, or fleet/formation change was performed during this verification.

@@ -1,6 +1,6 @@
 # Continuous Dual-Fleet Expedition Scheduler — Design Contract
 
-Status: IN_PROGRESS. The offline fleet lifecycle state machine, shared-UI arbiter, SQLite fleet-state store, and durable dispatch-intent recovery coordinator are implemented. The new dispatch-recovery path is saved but has not yet completed its test run. Poi/production-runner integration, generic result-page advancement, and unattended live operation remain pending. The production runner's BONUS_ITEMS fail-closed guard remains mandatory.
+Status: IN_PROGRESS. The offline fleet lifecycle state machine, shared-UI arbiter, SQLite fleet-state store, and durable dispatch-intent recovery coordinator are implemented. The dispatch-recovery path passed 40 targeted tests and the 345-test local offline suite; GitHub Actions CI for commit 0987574d succeeded. Poi/production-runner integration, generic result-page advancement, and unattended live operation remain pending. The production runner's BONUS_ITEMS fail-closed guard remains mandatory.
 
 Branch: dev/expedition-closed-loop-mvp
 
@@ -60,7 +60,7 @@ A failure or mismatch blocks that fleet and stops further UI actions. The client
 - Planner snapshots now retain the `api_mission[3]` reserved slot so reconciliation can compare it rather than silently defaulting it.
 - The existing action journal still covers dispatch attempts separately from lifecycle state persistence.
 - Not integrated: the coordinator is not yet connected to the visible UI controller or production runner; no game action is enabled by this module.
-- Not yet verified: the new dispatch-recovery tests, generic result/bonus page progression, and unattended dual-fleet operation.
+- Verified offline: dispatch-recovery targeted tests (40/40), full Python unittest discovery (345/345), Python compileall, JavaScript static tests (17/17), passive observer syntax, and GitHub Actions CI for commit 0987574d (success). The local environment included NumPy 2.5.4 and OpenCV 5.0.0. This is offline verification only.
 - Production guard: do not remove the unconditional `BONUS_ITEMS` fail-closed guard until live two-frame BONUS_ITEMS verification and the required end-to-end acceptance have passed.
 
 ---
