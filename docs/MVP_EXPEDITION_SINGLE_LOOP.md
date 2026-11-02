@@ -63,6 +63,8 @@ A failure or mismatch blocks that fleet and stops further UI actions. The client
 - The existing action journal still covers dispatch attempts separately from lifecycle state persistence.
 - Not integrated: the coordinator is not yet connected to the visible UI controller or production runner; no game action is enabled by this module.
 - Verified offline: controller, monitor, and Poi normalization focused tests (43/43); regression across the intended archive scope (377/377, excluding the separate unarchived supervisor prototype); Python compileall; JavaScript static tests (17/17); passive observer syntax; and git diff --check. NumPy 2.5.4 and OpenCV 5.0.0 were available. The controller and monitor share the PoiExpeditionReader.read_fleets contract, explicit per-fleet mission requirements, and append-only SQLite event logging. This is offline verification only; no production UI driver or unattended loop is connected.
+- Live UI checkpoint (2026-11-02): two consecutive in-memory CDP screenshots of the current game WebView classified as `RETURN_RESULT` using the existing template classifier (success 0.9983, failure 0.5651); no screenshot files were written and no input was sent.
+- Freshness boundary (same session): the passive Network observer was armed for 120 seconds while the UI remained on `RETURN_RESULT`; it observed no Kancolle server response and no `/kcsapi/api_port/port` event. The Poi Redux snapshot therefore remained `FRESHNESS_UNVERIFIED`, and all Fleet 1/2/3 planning assessments were suppressed. Do not treat this cached snapshot as action authority.
 - Production guard: do not remove the unconditional `BONUS_ITEMS` fail-closed guard until live two-frame BONUS_ITEMS verification and the required end-to-end acceptance have passed.
 
 ---
