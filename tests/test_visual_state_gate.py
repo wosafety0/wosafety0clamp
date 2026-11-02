@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from kancollebot.adapters.poi.visual_state_gate import classify_template_scores
 
@@ -129,6 +130,42 @@ class VisualStateGateTests(unittest.TestCase):
             "expedition_result_success.png": 0.95,
             "expedition_result_failure.png": 0.94,
         }), "UNKNOWN")
+
+    def test_sortie_menu_requires_the_live_title_marker(self):
+        self.assertEqual(classify_template_scores({
+            "sortie_menu_title.png": 0.997,
+            "home_sortie_menu.png": 0.59,
+            "negative_home_other_menu.png": 1.0,
+            "home_expedition_menu.png": 0.997,
+            "expedition_list_panel.png": 0.684,
+            "expedition_dispatch_button.png": 0.43,
+            "expedition_result_success.png": 0.18,
+            "expedition_result_failure.png": 0.12,
+            "return_notice.png": 0.29,
+            "bonus_title.png": 0.29,
+        }), "SORTIE_MENU")
+
+    def test_sortie_menu_weak_or_conflicting_title_fails_closed(self):
+        self.assertEqual(classify_template_scores({
+            "sortie_menu_title.png": 0.80,
+            "home_expedition_menu.png": 0.997,
+        }), "UNKNOWN")
+        self.assertEqual(classify_template_scores({
+            "sortie_menu_title.png": 0.997,
+            "home_sortie_menu.png": 0.998,
+            "negative_home_other_menu.png": 1.0,
+            "expedition_result_success.png": 0.18,
+            "expedition_result_failure.png": 0.12,
+        }), "UNKNOWN")
+
+    def test_bundled_sortie_menu_template_is_present(self):
+        template = (
+            Path(__file__).resolve().parents[1]
+            / "src" / "kancollebot" / "adapters" / "poi"
+            / "assets" / "sortie_menu_title.png"
+        )
+        self.assertTrue(template.is_file())
+        self.assertGreater(template.stat().st_size, 100)
 
     def test_invalid_scores_are_rejected(self):
         with self.assertRaises(ValueError):

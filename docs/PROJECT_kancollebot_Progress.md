@@ -3337,3 +3337,10 @@ The Hand plugin's read-only probe reported:
 - **Verification:** full Python suite passed **386/386**; Node static suite **19/19**; Python compileall and `git diff --check` passed.
 - **GitHub Actions:** push-triggered CI run `41378499516` completed successfully; its `test` job and all listed steps passed.
 - **Boundary:** this is diagnostic-message alignment only, not removal of the production guard or authorization to dispatch. Live freshness witness and full end-to-end unattended acceptance remain pending.
+
+## 2026-11-02 - SORTIE_MENU visual checkpoint and template bundling
+
+- **Implementation:** added `SORTIE_MENU` classification from the Japanese `出撃選択` title crop, with a strong-match threshold and fail-closed handling for weak or conflicting Home Port/result/reward evidence. The 205×56 template is bundled at `src/kancollebot/adapters/poi/assets/sortie_menu_title.png`; the classifier falls back to this bundled asset when the configured local template directory does not contain it.
+- **Regression:** visual state tests passed **14/14**; full Python suite passed **389/389**; Node static suite passed **19/19**; `compileall` and `git diff --check` passed.
+- **Live UI verification:** the current sortie-selection page passed two consecutive Ooi fingerprint checks as `SORTIE_MENU` (score 1.0). One normal Home Port navigation click then returned the UI to `HOME_PORT`, confirmed in two consecutive frames. No screenshot files were written. No dispatch, resupply, reward action, or game API request was performed in this stage.
+- **Boundary:** this closes the missing `SORTIE_MENU` visual checkpoint only. The live passive-port freshness result from the latest combined diagnostic was not emitted because its assessment-summary call lacked the required `max_state_age` argument; do not count that run as freshness verification. The previously confirmed `natural_response_timeout` remains the last fully recorded freshness result. Fleet planning stays fail-closed and the production startup guard remains unchanged.

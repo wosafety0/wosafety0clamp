@@ -102,8 +102,23 @@ def classify_template_scores(
     # crop is the only accepted positive marker until a real next-button crop
     # is independently identified.
     bonus = scores.get("bonus_title.png", -1.0)
+    return_notice = scores.get("return_notice.png", -1.0)
+    sortie_title = scores.get("sortie_menu_title.png", -1.0)
+    if sortie_title >= minimum_score and (
+        home >= minimum_score or home_reference >= minimum_score
+    ):
+        return "UNKNOWN"
 
     candidates: list[tuple[str, float]] = []
+    if (
+        sortie_title >= minimum_score
+        and home < minimum_score
+        and home_reference < minimum_score
+        and result < minimum_score
+        and return_notice < minimum_score
+        and bonus < minimum_score
+    ):
+        candidates.append(("SORTIE_MENU", sortie_title))
     home_markers = (
         home_reference >= minimum_score
         or (home >= minimum_score and home_nav >= minimum_score)
@@ -118,7 +133,6 @@ def classify_template_scores(
         and bonus < minimum_score
     ):
         candidates.append(("HOME_PORT", max(home, home_reference)))
-    return_notice = scores.get("return_notice.png", -1.0)
     notice_home_markers = (
         home_reference >= minimum_score
         or (home >= minimum_score and return_notice >= minimum_score)
@@ -161,6 +175,10 @@ def classify_template_scores(
         "expedition_result_failure.png",
         "return_notice.png",
         "bonus_title.png",
+        "sortie_menu_title.png",
+        "home_expedition_menu.png",
+        "expedition_list_panel.png",
+        "expedition_dispatch_button.png",
     }
     competing = max(
         (score for name, score in scores.items()
@@ -195,10 +213,13 @@ def classify_screenshot_png(
             "home_expedition_menu.png",
             "expedition_list_panel.png",
             "expedition_dispatch_button.png",
+            "sortie_menu_title.png",
             "negative_home_other_menu.png",
             "negative_expedition_other_row.png",
         )
     }
+    if not templates["sortie_menu_title.png"].is_file():
+        templates["sortie_menu_title.png"] = Path(__file__).resolve().parent / "assets" / "sortie_menu_title.png"
     for pattern, label in (("*202405.png", "return_notice.png"), ("*202556.png", "bonus_title.png")):
         matches = sorted(directory.glob(pattern))
         if matches:

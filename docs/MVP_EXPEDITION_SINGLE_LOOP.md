@@ -4,6 +4,13 @@ Status: IN_PROGRESS. The offline fleet lifecycle state machine, shared-UI arbite
 
 Branch: dev/expedition-closed-loop-mvp
 
+## 2026-11-02 - SORTIE_MENU visual checkpoint
+
+- Added the dedicated `SORTIE_MENU` template classifier using the live `出撃選択` title crop. The 205×56 PNG is bundled at `src/kancollebot/adapters/poi/assets/sortie_menu_title.png`; an operator-provided template directory takes precedence, with the bundled asset as fallback.
+- The classifier requires a strong title match and rejects conflicting Home Port, result, or reward evidence. Weak and ambiguous matches remain `UNKNOWN`.
+- Offline visual-state tests passed **14/14**. The live Ooi checkpoint recognized the current sortie-selection page in two consecutive frames (state score 1.0); after one Home Port navigation click, the production checkpoint confirmed `HOME_PORT` in two consecutive frames. No screenshot files were written.
+- This closes only the `SORTIE_MENU` recognition gap. It does not establish a fresh natural `api_port/port` witness, dispatch authorization, or production unattended readiness. The production startup guard remains mandatory.
+
 ## Authoritative operating scope
 
 - Fleet 2 and Fleet 3 are independent dispatch candidates.
