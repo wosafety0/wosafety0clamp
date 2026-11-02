@@ -65,6 +65,26 @@ class CdpInputTests(unittest.TestCase):
             )
         self.assertEqual(mismatch.calls, [])
 
+    def test_visual_target_point_accepts_only_exact_approved_fleet2_ship_regions(self):
+        from kancollebot.adapters.poi.cdp_input import VisualTargetPoint
+
+        approved = (
+            ("fleet2-ship1-checkbox", (150, 225, 55, 50), (166, 240, 22, 23)),
+            ("fleet2-ship2-checkbox", (150, 302, 55, 50), (166, 317, 22, 23)),
+            ("fleet2-ship3-checkbox", (150, 379, 55, 50), (166, 394, 22, 23)),
+            ("fleet2-ship4-checkbox", (150, 456, 55, 50), (166, 471, 22, 23)),
+        )
+        for label, region, bounds in approved:
+            with self.subTest(label=label):
+                x, y, width, height = bounds
+                point = VisualTargetPoint(
+                    x=x + width / 2, y=y + height / 2, label=label,
+                    bounds=bounds, region=region,
+                    source_frame_sha256="a" * 64,
+                    locator="opencv-canny-square-v1",
+                )
+                self.assertEqual(point.region, region)
+
     def test_visual_target_point_rejects_bounds_outside_region(self):
         from kancollebot.adapters.poi.cdp_input import VisualTargetPoint
         with self.assertRaisesRegex(ValueError, "approved Fleet 2"):

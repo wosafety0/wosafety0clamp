@@ -136,8 +136,9 @@ def _require_ui_state(game_session, expected: UiState) -> str:
                 document = json.loads(fingerprint_path.read_text(encoding="utf-8"))
             fingerprint_states = document.get("states", {}) if isinstance(document, dict) else {}
             checkbox_states = {
-                UiState.SUPPLY_FLEET_2_SHIP_1_CHECKED,
-                UiState.SUPPLY_FLEET_2_SHIP_1_UNCHECKED,
+                state for state in UiState
+                if state.value.startswith("SUPPLY_FLEET_2_SHIP_")
+                and state.value.endswith(("_CHECKED", "_UNCHECKED"))
             }
             if expected in checkbox_states:
                 if not isinstance(document, dict):
@@ -158,6 +159,7 @@ def _require_ui_state(game_session, expected: UiState) -> str:
                     raise LoopError(
                         f"Supply checkbox fingerprint is missing for {expected.value}"
                     ) from accessible_error
+                ship_index = int(expected.value.split("_SHIP_", 1)[1].split("_", 1)[0])
 
                 consecutive_matches = 0
                 for attempt in range(3):
@@ -168,7 +170,7 @@ def _require_ui_state(game_session, expected: UiState) -> str:
                     time.sleep(0.15)
                     payload = game_session.input.capture_screenshot()
                     observed, scores = classify_supply_checkbox_state(
-                        payload, document, checkbox_document
+                        payload, document, checkbox_document, ship_index=ship_index
                     )
                     _print_event(
                         "ui_supply_checkbox_state_check",

@@ -25,6 +25,14 @@ class CdpTransport(Protocol):
         ...
 
 
+_APPROVED_VISUAL_TARGETS = {
+    "fleet2-ship1-checkbox": (150, 225, 55, 50),
+    "fleet2-ship2-checkbox": (150, 302, 55, 50),
+    "fleet2-ship3-checkbox": (150, 379, 55, 50),
+    "fleet2-ship4-checkbox": (150, 456, 55, 50),
+}
+
+
 @dataclass(frozen=True, slots=True)
 class RecordedPoint:
     """Reviewed WebView CSS-pixel coordinate captured from a manual recording."""
@@ -80,8 +88,8 @@ class VisualTargetPoint:
             raise ValueError("visual target bounds and region must be integer tuples")
         x, y, width, height = self.bounds
         rx, ry, region_width, region_height = self.region
-        if self.label != "fleet2-ship1-checkbox" or self.region != (150, 225, 55, 50):
-            raise ValueError("visual target is not the approved Fleet 2 first-ship checkbox")
+        if _APPROVED_VISUAL_TARGETS.get(self.label) != self.region:
+            raise ValueError("visual target is not an approved Fleet 2 ship checkbox region")
         if (
             rx < 0 or ry < 0 or rx + region_width > 1200 or ry + region_height > 720
             or x < rx or y < ry or width <= 0 or height <= 0

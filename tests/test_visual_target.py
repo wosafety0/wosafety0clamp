@@ -51,6 +51,19 @@ class VisualTargetTests(unittest.TestCase):
         self.assertEqual(point.locator, "opencv-canny-square-v1")
         self.assertEqual(len(point.source_frame_sha256), 64)
 
+    def test_locates_fleet2_ship_rows_two_through_four_in_independent_regions(self):
+        rows = (
+            ("fleet2-ship2-checkbox", 317, (150, 302, 55, 50)),
+            ("fleet2-ship3-checkbox", 394, (150, 379, 55, 50)),
+            ("fleet2-ship4-checkbox", 471, (150, 456, 55, 50)),
+        )
+        for label, y, region in rows:
+            with self.subTest(label=label):
+                payload = self._frame(((166, y, 22, 23),))
+                point = locate_square_checkbox(payload, region=region, label=label)
+                self.assertEqual(point.region, region)
+                self.assertEqual(point.bounds, (164, y - 2, 25, 26))
+
     def test_ambiguous_multiple_boxes_fail_closed(self):
         payload = self._frame(((156, 240, 22, 23), (181, 240, 22, 23)))
         with self.assertRaisesRegex(VisualTargetError, "found 2"):

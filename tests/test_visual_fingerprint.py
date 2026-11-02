@@ -269,6 +269,43 @@ class VisualFingerprintTests(unittest.TestCase):
         label, _ = classify_supply_checkbox_state(self.image, parent, ambiguous_checkbox)
         self.assertEqual(label, "UNKNOWN")
 
+    def test_supply_checkbox_classifier_selects_the_requested_ship_only(self):
+        current = compute_grid_fingerprint(
+            self.image, crop=(0, 0, 2, 2), grid=(2, 2)
+        )
+        blank = [0] * len(current)
+        parent = {
+            "version": 1, "viewport": [2, 2],
+            "states": {
+                "SUPPLY_FLEET_2_SELECTED": {
+                    "crop": [0, 0, 2, 2], "grid": [2, 2],
+                    "fingerprint": list(current),
+                },
+            },
+        }
+        for ship_index in (2, 3, 4):
+            checked_name = f"SUPPLY_FLEET_2_SHIP_{ship_index}_CHECKED"
+            unchecked_name = f"SUPPLY_FLEET_2_SHIP_{ship_index}_UNCHECKED"
+            checkbox = {
+                "version": 1, "viewport": [2, 2],
+                "states": {
+                    checked_name: {
+                        "crop": [0, 0, 2, 2], "grid": [2, 2],
+                        "fingerprint": list(current),
+                    },
+                    unchecked_name: {
+                        "crop": [0, 0, 2, 2], "grid": [2, 2],
+                        "fingerprint": blank,
+                    },
+                },
+            }
+            label, _ = classify_supply_checkbox_state(
+                self.image, parent, checkbox, ship_index=ship_index
+            )
+            self.assertEqual(label, checked_name)
+        with self.assertRaises(ValueError):
+            classify_supply_checkbox_state(self.image, parent, checkbox, ship_index=5)
+
     def test_live_supply_checkbox_fingerprints_are_compact_and_distinct(self):
         import json
 
@@ -278,18 +315,24 @@ class VisualFingerprintTests(unittest.TestCase):
             / "supply_checkbox_fingerprints.json"
         )
         document = json.loads(path.read_text(encoding="utf-8"))
-        checked = document["states"]["SUPPLY_FLEET_2_SHIP_1_CHECKED"]
-        unchecked = document["states"]["SUPPLY_FLEET_2_SHIP_1_UNCHECKED"]
-        for descriptor in (checked, unchecked):
-            self.assertEqual(descriptor["crop"], [164, 238, 26, 26])
-            self.assertEqual(descriptor["grid"], [13, 13])
-            self.assertEqual(descriptor["samples"], 3)
-            self.assertEqual(len(descriptor["fingerprint"]), 13 * 13 * 3)
-            self.assertEqual(descriptor["label_source"], "manually_confirmed_current_screen")
-        self.assertLess(
-            fingerprint_similarity(checked["fingerprint"], unchecked["fingerprint"]),
-            0.97,
-        )
+        self.assertEqual(len(document["states"]), 8)
+        for ship_index in (1, 2, 3, 4):
+            checked = document["states"][f"SUPPLY_FLEET_2_SHIP_{ship_index}_CHECKED"]
+            unchecked = document["states"][f"SUPPLY_FLEET_2_SHIP_{ship_index}_UNCHECKED"]
+            expected_crop = [164, 238 + (ship_index - 1) * 77, 26, 26]
+            for descriptor in (checked, unchecked):
+                self.assertEqual(descriptor["crop"], expected_crop)
+                self.assertEqual(descriptor["grid"], [13, 13])
+                self.assertEqual(descriptor["samples"], 3)
+                self.assertEqual(len(descriptor["fingerprint"]), 13 * 13 * 3)
+                self.assertIn(
+                    descriptor["label_source"],
+                    {"manually_confirmed_current_screen", "live_checkbox_mark_gate"},
+                )
+            self.assertLess(
+                fingerprint_similarity(checked["fingerprint"], unchecked["fingerprint"]),
+                0.97,
+            )
 
     def test_screenshot_classifier_rejects_viewport_mismatch(self):
         with self.assertRaises(VisualFingerprintError):

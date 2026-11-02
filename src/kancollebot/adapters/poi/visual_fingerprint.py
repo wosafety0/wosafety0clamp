@@ -272,14 +272,17 @@ def classify_supply_checkbox_state(
     parent_document: Mapping[str, object],
     checkbox_document: Mapping[str, object],
     *,
+    ship_index: int = 1,
     minimum_score: float = 0.97,
     minimum_margin: float = 0.04,
 ) -> tuple[str, dict[str, float]]:
-    """Classify the first Fleet 2 ship checkbox only after the parent page matches.
+    """Classify one Fleet 2 ship checkbox after the Fleet 2 parent page matches.
 
-    Parent and child evidence are evaluated independently because their crops
-    have different meanings and must not compete in one global score ranking.
+    Each ship has its own crop in the shared descriptor file. Checked and
+    unchecked references for other rows never compete with the requested row.
     """
+    if isinstance(ship_index, bool) or not isinstance(ship_index, int) or ship_index not in (1, 2, 3, 4):
+        raise ValueError("ship_index must be an integer from 1 through 4")
     parent_state, parent_scores = classify_screenshot_fingerprints(
         screenshot_base64, parent_document
     )
@@ -300,12 +303,13 @@ def classify_supply_checkbox_state(
     if checkbox_document.get("viewport") != [width, height]:
         raise VisualFingerprintError("checkbox fingerprint viewport does not match the screenshot")
     states = checkbox_document.get("states")
-    required_states = {
-        "SUPPLY_FLEET_2_SHIP_1_CHECKED",
-        "SUPPLY_FLEET_2_SHIP_1_UNCHECKED",
-    }
-    if not isinstance(states, Mapping) or set(states) != required_states:
-        raise VisualFingerprintError("checkbox document must contain exactly the checked and unchecked states")
+    checked_name = f"SUPPLY_FLEET_2_SHIP_{ship_index}_CHECKED"
+    unchecked_name = f"SUPPLY_FLEET_2_SHIP_{ship_index}_UNCHECKED"
+    required_states = {checked_name, unchecked_name}
+    if not isinstance(states, Mapping) or not required_states.issubset(states):
+        raise VisualFingerprintError(
+            f"checkbox document must contain checked and unchecked states for ship {ship_index}"
+        )
 
     checkbox_scores: dict[str, float] = {}
     for name in sorted(required_states):
