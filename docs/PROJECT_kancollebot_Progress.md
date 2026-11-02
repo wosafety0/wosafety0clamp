@@ -3359,3 +3359,11 @@ The Hand plugin's read-only probe reported:
 - **Live planning assessment:** Fleet 1 was READY but remains prohibited from dispatch; Fleet 2 was blocked because at least one ship is damaged; Fleet 3 needs fuel and ammunition resupply. No fleet was dispatch-eligible. No repair, resupply, or dispatch was performed.
 - **UI and safety:** the three clicks were normal navigation only; the sequence ended at a two-frame-confirmed HOME_PORT. The observer did not send input, evaluate page JavaScript, or initiate a game API request. No screenshots were written to disk.
 - **Next integration requirement:** the current `PoiExpeditionReader` invokes its synchronous snapshot provider on each `read_fleets()` call, which can block up to 130 seconds. Before continuous polling, implement a background/reusable passive witness provider and retain strict timestamp/current-state matching; stale or mismatched snapshots must never authorize planning.
+
+
+## 2026-11-02 - Background passive Poi freshness provider (offline implementation)
+
+- **Implementation:** added `src/kancollebot/adapters/poi/background_port_snapshot_provider.py`. It lazily starts a daemon worker, returns the latest in-memory port witness immediately instead of blocking each `read_fleets()` call, and rearms the one-shot passive observer after a capture. It sends no game input and initiates no game API request.
+- **Safety contract:** the provider does not mark snapshots fresh or extend their lifetime. `PoiExpeditionReader` continues to validate response/body timestamps, cache flags, and exact current fleet/ship equality; expired or mismatched witnesses remain rejected.
+- **Tests:** provider concurrency/retry/re-arm/copy/close tests passed **5/5**; full Python suite passed **394/394**; Node static suite **19/19**; compileall and `git diff --check` passed.
+- **Limitations:** this is a reusable offline-tested adapter, not yet wired into a production composition root. `close()` signals the worker but cannot interrupt an in-flight observer subprocess, which may remain active until its configured timeout (up to 130 seconds). Production UI actions remain disabled.
