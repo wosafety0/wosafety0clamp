@@ -11,18 +11,22 @@ A locally running KanColle automation framework hosted and tested through GitHub
 - Keep credentials, cookies, tokens, local game data, and third-party source trees out of this repository.
 - Use Python and the standard library where practical. Add dependencies only when justified.
 
-## Initial priorities
+## Current development priorities
 
-1. Establish the project structure and automated tests.
-2. Research POI integration points and KCA expedition/battle behavior using source evidence.
-3. Implement a read-only POI adapter and mocked state models.
-4. Build the expedition module with explicit preconditions, cancellation, and audit logs.
-5. Expand to battle automation only after the expedition and safety layers are validated.
+1. Complete production dispatch/supervisor composition only after freshness, UI-state gates, durable intent recovery, exact post-action verification, reward settlement, and fleet-wide resupply are integrated.
+2. Keep Fleet 1 read-only, Fleet 2/Fleet 3 as the only dispatch candidates, and Fleet 4 deferred until it is unlocked.
+3. Continue mocked/offline tests and static CI; missing, stale, ambiguous, or malformed observations must remain fail-closed.
+4. Treat any future live operation as a separately authorized, operator-supervised activity. CI and this repository workflow do not authorize unattended game actions.
 
-## Status
+## Current status — 2026-11-03
 
-The repository bootstrap is in progress. No real gameplay automation is enabled by the initial scaffold.
+The repository is beyond the initial bootstrap stage. The current MVP includes an offline-tested fleet lifecycle state machine, shared-UI arbiter, SQLite fleet-state and dispatch-intent stores/recovery, an injected-port dispatch controller, a read-only continuous monitor, and a single-tick supervisor.
 
+The Poi integration includes a passive Network observer and an in-memory freshness-witness path. One natural successful port response was matched against a contemporaneous Poi MCP read on 2026-11-02; this is a bounded observation, not proof of long-term freshness or atomic consistency across future reads.
+
+The recorded operator-supervised UI evidence covers return-result/bonus/home navigation and fleet-wide supply for the unlocked Fleets 1–3. A final audit recorded 13/13 ships at master fuel/ammunition levels. This historical evidence does not establish unattended scheduler readiness.
+
+Production dispatch/supervisor composition, mission/fleet selection, reward progression, automatic resupply integration into the continuous scheduler, and unattended operation remain pending. The production freshness/dispatch gate remains fail-closed. Current safety candidate PR #27 is based directly on the current MVP branch and adds strict dispatch-intent, freshness, and passive-observer validation; its exact-head offline CI passed 460 Python tests, 17 Node static tests, and compile/syntax checks, with 17 optional vision tests skipped because those dependencies were unavailable.
 
 ## Local web console (early scaffold)
 
