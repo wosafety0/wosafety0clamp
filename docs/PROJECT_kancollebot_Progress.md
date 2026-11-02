@@ -3482,3 +3482,5 @@ The Hand plugin's read-only probe reported:
 - **Validation:** Python full suite 450/450; Node static tests 17/17; Node syntax, compileall, CLI help, no-op dry-run, independent audit, and git diff --check all passed.
 - **Limits:** only Fleet 2 and Fleet 3 supply-tab selected-state gates are independently verified. Fleet 1 was already full and was not clicked; if Fleet 1 needs supply later, the tool blocks until a Fleet 1 tab gate exists. The current tool processes one target fleet per fresh-witness cycle. One damaged ship remains damaged. This does not enable expedition dispatch, repair, reward collection, or unattended operation.
 - **Safety:** no game API request was initiated; only natural network responses were observed. No repair, dispatch, reward claim, or single-ship supply operation occurred. Screenshots stayed in memory.
+
+- **Remote archive and CI:** commit 57befad2c94de5ee05a6c8960d703fda3bcd8105 was pushed to dev/expedition-closed-loop-mvp. GitHub readback confirmed all 10 changed file blobs exactly matched local Git blob IDs. Push-triggered Actions run 41468859238 completed successfully; the test job and every workflow step passed.
