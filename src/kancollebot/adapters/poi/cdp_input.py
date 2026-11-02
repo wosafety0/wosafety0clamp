@@ -1,11 +1,14 @@
 """Small, deterministic CDP input primitives for the Poi renderer.
 
-Coordinates must come from a reviewed local Record play capture. The transport
-is loopback-only and allowlisted; this module never infers a target or claims
-that a game action succeeded.
+RecordedPoint coordinates must come from a reviewed local Record play capture.
+The explicit visual-target path accepts only a frame-bound point from a bounded,
+fail-closed detector. The transport is loopback-only and allowlisted; this
+module never infers targets or claims that a game action succeeded.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import math
 import time
 from dataclasses import dataclass
@@ -42,6 +45,60 @@ class RecordedPoint:
             raise ValueError("recorded coordinates must not be negative")
         if not isinstance(self.label, str) or not self.label.strip():
             raise ValueError("recorded point label must not be empty")
+
+
+@dataclass(frozen=True, slots=True)
+class VisualTargetPoint:
+    """A bounded visual target tied to the exact screenshot frame that located it."""
+
+    x: float
+    y: float
+    label: str
+    bounds: tuple[int, int, int, int]
+    region: tuple[int, int, int, int]
+    source_frame_sha256: str
+    locator: str
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.x, bool) or isinstance(self.y, bool)
+            or not isinstance(self.x, (int, float))
+            or not isinstance(self.y, (int, float))
+            or not math.isfinite(self.x) or not math.isfinite(self.y)
+        ):
+            raise ValueError("visual target coordinates must be finite numbers")
+        if not isinstance(self.label, str) or not self.label.strip():
+            raise ValueError("visual target label must not be empty")
+        if self.locator != "opencv-canny-square-v1":
+            raise ValueError("visual target locator is not approved")
+        if (
+            not isinstance(self.bounds, tuple) or len(self.bounds) != 4
+            or not isinstance(self.region, tuple) or len(self.region) != 4
+            or any(isinstance(value, bool) or not isinstance(value, int)
+                   for value in (*self.bounds, *self.region))
+        ):
+            raise ValueError("visual target bounds and region must be integer tuples")
+        x, y, width, height = self.bounds
+        rx, ry, region_width, region_height = self.region
+        if self.label != "fleet2-ship1-checkbox" or self.region != (150, 225, 55, 50):
+            raise ValueError("visual target is not the approved Fleet 2 first-ship checkbox")
+        if (
+            rx < 0 or ry < 0 or rx + region_width > 1200 or ry + region_height > 720
+            or x < rx or y < ry or width <= 0 or height <= 0
+            or not 18 <= width <= 26 or not 18 <= height <= 27
+            or abs(width - height) > 4
+            or x + width > rx + region_width or y + height > ry + region_height
+            or region_width <= 0 or region_height <= 0
+        ):
+            raise ValueError("visual target bounds must be inside its bounded region")
+        if abs(self.x - (x + width / 2.0)) > 1e-6 or abs(self.y - (y + height / 2.0)) > 1e-6:
+            raise ValueError("visual target coordinates must equal the detected bounds center")
+        if (
+            not isinstance(self.source_frame_sha256, str)
+            or len(self.source_frame_sha256) != 64
+            or any(char not in "0123456789abcdef" for char in self.source_frame_sha256)
+        ):
+            raise ValueError("visual target must include a lowercase SHA-256 frame digest")
 
 
 class CdpInput:
@@ -98,6 +155,24 @@ class CdpInput:
             raise CdpInputError(
                 f"CDP click outcome may be ambiguous at recorded target: {point.label}"
             ) from exc
+
+    def click_visual_target(
+        self,
+        point: VisualTargetPoint,
+        *,
+        screenshot_base64: str,
+        button: str = "left",
+    ) -> None:
+        """Click a uniquely detected target only when its source frame is supplied unchanged."""
+        if not isinstance(point, VisualTargetPoint):
+            raise CdpInputError("visual click requires a validated VisualTargetPoint")
+        try:
+            frame_bytes = base64.b64decode(screenshot_base64, validate=True)
+        except (ValueError, base64.binascii.Error) as exc:
+            raise CdpInputError("visual click source screenshot is invalid") from exc
+        if hashlib.sha256(frame_bytes).hexdigest() != point.source_frame_sha256:
+            raise CdpInputError("visual target is stale or belongs to a different screenshot frame")
+        self.click(RecordedPoint(point.x, point.y, point.label), button=button)
 
     def capture_screenshot(self) -> str:
         """Return CDP's base64 PNG payload for diagnostics; does not prove success."""

@@ -266,6 +266,71 @@ def classify_screenshot_fingerprints(
         return "UNKNOWN", scores
     return best_name, scores
 
+
+def classify_supply_checkbox_state(
+    screenshot_base64: str,
+    parent_document: Mapping[str, object],
+    checkbox_document: Mapping[str, object],
+    *,
+    minimum_score: float = 0.97,
+    minimum_margin: float = 0.04,
+) -> tuple[str, dict[str, float]]:
+    """Classify the first Fleet 2 ship checkbox only after the parent page matches.
+
+    Parent and child evidence are evaluated independently because their crops
+    have different meanings and must not compete in one global score ranking.
+    """
+    parent_state, parent_scores = classify_screenshot_fingerprints(
+        screenshot_base64, parent_document
+    )
+    combined_scores = {
+        f"parent:{name}": score for name, score in parent_scores.items()
+    }
+    if parent_state != "SUPPLY_FLEET_2_SELECTED":
+        return parent_state, combined_scores
+
+    if not math.isfinite(minimum_score) or not 0 < minimum_score <= 1:
+        raise ValueError("minimum_score must be finite and in (0, 1]")
+    if not math.isfinite(minimum_margin) or not 0 <= minimum_margin <= 1:
+        raise ValueError("minimum_margin must be finite and in [0, 1]")
+    if not isinstance(checkbox_document, Mapping) or checkbox_document.get("version") != 1:
+        raise VisualFingerprintError("checkbox fingerprint document has an unsupported schema")
+
+    width, height, rgba = _decode_png_rgba(screenshot_base64)
+    if checkbox_document.get("viewport") != [width, height]:
+        raise VisualFingerprintError("checkbox fingerprint viewport does not match the screenshot")
+    states = checkbox_document.get("states")
+    required_states = {
+        "SUPPLY_FLEET_2_SHIP_1_CHECKED",
+        "SUPPLY_FLEET_2_SHIP_1_UNCHECKED",
+    }
+    if not isinstance(states, Mapping) or set(states) != required_states:
+        raise VisualFingerprintError("checkbox document must contain exactly the checked and unchecked states")
+
+    checkbox_scores: dict[str, float] = {}
+    for name in sorted(required_states):
+        template = states[name]
+        if not isinstance(template, Mapping):
+            raise VisualFingerprintError(f"checkbox fingerprint descriptor for {name} is malformed")
+        crop = template.get("crop")
+        grid = template.get("grid")
+        reference = template.get("fingerprint")
+        if not isinstance(crop, list) or not isinstance(grid, list) or not isinstance(reference, list):
+            raise VisualFingerprintError(f"checkbox fingerprint descriptor for {name} is malformed")
+        current = _fingerprint_from_rgba(width, height, rgba, tuple(crop), tuple(grid))
+        checkbox_scores[name] = fingerprint_similarity(current, reference)
+
+    combined_scores.update({
+        f"checkbox:{name}": score for name, score in checkbox_scores.items()
+    })
+    ranked = sorted(checkbox_scores.items(), key=lambda item: item[1], reverse=True)
+    best_name, best_score = ranked[0]
+    second_score = ranked[1][1]
+    if best_score < minimum_score or best_score - second_score < minimum_margin:
+        return "UNKNOWN", combined_scores
+    return best_name, combined_scores
+
+
 def average_fingerprints(samples: Sequence[Sequence[int]]) -> tuple[int, ...]:
     """Average multiple descriptors of the same manually confirmed screen."""
     if not samples:

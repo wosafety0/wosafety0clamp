@@ -45,6 +45,7 @@ from kancollebot.adapters.poi.visual_state_gate import (
 from kancollebot.adapters.poi.visual_fingerprint import (  # noqa: E402
     VisualFingerprintError,
     classify_screenshot_fingerprints,
+    classify_supply_checkbox_state,
 )
 
 
@@ -134,6 +135,71 @@ def _require_ui_state(game_session, expected: UiState) -> str:
             if fingerprint_path.is_file():
                 document = json.loads(fingerprint_path.read_text(encoding="utf-8"))
             fingerprint_states = document.get("states", {}) if isinstance(document, dict) else {}
+            checkbox_states = {
+                UiState.SUPPLY_FLEET_2_SHIP_1_CHECKED,
+                UiState.SUPPLY_FLEET_2_SHIP_1_UNCHECKED,
+            }
+            if expected in checkbox_states:
+                if not isinstance(document, dict):
+                    raise LoopError("Parent Ooi fingerprint document is unavailable") from accessible_error
+                checkbox_path = Path(
+                    os.environ.get(
+                        "KANCOLLEBOT_SUPPLY_CHECKBOX_FINGERPRINTS_PATH",
+                        ROOT / "src" / "kancollebot" / "adapters" / "poi" / "supply_checkbox_fingerprints.json",
+                    )
+                )
+                if not checkbox_path.is_file():
+                    raise LoopError(
+                        f"Supply checkbox fingerprint file is missing: {checkbox_path}"
+                    ) from accessible_error
+                checkbox_document = json.loads(checkbox_path.read_text(encoding="utf-8"))
+                checkbox_descriptors = checkbox_document.get("states", {})
+                if expected.value not in checkbox_descriptors:
+                    raise LoopError(
+                        f"Supply checkbox fingerprint is missing for {expected.value}"
+                    ) from accessible_error
+
+                consecutive_matches = 0
+                for attempt in range(3):
+                    game_session.transport.send(
+                        "Input.dispatchMouseEvent",
+                        {"type": "mouseMoved", "x": 1195, "y": 715},
+                    )
+                    time.sleep(0.15)
+                    payload = game_session.input.capture_screenshot()
+                    observed, scores = classify_supply_checkbox_state(
+                        payload, document, checkbox_document
+                    )
+                    _print_event(
+                        "ui_supply_checkbox_state_check",
+                        attempt=attempt + 1,
+                        expected=expected.value,
+                        observed=observed,
+                        scores={key: round(value, 4) for key, value in scores.items()},
+                        screenshot_written_to_disk=False,
+                    )
+                    if observed == expected.value:
+                        consecutive_matches += 1
+                        if consecutive_matches >= 2:
+                            evidence = "two_consecutive_in_memory_parent_and_checkbox_fingerprints"
+                            _print_event(
+                                "ui_state_confirmed",
+                                ui_state=expected.value,
+                                evidence=evidence,
+                            )
+                            return evidence
+                    elif observed != "UNKNOWN":
+                        raise LoopError(
+                            f"Expected {expected.value}; visual classifier observed {observed}"
+                        ) from accessible_error
+                    else:
+                        consecutive_matches = 0
+                    if attempt < 2:
+                        time.sleep(0.25)
+                raise LoopError(
+                    f"Expected {expected.value}; no stable parent+checkbox fingerprint match after three attempts"
+                ) from accessible_error
+
             if expected.value in fingerprint_states:
                 consecutive_matches = 0
                 for attempt in range(3):

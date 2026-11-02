@@ -36,6 +36,60 @@ class CdpInputTests(unittest.TestCase):
             ["mouseMoved", "mousePressed", "mouseReleased"],
         )
 
+    def test_visual_target_click_requires_matching_source_frame(self):
+        import hashlib
+
+        from kancollebot.adapters.poi.cdp_input import VisualTargetPoint
+
+        payload = "cG5n"
+        point = VisualTargetPoint(
+            x=177.0,
+            y=251.5,
+            label="fleet2-ship1-checkbox",
+            bounds=(166, 240, 22, 23),
+            region=(150, 225, 55, 50),
+            source_frame_sha256=hashlib.sha256(b"png").hexdigest(),
+            locator="opencv-canny-square-v1",
+        )
+        transport = FakeTransport()
+        CdpInput(transport, settle_seconds=0).click_visual_target(
+            point, screenshot_base64=payload
+        )
+        self.assertEqual([call[0] for call in transport.calls],
+                         ["Page.getLayoutMetrics"] + ["Input.dispatchMouseEvent"] * 3)
+
+        mismatch = FakeTransport()
+        with self.assertRaisesRegex(CdpInputError, "different screenshot"):
+            CdpInput(mismatch, settle_seconds=0).click_visual_target(
+                point, screenshot_base64="cG5nMg=="
+            )
+        self.assertEqual(mismatch.calls, [])
+
+    def test_visual_target_point_rejects_bounds_outside_region(self):
+        from kancollebot.adapters.poi.cdp_input import VisualTargetPoint
+        with self.assertRaisesRegex(ValueError, "approved Fleet 2"):
+            VisualTargetPoint(
+                x=177.0, y=251.5, label="fleet2-ship1-checkbox",
+                bounds=(166, 240, 22, 23), region=(150, 225, 10, 10),
+                source_frame_sha256="a" * 64,
+                locator="opencv-canny-square-v1",
+            )
+
+    def test_visual_target_point_rejects_unapproved_region_and_label(self):
+        from kancollebot.adapters.poi.cdp_input import VisualTargetPoint
+        for label, region in (
+            ("fleet2-ship1-checkbox", (151, 225, 55, 50)),
+            ("other-checkbox", (150, 225, 55, 50)),
+        ):
+            with self.subTest(label=label, region=region):
+                with self.assertRaisesRegex(ValueError, "approved Fleet 2"):
+                    VisualTargetPoint(
+                        x=177.0, y=251.5, label=label,
+                        bounds=(166, 240, 22, 23), region=region,
+                        source_frame_sha256="a" * 64,
+                        locator="opencv-canny-square-v1",
+                    )
+
     def test_out_of_viewport_point_is_rejected_before_input(self):
         transport = FakeTransport(width=1200, height=720)
         with self.assertRaisesRegex(CdpInputError, "outside"):
