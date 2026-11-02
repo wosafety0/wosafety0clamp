@@ -3335,4 +3335,5 @@ The Hand plugin's read-only probe reported:
 - **Implementation:** after the live two-frame `RETURN_RESULT` and `BONUS_ITEMS` checkpoints passed, corrected the production runner's startup rejection reason from the now-obsolete “BONUS_ITEMS not live-verified” to “end-to-end acceptance has not been completed.” The unconditional rejection remains before either CDP session is opened; production UI actions remain disabled.
 - **Regression:** updated the startup safety test to assert the accurate remaining gate and verify neither Poi nor game CDP session is opened. Focused startup guard test passed **1/1**.
 - **Verification:** full Python suite passed **386/386**; Node static suite **19/19**; Python compileall and `git diff --check` passed.
+- **GitHub Actions:** push-triggered CI run `41378499516` completed successfully; its `test` job and all listed steps passed.
 - **Boundary:** this is diagnostic-message alignment only, not removal of the production guard or authorization to dispatch. Live freshness witness and full end-to-end unattended acceptance remain pending.
