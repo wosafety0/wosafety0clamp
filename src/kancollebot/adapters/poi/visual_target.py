@@ -91,6 +91,65 @@ def locate_supply_fleet_tab(
         locator="opencv-canny-tab-v1",
     )
 
+def locate_fleet_supply_all_button(screenshot_base64: str) -> VisualTargetPoint:
+    """Locate the single fleet-wide resupply button in its fixed lower-right region."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError as exc:
+        raise VisualTargetError("OpenCV and NumPy are required for visual target localization") from exc
+    region = (1050, 590, 145, 60)
+    rx, ry, rw, rh = region
+    if not isinstance(screenshot_base64, str) or not screenshot_base64:
+        raise VisualTargetError("screenshot payload must be a non-empty base64 string")
+    try:
+        png_bytes = base64.b64decode(screenshot_base64, validate=True)
+    except (ValueError, base64.binascii.Error) as exc:
+        raise VisualTargetError("screenshot payload is not valid base64") from exc
+    image = cv2.imdecode(np.frombuffer(png_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if image is None or image.shape[:2] != (720, 1200):
+        raise VisualTargetError("screenshot must decode to the verified 1200x720 viewport")
+    gray = cv2.cvtColor(image[ry:ry + rh, rx:rx + rw], cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, 30, 100)
+    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    candidates: list[tuple[int, int, int, int]] = []
+    for contour in contours:
+        x, y, width, height = cv2.boundingRect(contour)
+        if not (80 <= width <= 105 and 24 <= height <= 36):
+            continue
+        if float(cv2.contourArea(contour)) < 300:
+            continue
+        bounds = (rx + int(x), ry + int(y), int(width), int(height))
+        center_x = bounds[0] + bounds[2] / 2.0
+        center_y = bounds[1] + bounds[3] / 2.0
+        duplicate = next(
+            (
+                index for index, existing in enumerate(candidates)
+                if abs(center_x - (existing[0] + existing[2] / 2.0)) <= 4.0
+                and abs(center_y - (existing[1] + existing[3] / 2.0)) <= 4.0
+            ),
+            None,
+        )
+        if duplicate is None:
+            candidates.append(bounds)
+        elif width * height > candidates[duplicate][2] * candidates[duplicate][3]:
+            candidates[duplicate] = bounds
+    if len(candidates) != 1:
+        raise VisualTargetError(
+            f"expected exactly one fleet-wide supply button in bounded region; found {len(candidates)}"
+        )
+    x, y, width, height = candidates[0]
+    return VisualTargetPoint(
+        x=x + width / 2.0,
+        y=y + height / 2.0,
+        label="fleet-supply-all-button",
+        bounds=(x, y, width, height),
+        region=region,
+        source_frame_sha256=hashlib.sha256(png_bytes).hexdigest(),
+        locator="opencv-canny-button-v1",
+    )
+
+
 def checkbox_mark_pixel_count(
     screenshot_base64: str,
     point: VisualTargetPoint,

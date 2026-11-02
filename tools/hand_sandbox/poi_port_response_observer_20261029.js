@@ -92,6 +92,11 @@ module.exports = function() {
     const data = parsed.api_data;
     const fleets = data.api_deck_port;
     const ships = data.api_ship;
+    const materials = data.api_material;
+    const compactMaterials = materials.map(m => ({
+      api_id: m.api_id,
+      api_value: m.api_value
+    }));
     const shipFields = [
       'api_id', 'api_ship_id', 'api_nowhp', 'api_maxhp',
       'api_fuel', 'api_bull', 'api_cond'
@@ -129,11 +134,13 @@ module.exports = function() {
       },
       data: {
         api_deck_port: compactFleets,
-        api_ship: compactShips
+        api_ship: compactShips,
+        api_material: compactMaterials
       },
       summary: {
         fleetCount: compactFleets.length,
         shipCount: Object.keys(compactShips).length,
+        materialCount: compactMaterials.length,
         fleetFields: ['api_id', 'api_mission', 'api_ship'],
         shipFields
       },
@@ -178,8 +185,19 @@ module.exports = function() {
     }
     const data = parsed.api_data;
     if (!Array.isArray(data.api_deck_port) || data.api_deck_port.length < 1 ||
-        !Array.isArray(data.api_ship) || data.api_ship.length < 1) {
-      throw new Error('Port response lacks complete fleet or ship arrays.');
+        !Array.isArray(data.api_ship) || data.api_ship.length < 1 ||
+        !Array.isArray(data.api_material) || data.api_material.length < 2) {
+      throw new Error('Port response lacks complete fleet, ship, or material arrays.');
+    }
+    const materialIds = new Set();
+    for (const material of data.api_material) {
+      if (!material || typeof material !== 'object' ||
+          !Number.isSafeInteger(material.api_id) || material.api_id < 1 ||
+          !Number.isSafeInteger(material.api_value) || material.api_value < 0) {
+        throw new Error('Port response contains an invalid material record.');
+      }
+      if (materialIds.has(material.api_id)) throw new Error('Port response contains duplicate material IDs.');
+      materialIds.add(material.api_id);
     }
     const fleetIds = new Set();
     for (const fleet of data.api_deck_port) {

@@ -36,6 +36,7 @@ _APPROVED_VISUAL_TARGETS = {
     "fleet3-ship4-checkbox": (150, 456, 55, 50),
     "supply-fleet2-tab": (240, 155, 50, 50),
     "supply-fleet3-tab": (285, 155, 50, 50),
+    "fleet-supply-all-button": (1050, 590, 145, 60),
 }
 
 
@@ -83,7 +84,7 @@ class VisualTargetPoint:
             raise ValueError("visual target coordinates must be finite numbers")
         if not isinstance(self.label, str) or not self.label.strip():
             raise ValueError("visual target label must not be empty")
-        if self.locator not in {"opencv-canny-square-v1", "opencv-canny-tab-v1"}:
+        if self.locator not in {"opencv-canny-square-v1", "opencv-canny-tab-v1", "opencv-canny-button-v1"}:
             raise ValueError("visual target locator is not approved")
         if (
             not isinstance(self.bounds, tuple) or len(self.bounds) != 4
@@ -117,6 +118,12 @@ class VisualTargetPoint:
                 or not 0.75 <= width / height <= 1.4
             ):
                 raise ValueError("supply fleet tab geometry or locator is not approved")
+        elif self.label == "fleet-supply-all-button":
+            if (
+                self.locator != "opencv-canny-button-v1"
+                or not 80 <= width <= 105 or not 24 <= height <= 36
+            ):
+                raise ValueError("fleet-wide supply button geometry or locator is not approved")
         else:
             raise ValueError("visual target label is not approved")
         if abs(self.x - (x + width / 2.0)) > 1e-6 or abs(self.y - (y + height / 2.0)) > 1e-6:

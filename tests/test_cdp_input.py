@@ -105,6 +105,22 @@ class CdpInputTests(unittest.TestCase):
                 )
                 self.assertEqual(point.label, label)
 
+    def test_visual_target_point_accepts_only_bounded_fleet_wide_supply_button(self):
+        from kancollebot.adapters.poi.cdp_input import VisualTargetPoint
+
+        point = VisualTargetPoint(
+            x=1108.0, y=619.0, label="fleet-supply-all-button",
+            bounds=(1062, 604, 92, 30), region=(1050, 590, 145, 60),
+            source_frame_sha256="d" * 64, locator="opencv-canny-button-v1",
+        )
+        self.assertEqual(point.label, "fleet-supply-all-button")
+        with self.assertRaisesRegex(ValueError, "geometry or locator"):
+            VisualTargetPoint(
+                x=1108.0, y=619.0, label="fleet-supply-all-button",
+                bounds=(1062, 604, 92, 30), region=(1050, 590, 145, 60),
+                source_frame_sha256="d" * 64, locator="opencv-canny-square-v1",
+            )
+
     def test_visual_target_point_accepts_bounded_supply_fleet_tab(self):
         from kancollebot.adapters.poi.cdp_input import VisualTargetPoint
 

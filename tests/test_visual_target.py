@@ -15,6 +15,7 @@ from kancollebot.adapters.poi.visual_target import (
     checkbox_mark_pixel_count,
     locate_square_checkbox,
     locate_supply_fleet_tab,
+    locate_fleet_supply_all_button,
 )
 
 
@@ -87,6 +88,22 @@ class VisualTargetTests(unittest.TestCase):
             locate_supply_fleet_tab(payload, fleet_index=3)
         with self.assertRaisesRegex(VisualTargetError, "index must be 2 or 3"):
             locate_supply_fleet_tab(payload, fleet_index=4)
+
+    def test_locates_one_fleet_wide_supply_button(self):
+        payload = self._frame(((1064, 606, 88, 26),))
+        point = locate_fleet_supply_all_button(payload)
+        self.assertEqual(point.label, "fleet-supply-all-button")
+        self.assertEqual(point.region, (1050, 590, 145, 60))
+        self.assertEqual(point.locator, "opencv-canny-button-v1")
+        self.assertEqual(len(point.source_frame_sha256), 64)
+
+    def test_fleet_wide_supply_button_locator_fails_closed_on_zero_and_merges_nested_edges(self):
+        with self.assertRaisesRegex(VisualTargetError, "found 0"):
+            locate_fleet_supply_all_button(self._frame(()))
+        payload = self._frame(((1062, 604, 92, 30), (1066, 608, 84, 24)))
+        point = locate_fleet_supply_all_button(payload)
+        self.assertEqual(point.label, "fleet-supply-all-button")
+        self.assertEqual(point.region, (1050, 590, 145, 60))
 
     def test_ambiguous_multiple_boxes_fail_closed(self):
         payload = self._frame(((156, 240, 22, 23), (181, 240, 22, 23)))
