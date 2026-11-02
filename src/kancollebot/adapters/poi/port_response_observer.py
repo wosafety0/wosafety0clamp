@@ -11,6 +11,8 @@ import json
 import math
 import os
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -78,7 +80,74 @@ class PassivePortResponseObserver:
         except OSError:
             self.last_status = "launch_failed"
             return None
+        return self._consume_result(result)
 
+    def capture_cancellable(
+        self, cancel_event: threading.Event
+    ) -> dict[str, Any] | None:
+        """Run the observer with a cancellation signal for background owners."""
+        self.last_detail = None
+        if cancel_event.is_set():
+            self.last_status = "cancelled"
+            return None
+        script = self.script_path.resolve()
+        if not script.is_file():
+            self.last_status = "script_missing"
+            return None
+
+        env = os.environ.copy()
+        env[_WITNESS_ENV] = "1"
+        command = [
+            self.node_executable,
+            "-e",
+            "require(process.argv[1])()",
+            str(script),
+        ]
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=str(script.parent),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except OSError:
+            self.last_status = "launch_failed"
+            return None
+
+        deadline = time.monotonic() + self.timeout_seconds
+        while True:
+            if cancel_event.is_set():
+                process.terminate()
+                try:
+                    process.communicate(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate()
+                self.last_status = "cancelled"
+                return None
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                process.kill()
+                process.communicate()
+                self.last_status = "process_timeout"
+                return None
+            try:
+                stdout, stderr = process.communicate(timeout=min(0.1, remaining))
+                result = subprocess.CompletedProcess(
+                    command, process.returncode, stdout, stderr
+                )
+                return self._consume_result(result)
+            except subprocess.TimeoutExpired:
+                continue
+
+    def _consume_result(
+        self, result: subprocess.CompletedProcess[str]
+    ) -> dict[str, Any] | None:
         if len(result.stdout) > _MAX_STDOUT_CHARS:
             self.last_status = "output_too_large"
             return None

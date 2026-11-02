@@ -63,12 +63,11 @@ class BackgroundPortSnapshotProvider:
         with self._lock:
             return self._thread is not None and self._thread.is_alive()
 
-    def close(self, *, join_timeout_seconds: float = 0.0) -> None:
-        """Stop future observer cycles.
+    def close(self, *, join_timeout_seconds: float = 1.0) -> None:
+        """Stop future cycles and cancel an in-flight observer when supported.
 
-        An in-flight one-shot observer cannot be interrupted by this provider;
-        its daemon thread exits when that observer returns (at most its own
-        configured timeout later).
+        PassivePortResponseObserver implements cancellable capture. A generic
+        observer exposing only capture() may continue until its own call returns.
         """
         if not math.isfinite(join_timeout_seconds) or join_timeout_seconds < 0:
             raise ValueError("join_timeout_seconds must be finite and non-negative")
@@ -81,7 +80,11 @@ class BackgroundPortSnapshotProvider:
     def _run(self) -> None:
         while not self._stop_event.is_set():
             try:
-                snapshot = self._observer.capture()
+                cancellable_capture = getattr(self._observer, "capture_cancellable", None)
+                if callable(cancellable_capture):
+                    snapshot = cancellable_capture(self._stop_event)
+                else:
+                    snapshot = self._observer.capture()
                 status = getattr(self._observer, "last_status", "unknown")
             except Exception as exc:  # Keep the reader fail-closed and retryable.
                 snapshot = None

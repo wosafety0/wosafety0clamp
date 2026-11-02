@@ -16,6 +16,29 @@ WITNESS = {
 }
 
 
+class FakeCancelEvent:
+    def __init__(self):
+        self.calls = 0
+
+    def is_set(self):
+        self.calls += 1
+        return self.calls > 1
+
+
+class FakeCancellableProcess:
+    def __init__(self):
+        self.terminated = False
+        self.returncode = -15
+
+    def terminate(self):
+        self.terminated = True
+
+    def communicate(self, timeout=None):
+        if not self.terminated:
+            raise AssertionError("process should be terminated before communicate")
+        return "", ""
+
+
 class PassivePortResponseObserverTests(unittest.TestCase):
     def make_observer(self, directory, *, timeout_seconds=2):
         script = Path(directory) / "observer.js"
@@ -157,6 +180,19 @@ class PassivePortResponseObserverTests(unittest.TestCase):
             ):
                 self.assertIsNone(observer.capture())
             self.assertEqual(observer.last_status, "observer_failed")
+
+    def test_cancellable_capture_terminates_child_process(self):
+        with tempfile.TemporaryDirectory() as directory:
+            observer = self.make_observer(directory)
+            process = FakeCancellableProcess()
+            with patch(
+                "kancollebot.adapters.poi.port_response_observer.subprocess.Popen",
+                return_value=process,
+            ) as popen:
+                self.assertIsNone(observer.capture_cancellable(FakeCancelEvent()))
+            popen.assert_called_once()
+            self.assertTrue(process.terminated)
+            self.assertEqual(observer.last_status, "cancelled")
 
     def test_missing_script_and_invalid_timeout_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

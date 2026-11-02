@@ -61,6 +61,18 @@ class RepeatingObserver:
         return None
 
 
+class CancellableObserver:
+    def __init__(self):
+        self.entered = threading.Event()
+        self.last_status = "waiting"
+
+    def capture_cancellable(self, cancel_event):
+        self.entered.set()
+        cancel_event.wait(2)
+        self.last_status = "cancelled"
+        return None
+
+
 class BackgroundPortSnapshotProviderTests(unittest.TestCase):
     def test_reader_call_is_non_blocking_while_observer_waits(self):
         observer = BlockingObserver()
@@ -124,6 +136,15 @@ class BackgroundPortSnapshotProviderTests(unittest.TestCase):
         finally:
             observer.release.set()
             provider.close(join_timeout_seconds=1)
+
+    def test_close_cancels_an_in_flight_cancellable_observer(self):
+        observer = CancellableObserver()
+        provider = BackgroundPortSnapshotProvider(observer)
+        provider()
+        self.assertTrue(observer.entered.wait(1))
+        provider.close(join_timeout_seconds=1)
+        self.assertFalse(provider.is_running)
+        self.assertEqual(provider.last_status, "cancelled")
 
     def test_close_prevents_late_start_and_validates_timeouts(self):
         observer = RetryObserver()
