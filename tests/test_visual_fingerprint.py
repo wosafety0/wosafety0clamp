@@ -4,6 +4,7 @@ import base64
 import struct
 import unittest
 import zlib
+from pathlib import Path
 
 from kancollebot.adapters.poi.visual_fingerprint import (
     VisualFingerprintError,
@@ -70,6 +71,22 @@ class VisualFingerprintTests(unittest.TestCase):
         from tools.capture_ooi_visual_fingerprint import SUPPORTED_STATES
 
         self.assertIn("SUPPLY_MENU", SUPPORTED_STATES)
+
+    def test_live_supply_menu_fingerprint_uses_verified_header_crop(self):
+        path = (
+            Path(__file__).resolve().parents[1]
+            / "src" / "kancollebot" / "adapters" / "poi"
+            / "ooi_1200x720_fingerprints.json"
+        )
+        import json
+
+        document = json.loads(path.read_text(encoding="utf-8"))
+        descriptor = document["states"]["SUPPLY_MENU"]
+        self.assertEqual(descriptor["crop"], [150, 105, 1050, 60])
+        self.assertEqual(descriptor["grid"], [24, 4])
+        self.assertEqual(descriptor["samples"], 3)
+        self.assertEqual(len(descriptor["fingerprint"]), 24 * 4 * 3)
+        self.assertEqual(descriptor["label_source"], "manually_confirmed_current_screen")
 
     def setUp(self):
         self.image = _png_rgb(
