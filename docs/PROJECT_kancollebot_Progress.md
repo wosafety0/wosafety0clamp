@@ -3497,3 +3497,12 @@ The Hand plugin's read-only probe reported:
 - **Remote readback:** all seven changed files were read back from GitHub at the exact commit. Blobs: `dispatch_recovery.py` `864278ed07ddf0c483b85471c7b6c3180fbca35f`; `test_dispatch_recovery.py` `2039741c974838e2507b550a7a80d865a0cfdd66`; `port_freshness.py` `160d2f4255745cc2a577b1d84386ef1eaa67be4a`; `test_poi_port_freshness.py` `4109decc7077e26c90be7c63f92f92d0b14043e4`; observer `2c735ecd8c5e05820d2a291dc6a28c1f01a32bfd`; observer source test `8587ce2fa152201d2b80c3c35b6a59374882c223`; observer documentation `4296a3dc73c4ec47645967402c8d8b5053cdafb7`.
 - **Safety boundary:** offline/CI changes only in this round. No Poi connection, game input, dispatch, reward, repair, resupply, game API request, `Runtime.evaluate`, page JavaScript execution, getter access, or system/proxy modification. The production freshness/dispatch gate remains fail-closed; this commit does not authorize live operation.
 - **Next:** review the current-base Draft PR and retain the production guard until the production runner/UI settlement path is independently verified under explicit authorization. Fleet 1 remains read-only for dispatch; Fleet 4 remains deferred.
+
+
+## 2026-11-03 - README current-MVP status reconciliation
+
+- **Documentation correction:** updated the root README to replace the stale initial-bootstrap status and priorities with the verified current MVP scope, read-only monitor/witness boundary, recorded operator-supervised return/reward and fleet-wide supply evidence, current Fleet 1/2/3/4 roles, and remaining production integration work.
+- **Commit:** `b7412d286c5cda7dc2cd932d4265c986ac13eb8b` on `dev/dispatch-observer-safety-current-mvp-20261103`.
+- **Readback:** `README.md` blob `51e77c9993c4f0705982165278c89f57fbd404c9`; the obsolete “repository bootstrap is in progress” claim is absent.
+- **Exact-head Push CI:** [run 41504541237](https://github.com/wosafety0/wosafety0clamp/actions/runs/41504541237) passed. Full Python suite: **460 tests**, **17 optional vision tests skipped** because vision dependencies were unavailable; Node static tests, observer syntax, and Python compileall passed.
+- **Safety:** documentation-only change. No Poi connection, game input, game API request, dispatch, reward, repair, resupply, Runtime.evaluate, page JavaScript execution, getter access, or system/proxy change occurred.
