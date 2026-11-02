@@ -126,6 +126,13 @@ class PortFreshnessTests(unittest.TestCase):
         snapshot["safety"]["gameApiRequestInitiated"] = True
         self.assertFalse(self.validate(snapshot, fleets, ships))
 
+    def test_rejects_non_integer_http_status_before_equality(self):
+        for invalid_status in (200.0, True, "200"):
+            with self.subTest(http_status=repr(invalid_status)):
+                snapshot, fleets, ships = sample_state()
+                snapshot["source"]["httpStatus"] = invalid_status
+                self.assertFalse(self.validate(snapshot, fleets, ships))
+
     def test_rejects_incomplete_or_inconsistent_payload(self):
         for mutate in (
             lambda s: s["data"]["api_ship"]["101"].pop("api_fuel"),

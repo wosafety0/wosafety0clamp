@@ -100,7 +100,10 @@ def port_snapshot_matches_current_state(
         return False
     if source.get("kind") != "cdp-network-response":
         return False
-    if source.get("path") != "/kcsapi/api_port/port" or source.get("httpStatus") != 200:
+    if source.get("path") != "/kcsapi/api_port/port":
+        return False
+    http_status = source.get("httpStatus")
+    if type(http_status) is not int or http_status != 200:
         return False
     host = source.get("host")
     if not isinstance(host, str):
