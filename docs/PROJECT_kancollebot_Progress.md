@@ -3506,3 +3506,13 @@ The Hand plugin's read-only probe reported:
 - **Readback:** `README.md` blob `51e77c9993c4f0705982165278c89f57fbd404c9`; the obsolete “repository bootstrap is in progress” claim is absent.
 - **Exact-head Push CI:** [run 41504541237](https://github.com/wosafety0/wosafety0clamp/actions/runs/41504541237) passed. Full Python suite: **460 tests**, **17 optional vision tests skipped** because vision dependencies were unavailable; Node static tests, observer syntax, and Python compileall passed.
 - **Safety:** documentation-only change. No Poi connection, game input, game API request, dispatch, reward, repair, resupply, Runtime.evaluate, page JavaScript execution, getter access, or system/proxy change occurred.
+
+
+## 2026-11-03 - Exact integer HTTP status in passive Poi witness
+
+- **Finding:** the passive port-witness validator compared `source.httpStatus != 200`; Python equality allowed a malformed JSON numeric value `200.0` to compare equal to integer 200. This weakened the strict numeric-shape boundary already applied to schema version, byte counts, fleet slots, and ship fields.
+- **Implementation:** `src/kancollebot/adapters/poi/port_freshness.py` now requires `type(http_status) is int` and the exact value 200 before accepting the response metadata. `tests/test_poi_port_freshness.py` adds regression coverage for `200.0`, `True`, and string `"200"`.
+- **Commit:** `897ae9324e087b88bce73927808dde04a616b1f8` on `dev/dispatch-observer-safety-current-mvp-20261103`, parent `692edc4ee7b79e4063f331d7c1995d39ac1515ae`.
+- **Exact-head Push CI:** [run 41546902366](https://github.com/wosafety0/wosafety0clamp/actions/runs/41546902366) succeeded. Node static extraction tests passed 17/17; passive observer `node --check` and Python `compileall` passed; Python suite passed **461 tests**, with **17 optional vision tests skipped** because OpenCV/NumPy dependencies were unavailable.
+- **Remote readback:** source blob `b981eb58201396672250ef2ffc63eb31aee55c63`; test blob `38b67cad5fb9290e1c43677ffdbd2ea39112b10d`.
+- **Safety:** offline source/test change only. No Poi connection, game input, game API request, dispatch, reward, repair, resupply, `Runtime.evaluate`, page JavaScript execution, getter access, or system/proxy modification. Production freshness/dispatch remains fail-closed.
