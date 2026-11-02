@@ -1,6 +1,6 @@
 # Continuous Dual-Fleet Expedition Scheduler — Design Contract
 
-Status: IN_PROGRESS. The offline fleet lifecycle state machine, shared-UI arbiter, SQLite fleet-state store, durable dispatch-intent recovery coordinator, injected-port ContinuousDispatchController, read-only ContinuousExpeditionMonitor, and single-tick ContinuousExpeditionSupervisor are implemented and offline-tested. The controller enforces fresh Poi Redux observations, supply and mission composition, durable dispatch intent, exact post-dispatch identity, and two-frame HOME_PORT verification; the monitor reconciles both fleets from one fresh observation and never treats timer expiry as return; the supervisor serializes READY-fleet dispatch and pauses on unresolved or unsafe lifecycle states. Production UI driver integration, live freshness witness acquisition, result/reward progression, and unattended operation remain pending. The production runner's BONUS_ITEMS fail-closed guard remains mandatory.
+Status: IN_PROGRESS. The offline fleet lifecycle state machine, shared-UI arbiter, SQLite fleet-state store, durable dispatch-intent recovery coordinator, injected-port ContinuousDispatchController, read-only ContinuousExpeditionMonitor, and single-tick ContinuousExpeditionSupervisor are implemented and offline-tested. The controller enforces fresh Poi Redux observations, supply and mission composition, durable dispatch intent, exact post-dispatch identity, and two-frame HOME_PORT verification; the monitor reconciles both fleets from one fresh observation and never treats timer expiry as return; the supervisor serializes READY-fleet dispatch and pauses on unresolved or unsafe lifecycle states. One live Fleet 3 return-result → BONUS_ITEMS → HOME_PORT settlement sequence has now passed two-frame visual gates, but production UI driver integration, live freshness witness acquisition, dispatch automation, and unattended operation remain pending. The production runner's BONUS_ITEMS fail-closed guard remains mandatory.
 
 Branch: dev/expedition-closed-loop-mvp
 
@@ -65,13 +65,13 @@ A failure or mismatch blocks that fleet and stops further UI actions. The client
 - Verified offline: controller, monitor, and Poi normalization focused tests (43/43); regression across the intended archive scope (377/377, excluding the separate unarchived supervisor prototype); Python compileall; JavaScript static tests (17/17); passive observer syntax; and git diff --check. NumPy 2.5.4 and OpenCV 5.0.0 were available. The controller and monitor share the PoiExpeditionReader.read_fleets contract, explicit per-fleet mission requirements, and append-only SQLite event logging. This is offline verification only; no production UI driver or unattended loop is connected.
 - Live UI checkpoint (2026-11-02): two consecutive in-memory CDP screenshots of the current game WebView classified as `RETURN_RESULT` using the existing template classifier (success 0.9983, failure 0.5651); no screenshot files were written and no input was sent.
 - Freshness boundary (same session): the passive Network observer was armed for 120 seconds while the UI remained on `RETURN_RESULT`; it observed no Kancolle server response and no `/kcsapi/api_port/port` event. The Poi Redux snapshot therefore remained `FRESHNESS_UNVERIFIED`, and all Fleet 1/2/3 planning assessments were suppressed. Do not treat this cached snapshot as action authority.
-- Production guard: do not remove the unconditional `BONUS_ITEMS` fail-closed guard until live two-frame BONUS_ITEMS verification and the required end-to-end acceptance have passed.
+- Production guard: a live two-frame `BONUS_ITEMS` checkpoint has now passed (title-template score 0.9794 in both frames), followed by two-frame `HOME_PORT` verification (score 0.9982). Keep the production fail-closed guard until production integration and required end-to-end acceptance pass.
 
 ---
 
 # Single Expedition MVP — Execution Contract
 
-Status: IN_PROGRESS (2026-11-01; dispatch navigation, fleet-2 supply fail-closed gate, and six pre-dispatch visual checkpoints verified; RETURN_RESULT/BONUS_ITEMS template pipeline implemented with synthetic positive controls and live negative controls; positive live return/reward verification and end-to-end loop remain pending)
+Status: IN_PROGRESS (2026-11-02; dispatch navigation, fleet-2 supply fail-closed gate, and six pre-dispatch visual checkpoints verified; one live Fleet 3 RETURN_RESULT → BONUS_ITEMS → HOME_PORT settlement sequence passed two-frame visual gates; live freshness witness, production UI driver integration, dispatch automation, and end-to-end unattended loop remain pending)
 Branch: dev/expedition-closed-loop-mvp
 
 ## One acceptance criterion
