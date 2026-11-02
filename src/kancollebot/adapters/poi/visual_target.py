@@ -21,6 +21,76 @@ class VisualTargetError(RuntimeError):
 FLEET_2_FIRST_CHECKBOX_REGION: Final[tuple[int, int, int, int]] = (150, 225, 55, 50)
 
 
+
+SUPPLY_FLEET_TAB_REGIONS: Final[dict[int, tuple[int, int, int, int]]] = {
+    2: (240, 155, 50, 50),
+    3: (285, 155, 50, 50),
+}
+
+
+def locate_supply_fleet_tab(
+    screenshot_base64: str,
+    *,
+    fleet_index: int,
+) -> VisualTargetPoint:
+    """Locate one supply fleet tab by its nested rectangular contour in a bounded header region."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError as exc:
+        raise VisualTargetError("OpenCV and NumPy are required for visual target localization") from exc
+    if isinstance(fleet_index, bool) or not isinstance(fleet_index, int) or fleet_index not in (2, 3):
+        raise VisualTargetError("supply fleet tab index must be 2 or 3")
+    region = SUPPLY_FLEET_TAB_REGIONS[fleet_index]
+    rx, ry, rw, rh = region
+    try:
+        png_bytes = base64.b64decode(screenshot_base64, validate=True)
+    except (ValueError, base64.binascii.Error) as exc:
+        raise VisualTargetError("screenshot payload is not valid base64") from exc
+    image = cv2.imdecode(np.frombuffer(png_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if image is None or image.shape[:2] != (720, 1200):
+        raise VisualTargetError("screenshot must decode to the verified 1200x720 viewport")
+    gray = cv2.cvtColor(image[ry:ry + rh, rx:rx + rw], cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, 25, 90)
+    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    candidates: list[tuple[int, int, int, int]] = []
+    for contour in contours:
+        x, y, width, height = cv2.boundingRect(contour)
+        ratio = width / height if height else 0.0
+        if not (28 <= width <= 40 and 26 <= height <= 38 and 0.75 <= ratio <= 1.4):
+            continue
+        if float(cv2.contourArea(contour)) < 250:
+            continue
+        bounds = (rx + int(x), ry + int(y), int(width), int(height))
+        center_x = bounds[0] + bounds[2] / 2.0
+        center_y = bounds[1] + bounds[3] / 2.0
+        duplicate = next(
+            (
+                index for index, existing in enumerate(candidates)
+                if abs(center_x - (existing[0] + existing[2] / 2.0)) <= 6.0
+                and abs(center_y - (existing[1] + existing[3] / 2.0)) <= 6.0
+            ),
+            None,
+        )
+        if duplicate is None:
+            candidates.append(bounds)
+        elif width * height > candidates[duplicate][2] * candidates[duplicate][3]:
+            candidates[duplicate] = bounds
+    if len(candidates) != 1:
+        raise VisualTargetError(
+            f"expected exactly one supply fleet tab in bounded region; found {len(candidates)}"
+        )
+    x, y, width, height = candidates[0]
+    return VisualTargetPoint(
+        x=x + width / 2.0,
+        y=y + height / 2.0,
+        label=f"supply-fleet{fleet_index}-tab",
+        bounds=(x, y, width, height),
+        region=region,
+        source_frame_sha256=hashlib.sha256(png_bytes).hexdigest(),
+        locator="opencv-canny-tab-v1",
+    )
+
 def checkbox_mark_pixel_count(
     screenshot_base64: str,
     point: VisualTargetPoint,

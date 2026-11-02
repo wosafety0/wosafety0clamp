@@ -30,6 +30,12 @@ _APPROVED_VISUAL_TARGETS = {
     "fleet2-ship2-checkbox": (150, 302, 55, 50),
     "fleet2-ship3-checkbox": (150, 379, 55, 50),
     "fleet2-ship4-checkbox": (150, 456, 55, 50),
+    "fleet3-ship1-checkbox": (150, 225, 55, 50),
+    "fleet3-ship2-checkbox": (150, 302, 55, 50),
+    "fleet3-ship3-checkbox": (150, 379, 55, 50),
+    "fleet3-ship4-checkbox": (150, 456, 55, 50),
+    "supply-fleet2-tab": (240, 155, 50, 50),
+    "supply-fleet3-tab": (285, 155, 50, 50),
 }
 
 
@@ -77,7 +83,7 @@ class VisualTargetPoint:
             raise ValueError("visual target coordinates must be finite numbers")
         if not isinstance(self.label, str) or not self.label.strip():
             raise ValueError("visual target label must not be empty")
-        if self.locator != "opencv-canny-square-v1":
+        if self.locator not in {"opencv-canny-square-v1", "opencv-canny-tab-v1"}:
             raise ValueError("visual target locator is not approved")
         if (
             not isinstance(self.bounds, tuple) or len(self.bounds) != 4
@@ -89,16 +95,30 @@ class VisualTargetPoint:
         x, y, width, height = self.bounds
         rx, ry, region_width, region_height = self.region
         if _APPROVED_VISUAL_TARGETS.get(self.label) != self.region:
-            raise ValueError("visual target is not an approved Fleet 2 ship checkbox region")
+            raise ValueError("visual target label/region is not approved")
         if (
             rx < 0 or ry < 0 or rx + region_width > 1200 or ry + region_height > 720
             or x < rx or y < ry or width <= 0 or height <= 0
-            or not 18 <= width <= 26 or not 18 <= height <= 27
-            or abs(width - height) > 4
             or x + width > rx + region_width or y + height > ry + region_height
             or region_width <= 0 or region_height <= 0
         ):
             raise ValueError("visual target bounds must be inside its bounded region")
+        if self.label.endswith("-checkbox"):
+            if (
+                self.locator != "opencv-canny-square-v1"
+                or not 18 <= width <= 26 or not 18 <= height <= 27
+                or abs(width - height) > 4
+            ):
+                raise ValueError("checkbox target geometry or locator is not approved")
+        elif self.label in {"supply-fleet2-tab", "supply-fleet3-tab"}:
+            if (
+                self.locator != "opencv-canny-tab-v1"
+                or not 28 <= width <= 40 or not 26 <= height <= 38
+                or not 0.75 <= width / height <= 1.4
+            ):
+                raise ValueError("supply fleet tab geometry or locator is not approved")
+        else:
+            raise ValueError("visual target label is not approved")
         if abs(self.x - (x + width / 2.0)) > 1e-6 or abs(self.y - (y + height / 2.0)) > 1e-6:
             raise ValueError("visual target coordinates must equal the detected bounds center")
         if (

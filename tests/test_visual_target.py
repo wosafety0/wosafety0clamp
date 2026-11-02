@@ -14,6 +14,7 @@ from kancollebot.adapters.poi.visual_target import (
     VisualTargetError,
     checkbox_mark_pixel_count,
     locate_square_checkbox,
+    locate_supply_fleet_tab,
 )
 
 
@@ -63,6 +64,29 @@ class VisualTargetTests(unittest.TestCase):
                 point = locate_square_checkbox(payload, region=region, label=label)
                 self.assertEqual(point.region, region)
                 self.assertEqual(point.bounds, (164, y - 2, 25, 26))
+
+    def test_locates_fleet3_checkbox_in_its_own_label_and_region(self):
+        payload = self._frame(((166, 317, 22, 23),))
+        point = locate_square_checkbox(
+            payload, region=(150, 302, 55, 50), label="fleet3-ship2-checkbox"
+        )
+        self.assertEqual(point.bounds, (164, 315, 25, 26))
+        self.assertEqual(point.label, "fleet3-ship2-checkbox")
+
+    def test_locates_supply_fleet3_tab_and_merges_nested_contours(self):
+        payload = self._frame(((293, 164, 34, 31), (302, 166, 25, 29)))
+        point = locate_supply_fleet_tab(payload, fleet_index=3)
+        self.assertEqual(point.bounds, (291, 162, 37, 34))
+        self.assertEqual(point.region, (285, 155, 50, 50))
+        self.assertEqual(point.label, "supply-fleet3-tab")
+        self.assertEqual(point.locator, "opencv-canny-tab-v1")
+
+    def test_supply_fleet_tab_requires_one_target_and_valid_index(self):
+        payload = self._frame(())
+        with self.assertRaisesRegex(VisualTargetError, "found 0"):
+            locate_supply_fleet_tab(payload, fleet_index=3)
+        with self.assertRaisesRegex(VisualTargetError, "index must be 2 or 3"):
+            locate_supply_fleet_tab(payload, fleet_index=4)
 
     def test_ambiguous_multiple_boxes_fail_closed(self):
         payload = self._frame(((156, 240, 22, 23), (181, 240, 22, 23)))

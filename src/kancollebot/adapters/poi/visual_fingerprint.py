@@ -272,24 +272,24 @@ def classify_supply_checkbox_state(
     parent_document: Mapping[str, object],
     checkbox_document: Mapping[str, object],
     *,
+    fleet_index: int = 2,
     ship_index: int = 1,
     minimum_score: float = 0.97,
     minimum_margin: float = 0.04,
 ) -> tuple[str, dict[str, float]]:
-    """Classify one Fleet 2 ship checkbox after the Fleet 2 parent page matches.
-
-    Each ship has its own crop in the shared descriptor file. Checked and
-    unchecked references for other rows never compete with the requested row.
-    """
+    """Classify one fleet ship checkbox after its selected-fleet parent matches."""
+    if isinstance(fleet_index, bool) or not isinstance(fleet_index, int) or fleet_index not in (2, 3):
+        raise ValueError("fleet_index must be 2 or 3")
     if isinstance(ship_index, bool) or not isinstance(ship_index, int) or ship_index not in (1, 2, 3, 4):
         raise ValueError("ship_index must be an integer from 1 through 4")
+    parent_name = f"SUPPLY_FLEET_{fleet_index}_SELECTED"
     parent_state, parent_scores = classify_screenshot_fingerprints(
         screenshot_base64, parent_document
     )
     combined_scores = {
         f"parent:{name}": score for name, score in parent_scores.items()
     }
-    if parent_state != "SUPPLY_FLEET_2_SELECTED":
+    if parent_state != parent_name:
         return parent_state, combined_scores
 
     if not math.isfinite(minimum_score) or not 0 < minimum_score <= 1:
@@ -303,12 +303,12 @@ def classify_supply_checkbox_state(
     if checkbox_document.get("viewport") != [width, height]:
         raise VisualFingerprintError("checkbox fingerprint viewport does not match the screenshot")
     states = checkbox_document.get("states")
-    checked_name = f"SUPPLY_FLEET_2_SHIP_{ship_index}_CHECKED"
-    unchecked_name = f"SUPPLY_FLEET_2_SHIP_{ship_index}_UNCHECKED"
+    checked_name = f"SUPPLY_FLEET_{fleet_index}_SHIP_{ship_index}_CHECKED"
+    unchecked_name = f"SUPPLY_FLEET_{fleet_index}_SHIP_{ship_index}_UNCHECKED"
     required_states = {checked_name, unchecked_name}
     if not isinstance(states, Mapping) or not required_states.issubset(states):
         raise VisualFingerprintError(
-            f"checkbox document must contain checked and unchecked states for ship {ship_index}"
+            f"checkbox document must contain checked and unchecked states for fleet {fleet_index} ship {ship_index}"
         )
 
     checkbox_scores: dict[str, float] = {}

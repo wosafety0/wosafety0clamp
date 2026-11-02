@@ -85,9 +85,40 @@ class CdpInputTests(unittest.TestCase):
                 )
                 self.assertEqual(point.region, region)
 
+    def test_visual_target_point_accepts_fleet3_rows_only_in_independent_regions(self):
+        from kancollebot.adapters.poi.cdp_input import VisualTargetPoint
+
+        rows = (
+            ("fleet3-ship1-checkbox", (150, 225, 55, 50), (166, 240, 22, 23)),
+            ("fleet3-ship2-checkbox", (150, 302, 55, 50), (166, 317, 22, 23)),
+            ("fleet3-ship3-checkbox", (150, 379, 55, 50), (166, 394, 22, 23)),
+            ("fleet3-ship4-checkbox", (150, 456, 55, 50), (166, 471, 22, 23)),
+        )
+        for label, region, bounds in rows:
+            with self.subTest(label=label):
+                x, y, width, height = bounds
+                point = VisualTargetPoint(
+                    x=x + width / 2, y=y + height / 2, label=label,
+                    bounds=bounds, region=region,
+                    source_frame_sha256="c" * 64,
+                    locator="opencv-canny-square-v1",
+                )
+                self.assertEqual(point.label, label)
+
+    def test_visual_target_point_accepts_bounded_supply_fleet_tab(self):
+        from kancollebot.adapters.poi.cdp_input import VisualTargetPoint
+
+        point = VisualTargetPoint(
+            x=310.0, y=179.5, label="supply-fleet3-tab",
+            bounds=(293, 164, 34, 31), region=(285, 155, 50, 50),
+            source_frame_sha256="b" * 64,
+            locator="opencv-canny-tab-v1",
+        )
+        self.assertEqual(point.label, "supply-fleet3-tab")
+
     def test_visual_target_point_rejects_bounds_outside_region(self):
         from kancollebot.adapters.poi.cdp_input import VisualTargetPoint
-        with self.assertRaisesRegex(ValueError, "approved Fleet 2"):
+        with self.assertRaisesRegex(ValueError, "approved"):
             VisualTargetPoint(
                 x=177.0, y=251.5, label="fleet2-ship1-checkbox",
                 bounds=(166, 240, 22, 23), region=(150, 225, 10, 10),
@@ -102,7 +133,7 @@ class CdpInputTests(unittest.TestCase):
             ("other-checkbox", (150, 225, 55, 50)),
         ):
             with self.subTest(label=label, region=region):
-                with self.assertRaisesRegex(ValueError, "approved Fleet 2"):
+                with self.assertRaisesRegex(ValueError, "approved"):
                     VisualTargetPoint(
                         x=177.0, y=251.5, label=label,
                         bounds=(166, 240, 22, 23), region=region,

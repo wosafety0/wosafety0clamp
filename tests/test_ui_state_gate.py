@@ -37,15 +37,16 @@ class UiStateGateTests(unittest.TestCase):
         self.assertIs(classify_accessible_state([node("補給")]), UiState.UNKNOWN)
 
     def test_supply_checkbox_substates_are_explicit_visual_states(self):
-        for ship_index in (1, 2, 3, 4):
-            self.assertEqual(
-                UiState[f"SUPPLY_FLEET_2_SHIP_{ship_index}_CHECKED"].value,
-                f"SUPPLY_FLEET_2_SHIP_{ship_index}_CHECKED",
-            )
-            self.assertEqual(
-                UiState[f"SUPPLY_FLEET_2_SHIP_{ship_index}_UNCHECKED"].value,
-                f"SUPPLY_FLEET_2_SHIP_{ship_index}_UNCHECKED",
-            )
+        for fleet_index in (2, 3):
+            for ship_index in (1, 2, 3, 4):
+                self.assertEqual(
+                    UiState[f"SUPPLY_FLEET_{fleet_index}_SHIP_{ship_index}_CHECKED"].value,
+                    f"SUPPLY_FLEET_{fleet_index}_SHIP_{ship_index}_CHECKED",
+                )
+                self.assertEqual(
+                    UiState[f"SUPPLY_FLEET_{fleet_index}_SHIP_{ship_index}_UNCHECKED"].value,
+                    f"SUPPLY_FLEET_{fleet_index}_SHIP_{ship_index}_UNCHECKED",
+                )
         self.assertIs(classify_accessible_state([node("��y��yۧu���f")]), UiState.UNKNOWN)
 
     def test_return_notice_without_home_marker_fails_closed(self):
