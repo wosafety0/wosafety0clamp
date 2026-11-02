@@ -31,7 +31,7 @@ class ProductionStartupSafetyGateTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(
                 controller.LoopError,
-                "BONUS_ITEMS checkpoint is not yet live-verified",
+                "end-to-end acceptance has not been completed",
             ):
                 controller.run(args)
 

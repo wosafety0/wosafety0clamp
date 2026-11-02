@@ -501,9 +501,9 @@ def _return_home_port_after_dispatch(
 def run(args: argparse.Namespace) -> int:
     if not args.authorize_ui_actions:
         raise LoopError("Missing explicit --authorize-ui-actions flag")
-    # RETURN_RESULT passed live two-frame verification; BONUS_ITEMS has not.
-    # Reject before opening CDP or sending input until the remaining gate passes.
-    raise LoopError("Live UI loop disabled: BONUS_ITEMS checkpoint is not yet live-verified")
+    # RETURN_RESULT and BONUS_ITEMS have passed live two-frame visual checks.
+    # Keep production input disabled until the full end-to-end acceptance passes.
+    raise LoopError("Live UI loop disabled: end-to-end acceptance has not been completed")
     if not 1 <= args.poll_seconds <= 30:
         raise LoopError("poll_seconds must be between 1 and 30")
     if not 60 <= args.timeout_seconds <= 3600:

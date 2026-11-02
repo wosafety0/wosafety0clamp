@@ -3329,3 +3329,10 @@ The Hand plugin's read-only probe reported:
 - **Return to port:** after the reward action, two consecutive frames classified as `HOME_PORT` (home-menu score 0.9982). The complete observed sequence was `RETURN_RESULT → BONUS_ITEMS → HOME_PORT`; two UI actions total, no screenshots persisted to disk.
 - **Scope:** this verifies one live Fleet 3 settlement sequence only. It does not verify automatic settlement across fleets, production ContinuousUiDriver integration, dispatch automation, or unattended operation. The separate passive port observer still timed out without a qualifying natural `/kcsapi/api_port/port` response; fleet planning therefore remains freshness-unverified and no further action is authorized from cached Redux state.
 - **Safety:** no dispatch, resupply, game API/server request, proxy change, or system setting change was performed. The production `BONUS_ITEMS` fail-closed guard remains in place pending full end-to-end acceptance.
+
+## 2026-11-02 - Production runner startup guard message alignment
+
+- **Implementation:** after the live two-frame `RETURN_RESULT` and `BONUS_ITEMS` checkpoints passed, corrected the production runner's startup rejection reason from the now-obsolete “BONUS_ITEMS not live-verified” to “end-to-end acceptance has not been completed.” The unconditional rejection remains before either CDP session is opened; production UI actions remain disabled.
+- **Regression:** updated the startup safety test to assert the accurate remaining gate and verify neither Poi nor game CDP session is opened. Focused startup guard test passed **1/1**.
+- **Verification:** full Python suite passed **386/386**; Node static suite **19/19**; Python compileall and `git diff --check` passed.
+- **Boundary:** this is diagnostic-message alignment only, not removal of the production guard or authorization to dispatch. Live freshness witness and full end-to-end unattended acceptance remain pending.
