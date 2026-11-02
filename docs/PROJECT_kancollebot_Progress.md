@@ -3377,3 +3377,12 @@ The Hand plugin's read-only probe reported:
 - **Assessment:** Fleet 1 READY but prohibited from dispatch; Fleet 2 `blocked_damaged_ships`; Fleet 3 `needs_resupply` due to fuel/ammunition. All three observations were accepted as fresh; none was dispatch-eligible. No repair, resupply, dispatch, or reward action was performed.
 - **UI/safety:** verified `HOME_PORT → SORTIE_MENU → EXPEDITION_LIST → HOME_PORT` with two-frame state gates. Three ordinary navigation clicks only; no screenshot files, game API calls, or game actions. The diagnostic explicitly reported `game_actions_enabled: false`.
 - **Remaining boundary:** this proves the background provider + real reader + Poi MCP path, not a persistent scheduler composition or production UI driver. The production startup guard remains unchanged.
+
+## 2026-11-02 - Read-only continuous monitor runtime composition
+
+- **Implementation:** added `tools/run_continuous_expedition_monitor.py`. It composes the background freshness provider, read-only PoiExpeditionReader, ContinuousExpeditionMonitor, SQLite fleet-state/dispatch-intent/event stores, and conservative pending-intent recovery.
+- **Fleet policy:** Fleet 2 → mission 1 and Fleet 3 → mission 3 remain the only dispatch candidates; Fleet 1 is read-only and Fleet 4 deferred. This runtime does not instantiate a dispatch controller, supervisor, UI driver, or game CDP input session.
+- **Safety:** the CLI has no UI-action switch and always reports `game_actions_enabled: false`. It can poll and persist read-only scheduler transitions only; it cannot click, dispatch, collect rewards, or resupply.
+- **Tests:** runtime-composition tests passed **4/4**; full Python suite passed **400/400**; Node static tests passed **19/19**; compileall, passive observer `node --check`, and `git diff --check` passed.
+- **Live diagnostic:** a five-tick read-only run without UI navigation returned `FRESHNESS_UNVERIFIED` on all five ticks. No game input or state-changing action occurred. This is a correct fail-closed result when no new natural witness arrives; the separate 31-poll reader integration remains the positive live witness evidence.
+- **Boundary:** this is a persistent read-only monitor runtime, not the production unattended scheduler. Dispatch, result settlement, BONUS_ITEMS progression, resupply, and production UI driver integration remain pending.
