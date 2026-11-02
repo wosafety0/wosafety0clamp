@@ -23,7 +23,7 @@ Branch: dev/expedition-closed-loop-mvp
 - Added `src/kancollebot/adapters/poi/background_port_snapshot_provider.py`. It lazily starts a daemon observer worker, returns the latest in-memory witness without blocking `read_fleets()`, and rearms the one-shot passive observer after each capture. It does not initiate game requests or send UI input.
 - The reader remains responsible for the existing response timestamp, cache-flag, and exact fleet/ship equality checks. An old or mismatched cached witness therefore remains `FRESHNESS_UNVERIFIED`; the provider does not extend its validity.
 - Focused background-provider tests passed **6/6** and cancellable-observer tests **10/10**; the full Python suite passed **396/396**; Node static tests passed **19/19**; compileall and `git diff --check` passed.
-- GitHub Actions push CI run **41387041458** for commit `2539e9d69f63fe32ae1dc6936e1664da6b51006c` completed successfully; its `test` job and all listed steps passed.
+- GitHub Actions push CI run **41387568457** for commit `2c110bc4cb1e83ed80ebd333889de2b40322f81a` completed successfully; its `test` job and all listed steps passed.
 - **Integration boundary:** this reusable adapter is not wired into a production composition root. `PassivePortResponseObserver.capture_cancellable()` now allows `close()` to terminate an in-flight Node observer child; generic injected observers exposing only `capture()` cannot be interrupted. Do not treat this utility as production unattended readiness or remove the production runner guard.
 
 ## Authoritative operating scope
