@@ -430,7 +430,7 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - The CDP accessibility tree exposed only `RootWebArea`; no semantic `補給` button was available. The menu and fleet-selection states therefore rely on manually confirmed visual fingerprints; they do not yet prove individual ship checkbox states or supply-control states.
 - The current one-shot UI script contains a recorded row target for mission 3 only (`MISSION_ROW = (350, 350)`); no mission-1 row target was found in the repository/template inventory. Do not infer a mission-1 coordinate. The `MISSION_SELECTED`, `FLEET_2_SELECTED`, and `FLEET_3_SELECTED` fingerprint entries still require independent live verification.
 - Windows time service reported `Local CMOS Clock` with no successful synchronization. Actual skew is unknown; keep time-based unattended scheduling disabled until the time source is verified. No global time settings were changed.
-- **Safety boundary:** only normal UI navigation into the supply page and between Fleet 2/Fleet 3 view tabs occurred. No ship checkbox, individual supply, supply-all confirmation, repair, dispatch, or reward action was performed; no game API request was sent.
+- **Safety boundary:** only normal UI navigation into the supply page and between Fleet 2/Fleet 3 view tabs occurred. The first Fleet 2 ship checkbox was temporarily checked and then unchecked to observe the selection-only behavior; the screen returned to all rows unchecked. No individual supply or supply-all action, repair, dispatch, or reward action was performed; no game API request was sent.
 
 ## Optional visible refresh integration in the read-only monitor runtime
 
