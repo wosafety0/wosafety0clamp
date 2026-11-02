@@ -149,23 +149,25 @@ module.exports = function() {
     if (Buffer.byteLength(serialized, 'utf8') > MAX_RESPONSE_BYTES) {
       throw new Error('Compact snapshot exceeded the local output size limit.');
     }
-    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-    const stamp = new Date().toISOString().replace(/[-:]/g, '');
-    const filePath = path.join(OUTPUT_DIR, 'poi-port-snapshot-' + stamp + '.json');
-    fs.writeFileSync(filePath, serialized, { encoding: 'utf8', flag: 'wx' });
+    const stdoutWitness = process.env.KCB_POI_FRESHNESS_WITNESS_STDOUT === '1';
     const summary = {
-      filePath,
       sha256: crypto.createHash('sha256').update(serialized, 'utf8').digest('hex'),
       fleetCount: compactFleets.length,
       shipCount: Object.keys(compactShips).length
     };
+    // The in-memory production bridge must not create desktop files. Persist
+    // only when explicitly running the standalone snapshot-export mode.
+    if (!stdoutWitness) {
+      fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[-:]/g, '');
+      const filePath = path.join(OUTPUT_DIR, 'poi-port-snapshot-' + stamp + '.json');
+      fs.writeFileSync(filePath, serialized, { encoding: 'utf8', flag: 'wx' });
+      summary.filePath = filePath;
+    }
     return {
       summary,
-      witnessJson: process.env.KCB_POI_FRESHNESS_WITNESS_STDOUT === '1'
-        ? JSON.stringify(snapshot)
-        : null
-    };
-  }
+      witnessJson: stdoutWitness ? JSON.stringify(snapshot) : null
+    };  }
 
   function parseApiResponse(rawText) {
     let text = String(rawText || '').trim();
