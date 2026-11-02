@@ -31,6 +31,11 @@ class UiStateGateTests(unittest.TestCase):
         self.assertIs(classify_accessible_state([node("母港")]), UiState.HOME_PORT)
         self.assertIs(classify_accessible_state([node("補給")]), UiState.UNKNOWN)
 
+    def test_supply_fleet_selection_states_require_visual_evidence(self):
+        self.assertEqual(UiState.SUPPLY_FLEET_2_SELECTED.value, "SUPPLY_FLEET_2_SELECTED")
+        self.assertEqual(UiState.SUPPLY_FLEET_3_SELECTED.value, "SUPPLY_FLEET_3_SELECTED")
+        self.assertIs(classify_accessible_state([node("補給")]), UiState.UNKNOWN)
+
     def test_return_notice_without_home_marker_fails_closed(self):
         self.assertIs(
             classify_accessible_state([node("第3艦隊 遠征から戻ってきました。")]),

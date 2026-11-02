@@ -250,7 +250,18 @@ def classify_screenshot_fingerprints(
 
     ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
     best_name, best_score = ranked[0]
-    second_score = ranked[1][1] if len(ranked) > 1 else -1.0
+    # Supply fleet selections are child states of the supply page. Their
+    # shared header intentionally resembles SUPPLY_MENU, so do not let that
+    # parent checkpoint erase an otherwise unique selected-fleet match.
+    parent_state = {
+        "SUPPLY_FLEET_2_SELECTED": "SUPPLY_MENU",
+        "SUPPLY_FLEET_3_SELECTED": "SUPPLY_MENU",
+    }.get(best_name)
+    competitors = [
+        score for name, score in ranked[1:]
+        if name != parent_state
+    ]
+    second_score = competitors[0] if competitors else -1.0
     if best_score < minimum_score or best_score - second_score < minimum_margin:
         return "UNKNOWN", scores
     return best_name, scores

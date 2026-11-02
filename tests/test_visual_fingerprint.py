@@ -71,8 +71,10 @@ class VisualFingerprintTests(unittest.TestCase):
         from tools.capture_ooi_visual_fingerprint import SUPPORTED_STATES
 
         self.assertIn("SUPPLY_MENU", SUPPORTED_STATES)
+        self.assertIn("SUPPLY_FLEET_2_SELECTED", SUPPORTED_STATES)
+        self.assertIn("SUPPLY_FLEET_3_SELECTED", SUPPORTED_STATES)
 
-    def test_live_supply_menu_fingerprint_uses_verified_header_crop(self):
+    def test_live_supply_menu_fingerprints_use_verified_crops(self):
         path = (
             Path(__file__).resolve().parents[1]
             / "src" / "kancollebot" / "adapters" / "poi"
@@ -81,12 +83,24 @@ class VisualFingerprintTests(unittest.TestCase):
         import json
 
         document = json.loads(path.read_text(encoding="utf-8"))
-        descriptor = document["states"]["SUPPLY_MENU"]
-        self.assertEqual(descriptor["crop"], [150, 105, 1050, 60])
-        self.assertEqual(descriptor["grid"], [24, 4])
-        self.assertEqual(descriptor["samples"], 3)
-        self.assertEqual(len(descriptor["fingerprint"]), 24 * 4 * 3)
-        self.assertEqual(descriptor["label_source"], "manually_confirmed_current_screen")
+        menu = document["states"]["SUPPLY_MENU"]
+        self.assertEqual(menu["crop"], [150, 105, 1050, 60])
+        self.assertEqual(menu["grid"], [24, 4])
+        self.assertEqual(menu["samples"], 3)
+        self.assertEqual(len(menu["fingerprint"]), 24 * 4 * 3)
+        self.assertEqual(menu["label_source"], "manually_confirmed_current_screen")
+
+        for state, crop in (
+            ("SUPPLY_FLEET_2_SELECTED", [249, 155, 30, 40]),
+            ("SUPPLY_FLEET_3_SELECTED", [295, 155, 30, 40]),
+        ):
+            with self.subTest(state=state):
+                descriptor = document["states"][state]
+                self.assertEqual(descriptor["crop"], crop)
+                self.assertEqual(descriptor["grid"], [10, 8])
+                self.assertEqual(descriptor["samples"], 3)
+                self.assertEqual(len(descriptor["fingerprint"]), 10 * 8 * 3)
+                self.assertEqual(descriptor["label_source"], "manually_confirmed_current_screen")
 
     def setUp(self):
         self.image = _png_rgb(
@@ -162,6 +176,29 @@ class VisualFingerprintTests(unittest.TestCase):
         label, scores = classify_screenshot_fingerprints(self.image, document)
         self.assertEqual(label, "HOME_PORT")
         self.assertEqual(scores["HOME_PORT"], 1.0)
+
+    def test_supply_fleet_child_state_ignores_only_its_parent_menu_for_margin(self):
+        current = [255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255]
+        parent = current.copy()
+        parent[0] = 254
+        document = {
+            "version": 1,
+            "viewport": [2, 2],
+            "states": {
+                "SUPPLY_MENU": {
+                    "crop": [0, 0, 2, 2], "grid": [2, 2], "fingerprint": parent,
+                },
+                "SUPPLY_FLEET_2_SELECTED": {
+                    "crop": [0, 0, 2, 2], "grid": [2, 2], "fingerprint": current,
+                },
+                "HOME_PORT": {
+                    "crop": [0, 0, 2, 2], "grid": [2, 2], "fingerprint": [0, 0, 0] * 4,
+                },
+            },
+        }
+        label, scores = classify_screenshot_fingerprints(self.image, document)
+        self.assertEqual(label, "SUPPLY_FLEET_2_SELECTED")
+        self.assertGreater(scores["SUPPLY_MENU"], 0.99)
 
     def test_screenshot_classifier_rejects_viewport_mismatch(self):
         with self.assertRaises(VisualFingerprintError):
