@@ -3387,3 +3387,11 @@ The Hand plugin's read-only probe reported:
 - **CI:** GitHub Actions push run **41388699840** for runtime commit `d255f3e41d46593cf14f500c26ca5b504b83e585` completed successfully; follow-up observer-diagnostic test commit `da87637541a4d6f2e0d7660239c5a0d2664b1ce1` also passed CI run **41388793961**.
 - **Live diagnostic:** a five-tick read-only run without UI navigation returned `FRESHNESS_UNVERIFIED` on all five ticks. No game input or state-changing action occurred. This is a correct fail-closed result when no new natural witness arrives; the separate 31-poll reader integration remains the positive live witness evidence.
 - **Boundary:** this is a persistent read-only monitor runtime, not the production unattended scheduler. Dispatch, result settlement, BONUS_ITEMS progression, resupply, and production UI driver integration remain pending.
+
+## 2026-11-02 - Visible UI freshness refresh adapter (offline-tested)
+
+- **Implementation:** added `src/kancollebot/adapters/poi/visible_ui_refresh.py` with `VisibleUiPortRefreshDriver` and `FreshnessRefreshingStateReader`. The driver encapsulates only the previously live-verified visible navigation path `HOME_PORT → SORTIE_MENU → EXPEDITION_LIST → HOME_PORT`; the reader can wait for a natural, source-matched Poi port witness after that navigation.
+- **Fail-closed behavior:** each click requires two consecutive matching state observations before the next step. A mismatch stops immediately; an ambiguous click is recorded as attempted but incomplete and is never automatically replayed. A bounded witness timeout returns the unverified observation unchanged, and a cooldown prevents repeated navigation attempts.
+- **Verification:** the new adapter's focused tests passed **8/8**; the full Python suite passed **408/408**; `compileall` and `git diff --check` passed.
+- **Implementation boundary:** this is an independently tested adapter, not yet wired into `run_continuous_expedition_monitor.py`. No live Poi navigation was executed by this implementation or test run. The separate earlier live navigation and 31-poll natural-witness integration remain the only live evidence.
+- **Safety boundary:** the adapter does not select a mission or fleet, dispatch, collect rewards, resupply, reload the page, or create a game-server request. Production dispatch and settlement remain disabled.

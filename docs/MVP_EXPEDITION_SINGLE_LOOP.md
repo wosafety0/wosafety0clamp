@@ -409,3 +409,11 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - The supervisor monitors first, pauses the shared dispatch queue for BLOCKED, unresolved DISPATCHING, pending settlement, or active fleets without Home Port proof, and dispatches READY fleets sequentially in configured order only when `allow_ui_actions` is explicitly enabled.
 - Each dispatch must leave the scheduler in `EXPEDITION_ACTIVE` with Home Port verification before the next fleet can be dispatched. A failed post-dispatch proof stops the queue.
 - This is offline orchestration logic, not a persistent process or production UI driver. It does not perform live game actions by itself. Production driver integration, live freshness witness acquisition, settlement/reward progression, and unattended operation remain pending.
+
+## Visible UI port refresh adapter — offline implementation
+
+- Added `src/kancollebot/adapters/poi/visible_ui_refresh.py` as a separately testable adapter for the already live-verified visible navigation sequence `HOME_PORT → SORTIE_MENU → EXPEDITION_LIST → HOME_PORT`.
+- `VisibleUiPortRefreshDriver` requires two consecutive matching state observations before continuing after each click, shares the `UiOperationArbiter`, emits durable events, and stops without retry when a state is ambiguous. Attempted and completed clicks are recorded separately so a transport error cannot be mistaken for zero input.
+- `FreshnessRefreshingStateReader` performs at most one navigation sequence per read, waits up to 45 seconds by default for a naturally captured, source-matched witness, and uses a 30-second refresh cooldown. Timeout returns the last unverified observation; it never promotes an unverified snapshot.
+- Offline verification: adapter tests **8/8**, full Python suite **408/408**, `compileall`, and `git diff --check` passed.
+- **Not yet integrated or live-tested:** the read-only monitor runtime still does not open a game CDP input session or invoke this adapter. The prior live navigation and 31-poll witness evidence remain separate. This adapter cannot dispatch, select a mission/fleet, settle RETURN_RESULT/BONUS_ITEMS, or resupply; those remain separate acceptance gates.
