@@ -48,6 +48,25 @@ def _is_int(value: Any, *, minimum: int = 0) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= minimum
 
 
+def _valid_mission_slots(value: Any) -> bool:
+    return (
+        isinstance(value, list)
+        and len(value) == 4
+        and all(_is_int(slot, minimum=0) for slot in value)
+    )
+
+
+def _valid_fleet_ship_slots(value: Any) -> bool:
+    return (
+        isinstance(value, list)
+        and len(value) <= 6
+        and all(
+            _is_int(slot, minimum=1) or (type(slot) is int and slot == -1)
+            for slot in value
+        )
+    )
+
+
 def port_snapshot_matches_current_state(
     snapshot: Any,
     current_fleets: Any,
@@ -191,23 +210,29 @@ def port_snapshot_matches_current_state(
 
     for fleet_id, witness in indexed_witness_fleets.items():
         current = indexed_current_fleets[fleet_id]
+        for fleet in (witness, current):
+            if not _valid_mission_slots(fleet.get("api_mission")):
+                return False
+            if not _valid_fleet_ship_slots(fleet.get("api_ship")):
+                return False
         if not all(field in witness and field in current for field in _REQUIRED_FLEET_FIELDS):
             return False
         if any(witness[field] != current[field] for field in _REQUIRED_FLEET_FIELDS):
             return False
         if "api_name" in witness and witness.get("api_name") != current.get("api_name"):
             return False
-        slots = witness.get("api_ship")
-        if not isinstance(slots, list) or len(slots) > 6:
-            return False
-        for ship_id in slots:
-            if (not _is_int(ship_id, minimum=1) and ship_id != -1):
-                return False
+        for ship_id in witness["api_ship"]:
             if ship_id != -1 and str(ship_id) not in witness_ship_ids:
                 return False
 
     for key, witness in witness_ships.items():
         current = normalized_current_ships[key]
+        for field in _REQUIRED_SHIP_FIELDS:
+            minimum = 1 if field in ("api_id", "api_ship_id") else 0
+            if not _is_int(current.get(field), minimum=minimum):
+                return False
+        if "api_cond" in witness and not _is_int(current.get("api_cond"), minimum=0):
+            return False
         fields = _REQUIRED_SHIP_FIELDS + tuple(
             field for field in _OPTIONAL_SHIP_FIELDS if field in witness
         )
