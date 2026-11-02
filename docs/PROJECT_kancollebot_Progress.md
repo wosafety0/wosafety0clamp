@@ -3368,3 +3368,12 @@ The Hand plugin's read-only probe reported:
 - **Tests:** background provider concurrency/retry/re-arm/copy/close/cancellation tests passed **6/6**; cancellable observer tests passed **10/10**; full Python suite passed **396/396**; Node static suite **19/19**; compileall and `git diff --check` passed.
 - **CI:** GitHub Actions push run **41387568457** for commit `2c110bc4cb1e83ed80ebd333889de2b40322f81a` completed successfully; the `test` job and all listed steps passed.
 - **Limitations:** this is a reusable offline-tested adapter, not yet wired into a production composition root. `PassivePortResponseObserver.capture_cancellable()` lets `close()` terminate its in-flight Node child; generic injected observers exposing only `capture()` cannot be interrupted. Production UI actions remain disabled.
+
+
+## 2026-11-02 - Live background Poi reader integration
+
+- **Runtime wiring:** constructed `BackgroundPortSnapshotProvider` with the reviewed passive observer and injected it into the real `PoiExpeditionReader` using the local Poi MCP read-only client. The reader continued polling while the observer waited independently; no per-read 130-second wait occurred.
+- **Live proof:** normal UI navigation produced a natural non-cache `/kcsapi/api_port/port` response. The integrated reader returned `FRESHNESS_WITNESS_MATCHED` after **31 polls in 35.55 seconds**, observed at `2026-11-02T04:20:54.811656Z`, covering three fleets.
+- **Assessment:** Fleet 1 READY but prohibited from dispatch; Fleet 2 `blocked_damaged_ships`; Fleet 3 `needs_resupply` due to fuel/ammunition. All three observations were accepted as fresh; none was dispatch-eligible. No repair, resupply, dispatch, or reward action was performed.
+- **UI/safety:** verified `HOME_PORT → SORTIE_MENU → EXPEDITION_LIST → HOME_PORT` with two-frame state gates. Three ordinary navigation clicks only; no screenshot files, game API calls, or game actions. The diagnostic explicitly reported `game_actions_enabled: false`.
+- **Remaining boundary:** this proves the background provider + real reader + Poi MCP path, not a persistent scheduler composition or production UI driver. The production startup guard remains unchanged.
