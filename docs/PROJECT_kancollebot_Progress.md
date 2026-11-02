@@ -3351,3 +3351,11 @@ The Hand plugin's read-only probe reported:
 - **Live sequence:** starting from a two-frame `HOME_PORT` confirmation, one normal UI click opened `SORTIE_MENU`; the two-frame gate passed. One click on the visible expedition-mode option opened `EXPEDITION_LIST`; the two-frame gate passed. One Home Port navigation click returned to `HOME_PORT`; the two-frame gate passed.
 - **Result:** `HOME_PORT → SORTIE_MENU → EXPEDITION_LIST → HOME_PORT` verified in one CDP session. Three navigation clicks total; no mission selection, dispatch, resupply, reward claim, or game API request. No screenshots were written to disk.
 - **Boundary:** this verifies navigation and state recognition only. Fresh source-correlated Poi fleet state remains unverified; no dispatch is authorized and the production startup guard remains unchanged.
+
+
+## 2026-11-02 - Live natural Poi port freshness witness
+
+- **Freshness verification:** armed the reviewed passive CDP Network observer, then performed ordinary UI navigation `HOME_PORT → SORTIE_MENU → EXPEDITION_LIST → HOME_PORT`. It captured a naturally occurring successful `/kcsapi/api_port/port` HTTP 200 response with cache flags false. The in-memory Poi Redux comparison returned `FRESHNESS_WITNESS_MATCHED` at `2026-11-02T04:03:48.635886Z` (12:03:48 Beijing time), with three fleets.
+- **Live planning assessment:** Fleet 1 was READY but remains prohibited from dispatch; Fleet 2 was blocked because at least one ship is damaged; Fleet 3 needs fuel and ammunition resupply. No fleet was dispatch-eligible. No repair, resupply, or dispatch was performed.
+- **UI and safety:** the three clicks were normal navigation only; the sequence ended at a two-frame-confirmed HOME_PORT. The observer did not send input, evaluate page JavaScript, or initiate a game API request. No screenshots were written to disk.
+- **Next integration requirement:** the current `PoiExpeditionReader` invokes its synchronous snapshot provider on each `read_fleets()` call, which can block up to 130 seconds. Before continuous polling, implement a background/reusable passive witness provider and retain strict timestamp/current-state matching; stale or mismatched snapshots must never authorize planning.
