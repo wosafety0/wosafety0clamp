@@ -3404,3 +3404,11 @@ The Hand plugin's read-only probe reported:
 - **Verification:** refresh-adapter tests **9/9**; monitor-runtime tests **9/9**; full Python suite **414/414**; compileall, observer `node --check`, CLI `--help`, and `git diff --check` passed. The UI-enabled composition tests use a fake input session and send no clicks.
 - **CI for the preceding adapter stage:** GitHub Actions push run **41405966811** for commit `7ae864c759eedc76bf8c726a47a08fafe0edf3d4` completed successfully.
 - **Live boundary:** the new CLI option has not been run against Poi; no live navigation was performed in this stage. The earlier 31-poll natural witness remains separate evidence. This is still a read-only monitor with optional refresh navigation, not a production expedition dispatcher or settlement loop.
+
+## 2026-11-02 — Supply-menu checkpoint capture support (offline)
+
+- Added `UiState.SUPPLY_MENU` to the UI checkpoint enum and added the state to `capture_ooi_visual_fingerprint.py`'s supported capture labels. The capture utility records compact RGB cell-average fingerprints; it does not persist screenshot bytes.
+- Added regression coverage proving the new checkpoint label is available and that the accessibility classifier does not infer `SUPPLY_MENU` from the generic text `補給` alone. The state still requires a manually confirmed visual fingerprint before the live gate can recognize it.
+- Verification: full Python suite **416/416 passed**; `compileall` and `git diff --check` passed.
+- Live boundary: no supply-menu fingerprint has been captured, no supply UI click or resource-consuming action was performed, and no resupply/dispatch/reward path was enabled. A cached Poi snapshot showing both candidate fleets below full supply is not a freshness witness and cannot authorize actions.
+- Additional blockers retained: mission 1 has no verified UI row target; the recorded mission 3 row target is not sufficient to infer other coordinates. Windows time service reported `Local CMOS Clock` without successful synchronization; actual clock skew remains unknown, so unattended time-based scheduling stays disabled.

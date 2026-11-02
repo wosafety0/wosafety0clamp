@@ -26,6 +26,11 @@ class UiStateGateTests(unittest.TestCase):
         self.assertIs(classify_accessible_state([node("獲得アイテム")]), UiState.BONUS_ITEMS)
         self.assertIs(classify_accessible_state([node("獲得ボーナス")]), UiState.BONUS_ITEMS)
 
+    def test_supply_menu_is_a_distinct_visual_checkpoint_state(self):
+        self.assertEqual(UiState.SUPPLY_MENU.value, "SUPPLY_MENU")
+        self.assertIs(classify_accessible_state([node("母港")]), UiState.HOME_PORT)
+        self.assertIs(classify_accessible_state([node("補給")]), UiState.UNKNOWN)
+
     def test_return_notice_without_home_marker_fails_closed(self):
         self.assertIs(
             classify_accessible_state([node("第3艦隊 遠征から戻ってきました。")]),

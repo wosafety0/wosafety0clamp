@@ -66,6 +66,11 @@ def _png_rgb_filtered(width: int, rows: list[bytes], filters: list[int]) -> str:
     return base64.b64encode(payload).decode("ascii")
 
 class VisualFingerprintTests(unittest.TestCase):
+    def test_capture_tool_supports_supply_menu_checkpoint(self):
+        from tools.capture_ooi_visual_fingerprint import SUPPORTED_STATES
+
+        self.assertIn("SUPPLY_MENU", SUPPORTED_STATES)
+
     def setUp(self):
         self.image = _png_rgb(
             2,
