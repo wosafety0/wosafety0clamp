@@ -217,6 +217,37 @@ class FreshnessRefreshingStateReaderTests(unittest.TestCase):
         self.assertFalse(second.source_freshness_verified)
         self.assertEqual(refresh_calls, ["refresh"])
 
+    def test_cooldown_starts_after_the_witness_wait_finishes(self):
+        reader = FakeReader([observation(False)])
+        refresh_calls = []
+        driver = SimpleNamespace(refresh_port_state=lambda: refresh_calls.append("refresh"))
+        clock = [0.0]
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        wrapper = FreshnessRefreshingStateReader(
+            reader,
+            driver,
+            max_wait_seconds=1.0,
+            poll_interval_seconds=0.5,
+            refresh_cooldown_seconds=0.5,
+            monotonic=lambda: clock[0],
+            sleep=sleep,
+        )
+
+        first = wrapper.read_fleets()
+        self.assertFalse(first.source_freshness_verified)
+        self.assertEqual(clock[0], 1.0)
+
+        second = wrapper.read_fleets()
+        self.assertFalse(second.source_freshness_verified)
+        self.assertEqual(refresh_calls, ["refresh"])
+
+        clock[0] += 0.5
+        wrapper.read_fleets()
+        self.assertEqual(refresh_calls, ["refresh", "refresh"])
+
 
 if __name__ == "__main__":
     unittest.main()

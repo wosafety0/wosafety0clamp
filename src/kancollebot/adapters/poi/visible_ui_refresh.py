@@ -211,11 +211,11 @@ class FreshnessRefreshingStateReader:
         self._last_refresh_at: float | None = None
 
     def read_fleets(self) -> Any:
-        observation = self._reader.read_fleets()
-        if bool(getattr(observation, "source_freshness_verified", False)):
-            return observation
-
         with self._refresh_lock:
+            observation = self._reader.read_fleets()
+            if bool(getattr(observation, "source_freshness_verified", False)):
+                return observation
+
             now = self._monotonic()
             if (
                 self._last_refresh_at is not None
@@ -226,15 +226,20 @@ class FreshnessRefreshingStateReader:
             # Set the cooldown before touching the UI. Even an ambiguous click
             # must not be replayed automatically by the next monitor tick.
             self._last_refresh_at = now
-            self._refresh_driver.refresh_port_state()
+            try:
+                self._refresh_driver.refresh_port_state()
 
-            deadline = self._monotonic() + self._max_wait_seconds
-            while self._monotonic() < deadline:
-                observation = self._reader.read_fleets()
-                if bool(getattr(observation, "source_freshness_verified", False)):
-                    return observation
-                remaining = deadline - self._monotonic()
-                if remaining <= 0:
-                    break
-                self._sleep(min(self._poll_interval_seconds, remaining))
-            return observation
+                deadline = self._monotonic() + self._max_wait_seconds
+                while self._monotonic() < deadline:
+                    observation = self._reader.read_fleets()
+                    if bool(getattr(observation, "source_freshness_verified", False)):
+                        return observation
+                    remaining = deadline - self._monotonic()
+                    if remaining <= 0:
+                        break
+                    self._sleep(min(self._poll_interval_seconds, remaining))
+                return observation
+            finally:
+                # Cooldown begins after the full navigation/witness wait, not
+                # before it; otherwise a long timeout could expire the guard.
+                self._last_refresh_at = self._monotonic()
