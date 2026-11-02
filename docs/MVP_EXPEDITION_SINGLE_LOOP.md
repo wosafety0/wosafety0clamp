@@ -360,3 +360,10 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - Return confirmation also requires the scheduler's post-dispatch Home Port proof. A returned fleet then remains in RETURNED_PENDING_UI / RETURN_RESULT / BONUS_ITEMS while the same returned mission identity remains present.
 - IDLE and RESUPPLY_REQUIRED fleets become READY only after full supply and mission composition are observed. BLOCKED never auto-unblocks; DISPATCHING remains the responsibility of DurableDispatchCoordinator restart reconciliation.
 - The monitor is read-only and emits durable events only for scheduler phase transitions, not every unchanged polling tick. It does not click, dispatch, collect rewards, or resupply.
+
+## Offline continuous supervisor boundary
+
+- Implemented `src/kancollebot/expeditions/continuous_supervisor.py` as a single-tick coordinator over the shared scheduler, monitor, and dispatch controller.
+- The supervisor monitors first, pauses the shared dispatch queue for BLOCKED, unresolved DISPATCHING, pending settlement, or active fleets without Home Port proof, and dispatches READY fleets sequentially in configured order only when `allow_ui_actions` is explicitly enabled.
+- Each dispatch must leave the scheduler in `EXPEDITION_ACTIVE` with Home Port verification before the next fleet can be dispatched. A failed post-dispatch proof stops the queue.
+- This is offline orchestration logic, not a persistent process or production UI driver. It does not perform live game actions by itself. Production driver integration, live freshness witness acquisition, settlement/reward progression, and unattended operation remain pending.

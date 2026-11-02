@@ -3300,3 +3300,11 @@ The Hand plugin's read-only probe reported:
 - **Audit volume:** the SQLite event sink records scheduler phase transitions rather than writing an event for every unchanged polling tick.
 - **Tests:** continuous monitor tests passed **14/14**. Combined controller, monitor, and Poi normalization tests passed **43/43**. Regression across the intended archive scope passed **377/377**; the separate local supervisor prototype was excluded from that run and is not part of this archive.
 - **Production boundary:** this is a read-only reconciliation tick, not a complete unattended run loop. The production UI driver, settlement controls, live freshness witness, and BONUS_ITEMS two-frame success remain pending. No game UI input, dispatch, reward claim, resupply, game API request, proxy change, or system setting change was performed.
+
+## 2026-11-02 - Offline continuous dual-fleet supervisor
+
+- **Implemented:** added `continuous_supervisor.py` and `test_continuous_supervisor.py`. The supervisor coordinates one monitor tick and sequential READY-fleet dispatch using the shared scheduler and controller.
+- **Fail-closed gates:** BLOCKED, unresolved DISPATCHING, pending settlement, and active fleets without verified Home Port pause all dispatch. UI actions require the controller's explicit `allow_ui_actions` flag. Each dispatched fleet must reach `EXPEDITION_ACTIVE` with Home Port proof before the next fleet is attempted.
+- **Focused verification:** supervisor tests passed **9/9**.
+- **Full offline regression:** `python -m unittest discover -s tests -q` passed **386 tests**, with **6 optional vision tests skipped** because optional dependencies were unavailable. `python -m compileall -q src tests tools` passed. Node static tests passed **17/17**. `git diff --check` passed.
+- **Implementation boundary:** this is a single-tick offline coordinator, not a persistent scheduling process and not a production UI driver. Live freshness witness acquisition, production UI integration, result/reward progression, and unattended operation remain pending. No live game UI input, dispatch, reward claim, resupply, game API/server request, proxy change, or system setting change was performed.
