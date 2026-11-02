@@ -138,6 +138,12 @@ class ContinuousMonitorRuntimeTests(unittest.TestCase):
             ["FRESHNESS_UNVERIFIED", "FRESHNESS_UNVERIFIED"],
         )
         self.assertTrue(
+            all(json.loads(item)["observer_status"] == "natural_response_timeout" for item in output)
+        )
+        self.assertTrue(
+            all(json.loads(item)["observer_running"] for item in output)
+        )
+        self.assertTrue(
             all(json.loads(item)["game_actions_enabled"] is False for item in output)
         )
 
