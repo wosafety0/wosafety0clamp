@@ -8,8 +8,8 @@ Branch: dev/expedition-closed-loop-mvp
 
 - Added the dedicated `SORTIE_MENU` template classifier using the live `出撃選択` title crop. The 205×56 PNG is bundled at `src/kancollebot/adapters/poi/assets/sortie_menu_title.png`; an operator-provided template directory takes precedence, with the bundled asset as fallback.
 - The classifier requires a strong title match and rejects conflicting Home Port, result, or reward evidence. Weak and ambiguous matches remain `UNKNOWN`.
-- Offline visual-state tests passed **14/14**. The live Ooi checkpoint recognized the current sortie-selection page in two consecutive frames (state score 1.0); after one Home Port navigation click, the production checkpoint confirmed `HOME_PORT` in two consecutive frames. No screenshot files were written.
-- This closes only the `SORTIE_MENU` recognition gap. It does not establish a fresh natural `api_port/port` witness, dispatch authorization, or production unattended readiness. The production startup guard remains mandatory.
+- Offline visual-state tests passed **14/14**. Live navigation verified `HOME_PORT → SORTIE_MENU → EXPEDITION_LIST → HOME_PORT`; every state passed two consecutive Ooi fingerprint/template frames. Three ordinary navigation clicks were sent; no mission was selected, no fleet was dispatched or resupplied, and no screenshot files were written.
+- This closes the `SORTIE_MENU` recognition gap and verifies the expedition-list navigation path only. It does not establish a fresh natural `api_port/port` witness, dispatch authorization, or production unattended readiness. The production startup guard remains mandatory.
 
 ## Authoritative operating scope
 

@@ -3344,3 +3344,10 @@ The Hand plugin's read-only probe reported:
 - **Regression:** visual state tests passed **14/14**; full Python suite passed **389/389**; Node static suite passed **19/19**; `compileall` and `git diff --check` passed.
 - **Live UI verification:** the current sortie-selection page passed two consecutive Ooi fingerprint checks as `SORTIE_MENU` (score 1.0). One normal Home Port navigation click then returned the UI to `HOME_PORT`, confirmed in two consecutive frames. No screenshot files were written. No dispatch, resupply, reward action, or game API request was performed in this stage.
 - **Boundary:** this closes the missing `SORTIE_MENU` visual checkpoint only. The live passive-port freshness result from the latest combined diagnostic was not emitted because its assessment-summary call lacked the required `max_state_age` argument; do not count that run as freshness verification. The previously confirmed `natural_response_timeout` remains the last fully recorded freshness result. Fleet planning stays fail-closed and the production startup guard remains unchanged.
+
+
+## 2026-11-02 - Live expedition-list navigation checkpoint
+
+- **Live sequence:** starting from a two-frame `HOME_PORT` confirmation, one normal UI click opened `SORTIE_MENU`; the two-frame gate passed. One click on the visible expedition-mode option opened `EXPEDITION_LIST`; the two-frame gate passed. One Home Port navigation click returned to `HOME_PORT`; the two-frame gate passed.
+- **Result:** `HOME_PORT → SORTIE_MENU → EXPEDITION_LIST → HOME_PORT` verified in one CDP session. Three navigation clicks total; no mission selection, dispatch, resupply, reward claim, or game API request. No screenshots were written to disk.
+- **Boundary:** this verifies navigation and state recognition only. Fresh source-correlated Poi fleet state remains unverified; no dispatch is authorized and the production startup guard remains unchanged.
