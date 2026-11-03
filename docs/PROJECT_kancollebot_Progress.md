@@ -3755,3 +3755,11 @@ The Hand plugin's read-only probe reported:
 - **FINDING:** README still identified PR #27 as the current safety candidate, and HANDOFF still reported the older 1aba358 baseline and 502-test count. Current GitHub refs show base branch head cca8b12debcba4373b10304b462aa902d00c56fc and the open Draft stack PR #28 → #29 → #30 → #31.
 - **IMPLEMENTED:** Updated README current status and HANDOFF baseline/stack summary to distinguish the current base branch from stacked scanner candidates. Recorded exact CI evidence: base run 41644302317 (508 Python tests, 20 skipped; Node 17/17), PR #29 run 41692359602 (760/20 skipped; Node 17/17), PR #30 run 41693984901 (761/20 skipped; Node 17/17), and PR #31 code/test run 41737993338 (762/20 skipped; Node 17/17).
 - **SCOPE:** Documentation-only reconciliation. No code/runtime behavior, game operation, or production gate changed. PRs remain Draft/open/unmerged; no game input or system change.
+
+
+## 2026-11-04 — Final README/HANDOFF reconciliation verification
+
+- Documentation commit 87c99237b17e3d54b48ea59eff7c465dc853152d updated the current-facing README and handoff to reflect the current base branch and PR #28 → #29 → #30 → #31 stack.
+- Exact-head Push CI [run 41738598261](https://github.com/wosafety0/wosafety0clamp/actions/runs/41738598261) succeeded: Node static tests 17/17, observer node --check, package/unified CLI smoke checks, compileall, and 762 Python tests (20 skipped).
+- Remote readback: README blob 1a2226160c7f049f32d11a13401e90b91704caee; HANDOFF blob 6f86d551e6f9a99f66d50dccc92bf2f7d7c9b0fc; progress blob d24183ba205005342fb13717d1e29912a874a202.
+- This is documentation reconciliation only. No Poi connection, game input, runtime evaluation, page JavaScript, getter access, or system change occurred.
