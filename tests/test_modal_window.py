@@ -13,12 +13,14 @@ from types import SimpleNamespace
 
 from kancollebot.adapters.poi.modal_window import (
     BM_CLICK,
+    CONTENT_MARKERS,
     DEFAULT_DISMISS_LIMIT,
     DialogState,
     DismissBudget,
     RecoveryOutcome,
     WindowInfo,
     WindowInputNotAllowed,
+    content_confirms_refresh,
     dismiss_blocking_modal,
     find_cancel_button,
     find_modal_dialog,
@@ -30,6 +32,14 @@ MAIN = 0x100
 DIALOG = 0x200
 ACCEPT = 0x301
 CANCEL = 0x302
+
+# What UI Automation returns for the real prompt, measured live.
+LIVE_TEXTS = (
+    "エラーが発生したため、ページ更新します。",
+    "确定",
+    "取消",
+    "关闭",
+)
 
 
 def window(handle, *, owner=0, class_name="Chrome_WidgetWin_1", enabled=True, visible=True,
@@ -186,10 +196,14 @@ class DismissTests(unittest.TestCase):
     def _run(self, backend, probe, **kwargs):
         calls = {"n": 0}
         after = kwargs.get("after", responsive())
+        texts = kwargs.get("texts", LIVE_TEXTS)
 
         def probe_fn():
             calls["n"] += 1
             return probe if calls["n"] == 1 else after
+
+        def read_texts(_handle):
+            return texts
 
         return dismiss_blocking_modal(
             allow_window_input=True,
@@ -199,6 +213,8 @@ class DismissTests(unittest.TestCase):
             poll_seconds=0,
             sleep=lambda _s: None,
             budget=kwargs.get("budget"),
+            read_texts=read_texts,
+            require_content=kwargs.get("require_content", True),
         )
 
     def test_consent_is_required(self) -> None:
@@ -263,6 +279,90 @@ class DismissTests(unittest.TestCase):
         self.assertEqual(event["cancel_label"], "取消")
 
 
+class DismissContentTests(unittest.TestCase):
+    """The dialog must say it is refreshing before anything is pressed."""
+
+    def _run(self, texts, **kwargs):
+        backend = FakeBackend(*modal_world())
+        calls = {"n": 0}
+        after = kwargs.get("after", responsive())
+
+        def probe_fn():
+            calls["n"] += 1
+            return blocked() if calls["n"] == 1 else after
+
+        result = dismiss_blocking_modal(
+            allow_window_input=True,
+            backend=backend,
+            probe=probe_fn,
+            polls=2,
+            poll_seconds=0,
+            sleep=lambda _s: None,
+            read_texts=lambda _handle: texts,
+            require_content=kwargs.get("require_content", True),
+        )
+        return result, backend
+
+    def test_the_live_sentence_clears_the_gate(self) -> None:
+        result, backend = self._run(LIVE_TEXTS)
+        self.assertIs(result.outcome, RecoveryOutcome.DISMISSED)
+        self.assertEqual(backend.clicked, [CANCEL])
+        self.assertEqual(result.dialog_texts, LIVE_TEXTS)
+
+    def test_unreadable_text_refuses_instead_of_pressing(self) -> None:
+        result, backend = self._run(None)
+        self.assertIs(result.outcome, RecoveryOutcome.CONTENT_UNVERIFIED)
+        self.assertEqual(backend.clicked, [], "unverified content must never be pressed")
+
+    def test_empty_text_refuses_instead_of_pressing(self) -> None:
+        result, backend = self._run(())
+        self.assertIs(result.outcome, RecoveryOutcome.CONTENT_UNVERIFIED)
+        self.assertEqual(backend.clicked, [])
+
+    def test_an_unrelated_dialog_is_not_cancelled(self) -> None:
+        result, backend = self._run(("Delete this fleet?", "OK", "Cancel"))
+        self.assertIs(result.outcome, RecoveryOutcome.UNRECOGNISED_DIALOG)
+        self.assertEqual(backend.clicked, [], "another dialog's Cancel must stay untouched")
+
+    def test_only_the_buttons_without_a_body_are_not_enough(self) -> None:
+        result, backend = self._run(("确定", "取消"))
+        self.assertIs(result.outcome, RecoveryOutcome.UNRECOGNISED_DIALOG)
+        self.assertEqual(backend.clicked, [])
+
+    def test_the_refusal_names_what_was_read(self) -> None:
+        result, _backend = self._run(("Delete this fleet?", "OK", "Cancel"))
+        self.assertIn("Delete this fleet?", result.reason)
+        self.assertIn("ページ更新", result.reason)
+
+    def test_the_gate_can_be_disabled_for_diagnostics_only(self) -> None:
+        result, backend = self._run(None, require_content=False)
+        self.assertIs(result.outcome, RecoveryOutcome.DISMISSED)
+        self.assertEqual(backend.clicked, [CANCEL])
+
+    def test_the_event_carries_the_read_text(self) -> None:
+        result, _backend = self._run(LIVE_TEXTS)
+        event = result.as_event()
+        json.dumps(event)
+        self.assertEqual(event["dialog_texts"], list(LIVE_TEXTS))
+
+
+class ContentMarkerTests(unittest.TestCase):
+    def test_a_marker_anywhere_in_any_text_confirms(self) -> None:
+        self.assertTrue(content_confirms_refresh(LIVE_TEXTS))
+
+    def test_no_text_is_not_confirmation(self) -> None:
+        self.assertFalse(content_confirms_refresh(None))
+        self.assertFalse(content_confirms_refresh(()))
+
+    def test_a_mention_of_reloading_matches_the_measured_wording(self) -> None:
+        self.assertIn("ページ更新", CONTENT_MARKERS)
+        self.assertTrue(content_confirms_refresh(("エラーが発生したため、ページ更新します。",)))
+
+    def test_case_and_spacing_do_not_rescue_unrelated_wording(self) -> None:
+        self.assertFalse(content_confirms_refresh(("ページ 更新",)))
+        self.assertFalse(content_confirms_refresh(("page reload",)))
+
+
 class DismissBudgetTests(unittest.TestCase):
     def test_a_fresh_budget_can_still_press(self) -> None:
         budget = DismissBudget(limit=DEFAULT_DISMISS_LIMIT)
@@ -315,6 +415,7 @@ class BudgetedDismissTests(unittest.TestCase):
             poll_seconds=0,
             sleep=lambda _s: None,
             budget=kwargs.get("budget"),
+            read_texts=lambda _handle: LIVE_TEXTS,
         )
 
     def test_a_spent_budget_touches_no_window_at_all(self) -> None:

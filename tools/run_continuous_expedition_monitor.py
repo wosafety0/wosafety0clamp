@@ -369,9 +369,16 @@ def _dismiss_modal_if_needed(
 
     event: dict[str, Any] = {
         "status": "MODAL_CANCEL_ATTEMPTED",
-        # The two outcomes that mean "a human should look at this now".
+        # Outcomes that mean "a human should look at this now". The content
+        # verdicts are here because they say the automation could not prove the
+        # dialog was the known prompt, so it stopped on purpose.
         "escalate_to_human": recovery.outcome
-        in {RecoveryOutcome.EXHAUSTED, RecoveryOutcome.STILL_BLOCKED},
+        in {
+            RecoveryOutcome.EXHAUSTED,
+            RecoveryOutcome.STILL_BLOCKED,
+            RecoveryOutcome.CONTENT_UNVERIFIED,
+            RecoveryOutcome.UNRECOGNISED_DIALOG,
+        },
     }
     event.update(recovery.as_event())
     emitter(event)

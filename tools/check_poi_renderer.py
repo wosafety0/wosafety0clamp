@@ -42,12 +42,12 @@ def _report(probe: BlockProbe) -> None:
         print(f"    {DIALOG_HEADLINE}")
         print(f"    [ 確定 ] [ 取消 ]")
         print()
-        print(f"手动处理：{MANUAL_ACTION}")
+        print(f"自动处理：{MANUAL_ACTION}")
         print(
-            "检测可以自动化，取消不能：这个框是 Electron 把页面 confirm() 变成的"
-            "主进程原生模态框，CDP 的对话框管理器根本看不到它"
+            "这个框是 Electron 把页面 confirm() 变成的主进程原生模态框，CDP 看不到它"
             "（Page.handleJavaScriptDialog 会直接报错），它同时把游戏渲染进程整条"
-            "主线程挂住。"
+            "主线程挂住。取消走的是窗口层：按标签选中【取消】按钮投递 BM_CLICK，"
+            "完全不经过 CDP，【確定】在结构上不可达。"
         )
     elif probe.game is Surface.RESPONSIVE:
         print()
@@ -83,9 +83,9 @@ def main(argv: list[str] | None = None) -> int:
         "--dialog-texts",
         action="store_true",
         help=(
-            "read-only: print the title and every control text the blocking "
-            "dialog carries. Used to calibrate content matching; sends no input "
-            "and needs no CDP connection."
+            "read-only: print the dialog's title, control texts and the text UI "
+            "Automation exposes, then say whether that text clears the content "
+            "gate. Sends no input and needs no CDP connection."
         ),
     )
     args = parser.parse_args(argv)
@@ -118,14 +118,18 @@ def main(argv: list[str] | None = None) -> int:
 def _dialog_texts(backend: object | None = None) -> int:
     """Print what the blocking dialog actually says, without touching it.
 
-    The dismissal identifies a dialog by shape alone, so this exists to close
-    that gap: run it while the prompt is on screen and the real title and body
-    become available to match on.
+    The dialog body is not a child control -- TaskDialog paints it into a
+    DirectUIHWND, so ``child_texts`` reports only the buttons. UI Automation
+    exposes the sentence, so it is printed here alongside the control tree, and
+    the verdict says whether that sentence clears the content gate.
     """
     from kancollebot.adapters.poi.modal_window import (
+        CONTENT_MARKERS,
         DialogState,
         Win32Backend,
+        content_confirms_refresh,
         find_modal_dialog,
+        read_dialog_texts,
     )
 
     if backend is None:
@@ -152,8 +156,14 @@ def _dialog_texts(backend: object | None = None) -> int:
     print("child texts  :")
     for class_name, text in backend.child_texts(lookup.dialog.handle):
         print(f"  {class_name:22s} {text!r}")
+
+    texts = read_dialog_texts(lookup.dialog.handle)
     print()
-    print("These strings are the candidates for content matching. Nothing was sent.")
+    print("uia texts    :", "unavailable (content gate would refuse)" if texts is None else "")
+    for text in texts or ():
+        print(f"  {text!r}")
+    print()
+    print(f"content gate : {content_confirms_refresh(texts)} (markers {list(CONTENT_MARKERS)!r})")
     return 0
 
 

@@ -29,18 +29,22 @@ This is the only input path in the project that leaves CDP, so it is fenced:
 * a shared :class:`DismissBudget` caps how many times one process may press, so
   a persistent network fault cannot be silenced into an endless press loop.
 
-**Known gap: the dialog is identified by shape, not by content.** The shape is
-``#32770`` + owned by a disabled Poi window + exactly one cancel-labelled
-button. Its title and body text are not checked, because the wording was only
-ever read off a screenshot and never measured from the live control tree. That
-means an unrelated Poi dialog which happens to offer Cancel could be pressed if
-the renderer is silent for another reason. ``Win32Backend.child_texts`` and
-``tools/check_poi_renderer.py --dialog-texts`` exist so the real wording can be
-measured in one read-only pass the next time the prompt is on screen; matching
-on it is the follow-up that closes the gap, and until then this module must not
-pretend to have closed it.
+**The dialog is identified by content, not only by shape.** The body sentence is
+not a child control -- TaskDialog paints it into a ``DirectUIHWND`` (measured
+350x90), so ``GetWindowText`` returns nothing for it and MSAA reports only the
+window title. It is reachable through UI Automation, which walks the DirectUI
+tree. Measured live on the real prompt:
 
-Nothing here is Windows-version specific beyond plain user32 calls.
+    'エラーが発生したため、ページ更新します。'
+    '确定'  '取消'  '关闭'
+
+So before any press, the sentence must be read and must contain a marker from
+:data:`CONTENT_MARKERS`. A dialog whose text cannot be read, or whose text does
+not mention refreshing, is refused -- that is what stops an unrelated Poi dialog
+from being cancelled just because it happens to offer a Cancel button.
+
+Nothing here is Windows-version specific beyond plain user32/ole32 calls, and
+UI Automation is driven through ctypes so the project stays dependency-free.
 """
 from __future__ import annotations
 
@@ -57,6 +61,14 @@ POI_EXECUTABLE = "poi.exe"
 # whitespace and Windows accelerator markers, so "取消并关闭" is not accepted.
 CANCEL_LABELS = frozenset({"取消", "キャンセル", "cancel", "abbrechen", "annuler"})
 BM_CLICK = 0x00F5
+
+# The body of the refresh prompt, as measured from the live UI Automation tree:
+#   'エラーが発生したため、ページ更新します。'
+# Matching one of these is what distinguishes "the game wants to reload" from
+# "some other Poi dialog that happens to have a Cancel button". Only wording
+# actually observed is listed; a build in another language would fail closed
+# with UNRECOGNISED_DIALOG instead of being pressed blind.
+CONTENT_MARKERS = ("ページ更新",)
 
 POLL_SECONDS = 0.4
 DEFAULT_POLLS = 8
@@ -88,6 +100,12 @@ class RecoveryOutcome(str, Enum):
     # dialog was fine, the reason is that pressing again would be hiding a
     # fault rather than fixing one.
     EXHAUSTED = "exhausted"
+    # The dialog's own text could not be read at all, so there is no way to
+    # confirm it is the refresh prompt. Refused rather than pressed.
+    CONTENT_UNVERIFIED = "content_unverified"
+    # The text was read and does not mention refreshing, so this is a different
+    # dialog. Refused: pressing Cancel here would be cancelling something else.
+    UNRECOGNISED_DIALOG = "unrecognised_dialog"
 
 
 @dataclass(slots=True)
@@ -166,6 +184,7 @@ class ModalRecovery:
     cancel_label: str | None
     probe_after: object | None
     budget: str | None = None
+    dialog_texts: tuple[str, ...] = ()
 
     def as_event(self) -> dict[str, object]:
         """Flatten into JSON-safe telemetry."""
@@ -179,6 +198,7 @@ class ModalRecovery:
             "dialog_handle": None if self.dialog is None else self.dialog.handle,
             "cancel_label": self.cancel_label,
             "dismiss_budget": self.budget,
+            "dialog_texts": list(self.dialog_texts),
             "probe_after": after,
         }
 
@@ -209,6 +229,171 @@ class WindowBackend(Protocol):
 def normalise_label(label: str) -> str:
     """Strip accelerator markers and whitespace before comparing a label."""
     return label.replace("&", "").strip().casefold()
+
+
+# --- reading what the dialog says ---------------------------------------
+#
+# TaskDialog paints its body into a DirectUIHWND, so the sentence is not a
+# child window: GetWindowText returns "" and MSAA reports only the title. UI
+# Automation walks that DirectUI tree and does expose the text, so it is driven
+# here directly through ctypes -- no comtypes, no pywin32, matching the rest of
+# the project. Only ``NameProperty`` is read; nothing is invoked.
+_UIA_CLSID = (0xFF48DBA4, 0x60EF, 0x4201, (0xAA, 0x87, 0x54, 0x10, 0x3E, 0xEF, 0x59, 0x4E))
+_UIA_IID = (0x30CBE57D, 0xD9D0, 0x452A, (0xAB, 0x13, 0x7A, 0xC5, 0xAC, 0x48, 0x25, 0xEE))
+_UIA_NAME_PROPERTY = 30005
+_UIA_TREE_SCOPE_DESCENDANTS = 4
+_UIA_VT_BSTR = 8
+
+
+def read_dialog_texts(handle: int) -> tuple[str, ...] | None:
+    """Every name UI Automation exposes under ``handle``.
+
+    Returns ``None`` when UIA cannot answer at all (not Windows, COM refused,
+    the window is not a UIA provider, no element for the handle). An empty
+    tuple means UIA answered but the dialog carries no text. Callers must treat
+    both as "cannot confirm", never as "no objection".
+
+    Never raises: this runs while the game surface is already broken, and a
+    COM exception escaping here would unwind the recovery instead of refusing
+    it, so every failure collapses to ``None``.
+    """
+    try:
+        return _uia_texts(handle)
+    except Exception:  # noqa: BLE001 - must never raise into a recovery path
+        return None
+
+
+def _uia_texts(handle: int) -> tuple[str, ...] | None:
+    if sys.platform != "win32":
+        return None
+    import ctypes
+    import ctypes.wintypes as wt
+
+    class _Guid(ctypes.Structure):
+        _fields_ = [
+            ("data1", wt.DWORD),
+            ("data2", wt.WORD),
+            ("data3", wt.WORD),
+            ("data4", ctypes.c_ubyte * 8),
+        ]
+
+    def _guid(parts: tuple[int, int, int, tuple[int, ...]]) -> "_Guid":
+        first, second, third, rest = parts
+        return _Guid(first, second, third, (ctypes.c_ubyte * 8)(*rest))
+
+    # 64-bit VARIANT is 24 bytes; over-allocating is harmless on 32-bit because
+    # COM writes at most sizeof(VARIANT).
+    class _Variant(ctypes.Structure):
+        _fields_ = [
+            ("vt", ctypes.c_ushort),
+            ("r1", ctypes.c_ushort),
+            ("r2", ctypes.c_ushort),
+            ("r3", ctypes.c_ushort),
+            ("value", ctypes.c_ulonglong),
+            ("extra", ctypes.c_ulonglong),
+        ]
+
+    try:
+        ole32 = ctypes.WinDLL("ole32")
+        oleaut32 = ctypes.WinDLL("oleaut32")
+    except OSError:
+        return None
+
+    ole32.CoInitializeEx(None, 0x2)  # STA; S_FALSE when already initialised
+
+    automation = ctypes.c_void_p()
+    clsid, iid = _guid(_UIA_CLSID), _guid(_UIA_IID)
+    if ole32.CoCreateInstance(
+        ctypes.byref(clsid), None, 0x1, ctypes.byref(iid), ctypes.byref(automation)
+    ) != 0 or not automation.value:
+        return None
+
+    def vtable(obj: ctypes.c_void_p) -> ctypes.Array:
+        return ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+
+    def call(obj: ctypes.c_void_p, index: int, restype, *argtypes):
+        return ctypes.WINFUNCTYPE(restype, ctypes.c_void_p, *argtypes)(
+            vtable(obj)[index]
+        )
+
+    def release(obj: ctypes.c_void_p) -> None:
+        if obj and obj.value:
+            call(obj, 2, ctypes.c_ulong)(obj)
+
+    element = ctypes.c_void_p()
+    try:
+        # UIA raises rather than returning an error code when the window is not
+        # a UIA provider (measured: WinError -2147220991). Every such failure
+        # means the same thing here -- the text cannot be read -- so it is
+        # reported as None and the caller refuses, instead of unwinding a
+        # recovery path that is already handling a broken surface.
+        try:
+            if call(automation, 6, ctypes.HRESULT, wt.HWND, ctypes.POINTER(ctypes.c_void_p))(
+                automation, wt.HWND(handle), ctypes.byref(element)
+            ) != 0 or not element.value:
+                return None
+        except OSError:
+            return None
+
+        condition = ctypes.c_void_p()
+        if call(automation, 21, ctypes.HRESULT, ctypes.POINTER(ctypes.c_void_p))(
+            automation, ctypes.byref(condition)
+        ) != 0 or not condition.value:
+            return None
+
+        array = ctypes.c_void_p()
+        try:
+            if call(
+                element,
+                6,
+                ctypes.HRESULT,
+                ctypes.c_int,
+                ctypes.c_void_p,
+                ctypes.POINTER(ctypes.c_void_p),
+            )(element, _UIA_TREE_SCOPE_DESCENDANTS, condition, ctypes.byref(array)) != 0:
+                return None
+            if not array.value:
+                return ()
+
+            length = ctypes.c_int()
+            call(array, 3, ctypes.HRESULT, ctypes.POINTER(ctypes.c_int))(
+                array, ctypes.byref(length)
+            )
+            texts: list[str] = []
+            for index in range(max(0, length.value)):
+                child = ctypes.c_void_p()
+                if call(
+                    array, 4, ctypes.HRESULT, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p)
+                )(array, index, ctypes.byref(child)) != 0 or not child.value:
+                    continue
+                try:
+                    variant = _Variant()
+                    if call(
+                        child, 10, ctypes.HRESULT, ctypes.c_int, ctypes.POINTER(_Variant)
+                    )(child, _UIA_NAME_PROPERTY, ctypes.byref(variant)) != 0:
+                        continue
+                    if variant.vt == _UIA_VT_BSTR and variant.value:
+                        text = ctypes.wstring_at(variant.value)
+                        if text.strip():
+                            texts.append(text)
+                finally:
+                    release(child)
+            return tuple(texts)
+        finally:
+            release(array)
+            release(condition)
+    finally:
+        release(element)
+        release(automation)
+
+
+def content_confirms_refresh(
+    texts: tuple[str, ...] | None, *, markers: tuple[str, ...] = CONTENT_MARKERS
+) -> bool:
+    """True only when readable text actually mentions refreshing."""
+    if not texts:
+        return False
+    return any(marker in text for text in texts for marker in markers)
 
 
 def find_modal_dialog(
@@ -299,6 +484,8 @@ def dismiss_blocking_modal(
     poll_seconds: float = POLL_SECONDS,
     sleep: Callable[[float], None] = time.sleep,
     budget: DismissBudget | None = None,
+    read_texts: Callable[[int], tuple[str, ...] | None] = read_dialog_texts,
+    require_content: bool = True,
 ) -> ModalRecovery:
     """Press Cancel on the blocking dialog, after proving it is the blocker.
 
@@ -310,6 +497,14 @@ def dismiss_blocking_modal(
     A ``budget`` that is already spent ends the attempt before any window is
     enumerated, and a press that actually happens spends one unit. Refusals and
     no-ops cost nothing, so the allowance counts presses, not attempts.
+
+    ``require_content`` is the second fence: the dialog's own sentence is read
+    through UI Automation and must mention refreshing. Unreadable text gives
+    ``CONTENT_UNVERIFIED`` and readable-but-unrelated text gives
+    ``UNRECOGNISED_DIALOG``; both refuse, so a different Poi dialog that happens
+    to offer Cancel is never the thing that gets cancelled. Turning it off is
+    only for tests and diagnostics -- it removes the only check that looks at
+    what the dialog says.
     """
     if not allow_window_input:
         raise WindowInputNotAllowed(
@@ -372,6 +567,37 @@ def dismiss_blocking_modal(
             None if budget is None else budget.describe(),
         )
 
+    texts: tuple[str, ...] = ()
+    if require_content:
+        read = read_texts(lookup.dialog.handle)
+        if not read:
+            return ModalRecovery(
+                RecoveryOutcome.CONTENT_UNVERIFIED,
+                (
+                    "the dialog's own text could not be read, so it cannot be "
+                    "confirmed as the refresh prompt; nothing was pressed"
+                ),
+                lookup.dialog,
+                button.label,
+                before,
+                None if budget is None else budget.describe(),
+            )
+        texts = read
+        if not content_confirms_refresh(texts):
+            return ModalRecovery(
+                RecoveryOutcome.UNRECOGNISED_DIALOG,
+                (
+                    f"the dialog says {list(texts)!r}, which does not mention "
+                    f"refreshing ({list(CONTENT_MARKERS)!r}); refusing to cancel a "
+                    "dialog that is not the known prompt"
+                ),
+                lookup.dialog,
+                button.label,
+                before,
+                None if budget is None else budget.describe(),
+                texts,
+            )
+
     if not backend.post_click(button.handle):
         return ModalRecovery(
             RecoveryOutcome.REFUSED,
@@ -380,6 +606,7 @@ def dismiss_blocking_modal(
             button.label,
             before,
             None if budget is None else budget.describe(),
+            texts,
         )
     if budget is not None:
         budget.spend()
@@ -398,6 +625,7 @@ def dismiss_blocking_modal(
             button.label,
             after,
             None if budget is None else budget.describe(),
+            texts,
         )
     return ModalRecovery(
         RecoveryOutcome.STILL_BLOCKED,
@@ -406,6 +634,7 @@ def dismiss_blocking_modal(
         button.label,
         after,
         None if budget is None else budget.describe(),
+        texts,
     )
 
 

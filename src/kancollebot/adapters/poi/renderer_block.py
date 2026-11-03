@@ -62,6 +62,7 @@ class RendererBlockedError(RuntimeError):
 
 MANUAL_ACTION = (
     "点【取消】。不要点【確定】：確定 会重新载入页面，可能直接变成猫。"
+    "（--dismiss-cancel / --auto-dismiss-modal 已能自动按【取消】）"
 )
 
 
