@@ -1,8 +1,11 @@
-"""Validate a recent passive port snapshot against a current Poi store read.
+"""Validate an in-memory passive port witness against current Poi state.
 
-This helper is intentionally not wired into the production freshness gate.
-It validates consistency claims, not source authenticity. A disk JSON file is
-not an authenticated witness because its timestamps and fields can be edited.
+The production reader passes a witness delivered directly by the trusted live
+observer in the current process. This function validates response metadata,
+age, schema, and exact captured-field equality; it does not authenticate the
+observer process or prove an atomic Redux snapshot. A disk JSON file must never
+be treated as source-freshness evidence because its timestamps and fields can
+be edited.
 """
 from __future__ import annotations
 
