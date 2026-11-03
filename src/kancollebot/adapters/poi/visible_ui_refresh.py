@@ -13,12 +13,12 @@ import time
 from collections.abc import Callable, Mapping
 from typing import Any, Protocol
 
-from kancollebot.adapters.poi.cdp_input import RecordedPoint
+from kancollebot.adapters.poi.cdp_input import RecordedPoint, home_port_point
 from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
 from kancollebot.expeditions.continuous_scheduler import UiOperationArbiter
 
 
-HOME_PORT = RecordedPoint(50, 50, "home-port")
+HOME_PORT = home_port_point()
 SORTIE = RecordedPoint(280, 425, "sortie")
 EXPEDITION_MODE = RecordedPoint(1000, 360, "expedition-mode")
 

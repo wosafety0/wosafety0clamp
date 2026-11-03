@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import math
+import os
 import time
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -60,6 +61,47 @@ class RecordedPoint:
             raise ValueError("recorded coordinates must not be negative")
         if not isinstance(self.label, str) or not self.label.strip():
             raise ValueError("recorded point label must not be empty")
+
+
+def home_port_point() -> "RecordedPoint":
+    """Resolve the Home Port navigation target.
+
+    The 母港 control is the large button at the top-left of the 1200x720 game
+    viewport. The default is the corner point that was live-verified to return
+    from sub-screens; override it with ``KANCOLLEBOT_HOME_PORT_POINT="x,y"``
+    when a specific layout differs. Every click is still verified by the UI
+    state gate, so an incorrect override fails closed instead of acting on a
+    wrong target.
+    """
+    override = os.environ.get("KANCOLLEBOT_HOME_PORT_POINT")
+    if override:
+        try:
+            raw_x, raw_y = override.split(",")
+            x, y = float(raw_x.strip()), float(raw_y.strip())
+        except (ValueError, AttributeError) as exc:
+            raise ValueError(
+                f"KANCOLLEBOT_HOME_PORT_POINT must be 'x,y' numbers, got {override!r}"
+            ) from exc
+        return RecordedPoint(x, y, "home-port")
+    return RecordedPoint(50.0, 50.0, "home-port")
+
+
+def home_port_candidates(primary: "RecordedPoint") -> list["RecordedPoint"]:
+    """Bounded interior offsets inside the large top-left 母港 button.
+
+    The 母港 control has a large hit area, so if the primary corner point
+    misses, nearby interior points of the same control are tried. The set is
+    bounded and every point is still verified by the gate; an incorrect layout
+    fails closed after the set is exhausted.
+    """
+    offsets = ((0, 0), (22, 12), (12, 26), (30, 6))
+    candidates: list[RecordedPoint] = []
+    for dx, dy in offsets:
+        x, y = primary.x + dx, primary.y + dy
+        if x < 0 or y < 0:
+            continue
+        candidates.append(RecordedPoint(x, y, "home-port"))
+    return candidates or [primary]
 
 
 @dataclass(frozen=True, slots=True)

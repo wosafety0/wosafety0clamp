@@ -26,7 +26,12 @@ from kancollebot.adapters.poi.cdp_fleet_state import (  # noqa: E402
     PoiFleetMissionState,
     read_poi_fleet_states,
 )
-from kancollebot.adapters.poi.cdp_input import CdpInputError, RecordedPoint  # noqa: E402
+from kancollebot.adapters.poi.cdp_input import (  # noqa: E402
+    CdpInputError,
+    RecordedPoint,
+    home_port_candidates,
+    home_port_point,
+)
 from kancollebot.adapters.poi.cdp_websocket import (  # noqa: E402
     connect_game_webview,
     connect_poi_session,
@@ -51,7 +56,7 @@ from kancollebot.adapters.poi.visual_fingerprint import (  # noqa: E402
 
 FLEET_ID = 2
 MISSION_ID = 3
-HOME_PORT = RecordedPoint(50, 50, "home-port")
+HOME_PORT = home_port_point()
 SORTIE = RecordedPoint(280, 425, "sortie")
 EXPEDITION_MODE = RecordedPoint(1000, 360, "expedition-mode")
 MISSION_ROW = RecordedPoint(350, 350, "mission-3-security-task")
@@ -321,7 +326,12 @@ def _capture_home_reference(game_session) -> None:
 
 
 def _recover_home_port(game_session, attempts: int = 3, force_click: bool = False) -> None:
-    """Use bounded top-left navigation retries, requiring state evidence after each click."""
+    """Use bounded top-left navigation retries, requiring state evidence after each click.
+
+    The recovery cycles a bounded set of interior points within the large
+    top-left 母港 button, then verifies the result with the UI state gate. An
+    incorrect layout fails closed after the bounded set is exhausted.
+    """
     if not force_click:
         try:
             _require_ui_state(game_session, UiState.HOME_PORT)
@@ -329,14 +339,16 @@ def _recover_home_port(game_session, attempts: int = 3, force_click: bool = Fals
             return
         except (UiStateGateError, LoopError) as exc:
             _print_event("home_port_state_not_confirmed", attempt=0, error=str(exc))
+    candidates = home_port_candidates(HOME_PORT)
     for attempt in range(1, attempts + 1):
+        point = candidates[(attempt - 1) % len(candidates)]
         _print_event("ui_action_precondition", action="click_home_port", attempt=attempt,
-                     force_click=force_click)
-        game_session.input.click(HOME_PORT)
-        _print_event("ui_click_sent", point=HOME_PORT.label, attempt=attempt)
-        time.sleep(1.0)
-        _print_event("ui_action_wait_completed", point=HOME_PORT.label, attempt=attempt,
-                     wait_seconds=1.0)
+                     force_click=force_click, point=point.label)
+        game_session.input.click(point)
+        _print_event("ui_click_sent", point=point.label, attempt=attempt)
+        time.sleep(2.0)
+        _print_event("ui_action_wait_completed", point=point.label, attempt=attempt,
+                     wait_seconds=2.0)
         try:
             _require_ui_state(game_session, UiState.HOME_PORT)
             _print_event("home_port_recovery_confirmed", attempt=attempt)

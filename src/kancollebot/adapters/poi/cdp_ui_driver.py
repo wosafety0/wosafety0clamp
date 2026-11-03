@@ -28,14 +28,14 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Protocol
 
 from kancollebot.adapters.poi.cdp_fleet_state import PoiFleetMissionState
-from kancollebot.adapters.poi.cdp_input import RecordedPoint
+from kancollebot.adapters.poi.cdp_input import RecordedPoint, home_port_candidates, home_port_point
 from kancollebot.adapters.poi.ui_state_gate import UiState, UiStateGateError, require_state
 from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 DEFAULT_FINGERPRINTS_PATH = PACKAGE_DIR / "ooi_1200x720_fingerprints.json"
 
-HOME_PORT_POINT = RecordedPoint(50, 50, "home-port")
+HOME_PORT_POINT = home_port_point()
 _MOUSE_PARK_X = 1195
 _MOUSE_PARK_Y = 715
 
@@ -334,6 +334,7 @@ class PoiCdpContinuousUiDriver:
         event_sink: Callable[[str, Mapping[str, object]], None] | None = None,
         recovery_attempts: int = 3,
         dispatch_verify_timeout_seconds: float = 12.0,
+        home_port_recovery_settle_seconds: float = 2.0,
     ) -> None:
         if not isinstance(plan, DispatchPlan):
             raise ValueError("plan must be a DispatchPlan")
@@ -348,6 +349,13 @@ class PoiCdpContinuousUiDriver:
             or dispatch_verify_timeout_seconds <= 0
         ):
             raise ValueError("dispatch_verify_timeout_seconds must be a positive finite number")
+        if (
+            isinstance(home_port_recovery_settle_seconds, bool)
+            or not isinstance(home_port_recovery_settle_seconds, (int, float))
+            or not math.isfinite(home_port_recovery_settle_seconds)
+            or home_port_recovery_settle_seconds < 0
+        ):
+            raise ValueError("home_port_recovery_settle_seconds must be a finite non-negative number")
         self._plan = plan
         self._fleet_states_fn = fleet_states_fn
         self._game_input = game_input
@@ -357,6 +365,7 @@ class PoiCdpContinuousUiDriver:
         self._time_ms = time_ms_fn
         self._recovery_attempts = recovery_attempts
         self._dispatch_verify_timeout_seconds = float(dispatch_verify_timeout_seconds)
+        self._home_port_recovery_settle_seconds = float(home_port_recovery_settle_seconds)
         self.events: list[tuple[str, dict[str, object]]] = []
         self._event_sink = event_sink
 
@@ -426,7 +435,12 @@ class PoiCdpContinuousUiDriver:
         )
 
     def return_to_home_port(self, *, fleet_id: int) -> UiStateEvidence:
-        """Confirm Home Port with bounded click recovery and two-frame evidence."""
+        """Confirm Home Port with bounded click recovery and two-frame evidence.
+
+        The recovery clicks a bounded set of interior points within the large
+        top-left 母港 button, then verifies the result with the UI state gate.
+        An incorrect layout fails closed after the bounded set is exhausted.
+        """
         if isinstance(fleet_id, bool) or not isinstance(fleet_id, int) or fleet_id < 1:
             raise ContinuousUiDriverError("fleet_id must be a positive integer")
         try:
@@ -435,16 +449,19 @@ class PoiCdpContinuousUiDriver:
             return self._home_port_evidence(evidence)
         except (UiStateGateError, ContinuousUiDriverError) as exc:
             self._emit("home_port_state_not_confirmed", fleet_id=fleet_id, attempt=0, error=str(exc))
+        candidates = home_port_candidates(HOME_PORT_POINT)
         for attempt in range(1, self._recovery_attempts + 1):
+            point = candidates[(attempt - 1) % len(candidates)]
             self._emit(
                 "ui_action_precondition",
                 action="click_home_port",
                 fleet_id=fleet_id,
                 attempt=attempt,
+                point=point.label,
             )
-            self._game_input.click(HOME_PORT_POINT)
-            self._emit("ui_click_sent", point=HOME_PORT_POINT.label, attempt=attempt)
-            self._sleep(1.0)
+            self._game_input.click(point)
+            self._emit("ui_click_sent", point=point.label, attempt=attempt)
+            self._sleep(self._home_port_recovery_settle_seconds)
             try:
                 evidence = self._gate.require(UiState.HOME_PORT)
                 self._emit("home_port_recovery_confirmed", fleet_id=fleet_id, attempt=attempt)
