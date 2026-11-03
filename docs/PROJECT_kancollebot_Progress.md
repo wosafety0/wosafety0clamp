@@ -3545,3 +3545,11 @@ The Hand plugin's read-only probe reported:
 - **TESTED:** Full Python unittest suite **471/471**; Node static tests **17/17**; JavaScript syntax check, Python compileall, and `git diff --check` all passed.
 - **LIMITS:** The one-expedition production entrypoint remains hard-disabled pending end-to-end acceptance. This change has offline/static test coverage only; no live expedition or gameplay action was run.
 
+
+## 2026-11-03 - Fleet 1 full-supply gate alignment and live read-only preflight
+
+- **IMPLEMENTED:** Aligned select_full_supply_targets() with the already verified Fleet 1 supply-tab gate by changing its default supported fleet set from (2, 3) to (1, 2, 3). Explicitly restricted supported sets still fail closed when a requested fleet is not included.
+- **REGRESSION COVERAGE:** Added a positive test proving Fleet 1 is included when it has a supply deficit and a negative test proving an explicitly unsupported Fleet 1 still blocks the batch before any action.
+- **LIVE READ-ONLY PREFLIGHT:** Poi health and the read-only MCP tools passed. The visible refresh sequence HOME_PORT → SORTIE_MENU → EXPEDITION_LIST → HOME_PORT passed its two-frame state gates and captured a natural /api_port/port witness. The corrected preflight then passed with a 7.91-second witness: 3 fleets, 12 ships, total required 34 fuel / 16 ammunition, available 2500 fuel / 3453 ammunition, target fleets [1, 2, 3].
+- **TESTED:** Full Python suite **472/472**; focused full-supply tests **17/17**; Node static tests **17/17**; JavaScript syntax check, Python compileall, and git diff --check all passed.
+- **SAFETY / LIMITS:** The live step used only the existing visible refresh navigation and read-only Poi queries. No resupply click, repair, expedition dispatch, reward collection, or game API request was initiated. The three planned fleet-wide supply actions were not executed. The one-expedition production entrypoint remains hard-disabled pending its separate end-to-end acceptance.

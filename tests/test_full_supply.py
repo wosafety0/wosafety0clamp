@@ -110,12 +110,19 @@ class FullSupplyPreflightTests(unittest.TestCase):
         with self.assertRaisesRegex(FullSupplyPreflightError, "inventory delta"):
             validate_full_supply_progress(initial, current, (2,))
 
-    def test_batch_preflight_rejects_unsupported_fleet_before_any_action(self):
+    def test_selects_fleet_1_after_its_visual_gate_is_supported(self):
+        fleets, ships, masters, resources = sample()
+        ships["11"]["api_fuel"] -= 1
+        plan = self.plan(fleets=fleets, ships=ships, masters=masters, resources=resources)
+        targets = select_full_supply_targets(plan)
+        self.assertEqual([item.fleet_id for item in targets], [1, 2, 3])
+
+    def test_batch_preflight_rejects_fleet_without_an_explicit_supported_gate(self):
         fleets, ships, masters, resources = sample()
         ships["11"]["api_fuel"] -= 1
         plan = self.plan(fleets=fleets, ships=ships, masters=masters, resources=resources)
         with self.assertRaisesRegex(FullSupplyPreflightError, "lack independently verified UI selection gates: 1"):
-            select_full_supply_targets(plan)
+            select_full_supply_targets(plan, supported_fleet_ids=(2, 3))
 
     def test_rejects_unverified_stale_or_future_witness(self):
         with self.assertRaisesRegex(FullSupplyPreflightError, "not verified"):

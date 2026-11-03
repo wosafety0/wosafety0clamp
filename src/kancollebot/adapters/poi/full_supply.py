@@ -234,7 +234,7 @@ def verify_full_supply_complete(
 
 
 def select_full_supply_targets(
-    plan: FullSupplyPlan, *, supported_fleet_ids: tuple[int, ...] = (2, 3)
+    plan: FullSupplyPlan, *, supported_fleet_ids: tuple[int, ...] = (1, 2, 3)
 ) -> tuple[FleetSupplyCost, ...]:
     """Return every required fleet-wide action; reject unsupported targets up front."""
     if not isinstance(plan, FullSupplyPlan):
