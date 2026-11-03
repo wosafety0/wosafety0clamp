@@ -519,6 +519,31 @@ class ToolTests(unittest.TestCase):
             self.assertIn("click_confirmed_point", text)
             self.assertIn("(1030, 612)", text)
 
+    def test_probe_band_reports_candidates_without_clicking(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            image = _fill(_page([0, 1]), 762, 606, 772, 616, BLACK)
+            shot = self._write(directory, "page0.png", image)
+            out = directory / "scan.json"
+            buffer = io.StringIO()
+            with redirect_stdout(buffer), redirect_stderr(io.StringIO()):
+                main(["--image", str(shot), "--label-all", "01,02",
+                      "--probe-band", "740,590,790,620", "--json-out", str(out)])
+            payload = json.loads(out.read_text(encoding="utf-8"))
+            self.assertEqual(len(payload["probe_band"]["candidates"]), 1)
+            self.assertEqual(payload["probe_band"]["candidates"][0]["center"], [766, 610])
+            self.assertIn("never clicked", buffer.getvalue())
+
+    def test_invalid_probe_band_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            shot = self._write(directory, "page0.png", _page([0, 1]))
+            error = io.StringIO()
+            with redirect_stdout(io.StringIO()), redirect_stderr(error):
+                code = main(["--image", str(shot), "--probe-band", "740,590,1300,620"])
+            self.assertEqual(code, 2)
+            self.assertIn("PROBE_BAND_INVALID", error.getvalue())
+
     def test_annotation_and_capture_artifacts_are_written(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             directory = Path(raw)

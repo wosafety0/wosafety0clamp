@@ -42,6 +42,7 @@ from kancollebot.calibration import (  # noqa: E402
     classify_boundary,
     decode_png,
     encode_png,
+    find_button_candidates,
     plan_scroll_step,
     scan_page,
     stack_vertically,
@@ -213,6 +214,14 @@ def main(argv: list[str] | None = None) -> int:
         help="human-confirmed scroll control, as 'x,y'",
     )
     parser.add_argument("--panel-box", type=_parse_box, default=DEFAULT_PANEL_BOX)
+    parser.add_argument(
+        "--probe-band",
+        type=_parse_box,
+        help=(
+            "report small glyph clusters in 'left,top,right,bottom' as scroll-control "
+            "candidates; use this once an overfull list exposes the real control"
+        ),
+    )
     parser.add_argument("--annotate", type=Path, help="write a stacked crop of every visible row")
     parser.add_argument("--json-out", type=Path, help="write the scan result as JSON")
     parser.add_argument("--keep-capture", type=Path, help="write the captured PNG here")
@@ -257,6 +266,23 @@ def main(argv: list[str] | None = None) -> int:
 
     for page, scan in enumerate(scans):
         _print_page(page, scan)
+
+    probed = ()
+    if args.probe_band:
+        try:
+            probed = find_button_candidates(decode_png(paths[-1]), region=args.probe_band)
+        except ValueError as exc:
+            print(f"PROBE_BAND_INVALID: {exc}", file=sys.stderr)
+            return 2
+        print()
+        print("=== glyph clusters in the probed band (candidates, never clicked) ===")
+        if not probed:
+            print("  none")
+        for candidate in probed:
+            print(
+                f"  center {candidate.center} size {candidate.width}x{candidate.height} "
+                f"pixels {candidate.pixels}"
+            )
 
     # --label-all refers to the last page, because that is the page a human just looked at.
     if args.label_all.strip():
@@ -378,6 +404,22 @@ def main(argv: list[str] | None = None) -> int:
             {"center": list(candidate.center), "width": candidate.width, "height": candidate.height}
             for candidate in latest.scroll_candidates
         ],
+        "probe_band": (
+            None
+            if not args.probe_band
+            else {
+                "region": list(args.probe_band),
+                "candidates": [
+                    {
+                        "center": list(candidate.center),
+                        "width": candidate.width,
+                        "height": candidate.height,
+                        "pixels": candidate.pixels,
+                    }
+                    for candidate in probed
+                ],
+            }
+        ),
         "rows": [
             {**entry.to_dict(), "name": names.get(entry.expedition_id)}
             for entry in entries

@@ -435,8 +435,13 @@ def scan_page(
     # Only the strip under the last row is probed: the vertical band beside the
     # rows is *content* on a live capture (the 参考編成 ship icons and the time
     # column read as 10x7 clusters at every row), so probing it would report six
-    # false controls. A control placed there instead would need a measured band;
-    # callers can use find_button_candidates directly for that.
+    # false controls.
+    #
+    # The affordance itself is deliberately left unmeasured: the account used to
+    # calibrate this screen has exactly as many unlocked expeditions as slots,
+    # so nothing scrolls yet. Until a capture of an overfull list is measured, a
+    # full page is reported as an unknown boundary and every scroll step stays
+    # blocked, which is the safe direction to be wrong in.
     candidates: tuple[ButtonCandidate, ...] = ()
     if rows_bottom + 2 < panel_bottom:
         candidates = find_button_candidates(
