@@ -192,10 +192,10 @@ class ScanPageTests(unittest.TestCase):
         self.assertIs(boundary.state, BoundaryState.UNKNOWN)
         self.assertEqual(boundary.reason, "full_page_without_scroll_affordance")
 
-    def test_short_page_confirms_the_end(self) -> None:
+    def test_short_page_without_end_marker_remains_unknown(self) -> None:
         boundary = classify_boundary(_scan([0, 1, 2]))
-        self.assertIs(boundary.state, BoundaryState.END_CONFIRMED)
-        self.assertEqual(boundary.reason, "rows_below_capacity")
+        self.assertIs(boundary.state, BoundaryState.UNKNOWN)
+        self.assertEqual(boundary.reason, "short_page_without_verified_end_marker")
 
     def test_short_page_with_scroll_affordance_means_more_below(self) -> None:
         image = _page([0, 1, 2])
@@ -259,9 +259,10 @@ class ButtonCandidateTests(unittest.TestCase):
         self.assertEqual(proposal.action, "click_confirmed_point")
         self.assertEqual(proposal.point, (1030, 612))
 
-    def test_scroll_down_at_a_confirmed_end_is_blocked(self) -> None:
-        proposal = plan_scroll_step(_scan([0, 1, 2]), confirmed_point=(1030, 612))
-        self.assertEqual(proposal.action, "blocked_at_end")
+    def test_short_page_without_scroll_evidence_does_not_invent_a_point(self) -> None:
+        proposal = plan_scroll_step(_scan([0, 1, 2]))
+        self.assertEqual(proposal.action, "blocked_no_scroll_affordance")
+        self.assertIsNone(proposal.point)
 
     def test_scroll_direction_is_validated(self) -> None:
         with self.assertRaises(ValueError):
@@ -431,16 +432,17 @@ class ToolTests(unittest.TestCase):
             self.assertIn("full_page_without_scroll_affordance", buffer.getvalue())
             self.assertIn("need a one-time label", buffer.getvalue())
 
-    def test_labelled_short_page_exits_clean(self) -> None:
+    def test_labelled_short_page_keeps_boundary_unknown(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             directory = Path(raw)
             shot = self._write(directory, "page0.png", _page([0, 1, 2]))
             out = directory / "scan.json"
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 code = main(["--image", str(shot), "--label-all", "01,02,03", "--json-out", str(out)])
-            self.assertEqual(code, 0)
+            self.assertEqual(code, 2)
             payload = json.loads(out.read_text(encoding="utf-8"))
-            self.assertEqual(payload["boundary"]["state"], "end_confirmed")
+            self.assertEqual(payload["boundary"]["state"], "unknown")
+            self.assertEqual(payload["boundary"]["reason"], "short_page_without_verified_end_marker")
             self.assertEqual([row["expedition_id"] for row in payload["rows"]], ["01", "02", "03"])
             self.assertEqual(payload["rows"][0]["center"]["x"], 350)
             self.assertTrue(payload["rows"][0]["visible"])
