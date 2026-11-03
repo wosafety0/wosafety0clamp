@@ -3553,3 +3553,12 @@ The Hand plugin's read-only probe reported:
 - **LIVE READ-ONLY PREFLIGHT:** Poi health and the read-only MCP tools passed. The visible refresh sequence HOME_PORT → SORTIE_MENU → EXPEDITION_LIST → HOME_PORT passed its two-frame state gates and captured a natural /api_port/port witness. The corrected preflight then passed with a 7.91-second witness: 3 fleets, 12 ships, total required 34 fuel / 16 ammunition, available 2500 fuel / 3453 ammunition, target fleets [1, 2, 3].
 - **TESTED:** Full Python suite **472/472**; focused full-supply tests **17/17**; Node static tests **17/17**; JavaScript syntax check, Python compileall, and git diff --check all passed.
 - **SAFETY / LIMITS:** The live step used only the existing visible refresh navigation and read-only Poi queries. No resupply click, repair, expedition dispatch, reward collection, or game API request was initiated. The three planned fleet-wide supply actions were not executed. The one-expedition production entrypoint remains hard-disabled pending its separate end-to-end acceptance.
+
+## 2026-11-03 - Active workspace exact-duplicate audit
+
+- **TRACKED SOURCE:** SHA-256 scan of all 147 Git-tracked files found zero exact duplicate files.
+- **WORKTREE ARTIFACTS:** Scanned 281 files, excluding .git, .venv, node_modules, and __pycache__. Found 4 exact-hash groups containing 63 files: three non-empty duplicate help-log pairs and one group of 57 zero-byte log files. This represents 59 extra copies beyond one file per hash group.
+- **CLASSIFICATION:** Every duplicate group is under the ignored logs/ directory; .gitignore explicitly excludes that directory. No duplicate source, test, or documentation files were found among tracked files.
+- **PRESERVATION:** No log was deleted or modified. These diagnostic artifacts remain until a separate log-retention policy is approved.
+- **ARTIFACTS:** Full tracked-file manifest: D:\AI_Project\Project_KancolleBot\diagnostics\redundancy-cleanup\internal-duplicate-files-20261103.json; worktree manifest and inventory: working-tree-duplicate-files-20261103.json and working-tree-duplicate-files-20261103.md.
+- **CLOUD INVENTORY COUNT NOTE:** The current 281-file snapshot yields 264 current-only files, 8 identical paths, and 9 divergent same-path files against the 76-file Cloud snapshot. No Cloud files were changed. The earlier 262 current-only figure in the Cloud audit summary is superseded by this re-count.
