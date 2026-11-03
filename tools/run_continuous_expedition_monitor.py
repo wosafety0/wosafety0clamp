@@ -398,7 +398,9 @@ def _dismiss_modal_if_needed(
     return recovery.probe_after
 
 
-def _build_ui_state_verifier(game_session: Any) -> Callable[[str], UiStateEvidence]:
+def _build_ui_state_verifier(
+    game_session: Any, capture_dir: str | None = None
+) -> Callable[[str], UiStateEvidence]:
     """Adapt the production two-frame Ooi checkpoint gate to the refresh driver."""
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
@@ -407,7 +409,13 @@ def _build_ui_state_verifier(game_session: Any) -> Callable[[str], UiStateEviden
 
     def verify(expected: str) -> UiStateEvidence:
         state = UiState(expected)
-        evidence = _require_ui_state(game_session, state, visual_attempts=6)
+        # Keep the default call shape identical: a diagnostic capture is opt-in.
+        if capture_dir is None:
+            evidence = _require_ui_state(game_session, state, visual_attempts=6)
+        else:
+            evidence = _require_ui_state(
+                game_session, state, visual_attempts=6, capture_dir=capture_dir
+            )
         return UiStateEvidence(
             state=state.value,
             consecutive_states=(state.value, state.value),
@@ -464,7 +472,7 @@ def _run_monitor_with_session(
             enable_ui_refresh=enable_ui_refresh,
             ui_input=game_session.input if game_session is not None else None,
             ui_state_verifier=(
-                _build_ui_state_verifier(game_session)
+                _build_ui_state_verifier(game_session, args.diagnostic_capture_dir)
                 if game_session is not None
                 else None
             ),
@@ -580,6 +588,17 @@ def _main_impl(argv: list[str] | None = None) -> int:
         help=(
             "How many times one process may press Cancel before escalating to a "
             "human (default 3). Counts presses, not attempts."
+        ),
+    )
+    parser.add_argument(
+        "--diagnostic-capture-dir",
+        default=None,
+        metavar="DIR",
+        help=(
+            "Write the screenshot behind each confirmed UI state to DIR (one PNG "
+            "per state). Off by default: screenshots otherwise stay in memory. "
+            "Intended for an explicit calibration pass whose result is analysed "
+            "offline; put it somewhere ignored by git."
         ),
     )
     args = parser.parse_args(argv)

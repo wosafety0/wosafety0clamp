@@ -10,6 +10,7 @@ visible UI input; no game-server requests or page-state mutation are performed.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import sys
@@ -146,8 +147,41 @@ def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra:
             stream.write(line + "\n")
 
 
+def _write_diagnostic_capture(directory, state: str, payload_base64: str) -> None:
+    """Persist one already-confirmed screenshot when a caller asks for it.
+
+    Screenshots normally stay in memory; this is only reached when a caller
+    passes an explicit directory, which exists so a calibration pass can be run
+    offline afterwards. A failure here is reported and swallowed: the capture is
+    evidence for later analysis, never a precondition for the state gate.
+    """
+    target = None
+    try:
+        folder = Path(directory)
+        folder.mkdir(parents=True, exist_ok=True)
+        data = base64.b64decode(payload_base64, validate=True)
+        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValueError("payload is not a PNG")
+        target = folder / f"{state}.png"
+        target.write_bytes(data)
+    except Exception as exc:  # noqa: BLE001 - diagnostics must not gate safety
+        _print_event(
+            "diagnostic_capture_failed",
+            ui_state=state,
+            reason=f"{type(exc).__name__}: {exc}",
+        )
+        return
+    _print_event(
+        "diagnostic_capture_written", ui_state=state, path=str(target), bytes=len(data)
+    )
+
+
 def _require_ui_state(
-    game_session, expected: UiState, *, visual_attempts: int = 3
+    game_session,
+    expected: UiState,
+    *,
+    visual_attempts: int = 3,
+    capture_dir: str | Path | None = None,
 ) -> str:
     """Require accessible labels or two consecutive in-memory visual matches."""
     if (
@@ -273,6 +307,10 @@ def _require_ui_state(
                                 ui_state=expected.value,
                                 evidence=evidence,
                             )
+                            if capture_dir is not None:
+                                _write_diagnostic_capture(
+                                    capture_dir, expected.value, payload
+                                )
                             return evidence
                     elif observed != "UNKNOWN":
                         raise LoopError(

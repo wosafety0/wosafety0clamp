@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import os
 import sys
 import tempfile
@@ -173,6 +174,75 @@ class LiveCheckpointVerifierTests(unittest.TestCase):
             )
         self.assertEqual(evidence, "two_consecutive_in_memory_ooi_fingerprints")
         self.assertEqual(classify.call_count, 3)
+
+    def test_confirmed_state_writes_a_diagnostic_capture_only_when_asked(self):
+        png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+        scores = {"HOME_PORT": 1.0}
+        self.game_session.transport.send.return_value = {"nodes": []}
+        self.game_session.input.capture_screenshot.return_value = base64.b64encode(
+            png
+        ).decode("ascii")
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                patch.object(
+                    controller,
+                    "classify_screenshot_fingerprints",
+                    side_effect=[("HOME_PORT", scores)] * 2,
+                ),
+                patch.object(controller.time, "sleep"),
+                patch.object(controller, "_print_event") as event_log,
+            ):
+                controller._require_ui_state(
+                    self.game_session,
+                    controller.UiState.HOME_PORT,
+                    capture_dir=directory,
+                )
+            written = Path(directory) / "HOME_PORT.png"
+            self.assertEqual(written.read_bytes(), png)
+        events = [call.args[0] for call in event_log.call_args_list]
+        self.assertIn("diagnostic_capture_written", events)
+
+    def test_no_diagnostic_capture_without_a_directory(self):
+        scores = {"HOME_PORT": 1.0}
+        self.game_session.transport.send.return_value = {"nodes": []}
+        self.game_session.input.capture_screenshot.return_value = "in-memory-payload"
+        with (
+            patch.object(
+                controller,
+                "classify_screenshot_fingerprints",
+                side_effect=[("HOME_PORT", scores)] * 2,
+            ),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_write_diagnostic_capture") as writer,
+        ):
+            controller._require_ui_state(
+                self.game_session, controller.UiState.HOME_PORT
+            )
+        writer.assert_not_called()
+
+    def test_unreadable_capture_is_reported_but_does_not_block_the_gate(self):
+        scores = {"HOME_PORT": 1.0}
+        self.game_session.transport.send.return_value = {"nodes": []}
+        self.game_session.input.capture_screenshot.return_value = "in-memory-payload"
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                patch.object(
+                    controller,
+                    "classify_screenshot_fingerprints",
+                    side_effect=[("HOME_PORT", scores)] * 2,
+                ),
+                patch.object(controller.time, "sleep"),
+                patch.object(controller, "_print_event") as event_log,
+            ):
+                evidence = controller._require_ui_state(
+                    self.game_session,
+                    controller.UiState.HOME_PORT,
+                    capture_dir=directory,
+                )
+            self.assertEqual(list(Path(directory).iterdir()), [])
+        self.assertEqual(evidence, "two_consecutive_in_memory_ooi_fingerprints")
+        events = [call.args[0] for call in event_log.call_args_list]
+        self.assertIn("diagnostic_capture_failed", events)
 
     def test_monitor_visual_checkpoint_uses_extended_bounded_attempts(self):
         self.game_session.transport.send.return_value = {"nodes": []}

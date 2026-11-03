@@ -65,6 +65,12 @@ DEFAULT_SIGNATURE_TOLERANCE = 6
 # Measured on a live capture: seven area tabs of ~52px starting at x=176 with a
 # 60px pitch. The selected tab paints its label orange while the others paint
 # white, which separates 567 orange pixels from 9 on the same capture.
+#
+# The pitch is not a guess: on the 2026-11-03 capture the low-saturation
+# separator columns between tabs measured 236, 296, 356, 416, 476, 536 and 596,
+# i.e. exactly 176 + 60k for k = 1..7, so the strip really is uniform. What has
+# only ever been observed is the first tab *selected*; a build that opened on a
+# later area would still be read through the same colours, just never seen yet.
 DEFAULT_TAB_STRIP_X0 = 176
 DEFAULT_TAB_STRIP_PITCH = 60
 DEFAULT_TAB_STRIP_WIDTH = 52
