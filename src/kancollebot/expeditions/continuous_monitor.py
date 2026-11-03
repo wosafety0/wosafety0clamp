@@ -49,6 +49,7 @@ class ContinuousMonitorReport:
     observed_at: datetime
     source: str
     fleets: tuple[FleetMonitorResult, ...]
+    source_freshness_verified: bool = False
 
 
 class ContinuousExpeditionMonitor:
@@ -115,6 +116,7 @@ class ContinuousExpeditionMonitor:
             observed_at=observation.observed_at,
             source=observation.source,
             fleets=results,
+            source_freshness_verified=observation.source_freshness_verified,
         )
 
     def _reconcile_fleet(

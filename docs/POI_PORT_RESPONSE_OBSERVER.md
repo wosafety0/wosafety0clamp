@@ -2,12 +2,11 @@
 
 ## Current status
 
-- Implementation: committed on branch `dev/poi-safety-consolidation-20261029`; the observer has been run on the user's local Poi instance as a bounded, passive observer.
-- **Natural response capture:** a successful, non-cache HTTP 200 `/kcsapi/api_port/port` response was captured on 2026-10-29 and its compact payload structure was checked. This verifies the capture path and payload shape for that historical sample only.
-- **Current in-memory witness gate:** the stdout handoff and reader integration have offline tests, but a successful natural-response capture through the current witness handoff followed by a matching current MCP read has not been verified end to end. The historical snapshot must not be reused as freshness evidence.
-- **Automated verification recorded by the project:** the diagnostic bridge was previously validated with 148/148 Python unit tests, a JavaScript syntax check, and diagnostic `--help`. Those are prior results, not tests rerun during the latest static reviews.
-- Intended use: passively observe a naturally occurring successful `/kcsapi/api_port/port` response through loopback Chrome DevTools Protocol (CDP), then compare an in-memory compact witness against current Poi MCP state.
-- This is a diagnostic artifact, not a production integration and not permission to dispatch expeditions. Live dispatch remains disabled.
+- Current branch: `dev/expedition-closed-loop-mvp`; the passive observer is wired through `BackgroundPortSnapshotProvider` into the read-only continuous-monitor composition, not the production dispatch runner.
+- **Natural response capture:** on 2026-11-02, the integrated `PoiExpeditionReader` matched a naturally captured, non-cache HTTP 200 `/kcsapi/api_port/port` witness against a contemporaneous Poi MCP read after 31 polls / 35.55 seconds. This verifies that bounded reader/provider path for that observed session; it does not establish long-term freshness or unattended dispatch readiness.
+- **Child-only witness mode:** when `KCB_POI_FRESHNESS_WITNESS_STDOUT=1`, the observer returns the compact witness through stdout/in-memory handoff and does not create the Desktop snapshot directory or write a file. Standalone snapshot-export mode retains its explicit compact-file output.
+- **Target discovery:** the CDP target-list response must parse as a JSON array. A valid JSON object/scalar now fails with `TARGET_DISCOVERY_FAILED` before any array filtering.
+- **Production boundary:** the production freshness/dispatch gate remains fail-closed. The read-only monitor and optional refresh navigation do not authorize dispatch, reward settlement, repair, or resupply.
 
 ## Safety contract
 
@@ -16,14 +15,14 @@
 - Does not call `Runtime.evaluate`, page JavaScript, game functions, or any input method.
 - Does not issue a game API request. It waits up to 120 seconds for a natural response already initiated by the game client.
 - Rejects non-200 responses, cached/service-worker/prefetch responses, failed API results, duplicate IDs, and malformed fleet/ship records.
-- Saves only a compact subset of the response data to `Desktop/KancolleBot-Port-Snapshots`; it does not save the full raw response body. Console output excludes ship/fleet payload values.
+- Child-only witness mode writes no snapshot or Desktop file; explicit standalone snapshot-export mode saves only a compact subset to `Desktop/KancolleBot-Port-Snapshots`. Neither mode saves the full raw response body, and console output excludes ship/fleet payload values.
 - The observer alone does not modify the production freshness gate. The optional in-memory provider can feed a witness to `PoiExpeditionReader`, which sets `source_freshness_verified` only after bounded-age and exact mutable-field matching; the default reader without a provider remains unverified.
 
 ## Output and limits
 
 The JSON artifact contains a local response-receipt timestamp, a response-body SHA-256, compact fleet and ship records, and a safety summary. The timestamp is the local observer's receipt time, not a server timestamp.
 
-A successful capture would establish that the current Poi page exposed a fresh, non-cache HTTP 200 port response with the expected fields at that moment. It would **not** by itself establish long-term freshness, atomic consistency with subsequent `poi_get` reads, or full expedition-loop correctness. CDP startup, DMM wrapper discovery, and identification of the nested active game frame were verified on 2026-10-29. Successful response-body capture and payload validation remain unverified until a qualifying natural response is observed after the observer is armed. If no natural port response occurs during the wait window, it exits without producing a snapshot; it must not trigger a refresh or any game action.
+A successful capture establishes that the current Poi page exposed a fresh, non-cache HTTP 200 port response with the expected fields at that moment. The 2026-11-02 integrated reader matched one natural response against a contemporaneous Poi MCP read after 31 polls / 35.55 seconds. This does **not** establish long-term freshness, atomic consistency across future reads, production dispatch integration, or full expedition-loop correctness. CDP target discovery rejects a valid JSON response whose root is not an array before filtering. If no natural port response occurs during the wait window, the observer exits without producing a witness; it must not trigger a refresh or any game action.
 
 ## Read-only runtime preflight — 2026-10-29
 

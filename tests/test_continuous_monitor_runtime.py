@@ -47,16 +47,28 @@ class FakeUiInput:
 
 
 class FakeMonitor:
-    def __init__(self, result=None, error=None):
+    def __init__(self, result=None, error=None, fail_times=None):
         self.result = result
         self.error = error
+        # None keeps the old meaning: raise on every tick. An integer raises
+        # only for the first that many ticks, which is what a dialog cleared
+        # mid-run looks like from the scheduler's point of view.
+        self.fail_times = fail_times
         self.calls = 0
 
     def tick(self):
         self.calls += 1
-        if self.error is not None:
+        if self.error is not None and (
+            self.fail_times is None or self.calls <= self.fail_times
+        ):
             raise self.error
         return self.result
+
+
+def idle_report() -> ContinuousMonitorReport:
+    return ContinuousMonitorReport(
+        observed_at=datetime.now(timezone.utc), source="poi-redux:test", fleets=()
+    )
 
 
 class ContinuousMonitorRuntimeTests(unittest.TestCase):
@@ -315,6 +327,95 @@ class ContinuousMonitorRuntimeTests(unittest.TestCase):
         self.assertEqual(payload["status"], "MONITOR_TICK_FAILED")
         self.assertFalse(payload["game_actions_enabled"])
         self.assertFalse(payload["ui_navigation_enabled"])
+
+    def test_a_recovered_tick_is_retried_without_waiting(self):
+        # A dialog can appear mid-run, so the tick that hits it must be able to
+        # clear it and retry instead of waiting out the poll interval.
+        monitor = FakeMonitor(
+            error=ContinuousMonitorError("blocked"),
+            result=idle_report(),
+            fail_times=1,
+        )
+        output = []
+        sleeps: list[float] = []
+        recoveries = {"n": 0}
+
+        def recover() -> bool:
+            recoveries["n"] += 1
+            return True
+
+        runtime = MonitorRuntime(
+            monitor=monitor,
+            provider=SimpleNamespace(last_status="captured", is_running=True),
+            scheduler=object(),
+            unresolved_dispatch_fleets=(),
+        )
+
+        code = run_monitor(
+            runtime,
+            poll_seconds=5.0,
+            max_ticks=2,
+            sleep=sleeps.append,
+            output=output.append,
+            recover=recover,
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(recoveries["n"], 1)
+        self.assertEqual(monitor.calls, 2, "the failed tick is retried immediately")
+        self.assertEqual(sleeps, [], "a recovery must not wait out the poll interval")
+        self.assertEqual(
+            [json.loads(item)["status"] for item in output],
+            ["MONITOR_BLOCKED", "MONITOR_TICK_OK"],
+        )
+
+    def test_a_recovery_that_does_not_help_still_ends_blocked(self):
+        monitor = FakeMonitor(error=ContinuousMonitorError("blocked"))
+        output = []
+        runtime = MonitorRuntime(
+            monitor=monitor,
+            provider=object(),
+            scheduler=object(),
+            unresolved_dispatch_fleets=(),
+        )
+
+        code = run_monitor(runtime, once=True, output=output.append, recover=lambda: False)
+
+        self.assertEqual(code, 2)
+        self.assertEqual(monitor.calls, 1)
+        self.assertEqual(json.loads(output[0])["status"], "MONITOR_BLOCKED")
+
+    def test_an_unexpected_error_can_also_be_offered_recovery(self):
+        monitor = FakeMonitor(error=RuntimeError("timeout talking to the renderer"))
+        output = []
+        runtime = MonitorRuntime(
+            monitor=monitor,
+            provider=object(),
+            scheduler=object(),
+            unresolved_dispatch_fleets=(),
+        )
+
+        code = run_monitor(runtime, output=output.append, recover=lambda: False)
+
+        self.assertEqual(code, 2)
+        payload = json.loads(output[0])
+        self.assertEqual(payload["status"], "MONITOR_TICK_FAILED")
+        self.assertFalse(payload["game_actions_enabled"])
+
+    def test_recovery_is_never_attempted_without_a_hook(self):
+        monitor = FakeMonitor(error=ContinuousMonitorError("blocked"))
+        output = []
+        runtime = MonitorRuntime(
+            monitor=monitor,
+            provider=object(),
+            scheduler=object(),
+            unresolved_dispatch_fleets=(),
+        )
+
+        code = run_monitor(runtime, once=True, output=output.append)
+
+        self.assertEqual(code, 2)
+        self.assertEqual(monitor.calls, 1)
 
 
 if __name__ == "__main__":

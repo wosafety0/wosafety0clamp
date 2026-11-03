@@ -101,6 +101,8 @@ def normalize_poi_fleets(
                 raise PoiStateError(f"ship {ship_id} has unknown HP fields")
             if now_hp < max_hp:
                 damaged.append(ship_id)
+            # 大破 (heavy damage / Taiha) is HP at or below 25% of maximum.
+            # Integer arithmetic avoids floating-point boundary ambiguity.
             if now_hp * 4 <= max_hp:
                 heavy_damage.append(ship_id)
 

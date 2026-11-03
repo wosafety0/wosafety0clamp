@@ -10,6 +10,7 @@ visible UI input; no game-server requests or page-state mutation are performed.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import sys
@@ -27,7 +28,12 @@ from kancollebot.adapters.poi.cdp_fleet_state import (  # noqa: E402
     PoiFleetMissionState,
     read_poi_fleet_states,
 )
-from kancollebot.adapters.poi.cdp_input import CdpInputError, RecordedPoint  # noqa: E402
+from kancollebot.adapters.poi.cdp_input import (  # noqa: E402
+    CdpInputError,
+    RecordedPoint,
+    home_port_candidates,
+    home_port_point,
+)
 from kancollebot.adapters.poi.cdp_websocket import (  # noqa: E402
     connect_game_webview,
     connect_poi_session,
@@ -56,7 +62,7 @@ from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
 LEGACY_HELPER_FLEET_ID = 2
 FLEET_ID = LEGACY_HELPER_FLEET_ID
 MISSION_ID = 3
-HOME_PORT = RecordedPoint(50, 50, "home-port")
+HOME_PORT = home_port_point()
 SORTIE = RecordedPoint(280, 425, "sortie")
 EXPEDITION_MODE = RecordedPoint(1000, 360, "expedition-mode")
 MISSION_ROW = RecordedPoint(350, 350, "mission-3-security-task")
@@ -141,8 +147,41 @@ def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra:
             stream.write(line + "\n")
 
 
+def _write_diagnostic_capture(directory, state: str, payload_base64: str) -> None:
+    """Persist one already-confirmed screenshot when a caller asks for it.
+
+    Screenshots normally stay in memory; this is only reached when a caller
+    passes an explicit directory, which exists so a calibration pass can be run
+    offline afterwards. A failure here is reported and swallowed: the capture is
+    evidence for later analysis, never a precondition for the state gate.
+    """
+    target = None
+    try:
+        folder = Path(directory)
+        folder.mkdir(parents=True, exist_ok=True)
+        data = base64.b64decode(payload_base64, validate=True)
+        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValueError("payload is not a PNG")
+        target = folder / f"{state}.png"
+        target.write_bytes(data)
+    except Exception as exc:  # noqa: BLE001 - diagnostics must not gate safety
+        _print_event(
+            "diagnostic_capture_failed",
+            ui_state=state,
+            reason=f"{type(exc).__name__}: {exc}",
+        )
+        return
+    _print_event(
+        "diagnostic_capture_written", ui_state=state, path=str(target), bytes=len(data)
+    )
+
+
 def _require_ui_state(
-    game_session, expected: UiState, *, visual_attempts: int = 3
+    game_session,
+    expected: UiState,
+    *,
+    visual_attempts: int = 3,
+    capture_dir: str | Path | None = None,
 ) -> str:
     """Require accessible labels or two consecutive in-memory visual matches."""
     if (
@@ -268,6 +307,10 @@ def _require_ui_state(
                                 ui_state=expected.value,
                                 evidence=evidence,
                             )
+                            if capture_dir is not None:
+                                _write_diagnostic_capture(
+                                    capture_dir, expected.value, payload
+                                )
                             return evidence
                     elif observed != "UNKNOWN":
                         raise LoopError(
@@ -357,7 +400,12 @@ def _capture_home_reference(game_session) -> None:
 
 
 def _recover_home_port(game_session, attempts: int = 3, force_click: bool = False) -> None:
-    """Use bounded top-left navigation retries, requiring state evidence after each click."""
+    """Use bounded top-left navigation retries, requiring state evidence after each click.
+
+    The recovery cycles a bounded set of interior points within the large
+    top-left 母港 button, then verifies the result with the UI state gate. An
+    incorrect layout fails closed after the bounded set is exhausted.
+    """
     if not force_click:
         try:
             _require_ui_state(game_session, UiState.HOME_PORT)
@@ -365,14 +413,16 @@ def _recover_home_port(game_session, attempts: int = 3, force_click: bool = Fals
             return
         except (UiStateGateError, LoopError) as exc:
             _print_event("home_port_state_not_confirmed", attempt=0, error=str(exc))
+    candidates = home_port_candidates(HOME_PORT)
     for attempt in range(1, attempts + 1):
+        point = candidates[(attempt - 1) % len(candidates)]
         _print_event("ui_action_precondition", action="click_home_port", attempt=attempt,
-                     force_click=force_click)
-        game_session.input.click(HOME_PORT)
-        _print_event("ui_click_sent", point=HOME_PORT.label, attempt=attempt)
-        time.sleep(1.0)
-        _print_event("ui_action_wait_completed", point=HOME_PORT.label, attempt=attempt,
-                     wait_seconds=1.0)
+                     force_click=force_click, point=point.label)
+        game_session.input.click(point)
+        _print_event("ui_click_sent", point=point.label, attempt=attempt)
+        time.sleep(2.0)
+        _print_event("ui_action_wait_completed", point=point.label, attempt=attempt,
+                     wait_seconds=2.0)
         try:
             _require_ui_state(game_session, UiState.HOME_PORT)
             _print_event("home_port_recovery_confirmed", attempt=attempt)

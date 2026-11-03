@@ -15,10 +15,10 @@ def sample_payloads():
             "items": [{"api_id": 1, "api_ship": [101, -1, 102], "api_mission": [0, 0, 0, 0]}]},
         "info.ships": {"kind": "object-map", "total": 2, "returned": 2, "truncated": False,
             "items": {
-                "101": {"api_id": 101, "api_ship_id": 11, "api_nowhp": 10, "api_maxhp": 10, "api_fuel": 10, "api_bull": 10},
-                "102": {"api_id": 102, "api_ship_id": 11, "api_nowhp": 10, "api_maxhp": 10, "api_fuel": 10, "api_bull": 10},
+                "101": {"api_id": 101, "api_ship_id": 11, "api_nowhp": 10, "api_maxhp": 10, "api_lv": 1, "api_fuel": 10, "api_bull": 10},
+                "102": {"api_id": 102, "api_ship_id": 11, "api_nowhp": 10, "api_maxhp": 10, "api_lv": 1, "api_fuel": 10, "api_bull": 10},
             }},
-        "lookup": {"11": {"api_fuel_max": 10, "api_bull_max": 10}},
+        "lookup": {"11": {"api_fuel_max": 10, "api_bull_max": 10, "api_stype": 1}},
     }
 
 
@@ -176,7 +176,10 @@ class PoiExpeditionReaderTests(unittest.TestCase):
         self.assertEqual(len(lookup_calls), 1)
         self.assertEqual(lookup_calls[0]["kind"], "ships")
         self.assertEqual(lookup_calls[0]["ids"], [11])
-        self.assertEqual(lookup_calls[0]["select"], ["api_fuel_max", "api_bull_max"])
+        self.assertEqual(lookup_calls[0]["select"], ["api_fuel_max", "api_bull_max", "api_stype"])
+        # Composition metadata resolves once api_stype and api_lv are present.
+        self.assertEqual(observed.payload[0].ship_levels, (1, 1))
+        self.assertEqual(observed.payload[0].ship_types, (1, 1))
         self.assertFalse(any(args.get("path") == "const.$ships" for _, args in client.calls))
 
     def test_rejects_state_changed_during_read(self):

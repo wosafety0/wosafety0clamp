@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import os
 import unittest
 
-from kancollebot.adapters.poi.cdp_input import CdpInput, CdpInputError, RecordedPoint
+from kancollebot.adapters.poi.cdp_input import (
+    CdpInput,
+    CdpInputError,
+    RecordedPoint,
+    home_port_candidates,
+    home_port_point,
+)
 
 
 class FakeTransport:
@@ -195,6 +202,51 @@ class CdpInputTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             CdpInput(transport, settle_seconds=0).click(RecordedPoint(120, 80, "target"), button="x")
         self.assertEqual(transport.calls, [])
+
+
+class HomePortTargetTests(unittest.TestCase):
+    def test_default_target_is_live_verified_top_left_corner(self):
+        saved = os.environ.pop("KANCOLLEBOT_HOME_PORT_POINT", None)
+        try:
+            point = home_port_point()
+        finally:
+            if saved is not None:
+                os.environ["KANCOLLEBOT_HOME_PORT_POINT"] = saved
+        self.assertEqual((point.x, point.y, point.label), (50.0, 50.0, "home-port"))
+
+    def test_env_override_sets_explicit_pixel(self):
+        saved = os.environ.get("KANCOLLEBOT_HOME_PORT_POINT")
+        os.environ["KANCOLLEBOT_HOME_PORT_POINT"] = "70,80"
+        try:
+            point = home_port_point()
+        finally:
+            if saved is None:
+                os.environ.pop("KANCOLLEBOT_HOME_PORT_POINT", None)
+            else:
+                os.environ["KANCOLLEBOT_HOME_PORT_POINT"] = saved
+        self.assertEqual((point.x, point.y, point.label), (70.0, 80.0, "home-port"))
+
+    def test_env_override_rejects_bad_format(self):
+        saved = os.environ.get("KANCOLLEBOT_HOME_PORT_POINT")
+        os.environ["KANCOLLEBOT_HOME_PORT_POINT"] = "not-a-point"
+        try:
+            with self.assertRaises(ValueError):
+                home_port_point()
+        finally:
+            if saved is None:
+                os.environ.pop("KANCOLLEBOT_HOME_PORT_POINT", None)
+            else:
+                os.environ["KANCOLLEBOT_HOME_PORT_POINT"] = saved
+
+    def test_candidates_begin_with_primary_and_stay_in_large_button(self):
+        primary = RecordedPoint(50.0, 50.0, "home-port")
+        candidates = home_port_candidates(primary)
+        self.assertEqual(candidates[0], primary)
+        for candidate in candidates:
+            self.assertEqual(candidate.label, "home-port")
+            self.assertGreaterEqual(candidate.x, 0)
+            self.assertGreaterEqual(candidate.y, 0)
+        self.assertGreater(len(candidates), 1)
 
 
 if __name__ == "__main__":

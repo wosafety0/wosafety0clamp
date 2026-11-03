@@ -81,5 +81,23 @@ class PoiStateV2Tests(unittest.TestCase):
         self.assertFalse(state.payload[0].fuel_ready)
         self.assertTrue(state.payload[0].ammo_ready)
 
+    def test_critical_damage_is_classified_at_or_below_quarter_hp(self):
+        state = normalize_poi_fleets(
+            [{"api_id": 1, "api_ship": [101, 102], "api_mission": [0, 0, 0, 0]}],
+            {
+                "101": {"api_ship_id": 11, "api_nowhp": 4, "api_maxhp": 20,
+                        "api_fuel": 20, "api_bull": 20},   # 20% -> 大破
+                "102": {"api_ship_id": 12, "api_nowhp": 16, "api_maxhp": 20,
+                        "api_fuel": 20, "api_bull": 20},   # 80% -> 小破, not 大破
+            },
+            {
+                "11": {"api_fuel_max": 20, "api_bull_max": 20},
+                "12": {"api_fuel_max": 20, "api_bull_max": 20},
+            },
+            observed_at=NOW,
+        )
+        self.assertEqual(state.payload[0].damaged_ship_ids, (101, 102))
+        self.assertEqual(state.payload[0].heavy_damage_ship_ids, (101,))
+
 if __name__ == "__main__":
     unittest.main()

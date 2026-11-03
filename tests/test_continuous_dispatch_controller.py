@@ -48,6 +48,11 @@ def snapshot(
         ship_levels = tuple(3 if index == 0 else 1 for index, _ in enumerate(ship_ids))
     if ship_types is None:
         ship_types = tuple(1 for _ in ship_ids)
+    # 大破 is a subset of damaged: the planner invariant requires every
+    # heavy-damage ship to also appear in damaged_ship_ids.
+    damaged_ids = tuple(damaged) + tuple(
+        ship_id for ship_id in heavy_damaged if ship_id not in damaged
+    )
     return ExpeditionFleetSnapshot(
         fleet_id=fleet_id,
         ship_ids=tuple(ship_ids),
@@ -55,7 +60,7 @@ def snapshot(
         return_at=return_at,
         fuel_ready=fuel_ready,
         ammo_ready=ammo_ready,
-        damaged_ship_ids=tuple(damaged),
+        damaged_ship_ids=damaged_ids,
         heavy_damage_ship_ids=tuple(heavy_damaged),
         mission_status=status,
         reserved=reserved,

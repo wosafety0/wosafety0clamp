@@ -167,7 +167,11 @@ class PoiExpeditionReader:
             lookup_result = _tool_value(
                 self._client.call_read_tool(
                     "poi_lookup",
-                    {"kind": "ships", "ids": master_ids, "select": ["api_fuel_max", "api_bull_max"]},
+                    {
+                        "kind": "ships",
+                        "ids": master_ids,
+                        "select": ["api_fuel_max", "api_bull_max", "api_stype"],
+                    },
                 ),
                 "poi_lookup",
             )

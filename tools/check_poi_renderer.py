@@ -1,0 +1,205 @@
+"""Read-only verdict on whether Poi's game surface can be driven right now.
+
+This tool never clicks, never reloads, and never sends input. It opens one
+loopback CDP connection to the game target, sends a single read-only layout
+probe, and reports whether the renderer answered.
+
+Exit codes: 0 the game surface answered; 2 it did not (a human is needed);
+1 the probe itself could not run.
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+if __package__ in {None, ""}:  # allow `python tools/check_poi_renderer.py`
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from kancollebot.adapters.poi.renderer_block import (  # noqa: E402
+    DEFAULT_TIMEOUT_SECONDS,
+    MANUAL_ACTION,
+    BlockProbe,
+    Surface,
+    live_probe,
+)
+
+DIALOG_HEADLINE = "エラーが発生したため、ページ更新します。"
+
+
+def _report(probe: BlockProbe) -> None:
+    print(f"game renderer : {probe.game.value}")
+    print(f"poi shell     : {probe.shell.value}")
+    print(f"verdict       : {probe.reason.value}")
+    print(f"input allowed : {'yes' if probe.input_allowed else 'NO'}")
+    if probe.latency_seconds is not None:
+        print(f"probe latency : {probe.latency_seconds:.2f}s")
+    print(f"detail        : {probe.detail}")
+
+    if probe.dialog_suspected:
+        print()
+        print("A blocking refresh confirmation is almost certainly on screen:")
+        print(f"    {DIALOG_HEADLINE}")
+        print(f"    [ 確定 ] [ 取消 ]")
+        print()
+        print(f"自动处理：{MANUAL_ACTION}")
+        print(
+            "这个框是 Electron 把页面 confirm() 变成的主进程原生模态框，CDP 看不到它"
+            "（Page.handleJavaScriptDialog 会直接报错），它同时把游戏渲染进程整条"
+            "主线程挂住。取消走的是窗口层：按标签选中【取消】按钮投递 BM_CLICK，"
+            "完全不经过 CDP，【確定】在结构上不可达。"
+        )
+    elif probe.game is Surface.RESPONSIVE:
+        print()
+        print("The renderer answered; the surface is safe to drive.")
+    else:
+        print()
+        print("The game surface is not usable. Do not send input; check Poi by hand.")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_TIMEOUT_SECONDS,
+        help="seconds to wait for the renderer before calling it blocked",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="emit the probe as one JSON object instead of prose",
+    )
+    parser.add_argument(
+        "--dismiss-cancel",
+        action="store_true",
+        help=(
+            "when a blocking dialog is proven, press its Cancel button and "
+            "re-probe. Presses only the button labelled 取消/キャンセル/Cancel; "
+            "the reload button is never addressable."
+        ),
+    )
+    parser.add_argument(
+        "--dialog-texts",
+        action="store_true",
+        help=(
+            "read-only: print the dialog's title, control texts and the text UI "
+            "Automation exposes, then say whether that text clears the content "
+            "gate. Sends no input and needs no CDP connection."
+        ),
+    )
+    args = parser.parse_args(argv)
+
+    if not args.timeout > 0:
+        parser.error("--timeout must be positive")
+
+    if args.dialog_texts:
+        return _dialog_texts()
+
+    try:
+        probe = live_probe(timeout=args.timeout)
+    except Exception as exc:  # noqa: BLE001 - the probe itself failed
+        print(f"probe failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        import json
+
+        print(json.dumps(probe.as_event(), ensure_ascii=False, indent=2))
+    else:
+        _report(probe)
+
+    if args.dismiss_cancel and not probe.input_allowed:
+        return _dismiss(probe)
+
+    return 0 if probe.input_allowed else 2
+
+
+def _dialog_texts(backend: object | None = None) -> int:
+    """Print what the blocking dialog actually says, without touching it.
+
+    The dialog body is not a child control -- TaskDialog paints it into a
+    DirectUIHWND, so ``child_texts`` reports only the buttons. UI Automation
+    exposes the sentence, so it is printed here alongside the control tree, and
+    the verdict says whether that sentence clears the content gate.
+    """
+    from kancollebot.adapters.poi.modal_window import (
+        CONTENT_MARKERS,
+        DialogState,
+        Win32Backend,
+        content_confirms_refresh,
+        find_modal_dialog,
+        read_dialog_texts,
+    )
+
+    if backend is None:
+        try:
+            backend = Win32Backend()
+        except Exception as exc:  # noqa: BLE001 - window access can be unavailable
+            print(
+                f"window access unavailable: {type(exc).__name__}: {exc}", file=sys.stderr
+            )
+            return 1
+
+    lookup = find_modal_dialog(backend)
+    print(f"dialog state : {lookup.state.value}")
+    print(f"detail       : {lookup.detail}")
+    if lookup.state is not DialogState.FOUND or lookup.dialog is None:
+        print()
+        print("No blocking dialog is on screen right now; nothing to calibrate.")
+        return 2
+
+    print(f"handle       : {lookup.dialog.handle:#x}")
+    print(f"owner        : {lookup.dialog.owner_handle:#x}")
+    print(f"size         : {lookup.dialog.width}x{lookup.dialog.height}")
+    print(f"title        : {lookup.dialog.title!r}")
+    print("child texts  :")
+    for class_name, text in backend.child_texts(lookup.dialog.handle):
+        print(f"  {class_name:22s} {text!r}")
+
+    texts = read_dialog_texts(lookup.dialog.handle)
+    print()
+    print("uia texts    :", "unavailable (content gate would refuse)" if texts is None else "")
+    for text in texts or ():
+        print(f"  {text!r}")
+    print()
+    print(f"content gate : {content_confirms_refresh(texts)} (markers {list(CONTENT_MARKERS)!r})")
+    return 0
+
+
+def _dismiss(probe: BlockProbe) -> int:
+    """Press Cancel on the proven blocker, then report the fresh verdict."""
+    import json
+
+    from kancollebot.adapters.poi.modal_window import (
+        RecoveryOutcome,
+        Win32Backend,
+        dismiss_blocking_modal,
+    )
+
+    calls = {"n": 0}
+
+    def fresh_probe() -> BlockProbe:
+        # Reuse the verdict already in hand for the "before" state, then pay for
+        # a real probe after the click; the block itself costs a full timeout.
+        calls["n"] += 1
+        return probe if calls["n"] == 1 else live_probe()
+
+    try:
+        backend = Win32Backend()
+    except Exception as exc:  # noqa: BLE001 - window access can be unavailable
+        print(f"window access unavailable: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+
+    recovery = dismiss_blocking_modal(
+        allow_window_input=True,
+        backend=backend,
+        probe=fresh_probe,
+    )
+    print()
+    print(json.dumps(recovery.as_event(), ensure_ascii=False, indent=2))
+    return 0 if recovery.outcome is RecoveryOutcome.DISMISSED else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

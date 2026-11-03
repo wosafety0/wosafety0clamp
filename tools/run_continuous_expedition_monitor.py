@@ -211,8 +211,16 @@ def run_monitor(
     once: bool = False,
     sleep: Callable[[float], None] = time.sleep,
     output: Callable[[str], None] = _stdout,
+    recover: Callable[[], bool] | None = None,
 ) -> int:
-    """Poll until stopped; freshness failures never change scheduler readiness."""
+    """Poll until stopped; freshness failures never change scheduler readiness.
+
+    ``recover`` is offered every failed tick and returns True when the fault was
+    repaired, in which case the tick is retried immediately instead of waiting
+    out the poll interval. It is what lets a blocking dialog that appears
+    *during* a run be cleared; the caller owns the allowance that stops it from
+    retrying forever.
+    """
     if not math.isfinite(poll_seconds) or poll_seconds <= 0:
         raise ValueError("poll_seconds must be finite and positive")
     if max_ticks is not None and (
@@ -240,6 +248,7 @@ def run_monitor(
                     "tick": tick_count,
                     "error_type": type(exc).__name__,
                     "reason": message,
+                    "source_freshness_verified": False,
                     "unresolved_dispatch_fleets": list(
                         runtime.unresolved_dispatch_fleets
                     ),
@@ -249,6 +258,8 @@ def run_monitor(
                 },
                 output,
             )
+            if recover is not None and recover():
+                continue
             if once or (max_ticks is not None and tick_count >= max_ticks):
                 return 2
         except Exception as exc:
@@ -263,6 +274,10 @@ def run_monitor(
                 },
                 output,
             )
+            # A parked renderer surfaces here as a bare timeout rather than a
+            # scheduler error, so this path needs the recovery offer too.
+            if recover is not None and recover():
+                continue
             return 2
         else:
             _emit(
@@ -271,6 +286,7 @@ def run_monitor(
                     "tick": tick_count,
                     "observed_at": report.observed_at.isoformat(),
                     "source": report.source,
+                    "source_freshness_verified": report.source_freshness_verified,
                     **_observer_status(runtime),
                     "fleets": [
                         {
@@ -296,7 +312,95 @@ def run_monitor(
         sleep(poll_seconds)
 
 
-def _build_ui_state_verifier(game_session: Any) -> Callable[[str], UiStateEvidence]:
+def _modal_budget(args: Any) -> Any | None:
+    """One press allowance for the whole process, or None when auto-dismiss is off."""
+    if not getattr(args, "auto_dismiss_modal", False):
+        return None
+    from kancollebot.adapters.poi.modal_window import DismissBudget
+
+    return DismissBudget(limit=args.modal_dismiss_limit)
+
+
+def _dismiss_modal_if_needed(
+    budget: Any,
+    *,
+    probe: Any | None = None,
+    emit: Callable[[dict[str, Any]], None] | None = None,
+) -> Any | None:
+    """Probe the surface, and press Cancel only when CDP blames a modal.
+
+    Returns the verdict in hand afterwards (never None when one was passed in),
+    so the caller can decide from ``input_allowed`` whether to carry on. Every
+    press is drawn from ``budget``; refusals cost nothing. Nothing here guesses
+    at a coordinate or at which window to close.
+    """
+    from kancollebot.adapters.poi.modal_window import (
+        RecoveryOutcome,
+        Win32Backend,
+        dismiss_blocking_modal,
+    )
+    from kancollebot.adapters.poi.renderer_block import live_probe
+
+    emitter = emit if emit is not None else (lambda event: _emit(event, _stdout))
+    calls = {"n": 0}
+
+    def fresh() -> Any:
+        # Reuse a verdict already in hand for the "before" state: probing a
+        # parked renderer costs a whole timeout, and it was just paid for.
+        calls["n"] = calls["n"] + 1
+        if calls["n"] == 1 and probe is not None:
+            return probe
+        return live_probe()
+
+    try:
+        backend = Win32Backend()
+    except Exception as exc:  # noqa: BLE001 - window access can be unavailable
+        emitter(
+            {
+                "status": "MODAL_RECOVERY_UNAVAILABLE",
+                "error_type": type(exc).__name__,
+                "reason": str(exc),
+                "game_actions_enabled": False,
+            }
+        )
+        return probe
+
+    try:
+        recovery = dismiss_blocking_modal(
+            allow_window_input=True, backend=backend, probe=fresh, budget=budget
+        )
+    except Exception as exc:  # noqa: BLE001 - recovery is best effort, never fatal
+        emitter(
+            {
+                "status": "MODAL_RECOVERY_FAILED",
+                "error_type": type(exc).__name__,
+                "reason": str(exc),
+                "game_actions_enabled": False,
+            }
+        )
+        return probe
+
+    event: dict[str, Any] = {
+        "status": "MODAL_CANCEL_ATTEMPTED",
+        # Outcomes that mean "a human should look at this now". The content
+        # verdicts are here because they say the automation could not prove the
+        # dialog was the known prompt, so it stopped on purpose.
+        "escalate_to_human": recovery.outcome
+        in {
+            RecoveryOutcome.EXHAUSTED,
+            RecoveryOutcome.STILL_BLOCKED,
+            RecoveryOutcome.CONTENT_UNVERIFIED,
+            RecoveryOutcome.UNRECOGNISED_DIALOG,
+        },
+    }
+    event.update(recovery.as_event())
+    emitter(event)
+    return recovery.probe_after
+
+
+def _build_ui_state_verifier(
+    game_session: Any, capture_dir: str | None = None
+) -> Callable[[str], UiStateEvidence]:
     """Adapt the production two-frame Ooi checkpoint gate to the refresh driver."""
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
@@ -305,7 +409,13 @@ def _build_ui_state_verifier(game_session: Any) -> Callable[[str], UiStateEviden
 
     def verify(expected: str) -> UiStateEvidence:
         state = UiState(expected)
-        evidence = _require_ui_state(game_session, state, visual_attempts=6)
+        # Keep the default call shape identical: a diagnostic capture is opt-in.
+        if capture_dir is None:
+            evidence = _require_ui_state(game_session, state, visual_attempts=6)
+        else:
+            evidence = _require_ui_state(
+                game_session, state, visual_attempts=6, capture_dir=capture_dir
+            )
         return UiStateEvidence(
             state=state.value,
             consecutive_states=(state.value, state.value),
@@ -315,8 +425,43 @@ def _build_ui_state_verifier(game_session: Any) -> Callable[[str], UiStateEviden
     return verify
 
 
-def _run_monitor_with_session(args: Any, game_session: Any | None = None) -> int:
+def _run_monitor_with_session(
+    args: Any, game_session: Any | None = None, budget: Any | None = None
+) -> int:
     enable_ui_refresh = game_session is not None
+    # Pressing a window is a GUI action, so it stays tied to the UI-refresh
+    # path: a read-only run must not touch a window even to clear a dialog.
+    if not enable_ui_refresh:
+        budget = None
+    elif budget is None:
+        budget = _modal_budget(args)
+    budget_exhausted_announced = {"done": False}
+
+    def recover() -> bool:
+        """Clear a blocking dialog that appeared mid-run, within the allowance."""
+        if budget is None:
+            return False
+        if not budget.available():
+            # Announce the escalation once, not on every failing tick.
+            if not budget_exhausted_announced["done"]:
+                budget_exhausted_announced["done"] = True
+                _emit(
+                    {
+                        "status": "MODAL_CANCEL_EXHAUSTED",
+                        "reason": (
+                            "the prompt keeps coming back after "
+                            f"{budget.describe()} presses; the network is still down"
+                        ),
+                        "dismiss_budget": budget.describe(),
+                        "manual_action": "检查网络后手动处理，不要继续自动监控",
+                        "game_actions_enabled": False,
+                    },
+                    _stdout,
+                )
+            return False
+        verdict = _dismiss_modal_if_needed(budget, emit=_stdout)
+        return bool(getattr(verdict, "input_allowed", False))
+
     try:
         runtime = build_runtime(
             database_path=args.database,
@@ -327,7 +472,7 @@ def _run_monitor_with_session(args: Any, game_session: Any | None = None) -> int
             enable_ui_refresh=enable_ui_refresh,
             ui_input=game_session.input if game_session is not None else None,
             ui_state_verifier=(
-                _build_ui_state_verifier(game_session)
+                _build_ui_state_verifier(game_session, args.diagnostic_capture_dir)
                 if game_session is not None
                 else None
             ),
@@ -372,6 +517,7 @@ def _run_monitor_with_session(args: Any, game_session: Any | None = None) -> int
             poll_seconds=args.poll_seconds,
             max_ticks=args.max_ticks,
             once=args.once,
+            recover=recover,
         )
     except KeyboardInterrupt:
         _emit(
@@ -414,7 +560,59 @@ def _main_impl(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Run one monitor tick and exit; unverified freshness remains blocked.",
     )
+    dismiss_group = parser.add_mutually_exclusive_group()
+    dismiss_group.add_argument(
+        "--auto-dismiss-modal",
+        dest="auto_dismiss_modal",
+        action="store_true",
+        default=None,
+        help=(
+            "Press the Cancel button of a blocking refresh dialog before "
+            "navigating, and again if one appears mid-run. On by default; only "
+            "the button labelled 取消/キャンセル/Cancel is addressable, and only "
+            "while --enable-ui-refresh is on. Presses stop after "
+            "--modal-dismiss-limit so a dead network escalates instead of being "
+            "cancelled forever."
+        ),
+    )
+    dismiss_group.add_argument(
+        "--no-auto-dismiss-modal",
+        dest="auto_dismiss_modal",
+        action="store_false",
+        help="Never touch a window; report the block and stop instead.",
+    )
+    parser.add_argument(
+        "--modal-dismiss-limit",
+        type=int,
+        default=3,
+        help=(
+            "How many times one process may press Cancel before escalating to a "
+            "human (default 3). Counts presses, not attempts."
+        ),
+    )
+    parser.add_argument(
+        "--diagnostic-capture-dir",
+        default=None,
+        metavar="DIR",
+        help=(
+            "Write the screenshot behind each confirmed UI state to DIR (one PNG "
+            "per state). Off by default: screenshots otherwise stay in memory. "
+            "Intended for an explicit calibration pass whose result is analysed "
+            "offline; put it somewhere ignored by git."
+        ),
+    )
     args = parser.parse_args(argv)
+    # None means the flag was not mentioned at all, which now means "on".
+    if args.auto_dismiss_modal is None:
+        args.auto_dismiss_modal = True
+    if args.auto_dismiss_modal and not args.enable_ui_refresh:
+        # Only worth complaining about when it was asked for explicitly.
+        if "--auto-dismiss-modal" in (argv if argv is not None else sys.argv[1:]):
+            parser.error(
+                "--auto-dismiss-modal only applies together with --enable-ui-refresh"
+            )
+    if args.modal_dismiss_limit < 1:
+        parser.error("--modal-dismiss-limit must be a positive integer")
     if not math.isfinite(args.poll_seconds) or args.poll_seconds <= 0:
         parser.error("--poll-seconds must be finite and positive")
     if args.max_ticks is not None and args.max_ticks < 1:
@@ -434,9 +632,35 @@ def _main_impl(argv: list[str] | None = None) -> int:
 
         try:
             from kancollebot.adapters.poi.cdp_websocket import connect_game_webview
+            from kancollebot.adapters.poi.renderer_block import MANUAL_ACTION, live_probe
+
+            # A blocking refresh confirm parks the game renderer, so every later
+            # command would burn its own timeout and fail with an unrelated
+            # message. Probe once up front and name the real cause instead.
+            probe = live_probe()
+            budget = _modal_budget(args)
+            if not probe.input_allowed and budget is not None and probe.dialog_suspected:
+                recovered = _dismiss_modal_if_needed(budget, probe=probe, emit=_stdout)
+                if recovered is not None:
+                    probe = recovered
+
+            if not probe.input_allowed:
+                _emit(
+                    {
+                        "status": "BLOCKED_GAME_RENDERER",
+                        "reason": probe.reason.value,
+                        "detail": probe.detail,
+                        "dialog_suspected": probe.dialog_suspected,
+                        "manual_action": MANUAL_ACTION if probe.dialog_suspected else None,
+                        "game_actions_enabled": False,
+                        "ui_navigation_enabled": True,
+                    },
+                    print,
+                )
+                return 2
 
             with connect_game_webview() as game_session:
-                return _run_monitor_with_session(args, game_session)
+                return _run_monitor_with_session(args, game_session, budget)
         except Exception as exc:
             _emit(
                 {
