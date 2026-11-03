@@ -454,7 +454,7 @@ class ToolTests(unittest.TestCase):
             index_path = directory / "index.json"
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 self.assertEqual(main(["--image", str(first), "--label-all", "01,02,03",
-                                       "--index", str(index_path)]), 0)
+                                       "--index", str(index_path)]), 2)
             self.assertTrue(index_path.exists())
             second = self._write(directory, "page1.png", _page([1, 2, 9]))
             out = directory / "scan.json"
