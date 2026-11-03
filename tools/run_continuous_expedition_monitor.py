@@ -227,6 +227,7 @@ def run_monitor(
                     "tick": tick_count,
                     "error_type": type(exc).__name__,
                     "reason": message,
+                    "source_freshness_verified": False,
                     "unresolved_dispatch_fleets": list(
                         runtime.unresolved_dispatch_fleets
                     ),
@@ -258,6 +259,7 @@ def run_monitor(
                     "tick": tick_count,
                     "observed_at": report.observed_at.isoformat(),
                     "source": report.source,
+                    "source_freshness_verified": report.source_freshness_verified,
                     **_observer_status(runtime),
                     "fleets": [
                         {

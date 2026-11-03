@@ -120,6 +120,21 @@ class ContinuousExpeditionMonitorTests(unittest.TestCase):
             self.assertEqual(report.fleets[1].current_phase, FleetPhase.READY)
             self.assertEqual(len(events), 2)
 
+    def test_report_carries_source_freshness_verified_when_trusted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = observed([make_snapshot(2), make_snapshot(3)], fresh=True)
+            monitor, scheduler, reader, events = self.make_monitor(directory, state)
+            report = monitor.tick()
+            self.assertIs(report.source_freshness_verified, True)
+
+    def test_unverified_source_freshness_blocks_tick_without_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = observed([make_snapshot(2), make_snapshot(3)], fresh=False)
+            monitor, scheduler, reader, events = self.make_monitor(directory, state)
+            with self.assertRaises(ContinuousMonitorError):
+                monitor.tick()
+            self.assertEqual(reader.read_count, 1)
+
     def test_active_status_two_confirms_return_only_for_matching_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             monitor, scheduler, _, _ = self.make_monitor(

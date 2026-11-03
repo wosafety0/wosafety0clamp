@@ -102,14 +102,14 @@ class LiveCheckpointVerifierTests(unittest.TestCase):
         scores = {"HOME_PORT": 0.5}
         with (
             patch.object(controller, "classify_screenshot_fingerprints",
-                         side_effect=[("UNKNOWN", scores)] * 3) as classify,
+                         side_effect=[("UNKNOWN", scores)] * 6) as classify,
             patch.object(controller.time, "sleep"),
         ):
             with self.assertRaisesRegex(controller.LoopError, "no stable fingerprint match"):
                 controller._require_ui_state(
                     self.game_session, controller.UiState.HOME_PORT
                 )
-        self.assertEqual(classify.call_count, 3)
+        self.assertEqual(classify.call_count, 6)
 
     def test_accessibility_checkpoint_returns_accessibility_evidence(self):
         with (

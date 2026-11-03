@@ -164,7 +164,7 @@ def _require_ui_state(game_session, expected: UiState) -> str:
                 ship_index = int(state_parts[4])
 
                 consecutive_matches = 0
-                for attempt in range(3):
+                for attempt in range(6):
                     game_session.transport.send(
                         "Input.dispatchMouseEvent",
                         {"type": "mouseMoved", "x": 1195, "y": 715},
@@ -199,15 +199,15 @@ def _require_ui_state(game_session, expected: UiState) -> str:
                         ) from accessible_error
                     else:
                         consecutive_matches = 0
-                    if attempt < 2:
-                        time.sleep(0.25)
+                    if attempt < 5:
+                        time.sleep(0.4)
                 raise LoopError(
-                    f"Expected {expected.value}; no stable parent+checkbox fingerprint match after three attempts"
+                    f"Expected {expected.value}; no stable parent+checkbox fingerprint match after six attempts"
                 ) from accessible_error
 
             if expected.value in fingerprint_states:
                 consecutive_matches = 0
-                for attempt in range(3):
+                for attempt in range(6):
                     game_session.transport.send(
                         "Input.dispatchMouseEvent",
                         {"type": "mouseMoved", "x": 1195, "y": 715},
@@ -239,11 +239,11 @@ def _require_ui_state(game_session, expected: UiState) -> str:
                         ) from accessible_error
                     else:
                         consecutive_matches = 0
-                    if attempt < 2:
-                        time.sleep(0.25)
+                    if attempt < 5:
+                        time.sleep(0.4)
                 if not template_dir:
                     raise LoopError(
-                        f"Expected {expected.value}; no stable fingerprint match was obtained after three attempts"
+                        f"Expected {expected.value}; no stable fingerprint match was obtained after six attempts"
                     ) from accessible_error
 
             if not template_dir:
@@ -295,7 +295,7 @@ def _require_ui_state(game_session, expected: UiState) -> str:
                 if attempt < 2:
                     time.sleep(0.25)
             raise LoopError(
-                f"Expected {expected.value}; no stable template match was obtained after three attempts"
+                f"Expected {expected.value}; no stable template match was obtained after six attempts"
             ) from accessible_error
         except (VisualFingerprintError, VisualStateError, OSError, ValueError) as visual_error:
             raise LoopError(
