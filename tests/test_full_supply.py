@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, timezone
 from kancollebot.adapters.poi.full_supply import (
     FullSupplyPreflightError,
     build_full_supply_plan,
+    select_full_supply_targets,
+    validate_full_supply_progress,
     verify_full_supply_complete,
     verify_fleet_supply_complete,
 )
@@ -55,6 +57,60 @@ class FullSupplyPreflightTests(unittest.TestCase):
         self.assertEqual(plan.fuel_required, 10)
         self.assertEqual(plan.ammo_required, 10)
         self.assertEqual([item.fleet_id for item in plan.fleet_costs], [1, 2, 3])
+
+
+    def test_selects_all_supported_fleets_with_deficits_in_one_batch(self):
+        plan = self.plan()
+        targets = select_full_supply_targets(plan)
+        self.assertEqual([item.fleet_id for item in targets], [2, 3])
+        self.assertEqual(sum(item.fuel_required for item in targets), 10)
+        self.assertEqual(sum(item.ammo_required for item in targets), 10)
+
+    def test_batch_progress_accepts_sequential_fleet_wide_supply(self):
+        initial = self.plan()
+        fleets, ships, masters, resources = sample()
+        for ship_id in (12, 13):
+            ship = ships[str(ship_id)]
+            master = masters[str(ship["api_ship_id"])]
+            ship["api_fuel"] = master["api_fuel_max"]
+            ship["api_bull"] = master["api_bull_max"]
+        resources[0] -= 7
+        resources[1] -= 4
+        after_fleet_two = self.plan(fleets=fleets, ships=ships, masters=masters, resources=resources)
+        remaining = validate_full_supply_progress(initial, after_fleet_two, (2,))
+        self.assertEqual([item.fleet_id for item in remaining], [3])
+        self.assertEqual(remaining[0].fuel_required, 3)
+        self.assertEqual(remaining[0].ammo_required, 6)
+
+        ship = ships["14"]
+        master = masters[str(ship["api_ship_id"])]
+        ship["api_fuel"] = master["api_fuel_max"]
+        ship["api_bull"] = master["api_bull_max"]
+        resources[0] -= 3
+        resources[1] -= 6
+        after_all = self.plan(fleets=fleets, ships=ships, masters=masters, resources=resources)
+        self.assertEqual(validate_full_supply_progress(initial, after_all, (2, 3)), ())
+
+    def test_batch_progress_rejects_unexpected_material_delta(self):
+        initial = self.plan()
+        fleets, ships, masters, resources = sample()
+        for ship_id in (12, 13):
+            ship = ships[str(ship_id)]
+            master = masters[str(ship["api_ship_id"])]
+            ship["api_fuel"] = master["api_fuel_max"]
+            ship["api_bull"] = master["api_bull_max"]
+        resources[0] -= 8
+        resources[1] -= 4
+        current = self.plan(fleets=fleets, ships=ships, masters=masters, resources=resources)
+        with self.assertRaisesRegex(FullSupplyPreflightError, "inventory delta"):
+            validate_full_supply_progress(initial, current, (2,))
+
+    def test_batch_preflight_rejects_unsupported_fleet_before_any_action(self):
+        fleets, ships, masters, resources = sample()
+        ships["11"]["api_fuel"] -= 1
+        plan = self.plan(fleets=fleets, ships=ships, masters=masters, resources=resources)
+        with self.assertRaisesRegex(FullSupplyPreflightError, "lack independently verified UI selection gates: 1"):
+            select_full_supply_targets(plan)
 
     def test_rejects_unverified_stale_or_future_witness(self):
         with self.assertRaisesRegex(FullSupplyPreflightError, "not verified"):

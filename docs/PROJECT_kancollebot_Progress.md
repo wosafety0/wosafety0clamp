@@ -3484,3 +3484,13 @@ The Hand plugin's read-only probe reported:
 - **Safety:** no game API request was initiated; only natural network responses were observed. No repair, dispatch, reward claim, or single-ship supply operation occurred. Screenshots stayed in memory.
 
 - **Remote archive and CI:** commit 57befad2c94de5ee05a6c8960d703fda3bcd8105 was pushed to dev/expedition-closed-loop-mvp. GitHub readback confirmed all 10 changed file blobs exactly matched local Git blob IDs. Push-triggered Actions run 41468859238 completed successfully; the test job and every workflow step passed.
+
+## 2026-11-03 - Multi-fleet full-supply batch
+
+- **IMPLEMENTED:** `full_supply_ui_action.py` now handles every supported unlocked fleet with a supply deficit in one invocation. It still uses the visible fleet-wide supply button once per target fleet; it does not click individual ship checkboxes.
+- **Preflight:** all target fleets are selected and validated before the first resource-consuming click. Fleet 2 and Fleet 3 are supported. If Fleet 1 ever needs supply, the batch aborts before any supply click because its selected-tab UI gate is not independently verified.
+- **Freshness and batch integrity:** each fleet action has its own fresh natural `/api_port/port` witness. Between actions, the batch verifies stable Poi snapshots, unchanged fleet/ship roster, completed-fleet full supply, unchanged unprocessed-fleet costs, and exact fuel/ammunition inventory deltas. Ambiguous clicks are never retried.
+- **Final verification:** after the last target, every ship in every unlocked fleet must be fully supplied and total resource consumption must match the initial all-fleet preflight exactly. Dry-run output includes all target fleet IDs and planned fleet-wide click count.
+- **TESTED:** focused full-supply tests 12/12 passed; KancolleBot offline CI passed with Python 459/459, Node 17/17, and compile checks. CLI help and `git diff --check` passed.
+- **LIMITS:** this is still a standalone full-supply action, not yet wired into `ContinuousExpeditionSupervisor`. No live game supply action was executed during this code change. Fleet 1 remains fail-closed if it becomes under-supplied.
+- **NEXT:** connect the batch resupply workflow to the continuous scheduler only after defining safe behavior when one dispatchable fleet is active and another is awaiting resupply; do not resupply a fleet on expedition or during settlement.

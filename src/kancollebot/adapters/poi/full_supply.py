@@ -231,3 +231,74 @@ def verify_full_supply_complete(
         if ship.get("api_fuel") != master.get("api_fuel_max") or ship.get("api_bull") != master.get("api_bull_max"):
             return False
     return True
+
+
+def select_full_supply_targets(
+    plan: FullSupplyPlan, *, supported_fleet_ids: tuple[int, ...] = (2, 3)
+) -> tuple[FleetSupplyCost, ...]:
+    """Return every required fleet-wide action; reject unsupported targets up front."""
+    if not isinstance(plan, FullSupplyPlan):
+        raise TypeError("plan must be a FullSupplyPlan")
+    if not isinstance(supported_fleet_ids, tuple) or not supported_fleet_ids:
+        raise ValueError("supported_fleet_ids must be a non-empty tuple")
+    if any(isinstance(item, bool) or not isinstance(item, int) or item < 1 for item in supported_fleet_ids):
+        raise ValueError("supported fleet IDs must be positive integers")
+    if len(set(supported_fleet_ids)) != len(supported_fleet_ids):
+        raise ValueError("supported fleet IDs must be unique")
+    targets = tuple(
+        item for item in plan.fleet_costs
+        if item.fuel_required > 0 or item.ammo_required > 0
+    )
+    unsupported = tuple(item.fleet_id for item in targets if item.fleet_id not in supported_fleet_ids)
+    if unsupported:
+        raise FullSupplyPreflightError(
+            "fleet(s) require supply but lack independently verified UI selection gates: "
+            + ", ".join(str(item) for item in unsupported)
+        )
+    return targets
+
+
+def validate_full_supply_progress(
+    initial_plan: FullSupplyPlan,
+    current_plan: FullSupplyPlan,
+    completed_fleet_ids: tuple[int, ...] = (),
+) -> tuple[FleetSupplyCost, ...]:
+    """Verify that only the configured completed fleet-wide actions changed state."""
+    if not isinstance(initial_plan, FullSupplyPlan) or not isinstance(current_plan, FullSupplyPlan):
+        raise TypeError("initial_plan and current_plan must be FullSupplyPlan instances")
+    if current_plan.fleet_ids != initial_plan.fleet_ids or current_plan.ship_ids != initial_plan.ship_ids:
+        raise FullSupplyPreflightError("fleet or ship roster changed during the full-supply batch")
+    targets = select_full_supply_targets(initial_plan)
+    target_ids = tuple(item.fleet_id for item in targets)
+    if not isinstance(completed_fleet_ids, tuple):
+        raise ValueError("completed_fleet_ids must be a tuple")
+    if len(set(completed_fleet_ids)) != len(completed_fleet_ids):
+        raise ValueError("completed fleet IDs must be unique")
+    if completed_fleet_ids != target_ids[:len(completed_fleet_ids)]:
+        raise FullSupplyPreflightError("completed fleets do not match the configured supply order")
+    initial_costs = {item.fleet_id: item for item in initial_plan.fleet_costs}
+    current_costs = {item.fleet_id: item for item in current_plan.fleet_costs}
+    consumed_fuel = consumed_ammo = 0
+    for fleet_id in initial_plan.fleet_ids:
+        before = initial_costs[fleet_id]
+        after = current_costs.get(fleet_id)
+        if after is None:
+            raise FullSupplyPreflightError("current supply plan omitted a fleet")
+        if fleet_id in completed_fleet_ids:
+            if after.fuel_required != 0 or after.ammo_required != 0:
+                raise FullSupplyPreflightError(f"completed fleet {fleet_id} is not fully supplied")
+            consumed_fuel += before.fuel_required
+            consumed_ammo += before.ammo_required
+        elif after != before:
+            raise FullSupplyPreflightError(f"unprocessed fleet {fleet_id} supply state changed unexpectedly")
+    if (
+        current_plan.fuel_available != initial_plan.fuel_available - consumed_fuel
+        or current_plan.ammo_available != initial_plan.ammo_available - consumed_ammo
+    ):
+        raise FullSupplyPreflightError("material inventory delta does not match completed fleet-wide actions")
+    if (
+        current_plan.fuel_required != sum(item.fuel_required for item in current_plan.fleet_costs)
+        or current_plan.ammo_required != sum(item.ammo_required for item in current_plan.fleet_costs)
+    ):
+        raise FullSupplyPreflightError("current supply plan totals are inconsistent")
+    return tuple(current_costs[fleet_id] for fleet_id in target_ids[len(completed_fleet_ids):])
