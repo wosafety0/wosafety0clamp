@@ -1,4 +1,5 @@
 import unittest
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -7,6 +8,7 @@ from tools.full_supply_ui_action import (
     LoopError,
     _acquire_fresh_witness,
     _is_supply_page,
+    _verify_post_supply_state_with_bounded_polling,
     _verify_state,
     run,
 )
@@ -231,6 +233,123 @@ class FullSupplyPreflightTests(unittest.TestCase):
             ship["api_fuel"] = master["api_fuel_max"]
             ship["api_bull"] = master["api_bull_max"]
         self.assertTrue(verify_full_supply_complete(plan, fleets, ships, masters))
+
+
+class DelayedSupplyVerificationTests(unittest.TestCase):
+    def setUp(self):
+        fleets, ships, masters, resources = sample()
+        self.before_state = (fleets, ships, resources, masters)
+        self.plan = build_full_supply_plan(
+            fleets,
+            ships,
+            masters,
+            resources,
+            source_freshness_verified=True,
+            observed_at=NOW,
+            now=NOW,
+            expected_fleet_ids=(1, 2, 3),
+        )
+        self.cost = SimpleNamespace(
+            fleet_id=3,
+            fuel_required=3,
+            ammo_required=6,
+        )
+
+    def make_completed_state(self):
+        fleets, ships, resources, masters = deepcopy(self.before_state)
+        ships["14"]["api_fuel"] = masters["104"]["api_fuel_max"]
+        ships["14"]["api_bull"] = masters["104"]["api_bull_max"]
+        resources[0] -= self.cost.fuel_required
+        resources[1] -= self.cost.ammo_required
+        return fleets, ships, resources, masters
+
+    def test_delayed_store_sync_succeeds_on_later_read_only_poll(self):
+        completed = self.make_completed_state()
+        read_state = Mock(side_effect=[deepcopy(self.before_state), completed])
+        with patch("tools.full_supply_ui_action.time.sleep") as sleep, patch(
+            "tools.full_supply_ui_action.log"
+        ) as event_log:
+            result = _verify_post_supply_state_with_bounded_polling(
+                read_state,
+                self.before_state,
+                target_fleet_id=3,
+                target_fleet_cost=self.cost,
+                plan=self.plan,
+                max_polls=3,
+                poll_interval_seconds=0.25,
+            )
+
+        self.assertEqual(result, completed)
+        self.assertEqual(read_state.call_count, 2)
+        sleep.assert_called_once_with(0.25)
+        event_log.assert_any_call(
+            "full_supply_completed_and_verified_after_delayed_store_sync",
+            fleet_id=3,
+            poll_attempts=2,
+            max_attempts=3,
+            fuel_remaining=97,
+            ammo_remaining=94,
+            ui_click_count=1,
+            retry_allowed=False,
+            game_api_request_initiated=False,
+        )
+
+    def test_timeout_fails_closed_after_fixed_read_only_poll_count_without_retrying_click(self):
+        read_state = Mock(side_effect=[deepcopy(self.before_state) for _ in range(3)])
+        supply_click = Mock()
+        supply_click()
+
+        with patch("tools.full_supply_ui_action.time.sleep"), patch(
+            "tools.full_supply_ui_action.log"
+        ), self.assertRaisesRegex(FullSupplyPreflightError, "3 read-only polls"):
+            _verify_post_supply_state_with_bounded_polling(
+                read_state,
+                self.before_state,
+                target_fleet_id=3,
+                target_fleet_cost=self.cost,
+                plan=self.plan,
+                max_polls=3,
+                poll_interval_seconds=0,
+            )
+
+        self.assertEqual(read_state.call_count, 3)
+        supply_click.assert_called_once_with()
+
+    def test_unexpected_resource_delta_stops_polling_immediately(self):
+        invalid = deepcopy(self.before_state)
+        invalid[2][0] -= self.cost.fuel_required + 1
+        read_state = Mock(return_value=invalid)
+        with patch("tools.full_supply_ui_action.log"), self.assertRaisesRegex(
+            FullSupplyPreflightError, "outside the expected supply-cost range"
+        ):
+            _verify_post_supply_state_with_bounded_polling(
+                read_state,
+                self.before_state,
+                target_fleet_id=3,
+                target_fleet_cost=self.cost,
+                plan=self.plan,
+                max_polls=5,
+                poll_interval_seconds=0,
+            )
+        read_state.assert_called_once_with()
+
+    def test_non_target_fleet_change_stops_polling_immediately(self):
+        invalid = deepcopy(self.before_state)
+        invalid[1]["12"]["api_fuel"] -= 1
+        read_state = Mock(return_value=invalid)
+        with patch("tools.full_supply_ui_action.log"), self.assertRaisesRegex(
+            FullSupplyPreflightError, "changed a non-target fleet"
+        ):
+            _verify_post_supply_state_with_bounded_polling(
+                read_state,
+                self.before_state,
+                target_fleet_id=3,
+                target_fleet_cost=self.cost,
+                plan=self.plan,
+                max_polls=5,
+                poll_interval_seconds=0,
+            )
+        read_state.assert_called_once_with()
 
 
 class SupplyPageDetectionTests(unittest.TestCase):

@@ -14,7 +14,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -45,6 +45,8 @@ OBSERVER_SCRIPT = ROOT / "tools" / "hand_sandbox" / "poi_port_response_observer_
 SUPPLY_MENU_POINT = RecordedPoint(103, 340, "supply-menu")
 MAX_AGE = timedelta(seconds=30)
 TARGET_FLEET_IDS = (3,)
+POST_SUPPLY_MAX_POLLS = 10
+POST_SUPPLY_POLL_INTERVAL_SECONDS = 0.5
 
 
 def log(event: str, **fields: Any) -> None:
@@ -146,6 +148,160 @@ def _fleet_structure_signature(fleets: list[Any]) -> tuple[tuple[int, tuple[int,
             raise FullSupplyPreflightError("fleet structure is incomplete")
         signature.append((fleet_id, tuple(roster), tuple(mission)))
     return tuple(sorted(signature))
+
+
+def _verify_post_supply_state_with_bounded_polling(
+    read_state: Callable[[], tuple[list[Any], dict[str, Any], list[Any], dict[str, Any]]],
+    before_state: tuple[list[Any], dict[str, Any], list[Any], dict[str, Any]],
+    *,
+    target_fleet_id: int,
+    target_fleet_cost: Any,
+    plan: Any,
+    max_polls: int = POST_SUPPLY_MAX_POLLS,
+    poll_interval_seconds: float = POST_SUPPLY_POLL_INTERVAL_SECONDS,
+) -> tuple[list[Any], dict[str, Any], list[Any], dict[str, Any]]:
+    """Wait for Poi store propagation using read-only, bounded stable snapshots.
+
+    This function never sends UI input. Every observed state must preserve fleet
+    structure, master data, and non-target supply values. Target ship supplies
+    may only move toward their master maxima, while materials may only remain
+    at their pre-click values or reach the exact preflight delta.
+    """
+    if isinstance(max_polls, bool) or not isinstance(max_polls, int) or max_polls < 1:
+        raise ValueError("max_polls must be a positive integer")
+    if poll_interval_seconds < 0:
+        raise ValueError("poll_interval_seconds must not be negative")
+
+    before_fleets, before_ships, before_resources, before_masters = before_state
+    target_fleet = next(
+        (item for item in before_fleets if item.get("api_id") == target_fleet_id),
+        None,
+    )
+    if not isinstance(target_fleet, dict):
+        raise FullSupplyPreflightError("target fleet is missing before post-click verification")
+    target_ship_ids = {
+        ship_id for ship_id in target_fleet.get("api_ship", [])
+        if isinstance(ship_id, int) and not isinstance(ship_id, bool) and ship_id > 0
+    }
+    if not target_ship_ids:
+        raise FullSupplyPreflightError("target fleet has no verifiable ships")
+    if target_fleet_cost.fleet_id != target_fleet_id:
+        raise FullSupplyPreflightError("target fleet cost does not match the selected fleet")
+    costs = (target_fleet_cost.fuel_required, target_fleet_cost.ammo_required)
+    if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in costs):
+        raise FullSupplyPreflightError("target fleet material cost is invalid")
+    expected_fuel = before_resources[0] - costs[0]
+    expected_ammo = before_resources[1] - costs[1]
+    if expected_fuel < 0 or expected_ammo < 0:
+        raise FullSupplyPreflightError("preflight material cost exceeds the before-click inventory")
+
+    for attempt in range(1, max_polls + 1):
+        if attempt > 1 and poll_interval_seconds:
+            time.sleep(poll_interval_seconds)
+        post_state = read_state()
+        post_fleets, post_ships, post_resources, post_masters = post_state
+
+        if _fleet_structure_signature(post_fleets) != _fleet_structure_signature(before_fleets):
+            raise FullSupplyPreflightError(
+                "fleet membership or mission state changed after supply; do not repeat the click"
+            )
+        if post_masters != before_masters:
+            raise FullSupplyPreflightError(
+                "master ship data changed after supply; do not repeat the click"
+            )
+
+        for ship_id in plan.ship_ids:
+            before_ship = before_ships.get(str(ship_id))
+            after_ship = post_ships.get(str(ship_id))
+            if not isinstance(before_ship, dict) or not isinstance(after_ship, dict):
+                raise FullSupplyPreflightError(
+                    "ship disappeared during post-click verification; do not repeat the click"
+                )
+            if ship_id not in target_ship_ids:
+                if (
+                    before_ship.get("api_fuel") != after_ship.get("api_fuel")
+                    or before_ship.get("api_bull") != after_ship.get("api_bull")
+                ):
+                    raise FullSupplyPreflightError(
+                        "supply click changed a non-target fleet; do not repeat the click"
+                    )
+                continue
+
+            master_id = before_ship.get("api_ship_id")
+            master = before_masters.get(str(master_id))
+            if not isinstance(master, dict):
+                raise FullSupplyPreflightError(
+                    "target ship master data is missing; do not repeat the click"
+                )
+            for field, maximum_field in (
+                ("api_fuel", "api_fuel_max"),
+                ("api_bull", "api_bull_max"),
+            ):
+                before_value = before_ship.get(field)
+                after_value = after_ship.get(field)
+                maximum = master.get(maximum_field)
+                if any(
+                    isinstance(value, bool) or not isinstance(value, int)
+                    for value in (before_value, after_value, maximum)
+                ) or not (0 <= before_value <= after_value <= maximum):
+                    raise FullSupplyPreflightError(
+                        f"target ship {ship_id} {field} changed outside the allowed supply range; "
+                        "do not repeat the click"
+                    )
+
+        observed_fuel, observed_ammo = post_resources[0], post_resources[1]
+        if any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in (observed_fuel, observed_ammo)
+        ):
+            raise FullSupplyPreflightError(
+                "post-click material inventory contains invalid values; do not repeat the click"
+            )
+        if not (
+            expected_fuel <= observed_fuel <= before_resources[0]
+            and expected_ammo <= observed_ammo <= before_resources[1]
+        ):
+            raise FullSupplyPreflightError(
+                "post-click material inventory changed outside the expected supply-cost range; "
+                "do not repeat the click"
+            )
+
+        target_complete = verify_fleet_supply_complete(
+            target_fleet_id, post_fleets, post_ships, post_masters
+        )
+        materials_complete = (
+            observed_fuel == expected_fuel and observed_ammo == expected_ammo
+        )
+        log(
+            "fleet_supply_post_click_verification_poll",
+            fleet_id=target_fleet_id,
+            attempt=attempt,
+            max_attempts=max_polls,
+            target_fleet_complete=target_complete,
+            expected_material_delta_observed=materials_complete,
+            fuel_remaining=observed_fuel,
+            ammo_remaining=observed_ammo,
+            retry_allowed=False,
+        )
+        if target_complete and materials_complete:
+            log(
+                "full_supply_completed_and_verified_after_delayed_store_sync",
+                fleet_id=target_fleet_id,
+                poll_attempts=attempt,
+                max_attempts=max_polls,
+                fuel_remaining=observed_fuel,
+                ammo_remaining=observed_ammo,
+                ui_click_count=1,
+                retry_allowed=False,
+                game_api_request_initiated=False,
+            )
+            return post_state
+
+    raise FullSupplyPreflightError(
+        f"Poi store did not converge to the verified supply result after {max_polls} "
+        "read-only polls; do not repeat the click"
+    )
+
 
 def _materials_match(witness: dict[str, Any], resources: list[Any]) -> bool:
     data = witness.get("data")
@@ -512,41 +668,14 @@ def run(*, dry_run: bool = False) -> int:
             )
             session.input.click_visual_target(target, screenshot_base64=frame, button="left")
             log("fleet_wide_supply_click_sent", fleet_id=target_fleet_id, click_count=1, retry_allowed=False)
-            time.sleep(2.0)
-
-            post_state = _read_stable_state(client)
-            post_fleets, post_ships, post_resources, post_masters = post_state
-            if _fleet_structure_signature(post_fleets) != _fleet_structure_signature(before_fleets):
-                raise FullSupplyPreflightError("fleet membership or mission state changed after supply; do not repeat the click")
-            if post_masters != before_masters:
-                raise FullSupplyPreflightError("master ship data changed after supply; do not repeat the click")
-            target_fleet = next(
-                item for item in before_fleets if item.get("api_id") == target_fleet_id
+            post_state = _verify_post_supply_state_with_bounded_polling(
+                lambda: _read_stable_state(client),
+                before_state,
+                target_fleet_id=target_fleet_id,
+                target_fleet_cost=target_fleet_cost,
+                plan=plan,
             )
-            target_ship_ids = {
-                ship_id for ship_id in target_fleet["api_ship"]
-                if isinstance(ship_id, int) and not isinstance(ship_id, bool) and ship_id > 0
-            }
-            for ship_id in plan.ship_ids:
-                if ship_id in target_ship_ids:
-                    continue
-                before_ship = before_ships.get(str(ship_id))
-                after_ship = post_ships.get(str(ship_id))
-                if not isinstance(before_ship, dict) or not isinstance(after_ship, dict):
-                    raise FullSupplyPreflightError("non-target ship disappeared after supply; do not repeat the click")
-                if (
-                    before_ship.get("api_fuel") != after_ship.get("api_fuel")
-                    or before_ship.get("api_bull") != after_ship.get("api_bull")
-                ):
-                    raise FullSupplyPreflightError("supply click changed a non-target fleet; do not repeat the click")
-            if not verify_fleet_supply_complete(target_fleet_id, post_fleets, post_ships, post_masters):
-                raise FullSupplyPreflightError(
-                    f"fleet {target_fleet_id} was not fully supplied; do not repeat the click"
-                )
-            expected_fuel = before_resources[0] - target_fleet_cost.fuel_required
-            expected_ammo = before_resources[1] - target_fleet_cost.ammo_required
-            if post_resources[0] != expected_fuel or post_resources[1] != expected_ammo:
-                raise FullSupplyPreflightError("post-click resource delta differs from the target-fleet cost; do not repeat the click")
+            post_fleets, post_ships, post_resources, post_masters = post_state
 
             completed_fleet_ids.append(target_fleet_id)
             final_state = post_state
