@@ -88,6 +88,7 @@ def normalize_poi_fleets(
                 # A mission without a usable return timestamp is blocked by planner.
 
         damaged: list[int] = []
+        critical: list[int] = []
         all_fuel_ready = bool(ship_ids)
         all_ammo_ready = bool(ship_ids)
         for ship_id in ship_ids:
@@ -100,6 +101,9 @@ def normalize_poi_fleets(
                 raise PoiStateError(f"ship {ship_id} has unknown HP fields")
             if now_hp < max_hp:
                 damaged.append(ship_id)
+            # 大破 (critical) is HP at or below 25% of maximum.
+            if now_hp * 4 <= max_hp:
+                critical.append(ship_id)
 
             # Do not infer supply from current values alone. Only accept an
             # explicit current/max pair if a Poi fork exposes such fields.
@@ -124,6 +128,7 @@ def normalize_poi_fleets(
             fuel_ready=all_fuel_ready,
             ammo_ready=all_ammo_ready,
             damaged_ship_ids=tuple(damaged),
+            critical_damaged_ship_ids=tuple(critical),
         ))
 
     return ObservedState(tuple(snapshots), observed_at, "poi-redux:info.fleets+info.ships")

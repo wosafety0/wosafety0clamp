@@ -106,6 +106,7 @@ def normalize_poi_fleets(
                 ) from exc
 
         damaged = []
+        critical = []
         ship_levels = []
         ship_types = []
         composition_complete = True
@@ -123,6 +124,9 @@ def normalize_poi_fleets(
                 raise PoiStateError(f"ship {ship_id} has out-of-range HP fields")
             if now_hp < max_hp:
                 damaged.append(ship_id)
+            # 大破 (critical) is HP at or below 25% of maximum.
+            if now_hp * 4 <= max_hp:
+                critical.append(ship_id)
             master_id = ship.get("api_ship_id")
             if isinstance(master_id, bool) or not isinstance(master_id, int) or master_id < 1:
                 raise PoiStateError(f"ship {ship_id} has invalid master ID")
@@ -163,6 +167,7 @@ def normalize_poi_fleets(
             fuel_ready=fuel_ready,
             ammo_ready=ammo_ready,
             damaged_ship_ids=tuple(damaged),
+            critical_damaged_ship_ids=tuple(critical),
             reserved=reserved_slot,
             ship_levels=tuple(ship_levels) if composition_complete and len(ship_levels) == len(ship_ids) else (),
             ship_types=tuple(ship_types) if composition_complete and len(ship_types) == len(ship_ids) else (),

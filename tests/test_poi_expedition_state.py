@@ -36,6 +36,18 @@ class PoiFleetNormalizerTests(unittest.TestCase):
         )
         self.assertEqual(state.payload[0].damaged_ship_ids, (101,))
 
+    def test_critical_damage_is_classified_at_or_below_quarter_hp(self):
+        state = normalize_poi_fleets(
+            [{"api_id": 1, "api_ship": [101, 102], "api_mission": [0, 0, 0, 0]}],
+            {
+                "101": {"api_nowhp": 5, "api_maxhp": 20},   # 25% -> 大破
+                "102": {"api_nowhp": 19, "api_maxhp": 20},  # 95% -> 小破, not 大破
+            },
+            observed_at=NOW,
+        )
+        self.assertEqual(state.payload[0].damaged_ship_ids, (101, 102))
+        self.assertEqual(state.payload[0].critical_damaged_ship_ids, (101,))
+
     def test_active_mission_with_return_timestamp_is_converted_to_utc(self):
         timestamp = int(NOW.timestamp()) + 60
         state = normalize_poi_fleets(

@@ -15,9 +15,9 @@ This increment adds deterministic, side-effect-free fleet readiness evaluation, 
 - `RETURNED_AWAITING_REFRESH`: return time elapsed but the snapshot still reports an active mission. A fresh game-state observation is required before planning again.
 - `BLOCKED_UNKNOWN_RETURN_TIME`: mission is active but no return time is known.
 - `BLOCKED_EMPTY_FLEET`: no ships are observed.
-- `BLOCKED_DAMAGED_SHIPS`: one or more fleet ships are marked damaged.
+- `BLOCKED_CRITICAL_DAMAGE`: one or more fleet ships are critically damaged (大破, HP at or below 25% of maximum). 小破/中破 do not block dispatch. (`BLOCKED_DAMAGED_SHIPS` is retained for backward compatibility but is no longer emitted.)
 - `NEEDS_RESUPPLY`: fuel or ammunition readiness is false.
-- `READY_TO_DISPATCH`: the observed fleet is not on a mission, has ships, has no marked damage, and reports fuel and ammunition ready.
+- `READY_TO_DISPATCH`: the observed fleet is not on a mission, has ships, has no critical (大破) damage, and reports fuel and ammunition ready.
 
 ## Fleet rotation
 

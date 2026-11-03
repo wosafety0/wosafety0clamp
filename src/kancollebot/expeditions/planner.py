@@ -14,6 +14,7 @@ class ExpeditionDecision(str, Enum):
     COMPLETED_AWAITING_REWARD = "completed_awaiting_reward"
     BLOCKED_EMPTY_FLEET = "blocked_empty_fleet"
     BLOCKED_DAMAGED_SHIPS = "blocked_damaged_ships"
+    BLOCKED_CRITICAL_DAMAGE = "blocked_critical_damage"
     NEEDS_RESUPPLY = "needs_resupply"
     READY_TO_DISPATCH = "ready_to_dispatch"
 
@@ -29,6 +30,9 @@ class ExpeditionFleetSnapshot:
     fuel_ready: bool = False
     ammo_ready: bool = False
     damaged_ship_ids: tuple[int, ...] = ()
+    # Ships at or below 25% HP (大破 / critical). Only these block dispatch;
+    # 小破/中破 (damaged but above 25%) are allowed by the operator policy.
+    critical_damaged_ship_ids: tuple[int, ...] = ()
     mission_status: int | None = None
     reserved: int = 0
     ship_levels: tuple[int, ...] = ()
@@ -47,6 +51,14 @@ class ExpeditionFleetSnapshot:
             raise ValueError("damaged_ship_ids must be unique")
         if not set(self.damaged_ship_ids).issubset(self.ship_ids):
             raise ValueError("damaged_ship_ids must belong to this fleet")
+        if len(set(self.critical_damaged_ship_ids)) != len(self.critical_damaged_ship_ids):
+            raise ValueError("critical_damaged_ship_ids must be unique")
+        if not set(self.critical_damaged_ship_ids).issubset(self.ship_ids):
+            raise ValueError("critical_damaged_ship_ids must belong to this fleet")
+        if not set(self.critical_damaged_ship_ids).issubset(self.damaged_ship_ids):
+            raise ValueError(
+                "critical_damaged_ship_ids must also be listed in damaged_ship_ids"
+            )
         if self.mission_status not in (None, 0, 1, 2):
             raise ValueError("mission_status must be 0, 1, 2, or unknown")
         if isinstance(self.reserved, bool) or not isinstance(self.reserved, int) or self.reserved < 0:
@@ -94,7 +106,8 @@ def evaluate_expedition_fleet(
     Safety behavior:
     - An active mission is never considered dispatchable.
     - A reached return time does not prove the game state has refreshed.
-    - Damage blocks dispatch; missing fuel or ammunition requires resupply.
+    - Critical damage (大破) blocks dispatch; minor or moderate damage does not.
+    - Missing fuel or ammunition requires resupply.
     - READY_TO_DISPATCH is only a planning result. No POI or network calls occur.
     """
     if now.tzinfo is None or now.utcoffset() is None:
@@ -132,11 +145,11 @@ def evaluate_expedition_fleet(
             "Fleet has no observed ships.",
         )
 
-    if snapshot.damaged_ship_ids:
+    if snapshot.critical_damaged_ship_ids:
         return ExpeditionPlan(
             snapshot.fleet_id,
-            ExpeditionDecision.BLOCKED_DAMAGED_SHIPS,
-            "At least one ship is marked damaged; repair policy is not inferred here.",
+            ExpeditionDecision.BLOCKED_CRITICAL_DAMAGE,
+            "At least one ship is critically damaged (大破); dispatch blocked until repaired.",
         )
 
     if not snapshot.fuel_ready or not snapshot.ammo_ready:
@@ -154,5 +167,5 @@ def evaluate_expedition_fleet(
     return ExpeditionPlan(
         snapshot.fleet_id,
         ExpeditionDecision.READY_TO_DISPATCH,
-        "Observed fleet is non-empty, undamaged, supplied, and not on a mission.",
+        "Observed fleet is non-empty, free of critical damage, supplied, and not on a mission.",
     )

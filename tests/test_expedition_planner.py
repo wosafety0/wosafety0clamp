@@ -32,6 +32,21 @@ class ExpeditionFleetSnapshotTests(unittest.TestCase):
                 fleet_id=1, ship_ids=(1,), damaged_ship_ids=(2,)
             )
 
+    def test_rejects_critical_damage_for_ship_not_in_fleet(self):
+        with self.assertRaisesRegex(ValueError, "belong to this fleet"):
+            ExpeditionFleetSnapshot(
+                fleet_id=1,
+                ship_ids=(1,),
+                damaged_ship_ids=(1,),
+                critical_damaged_ship_ids=(2,),
+            )
+
+    def test_rejects_critical_damage_not_listed_as_damaged(self):
+        with self.assertRaisesRegex(ValueError, "also be listed"):
+            ExpeditionFleetSnapshot(
+                fleet_id=1, ship_ids=(1,), critical_damaged_ship_ids=(1,)
+            )
+
 
 class ExpeditionPlannerTests(unittest.TestCase):
     def setUp(self):
@@ -54,7 +69,23 @@ class ExpeditionPlannerTests(unittest.TestCase):
             ExpeditionDecision.BLOCKED_EMPTY_FLEET,
         )
 
-    def test_damaged_ship_blocks_dispatch(self):
+    def test_critically_damaged_ship_blocks_dispatch(self):
+        snapshot = ExpeditionFleetSnapshot(
+            fleet_id=1,
+            ship_ids=(1, 2),
+            fuel_ready=True,
+            ammo_ready=True,
+            damaged_ship_ids=(2,),
+            critical_damaged_ship_ids=(2,),
+        )
+        self.assertEqual(
+            evaluate_expedition_fleet(snapshot, now=self.now).decision,
+            ExpeditionDecision.BLOCKED_CRITICAL_DAMAGE,
+        )
+
+    def test_minor_or_moderate_damage_does_not_block_dispatch(self):
+        # 小破/中破 (damaged but above 25% HP) is allowed by operator policy;
+        # only 大破 (critical) blocks dispatch.
         snapshot = ExpeditionFleetSnapshot(
             fleet_id=1,
             ship_ids=(1, 2),
@@ -62,10 +93,8 @@ class ExpeditionPlannerTests(unittest.TestCase):
             ammo_ready=True,
             damaged_ship_ids=(2,),
         )
-        self.assertEqual(
-            evaluate_expedition_fleet(snapshot, now=self.now).decision,
-            ExpeditionDecision.BLOCKED_DAMAGED_SHIPS,
-        )
+        plan = evaluate_expedition_fleet(snapshot, now=self.now)
+        self.assertEqual(plan.decision, ExpeditionDecision.READY_TO_DISPATCH)
 
     def test_missing_fuel_or_ammunition_requires_resupply(self):
         snapshot = ExpeditionFleetSnapshot(
