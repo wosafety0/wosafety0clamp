@@ -397,6 +397,12 @@ class DismissBudgetTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             DismissBudget(limit=1, used=-1)
 
+    def test_used_must_be_an_exact_integer(self) -> None:
+        for bad in (True, False, 0.0, 0.5, "0", None):
+            with self.subTest(used=bad):
+                with self.assertRaises(ValueError):
+                    DismissBudget(limit=3, used=bad)
+
 
 class BudgetedDismissTests(unittest.TestCase):
     def _run(self, backend, probe, **kwargs):

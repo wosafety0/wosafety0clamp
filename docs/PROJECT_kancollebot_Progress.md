@@ -3717,3 +3717,11 @@ The Hand plugin's read-only probe reported:
 - **TESTED:** Full Python suite **759 tests, 18 skipped, OK** (three new tests cover capture-when-asked, capture-never-by-default, and an unreadable payload being reported without blocking). compileall and `git diff --check` clean.
 - **LIMITS / NOT VERIFIED:** Only the first area tab has ever been observed *selected*, so the boundary of each area's own list, and whether the row band shifts per area, are still unverified; a tab that opens on a later area has never been seen. The scroll affordance geometry remains unknown until an account with a longer unlocked list is available. Dispatch and the complete loop remain NOT_VERIFIED.
 - **ARTIFACTS:** `tools/run_continuous_expedition_monitor.py`, `tools/one_expedition_ui_loop.py`, `tests/test_one_expedition_ui_loop.py`, `src/kancollebot/calibration/expedition_list.py`.
+
+## 2026-11-04 - Strict modal-dismiss budget counter validation
+
+- **IMPLEMENTED:** `DismissBudget` now requires `used` to be an exact built-in integer at construction. This rejects bool-as-int, integral/fractional floats, strings, and `None` before the budget can be consulted; valid integer range checks remain unchanged.
+- **TESTED:** Added regression coverage for six malformed `used` values (`True`, `False`, `0.0`, `0.5`, `"0"`, and `None`).
+- **EXACT-HEAD PUSH CI:** Candidate code/test head `2e026d8d46a5e4b880acf9373f4f2eb6bd765ef3` passed [run 41692359602](https://github.com/wosafety0/wosafety0clamp/actions/runs/41692359602). Node static tests **17/17**; observer `node --check`; package install and CLI help smoke checks; Python compileall; full Python suite **760 tests, 20 skipped**. Every workflow step succeeded.
+- **SCOPE / SAFETY:** Offline CI only. This run did not connect to Poi or send game input, dispatch, supply, collect rewards, call game APIs, execute page JavaScript, use `Runtime.evaluate`, access page getters, or change system settings. The current unattended KancolleBot development scope remains no game input.
+- **PR:** [Draft PR #29](https://github.com/wosafety0/wosafety0clamp/pull/29) contains this one-commit follow-up, stacked on Draft PR #28. Both remain open/unmerged.

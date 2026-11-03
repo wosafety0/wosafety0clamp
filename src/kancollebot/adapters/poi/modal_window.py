@@ -138,6 +138,8 @@ class DismissBudget:
     def __post_init__(self) -> None:
         if isinstance(self.limit, bool) or not isinstance(self.limit, int) or self.limit < 1:
             raise ValueError("limit must be a positive integer")
+        if type(self.used) is not int:
+            raise ValueError("used must be an integer")
         if self.used < 0 or self.used > self.limit:
             raise ValueError("used must be within the limit")
 
