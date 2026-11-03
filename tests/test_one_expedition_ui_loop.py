@@ -45,25 +45,31 @@ class VisualDocumentCacheTests(unittest.TestCase):
 
 
 class ProductionStartupSafetyGateTests(unittest.TestCase):
-    def test_run_fails_before_opening_any_cdp_session(self):
+    def make_args(self, *, authorized):
         args = MagicMock()
-        args.authorize_ui_actions = True
+        args.authorize_ui_actions = authorized
         args.poll_seconds = 5.0
         args.timeout_seconds = 1800.0
         args.grace_delay_seconds = 10.0
+        return args
 
-        with (
-            patch.object(controller, "connect_poi_session") as connect_poi,
-            patch.object(controller, "connect_game_webview") as connect_game,
-        ):
+    def test_run_requires_explicit_authorization_before_composition(self):
+        args = self.make_args(authorized=False)
+        with patch.object(controller, "_run_production_supervisor_once") as compose:
             with self.assertRaisesRegex(
                 controller.LoopError,
-                "end-to-end acceptance has not been completed",
+                "Missing explicit --authorize-ui-actions flag",
             ):
                 controller.run(args)
+        compose.assert_not_called()
 
-        connect_poi.assert_not_called()
-        connect_game.assert_not_called()
+    def test_authorized_run_enters_production_supervisor_composition(self):
+        args = self.make_args(authorized=True)
+        with patch.object(
+            controller, "_run_production_supervisor_once", return_value=0
+        ) as compose:
+            self.assertEqual(controller.run(args), 0)
+        compose.assert_called_once_with(args)
 
 
 class LiveCheckpointVerifierTests(unittest.TestCase):

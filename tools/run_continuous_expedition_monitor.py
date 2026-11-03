@@ -84,6 +84,7 @@ def build_runtime(
     max_state_age_seconds: float = 30.0,
     client: PoiMcpClient | None = None,
     observer: PassivePortResponseObserver | None = None,
+    dispatch_fleet_ids: tuple[int, ...] = (2, 3),
     enable_ui_refresh: bool = False,
     ui_input: Any | None = None,
     ui_state_verifier: Callable[[str], UiStateEvidence] | None = None,
@@ -96,6 +97,12 @@ def build_runtime(
         raise ValueError("observer_timeout_seconds must be finite and positive")
     if not math.isfinite(max_state_age_seconds) or max_state_age_seconds < 0:
         raise ValueError("max_state_age_seconds must be finite and non-negative")
+    if (
+        not dispatch_fleet_ids
+        or len(set(dispatch_fleet_ids)) != len(dispatch_fleet_ids)
+        or any(fleet_id not in (2, 3) for fleet_id in dispatch_fleet_ids)
+    ):
+        raise ValueError("dispatch_fleet_ids must be a non-empty unique subset of (2, 3)")
     if enable_ui_refresh:
         if ui_input is None or ui_state_verifier is None:
             raise ValueError("UI refresh requires an open game input session and state verifier")
@@ -108,9 +115,12 @@ def build_runtime(
     event_sink = SqliteDispatchEventLog(str(database))
     state_store = SqliteFleetStateStore(database)
     intent_store = SqliteDispatchIntentStore(database)
+    read_only_fleet_ids = tuple(
+        fleet_id for fleet_id in (1, 2, 3) if fleet_id not in dispatch_fleet_ids
+    )
     scheduler = ContinuousExpeditionScheduler(
-        dispatch_fleet_ids=(2, 3),
-        read_only_fleet_ids=(1,),
+        dispatch_fleet_ids=dispatch_fleet_ids,
+        read_only_fleet_ids=read_only_fleet_ids,
         deferred_fleet_ids=(4,),
         state_store=state_store,
     )
@@ -127,7 +137,7 @@ def build_runtime(
         port_snapshot_provider=provider,
         freshness_max_age=timedelta(seconds=max_state_age_seconds),
     )
-    requirements = {
+    all_requirements = {
         2: MissionCompositionRequirement(
             mission_id=1,
             minimum_ships=2,
@@ -138,6 +148,9 @@ def build_runtime(
             minimum_ships=3,
             minimum_flagship_level=3,
         ),
+    }
+    requirements = {
+        fleet_id: all_requirements[fleet_id] for fleet_id in dispatch_fleet_ids
     }
     ui_arbiter = UiOperationArbiter() if enable_ui_refresh else None
     ui_refresh_driver = None

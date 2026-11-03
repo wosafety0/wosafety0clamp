@@ -91,6 +91,29 @@ class ContinuousMonitorRuntimeTests(unittest.TestCase):
             finally:
                 runtime.provider.close(join_timeout_seconds=1)
 
+    def test_build_runtime_can_scope_the_production_tick_to_one_verified_fleet(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "runtime" / "single-fleet.sqlite3"
+            runtime = build_runtime(
+                database_path=database,
+                client=object(),
+                observer=FakeObserver(),
+                dispatch_fleet_ids=(3,),
+            )
+            try:
+                self.assertEqual(runtime.scheduler.dispatch_fleet_ids, (3,))
+                self.assertEqual(runtime.scheduler.read_only_fleet_ids, (1, 2))
+                self.assertEqual(
+                    set(runtime.monitor.mission_requirements),
+                    {3},
+                )
+                self.assertEqual(
+                    runtime.monitor.mission_requirements[3].mission_id,
+                    3,
+                )
+            finally:
+                runtime.provider.close(join_timeout_seconds=1)
+
     def test_ui_state_verifier_wraps_the_live_two_frame_checkpoint(self):
         from tools import one_expedition_ui_loop
         from kancollebot.adapters.poi.ui_state_gate import UiState

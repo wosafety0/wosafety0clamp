@@ -1,10 +1,11 @@
-"""Run one UI-mediated fleet-2 mission-3 expedition from idle back to idle.
+"""Run one supervised Fleet 3 -> mission 3 UI dispatch transaction.
 
-The controller reads the Poi Redux fleet snapshot and sends mouse input only to
-the visible game UI. It never constructs or sends game-server requests. The four
-navigation transitions leading to Fleet 2 selection have live Ooi fingerprint
-checkpoints. The expedition-start action and full return/result/bonus flow remain
-blocked until their remaining production checkpoints are independently verified.
+The production entry composes the fresh Poi monitor, durable scheduler and
+dispatch-intent coordinator, ContinuousDispatchController, single-tick
+ContinuousExpeditionSupervisor, and a visible CDP UI driver. It exits only after
+Poi confirms the new mission tuple and two-frame Home Port evidence. It does not
+wait for return, collect rewards, resupply, or run unattended. All game input is
+visible UI input; no game-server requests or page-state mutation are performed.
 """
 from __future__ import annotations
 
@@ -598,113 +599,172 @@ def _return_home_port_after_dispatch(
     return observed
 
 
+def _run_production_supervisor_once(args: argparse.Namespace) -> int:
+    """Compose the durable monitor/controller/supervisor with the visible CDP driver."""
+    from datetime import timedelta
+
+    from kancollebot.adapters.poi.continuous_expedition_ui import (
+        CdpContinuousExpeditionUiDriver,
+    )
+    from kancollebot.expeditions.continuous_dispatch_controller import (
+        ContinuousDispatchController,
+        UiStateEvidence,
+    )
+    from kancollebot.expeditions.continuous_scheduler import (
+        FleetPhase,
+        UiOperationArbiter,
+    )
+    from kancollebot.expeditions.continuous_supervisor import (
+        ContinuousExpeditionSupervisor,
+    )
+    from kancollebot.expeditions.dispatch_recovery import (
+        DurableDispatchCoordinator,
+        SqliteDispatchIntentStore,
+    )
+    from run_continuous_expedition_monitor import build_runtime
+
+    runtime = None
+    try:
+        with connect_game_webview(timeout=3.0) as game_session:
+            runtime = build_runtime(
+                database_path=args.database,
+                observer_script=args.observer_script,
+                observer_timeout_seconds=args.observer_timeout_seconds,
+                max_state_age_seconds=args.max_state_age_seconds,
+                dispatch_fleet_ids=(3,),
+                enable_ui_refresh=False,
+            )
+            _capture_home_reference(game_session)
+
+            def verify_state(expected: str) -> UiStateEvidence:
+                state = UiState(expected)
+                evidence = _require_ui_state(game_session, state)
+                return UiStateEvidence(
+                    state=state.value,
+                    consecutive_states=(state.value, state.value),
+                    evidence=evidence,
+                )
+
+            ui_driver = CdpContinuousExpeditionUiDriver(
+                game_input=game_session.input,
+                verify_state=verify_state,
+                event_sink=runtime.monitor.event_sink,
+                neutralize_pointer=lambda: game_session.transport.send(
+                    "Input.dispatchMouseEvent",
+                    {"type": "mouseMoved", "x": 1195, "y": 715},
+                ),
+            )
+            dispatch_coordinator = DurableDispatchCoordinator(
+                runtime.scheduler,
+                SqliteDispatchIntentStore(args.database),
+            )
+            dispatch_controller = ContinuousDispatchController(
+                scheduler=runtime.scheduler,
+                dispatch_coordinator=dispatch_coordinator,
+                state_reader=runtime.monitor.state_reader,
+                ui_driver=ui_driver,
+                ui_arbiter=UiOperationArbiter(),
+                mission_requirements=runtime.monitor.mission_requirements,
+                event_sink=runtime.monitor.event_sink,
+                allow_ui_actions=True,
+                max_state_age=timedelta(seconds=args.max_state_age_seconds),
+            )
+            supervisor = ContinuousExpeditionSupervisor(
+                monitor=runtime.monitor,
+                dispatch_controller=dispatch_controller,
+            )
+
+            _print_event(
+                "production_supervisor_started",
+                dispatch_fleets=[3],
+                fixed_mission_id=3,
+                read_only_fleets=[1, 2],
+                deferred_fleets=[4],
+                game_api_requests=False,
+            )
+            result = supervisor.tick()
+            if result.paused_reason is not None or not result.dispatches:
+                _print_event(
+                    "PRODUCTION_SUPERVISOR_PAUSED",
+                    reason=result.paused_reason or "fleet_3_not_ready",
+                    dispatch_count=len(result.dispatches),
+                    game_actions_sent=0,
+                )
+                return 2
+
+            if len(result.dispatches) != 1:
+                raise LoopError(
+                    f"Expected exactly one Fleet 3 dispatch, observed {len(result.dispatches)}"
+                )
+            dispatch = result.dispatches[0]
+            state = runtime.scheduler.fleet(3)
+            if (
+                dispatch.fleet_id != 3
+                or dispatch.mission_id != 3
+                or state.phase is not FleetPhase.EXPEDITION_ACTIVE
+                or not state.home_port_verified
+            ):
+                raise LoopError(
+                    "Supervisor returned without the exact Fleet 3 / mission 3 "
+                    "active tuple and verified Home Port state"
+                )
+            _print_event(
+                "PRODUCTION_UI_CONTROLLER_INTEGRATION_VERIFIED",
+                fleet_id=3,
+                mission_id=3,
+                final_time_ms=dispatch.mission.final_time_ms,
+                ship_ids=list(dispatch.mission.ship_ids),
+                home_port_verified=True,
+                evidence="fresh_poi_before_after_and_two_frame_home_port",
+            )
+            return 0
+    except Exception as exc:
+        try:
+            _print_event(
+                "STOPPED_FAIL_CLOSED",
+                error_type=type(exc).__name__,
+                error=str(exc),
+                automatic_retry=False,
+            )
+        except OSError:
+            pass
+        if isinstance(exc, LoopError):
+            raise
+        raise LoopError(
+            f"Production UI controller stopped fail-closed: {type(exc).__name__}: {exc}"
+        ) from exc
+    finally:
+        if runtime is not None:
+            runtime.provider.close(join_timeout_seconds=1.0)
+
+
 def run(args: argparse.Namespace) -> int:
     if not args.authorize_ui_actions:
         raise LoopError("Missing explicit --authorize-ui-actions flag")
-    # RETURN_RESULT and BONUS_ITEMS have passed live two-frame visual checks.
-    # Keep production input disabled until the full end-to-end acceptance passes.
-    raise LoopError("Live UI loop disabled: end-to-end acceptance has not been completed")
-    if not 1 <= args.poll_seconds <= 30:
-        raise LoopError("poll_seconds must be between 1 and 30")
-    if not 60 <= args.timeout_seconds <= 3600:
-        raise LoopError("timeout_seconds must be between 60 and 3600")
-    if not 0 <= args.grace_delay_seconds <= 300:
-        raise LoopError("grace_delay_seconds must be between 0 and 300")
-    with connect_poi_session(timeout=3.0) as state_session, connect_game_webview(timeout=3.0) as game_session:
-        # Serialize the initial snapshot and dispatch transaction, then release
-        # the shared UI mutex before the potentially long expedition wait.
-        with poi_ui_operation("one-expedition-dispatch"):
-            initial_states = read_poi_fleet_states(state_session.transport)
-            initial = _fleet(initial_states)
-            if not _idle(initial):
-                raise LoopError(f"Fleet 2 must be idle before this one-shot run: {initial.mission}")
-            _print_event("startup_idle_state_verified", initial)
-            _capture_home_reference(game_session)
-            _recover_home_port(game_session)
-            baseline_ms = int(time.time() * 1000)
-            checkpoint_verifier = build_checkpoint_verifier(
-                state_session.transport, game_session, baseline_ms
-            )
-            dispatched = _dispatch(
-                state_session.transport, game_session.input, baseline_ms,
-                checkpoint_verifier=checkpoint_verifier,
-            )
-            dispatched = _return_home_port_after_dispatch(
-                game_session, state_session.transport, dispatched
-            )
-        expected_final_time_ms = dispatched.final_time_ms
-        _print_event("dispatch_confirmed_waiting_for_timer", dispatched,
-                     expected_final_time_ms=expected_final_time_ms)
-
-        # This phase only polls the Poi Redux snapshot and waits for the timer.
-        # It must never reserve the shared UI mutex.
-        _wait_for_return(
-            state_session.transport,
-            expected_final_time_ms,
-            args.poll_seconds,
-            args.timeout_seconds,
-            args.grace_delay_seconds,
-        )
-
-        # Refresh is a short UI transaction; release the mutex during subsequent
-        # read-only Redux polling for the returned mission tuple.
-        with poi_ui_operation("one-expedition-return-refresh"):
-            _print_event("ui_action_precondition", action="click_sortie", expected="expedition return refresh")
-            game_session.input.click(SORTIE)
-            _print_event("ui_click_sent", point=SORTIE.label)
-            time.sleep(1.5)
-            _print_event("ui_action_wait_completed", point=SORTIE.label, wait_seconds=1.5)
-            _recover_home_port(game_session, force_click=True)
-
-        refresh_deadline = time.monotonic() + 120.0
-        last_refresh_log = 0.0
-        result_state = None
-        while time.monotonic() < refresh_deadline:
-            observed = _fleet(read_poi_fleet_states(state_session.transport))
-            if observed.mission_status == 2 and observed.mission_id == MISSION_ID and observed.final_time_ms == expected_final_time_ms:
-                result_state = observed
-                _print_event("expedition_completion_confirmed_after_home_port_refresh", observed)
-                break
-            if observed.mission_status != 1 or observed.mission_id != MISSION_ID or observed.final_time_ms != expected_final_time_ms:
-                raise LoopError(f"Unexpected fleet 2 state after Home Port refresh: {observed.mission}")
-            now = time.monotonic()
-            if now - last_refresh_log >= 5.0:
-                _print_event("waiting_for_refreshed_completion_state", observed, retry_interval_seconds=5)
-                last_refresh_log = now
-            time.sleep(5.0)
-        if result_state is None:
-            raise LoopError("Completion state was not confirmed within 120 seconds after Home Port refresh")
-
-        with poi_ui_operation("one-expedition-reward-screens"):
-            _require_ui_state(game_session, UiState.RETURN_RESULT)
-            _advance_returned_expedition_screens(game_session)
-
-        # The reward UI has advanced; wait for the fleet's idle Redux tuple
-        # without holding the shared UI mutex.
-        _wait_for_idle(state_session.transport)
-
-        with poi_ui_operation("one-expedition-reward-home-recovery"):
-            _recover_home_port(game_session)
-        _verify_returned_expedition_ready(
-            state_session.transport, expected_final_time_ms
-        )
-    return 0
+    return _run_production_supervisor_once(args)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--authorize-ui-actions", action="store_true", required=True,
-                        help="Explicitly authorize this one fixed live UI loop")
-    parser.add_argument("--poll-seconds", type=float, default=5.0)
-    parser.add_argument("--timeout-seconds", type=float, default=1800.0)
-    parser.add_argument("--grace-delay-seconds", type=float, default=10.0,
-                        help="Wait after the scheduled return time before refreshing through the UI")
     parser.add_argument(
-        "--template-dir",
-        type=Path,
-        default=Path(os.environ["KANCOLLEBOT_TEMPLATE_DIR"]) if os.environ.get("KANCOLLEBOT_TEMPLATE_DIR") else None,
-        help="Directory containing local visual templates for RETURN_RESULT and BONUS_ITEMS",
+        "--authorize-ui-actions",
+        action="store_true",
+        required=True,
+        help="Explicitly authorize the fixed Fleet 3 -> mission 3 visible-UI dispatch",
     )
+    parser.add_argument(
+        "--database",
+        type=Path,
+        default=ROOT / "logs" / "one_expedition_production.sqlite3",
+        help="Dedicated durable scheduler/dispatch database for this one-fleet entry",
+    )
+    parser.add_argument(
+        "--observer-script",
+        type=Path,
+        default=ROOT / "tools" / "hand_sandbox" / "poi_port_response_observer_20261029.js",
+    )
+    parser.add_argument("--observer-timeout-seconds", type=float, default=130.0)
+    parser.add_argument("--max-state-age-seconds", type=float, default=30.0)
     parser.add_argument(
         "--log-path",
         type=Path,
@@ -712,10 +772,6 @@ def main() -> int:
         help="The sole permitted local output file; defaults to logs/one_expedition_ui_loop.jsonl",
     )
     args = parser.parse_args()
-    if args.template_dir is not None:
-        if not args.template_dir.is_dir():
-            parser.error(f"template directory does not exist: {args.template_dir}")
-        os.environ["KANCOLLEBOT_TEMPLATE_DIR"] = str(args.template_dir.expanduser().resolve())
     global LOG_PATH, RUN_ID, HOME_REFERENCE_BASE64
     LOG_PATH = args.log_path.expanduser().resolve()
     HOME_REFERENCE_BASE64 = None
