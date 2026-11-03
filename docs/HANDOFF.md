@@ -1,11 +1,20 @@
 # Developer Handoff
 
-**Updated:** 2026-11-03  
+**Updated:** 2026-11-04  
 **Repository:** wosafety0/wosafety0clamp  
 **Working branch:** dev/expedition-closed-loop-mvp  
-**Code baseline before this documentation update:** 1aba35893daa3974c55a6ac54aec2c9dcac8cccb
+**Current base-branch head:** cca8b12debcba4373b10304b462aa902d00c56fc
 
 This document is the concise handoff entry point. The long design and progress records remain useful for implementation history, but older entries are point-in-time records and may be superseded by later entries.
+
+## Current candidate stack — 2026-11-04
+
+- The current base application branch is dev/expedition-closed-loop-mvp, head cca8b12debcba4373b10304b462aa902d00c56fc. Its exact-head CI [run 41644302317](https://github.com/wosafety0/wosafety0clamp/actions/runs/41644302317) succeeded: 508 Python tests (20 skipped) and 17/17 Node static tests.
+- The current read-only scanner/safety PR stack is PR #28 → #29 → #30 → #31. All four are open, Draft, and unmerged; each is based on the immediately preceding candidate, with PR #28 based on the base application branch.
+- PR #29 adds exact-integer validation for the modal-dismiss budget; its exact code/test CI [run 41692359602](https://github.com/wosafety0/wosafety0clamp/actions/runs/41692359602) passed 760 Python tests (20 skipped) and 17/17 Node tests.
+- PR #30 makes scroll evidence take precedence over short-page row count and never infers end-of-list from row count alone; its final exact-head CI [run 41693984901](https://github.com/wosafety0/wosafety0clamp/actions/runs/41693984901) passed 761 Python tests (20 skipped) and 17/17 Node tests.
+- PR #31 blocks relocation if the fresh scan cannot uniquely identify the selected area tab. Code/test commit 48184c70ebfc4d9ec1ff16fc9cef62d9e90f64a3 passed [run 41737993338](https://github.com/wosafety0/wosafety0clamp/actions/runs/41737993338): 762 Python tests (20 skipped) and 17/17 Node tests. The current PR #31 archive head is 54be5773ff692cc2e793e53a75c5a14d90e978e3; its progress file was remotely read back at blob 587994bdbd8bb133a18571a3eacc4f6cff06c6f5.
+- These checks are offline/static only. They do not authorize or verify game input, scrolling, dispatch, supply, reward collection, or unattended operation. Keep the production freshness/dispatch gate fail-closed.
 
 ## 1. Start here
 
@@ -21,7 +30,7 @@ This document is the concise handoff entry point. The long design and progress r
 - Active code branch: **dev/expedition-closed-loop-mvp**.
 - Baseline commit: **1aba35893daa3974c55a6ac54aec2c9dcac8cccb** — “Block expedition dispatch on Taiha ships”.
 - Latest verified CI for that commit: [run 41637134894](https://github.com/wosafety0/wosafety0clamp/actions/runs/41637134894), conclusion **success**. The test job passed JavaScript static tests, passive observer syntax check, Python compile, and Python unit tests.
-- The project progress record reports **502 Python tests passed** for the Taiha-gate change. CI success is independently verified; the exact test count is recorded in the progress log.
+- The current base branch exact-head CI reports **508 Python tests, 20 skipped, and 17/17 Node static tests**. The latest PR #31 code/test candidate separately reports **762 Python tests, 20 skipped, and 17/17 Node static tests**; see the candidate stack above for exact run IDs.
 - The default branch has not been changed, no PR has been created or merged as part of this handoff, and no collaborator permissions have been changed. Public read access does not grant push access; a new developer needs repository write permission to push.
 
 ## 3. Architecture map
@@ -57,7 +66,7 @@ This document is the concise handoff entry point. The long design and progress r
 
 - Passive port witness, exact current-state matching, background observation, durable fleet state, dispatch-intent recovery, UI arbitration, visual state gates, and guarded supply logic have offline test coverage.
 - Delayed supply verification was corrected to tolerate later store propagation within a bounded read window, without issuing a second click. Its focused regression tests passed.
-- Pre-dispatch Taiha (大破) detection is implemented: HP at or below 25% is classified with integer arithmetic (api_nowhp * 4 <= api_maxhp). The dispatch controller blocks before durable intent creation and before UI input. The latest recorded full Python suite is 502/502; latest CI for the baseline commit passed.
+- Pre-dispatch Taiha (大破) detection is implemented: HP at or below 25% is classified with integer arithmetic (api_nowhp * 4 <= api_maxhp). The dispatch controller blocks before durable intent creation and before UI input. The current base-branch suite is 508 tests (20 skipped); the latest PR #31 code/test candidate is 762 tests (20 skipped), with 17/17 Node static tests. These are separate exact-head CI results, not live gameplay acceptance.
 
 ## 5. Explicitly not verified / blocked
 

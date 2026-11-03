@@ -3748,3 +3748,10 @@ The Hand plugin's read-only probe reported:
 - **COMMIT:** implementation/test commit 48184c70ebfc4d9ec1ff16fc9cef62d9e90f64a3 on dev/expedition-unknown-tab-locate-guard-20261104, stacked on PR #30 head a42495a9040e1b4de1a28cb501948e6b179d357a.
 - **REMOTE READBACK:** src/kancollebot/calibration/expedition_list.py blob 8dfea2c0cb0bee3c82a685f5f7f6ac4d376d028f; tests/test_expedition_list_scanner.py blob 054490dde98e1f5d62aedd1593da26c5defe6c6a.
 - **SCOPE / SAFETY:** Offline CI only. No Poi connection, screenshot capture, game input, scrolling, dispatch, supply, reward collection, game API request, Runtime.evaluate, page JavaScript execution, getter access, or system change. Production dispatch/freshness gates remain unchanged and fail-closed.
+
+
+## 2026-11-04 — Reconcile current-facing README and handoff
+
+- **FINDING:** README still identified PR #27 as the current safety candidate, and HANDOFF still reported the older 1aba358 baseline and 502-test count. Current GitHub refs show base branch head cca8b12debcba4373b10304b462aa902d00c56fc and the open Draft stack PR #28 → #29 → #30 → #31.
+- **IMPLEMENTED:** Updated README current status and HANDOFF baseline/stack summary to distinguish the current base branch from stacked scanner candidates. Recorded exact CI evidence: base run 41644302317 (508 Python tests, 20 skipped; Node 17/17), PR #29 run 41692359602 (760/20 skipped; Node 17/17), PR #30 run 41693984901 (761/20 skipped; Node 17/17), and PR #31 code/test run 41737993338 (762/20 skipped; Node 17/17).
+- **SCOPE:** Documentation-only reconciliation. No code/runtime behavior, game operation, or production gate changed. PRs remain Draft/open/unmerged; no game input or system change.
