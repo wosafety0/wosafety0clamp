@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from tools.full_supply_ui_action import LoopError, _is_supply_page, run
+from tools.full_supply_ui_action import LoopError, _is_supply_page, _verify_state, run
 from kancollebot.adapters.poi.ui_state_gate import UiState
 
 from kancollebot.adapters.poi.full_supply import (
@@ -228,6 +228,19 @@ class FullSupplyPreflightTests(unittest.TestCase):
 
 
 class SupplyPageDetectionTests(unittest.TestCase):
+    def test_visible_refresh_verifier_allows_six_visual_attempts(self):
+        session = object()
+        with patch(
+            "tools.full_supply_ui_action._require_ui_state",
+            return_value="visual-evidence",
+        ) as require_state:
+            evidence = _verify_state(session, "HOME_PORT")
+        require_state.assert_called_once_with(
+            session, UiState.HOME_PORT, visual_attempts=6
+        )
+        self.assertEqual(evidence.state, "HOME_PORT")
+        self.assertEqual(evidence.consecutive_states, ("HOME_PORT", "HOME_PORT"))
+
     def test_home_port_fast_path_skips_supply_tab_scans(self):
         session = object()
         with patch("tools.full_supply_ui_action._require_ui_state") as require_state, patch(

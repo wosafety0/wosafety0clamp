@@ -3624,3 +3624,9 @@ The Hand plugin's read-only probe reported:
 - **SAFETY:** Three visible navigation clicks were used to obtain the natural witness. Zero supply clicks, zero dispatches, zero game API requests. The UI ended at HOME_PORT; screenshots remained in memory.
 - **ARTIFACT:** Local log `logs/fleet3_supply_preflight_after_target_filter_20261103.jsonl`.
 - **LIMITS / NEXT:** This verifies Fleet 3-only targeting and fresh cost preflight, not the resource-consuming supply click. The explicit `--authorize-full-supply` action has not been run. Obtain explicit authorization before spending the 16 fuel; dispatch and the complete expedition loop remain NOT_VERIFIED.
+
+## 2026-11-03 - Six-sample visible refresh state verification
+
+- **IMPLEMENTED:** The Fleet 3 supply workflow's visible refresh verifier now allows up to six visual samples when confirming each navigation checkpoint. The existing requirement for two consecutive matching in-memory frames remains unchanged; this only accommodates delayed rendering before fail-closed evaluation.
+- **TESTED:** Added a unit test asserting that the production refresh verifier passes `visual_attempts=6` to the shared UI state gate. Full Python suite: **494 tests, 18 skipped, all remaining passed**. Fleet supply tests: **21/21**. Production expedition integration tests: **2/2**. Compileall and `git diff --check` passed.
+- **LIMITS / NEXT:** This improves refresh checkpoint tolerance but does not itself verify or perform a supply action. Fleet 3 remains the only configured target; actual supply still requires a fresh natural port witness, live state/cost validation, one visible supply click, and post-action verification. Dispatch and the full expedition loop remain NOT_VERIFIED.

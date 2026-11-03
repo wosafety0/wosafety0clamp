@@ -193,7 +193,7 @@ def _verify_fresh_witness(
 
 
 def _verify_state(session, expected: str) -> UiStateEvidence:
-    _require_ui_state(session, UiState[expected])
+    _require_ui_state(session, UiState[expected], visual_attempts=6)
     return UiStateEvidence(expected, (expected, expected), "two_consecutive_in_memory_ooi_fingerprints")
 
 
