@@ -213,6 +213,16 @@ def _require_supply_page(session) -> UiState:
     raise LoopError("current UI is not a verified supply page")
 
 
+def _is_supply_page(session) -> bool:
+    """Check Home Port first; scan supply-page variants only when necessary."""
+    try:
+        _require_ui_state(session, UiState.HOME_PORT)
+        return False
+    except LoopError:
+        _require_supply_page(session)
+        return True
+
+
 def _acquire_fresh_witness(session) -> dict[str, Any]:
     observer = PassivePortResponseObserver(OBSERVER_SCRIPT, timeout_seconds=45.0)
     cancel = threading.Event()
@@ -225,18 +235,13 @@ def _acquire_fresh_witness(session) -> dict[str, Any]:
     thread = threading.Thread(target=capture, name="passive-port-witness", daemon=True)
     thread.start()
     time.sleep(1.0)
-    try:
-        _require_supply_page(session)
-        on_supply_page = True
-    except LoopError:
-        on_supply_page = False
+    on_supply_page = _is_supply_page(session)
     if on_supply_page:
         session.input.click(HOME_PORT)
         log("home_port_navigation_click_sent", click_count=1, game_api_request_initiated=False)
         time.sleep(1.0)
         _require_ui_state(session, UiState.HOME_PORT)
     else:
-        _require_ui_state(session, UiState.HOME_PORT)
         log("home_port_precondition_already_satisfied", click_count=0)
     thread.join(timeout=5.0)
 

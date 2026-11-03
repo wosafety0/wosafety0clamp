@@ -1,5 +1,9 @@
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
+
+from tools.full_supply_ui_action import LoopError, _is_supply_page
+from kancollebot.adapters.poi.ui_state_gate import UiState
 
 from kancollebot.adapters.poi.full_supply import (
     FullSupplyPreflightError,
@@ -171,6 +175,26 @@ class FullSupplyPreflightTests(unittest.TestCase):
             ship["api_fuel"] = master["api_fuel_max"]
             ship["api_bull"] = master["api_bull_max"]
         self.assertTrue(verify_full_supply_complete(plan, fleets, ships, masters))
+
+
+class SupplyPageDetectionTests(unittest.TestCase):
+    def test_home_port_fast_path_skips_supply_tab_scans(self):
+        session = object()
+        with patch("tools.full_supply_ui_action._require_ui_state") as require_state, patch(
+            "tools.full_supply_ui_action._require_supply_page"
+        ) as require_supply_page:
+            self.assertFalse(_is_supply_page(session))
+        require_state.assert_called_once_with(session, UiState.HOME_PORT)
+        require_supply_page.assert_not_called()
+
+    def test_supply_page_is_checked_only_after_home_port_rejection(self):
+        session = object()
+        with patch("tools.full_supply_ui_action._require_ui_state", side_effect=LoopError("not home")) as require_state, patch(
+            "tools.full_supply_ui_action._require_supply_page", return_value=UiState.SUPPLY_MENU
+        ) as require_supply_page:
+            self.assertTrue(_is_supply_page(session))
+        require_state.assert_called_once_with(session, UiState.HOME_PORT)
+        require_supply_page.assert_called_once_with(session)
 
 
 if __name__ == "__main__":
