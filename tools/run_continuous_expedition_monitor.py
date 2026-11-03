@@ -400,7 +400,19 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Run one monitor tick and exit; unverified freshness remains blocked.",
     )
+    parser.add_argument(
+        "--auto-dismiss-modal",
+        action="store_true",
+        help=(
+            "When the game renderer is proven parked by a blocking dialog, press "
+            "that dialog's Cancel button before navigating. Only the button "
+            "labelled 取消/キャンセル/Cancel is addressable; refusing stays the "
+            "default so this stays an explicit opt-in."
+        ),
+    )
     args = parser.parse_args(argv)
+    if args.auto_dismiss_modal and not args.enable_ui_refresh:
+        parser.error("--auto-dismiss-modal only applies together with --enable-ui-refresh")
     if not math.isfinite(args.poll_seconds) or args.poll_seconds <= 0:
         parser.error("--poll-seconds must be finite and positive")
     if args.max_ticks is not None and args.max_ticks < 1:
@@ -426,6 +438,27 @@ def main(argv: list[str] | None = None) -> int:
             # command would burn its own timeout and fail with an unrelated
             # message. Probe once up front and name the real cause instead.
             probe = live_probe()
+            if not probe.input_allowed and args.auto_dismiss_modal and probe.dialog_suspected:
+                from kancollebot.adapters.poi.modal_window import (
+                    Win32Backend,
+                    dismiss_blocking_modal,
+                )
+
+                seen = {"n": 0}
+
+                def recheck(settled: dict[str, Any] = seen) -> Any:
+                    settled["n"] = settled["n"] + 1
+                    return probe if settled["n"] == 1 else live_probe()
+
+                recovery = dismiss_blocking_modal(
+                    allow_window_input=True, backend=Win32Backend(), probe=recheck
+                )
+                event = {"status": "MODAL_CANCEL_ATTEMPTED"}
+                event.update(recovery.as_event())
+                _emit(event, print)
+                if recovery.probe_after is not None:
+                    probe = recovery.probe_after
+
             if not probe.input_allowed:
                 _emit(
                     {

@@ -24,7 +24,6 @@ from kancollebot.adapters.poi.renderer_block import (  # noqa: E402
     live_probe,
 )
 
-
 DIALOG_HEADLINE = "エラーが発生したため、ページ更新します。"
 
 
@@ -71,6 +70,15 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="emit the probe as one JSON object instead of prose",
     )
+    parser.add_argument(
+        "--dismiss-cancel",
+        action="store_true",
+        help=(
+            "when a blocking dialog is proven, press its Cancel button and "
+            "re-probe. Presses only the button labelled 取消/キャンセル/Cancel; "
+            "the reload button is never addressable."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if not args.timeout > 0:
@@ -89,7 +97,44 @@ def main(argv: list[str] | None = None) -> int:
     else:
         _report(probe)
 
+    if args.dismiss_cancel and not probe.input_allowed:
+        return _dismiss(probe)
+
     return 0 if probe.input_allowed else 2
+
+
+def _dismiss(probe: BlockProbe) -> int:
+    """Press Cancel on the proven blocker, then report the fresh verdict."""
+    import json
+
+    from kancollebot.adapters.poi.modal_window import (
+        RecoveryOutcome,
+        Win32Backend,
+        dismiss_blocking_modal,
+    )
+
+    calls = {"n": 0}
+
+    def fresh_probe() -> BlockProbe:
+        # Reuse the verdict already in hand for the "before" state, then pay for
+        # a real probe after the click; the block itself costs a full timeout.
+        calls["n"] += 1
+        return probe if calls["n"] == 1 else live_probe()
+
+    try:
+        backend = Win32Backend()
+    except Exception as exc:  # noqa: BLE001 - window access can be unavailable
+        print(f"window access unavailable: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+
+    recovery = dismiss_blocking_modal(
+        allow_window_input=True,
+        backend=backend,
+        probe=fresh_probe,
+    )
+    print()
+    print(json.dumps(recovery.as_event(), ensure_ascii=False, indent=2))
+    return 0 if recovery.outcome is RecoveryOutcome.DISMISSED else 2
 
 
 if __name__ == "__main__":
