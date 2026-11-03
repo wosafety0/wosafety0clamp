@@ -5,12 +5,17 @@ window, one ``#32770`` dialog owned by it, and buttons labelled 确定 / 取消.
 """
 from __future__ import annotations
 
+import io
 import json
 import unittest
+from contextlib import redirect_stdout
+from types import SimpleNamespace
 
 from kancollebot.adapters.poi.modal_window import (
     BM_CLICK,
+    DEFAULT_DISMISS_LIMIT,
     DialogState,
+    DismissBudget,
     RecoveryOutcome,
     WindowInfo,
     WindowInputNotAllowed,
@@ -53,18 +58,24 @@ def modal_world(*, main_enabled=False, dialog=True, extra_dialogs=0, labels=("�
 
 
 class FakeBackend:
-    def __init__(self, windows, buttons, *, click_ok=True, dialog_persists=False):
+    def __init__(self, windows, buttons, *, click_ok=True, dialog_persists=False, texts=()):
         self.windows = windows
         self.buttons = buttons
         self.click_ok = click_ok
         self.dialog_persists = dialog_persists
+        self.texts = texts
         self.clicked: list[int] = []
+        self.enumerations = 0
 
     def top_level_windows(self):
+        self.enumerations += 1
         return tuple(self.windows)
 
     def child_buttons(self, handle):
         return tuple(self.buttons.items())
+
+    def child_texts(self, handle):
+        return tuple(self.texts)
 
     def window_exists(self, handle):
         return handle == DIALOG and self.dialog_persists
@@ -187,6 +198,7 @@ class DismissTests(unittest.TestCase):
             polls=kwargs.get("polls", 2),
             poll_seconds=0,
             sleep=lambda _s: None,
+            budget=kwargs.get("budget"),
         )
 
     def test_consent_is_required(self) -> None:
@@ -249,6 +261,185 @@ class DismissTests(unittest.TestCase):
         self.assertEqual(event["outcome"], "dismissed")
         self.assertEqual(event["dialog_handle"], DIALOG)
         self.assertEqual(event["cancel_label"], "取消")
+
+
+class DismissBudgetTests(unittest.TestCase):
+    def test_a_fresh_budget_can_still_press(self) -> None:
+        budget = DismissBudget(limit=DEFAULT_DISMISS_LIMIT)
+        self.assertTrue(budget.available())
+        self.assertEqual(budget.describe(), f"0/{DEFAULT_DISMISS_LIMIT}")
+
+    def test_spending_stops_being_possible_at_the_limit(self) -> None:
+        budget = DismissBudget(limit=2)
+        budget.spend()
+        self.assertTrue(budget.available())
+        budget.spend()
+        self.assertFalse(budget.available())
+        self.assertEqual(budget.describe(), "2/2")
+
+    def test_spending_past_the_limit_is_an_error_not_a_silent_no_op(self) -> None:
+        budget = DismissBudget(limit=1)
+        budget.spend()
+        with self.assertRaises(ValueError):
+            budget.spend()
+
+    def test_a_non_positive_limit_is_rejected(self) -> None:
+        for bad in (0, -1):
+            with self.subTest(limit=bad):
+                with self.assertRaises(ValueError):
+                    DismissBudget(limit=bad)
+        with self.assertRaises(ValueError):
+            DismissBudget(limit=True)
+
+    def test_used_cannot_start_outside_the_limit(self) -> None:
+        with self.assertRaises(ValueError):
+            DismissBudget(limit=1, used=2)
+        with self.assertRaises(ValueError):
+            DismissBudget(limit=1, used=-1)
+
+
+class BudgetedDismissTests(unittest.TestCase):
+    def _run(self, backend, probe, **kwargs):
+        after = kwargs.get("after", responsive())
+
+        def counted():
+            counted.calls += 1
+            return probe if counted.calls == 1 else after
+
+        counted.calls = 0
+        return dismiss_blocking_modal(
+            allow_window_input=True,
+            backend=backend,
+            probe=counted,
+            polls=kwargs.get("polls", 2),
+            poll_seconds=0,
+            sleep=lambda _s: None,
+            budget=kwargs.get("budget"),
+        )
+
+    def test_a_spent_budget_touches_no_window_at_all(self) -> None:
+        backend = FakeBackend(*modal_world())
+        budget = DismissBudget(limit=1, used=1)
+        result = self._run(backend, blocked(), budget=budget)
+        self.assertIs(result.outcome, RecoveryOutcome.EXHAUSTED)
+        self.assertEqual(backend.clicked, [])
+        self.assertEqual(
+            backend.enumerations, 0, "an exhausted budget must not even enumerate windows"
+        )
+        self.assertIn("1/1", result.reason)
+
+    def test_the_exhausted_outcome_is_its_own_verdict(self) -> None:
+        budget = DismissBudget(limit=1, used=1)
+        result = self._run(FakeBackend(*modal_world()), blocked(), budget=budget)
+        self.assertIsNot(result.outcome, RecoveryOutcome.REFUSED)
+        self.assertEqual(result.as_event()["outcome"], "exhausted")
+
+    def test_a_press_spends_exactly_one_unit(self) -> None:
+        backend = FakeBackend(*modal_world())
+        budget = DismissBudget(limit=3)
+        result = self._run(backend, blocked(), budget=budget)
+        self.assertIs(result.outcome, RecoveryOutcome.DISMISSED)
+        self.assertEqual(backend.clicked, [CANCEL])
+        self.assertEqual(budget.used, 1)
+        self.assertEqual(result.budget, "1/3")
+
+    def test_a_refusal_costs_nothing(self) -> None:
+        budget = DismissBudget(limit=3)
+        backend = FakeBackend(*modal_world(labels=("确定",)))
+        result = self._run(backend, blocked(), budget=budget)
+        self.assertIs(result.outcome, RecoveryOutcome.REFUSED)
+        self.assertEqual(budget.used, 0)
+
+    def test_a_no_op_costs_nothing(self) -> None:
+        budget = DismissBudget(limit=3)
+        result = self._run(FakeBackend(*modal_world()), responsive(), budget=budget)
+        self.assertIs(result.outcome, RecoveryOutcome.NO_OP)
+        self.assertEqual(budget.used, 0)
+
+    def test_a_press_that_leaves_the_renderer_silent_still_spends(self) -> None:
+        budget = DismissBudget(limit=3)
+        backend = FakeBackend(*modal_world())
+        result = self._run(
+            backend, blocked(), budget=budget, after=Probe(input_allowed=False, dialog_suspected=False)
+        )
+        self.assertIs(result.outcome, RecoveryOutcome.STILL_BLOCKED)
+        self.assertEqual(budget.used, 1, "the press happened, so it counts")
+
+    def test_without_a_budget_behaviour_is_unchanged(self) -> None:
+        result = self._run(FakeBackend(*modal_world()), blocked())
+        self.assertIs(result.outcome, RecoveryOutcome.DISMISSED)
+        self.assertIsNone(result.budget)
+
+
+class DialogTextsToolTests(unittest.TestCase):
+    """The calibration hook: reading the wording must never send input."""
+
+    def test_the_wording_can_be_read_without_touching_the_dialog(self) -> None:
+        from tools import check_poi_renderer as tool
+
+        backend = FakeBackend(
+            *modal_world(),
+            texts=(
+                ("Static", "エラーが発生したため、ページ更新します。"),
+                ("Button", "确定"),
+                ("Button", "取消"),
+            ),
+        )
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            code = tool._dialog_texts(backend)
+        output = buffer.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("ページ更新します", output)
+        self.assertIn(hex(DIALOG), output)
+        self.assertEqual(backend.clicked, [], "reading must not press anything")
+
+    def test_no_dialog_means_there_is_nothing_to_calibrate(self) -> None:
+        from tools import check_poi_renderer as tool
+
+        backend = FakeBackend(*modal_world(dialog=False))
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            code = tool._dialog_texts(backend)
+        self.assertEqual(code, 2)
+        self.assertIn("nothing to calibrate", buffer.getvalue())
+
+    def test_the_flag_returns_before_any_cdp_probe(self) -> None:
+        from tools import check_poi_renderer as tool
+
+        original_texts, original_probe = tool._dialog_texts, tool.live_probe
+        tool._dialog_texts = lambda: 7
+
+        def explode(**kwargs):
+            raise AssertionError("--dialog-texts must not probe CDP")
+
+        tool.live_probe = explode
+        try:
+            with redirect_stdout(io.StringIO()):
+                code = tool.main(["--dialog-texts"])
+        finally:
+            tool._dialog_texts = original_texts
+            tool.live_probe = original_probe
+        self.assertEqual(code, 7)
+
+
+class ModalBudgetWiringTests(unittest.TestCase):
+    def test_auto_dismiss_creates_one_shared_allowance(self) -> None:
+        from tools.run_continuous_expedition_monitor import _modal_budget
+
+        budget = _modal_budget(
+            SimpleNamespace(auto_dismiss_modal=True, modal_dismiss_limit=2)
+        )
+        self.assertIsNotNone(budget)
+        self.assertEqual(budget.limit, 2)
+
+    def test_turning_auto_dismiss_off_creates_none(self) -> None:
+        from tools.run_continuous_expedition_monitor import _modal_budget
+
+        budget = _modal_budget(
+            SimpleNamespace(auto_dismiss_modal=False, modal_dismiss_limit=2)
+        )
+        self.assertIsNone(budget)
 
 
 class MessageTests(unittest.TestCase):

@@ -25,7 +25,20 @@ This is the only input path in the project that leaves CDP, so it is fenced:
 * it requires exactly one cancel-labelled button, and refuses when there is none
   or more than one -- there is no fallback that closes the dialog blindly;
 * it never retries a failed dismissal beyond the bounded poll, and the caller
-  must pass ``allow_window_input=True`` explicitly.
+  must pass ``allow_window_input=True`` explicitly;
+* a shared :class:`DismissBudget` caps how many times one process may press, so
+  a persistent network fault cannot be silenced into an endless press loop.
+
+**Known gap: the dialog is identified by shape, not by content.** The shape is
+``#32770`` + owned by a disabled Poi window + exactly one cancel-labelled
+button. Its title and body text are not checked, because the wording was only
+ever read off a screenshot and never measured from the live control tree. That
+means an unrelated Poi dialog which happens to offer Cancel could be pressed if
+the renderer is silent for another reason. ``Win32Backend.child_texts`` and
+``tools/check_poi_renderer.py --dialog-texts`` exist so the real wording can be
+measured in one read-only pass the next time the prompt is on screen; matching
+on it is the follow-up that closes the gap, and until then this module must not
+pretend to have closed it.
 
 Nothing here is Windows-version specific beyond plain user32 calls.
 """
@@ -47,6 +60,9 @@ BM_CLICK = 0x00F5
 
 POLL_SECONDS = 0.4
 DEFAULT_POLLS = 8
+# One process gets three presses. A prompt that keeps coming back means the
+# network is still down, and pressing a fourth time would only hide that.
+DEFAULT_DISMISS_LIMIT = 3
 
 
 class WindowInputNotAllowed(RuntimeError):
@@ -68,6 +84,41 @@ class RecoveryOutcome(str, Enum):
     REFUSED = "refused"
     DISMISSED = "dismissed"
     STILL_BLOCKED = "still_blocked"
+    # The budget ran out, so nothing was touched. Distinct from REFUSED: the
+    # dialog was fine, the reason is that pressing again would be hiding a
+    # fault rather than fixing one.
+    EXHAUSTED = "exhausted"
+
+
+@dataclass(slots=True)
+class DismissBudget:
+    """How many times one process may still press Cancel.
+
+    Sharing one instance across every recovery point is the whole point: the
+    startup probe and each failed tick draw from the same allowance, so a fault
+    that keeps raising the prompt stops being dismissable after a few presses
+    instead of being quietly cancelled forever.
+    """
+
+    limit: int = DEFAULT_DISMISS_LIMIT
+    used: int = 0
+
+    def __post_init__(self) -> None:
+        if isinstance(self.limit, bool) or not isinstance(self.limit, int) or self.limit < 1:
+            raise ValueError("limit must be a positive integer")
+        if self.used < 0 or self.used > self.limit:
+            raise ValueError("used must be within the limit")
+
+    def available(self) -> bool:
+        return self.used < self.limit
+
+    def spend(self) -> None:
+        if not self.available():
+            raise ValueError("the dismiss budget is already spent")
+        self.used += 1
+
+    def describe(self) -> str:
+        return f"{self.used}/{self.limit}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +165,7 @@ class ModalRecovery:
     dialog: ModalDialog | None
     cancel_label: str | None
     probe_after: object | None
+    budget: str | None = None
 
     def as_event(self) -> dict[str, object]:
         """Flatten into JSON-safe telemetry."""
@@ -126,6 +178,7 @@ class ModalRecovery:
             "reason": self.reason,
             "dialog_handle": None if self.dialog is None else self.dialog.handle,
             "cancel_label": self.cancel_label,
+            "dismiss_budget": self.budget,
             "probe_after": after,
         }
 
@@ -138,6 +191,13 @@ class WindowBackend(Protocol):
 
     def child_buttons(self, handle: int) -> tuple[tuple[int, str], ...]:
         """The (handle, label) of each button child, in enumeration order."""
+
+    def child_texts(self, handle: int) -> tuple[tuple[str, str], ...]:
+        """Every child control's (class name, text), for naming a dialog.
+
+        Read-only; used to work out what a dialog actually says before anything
+        is allowed to match on that wording.
+        """
 
     def window_exists(self, handle: int) -> bool:
         """True while the window handle is still valid."""
@@ -238,6 +298,7 @@ def dismiss_blocking_modal(
     polls: int = DEFAULT_POLLS,
     poll_seconds: float = POLL_SECONDS,
     sleep: Callable[[float], None] = time.sleep,
+    budget: DismissBudget | None = None,
 ) -> ModalRecovery:
     """Press Cancel on the blocking dialog, after proving it is the blocker.
 
@@ -245,6 +306,10 @@ def dismiss_blocking_modal(
     ``input_allowed``, ``dialog_suspected`` and ``as_event``. The dismissal only
     starts from a state CDP has already declared unusable *and* attributed to a
     modal, so no window is ever touched on a surface that merely looked slow.
+
+    A ``budget`` that is already spent ends the attempt before any window is
+    enumerated, and a press that actually happens spends one unit. Refusals and
+    no-ops cost nothing, so the allowance counts presses, not attempts.
     """
     if not allow_window_input:
         raise WindowInputNotAllowed(
@@ -256,7 +321,12 @@ def dismiss_blocking_modal(
     before = probe()
     if getattr(before, "input_allowed", False):
         return ModalRecovery(
-            RecoveryOutcome.NO_OP, "the game renderer already answers", None, None, before
+            RecoveryOutcome.NO_OP,
+            "the game renderer already answers",
+            None,
+            None,
+            before,
+            None if budget is None else budget.describe(),
         )
     if not getattr(before, "dialog_suspected", False):
         return ModalRecovery(
@@ -265,12 +335,30 @@ def dismiss_blocking_modal(
             None,
             None,
             before,
+            None if budget is None else budget.describe(),
+        )
+    if budget is not None and not budget.available():
+        return ModalRecovery(
+            RecoveryOutcome.EXHAUSTED,
+            (
+                f"the auto-dismiss budget is spent ({budget.describe()}); the prompt "
+                "keeps returning, so this is a fault to look at, not to cancel again"
+            ),
+            None,
+            None,
+            before,
+            budget.describe(),
         )
 
     lookup = find_modal_dialog(backend, exe=exe)
     if lookup.state is not DialogState.FOUND or lookup.dialog is None:
         return ModalRecovery(
-            RecoveryOutcome.REFUSED, lookup.detail, None, None, before
+            RecoveryOutcome.REFUSED,
+            lookup.detail,
+            None,
+            None,
+            before,
+            None if budget is None else budget.describe(),
         )
 
     button, labels = find_cancel_button(backend, lookup.dialog)
@@ -281,6 +369,7 @@ def dismiss_blocking_modal(
             lookup.dialog,
             None,
             before,
+            None if budget is None else budget.describe(),
         )
 
     if not backend.post_click(button.handle):
@@ -290,7 +379,10 @@ def dismiss_blocking_modal(
             lookup.dialog,
             button.label,
             before,
+            None if budget is None else budget.describe(),
         )
+    if budget is not None:
+        budget.spend()
 
     for _ in range(polls):
         if not backend.window_exists(lookup.dialog.handle):
@@ -305,6 +397,7 @@ def dismiss_blocking_modal(
             lookup.dialog,
             button.label,
             after,
+            None if budget is None else budget.describe(),
         )
     return ModalRecovery(
         RecoveryOutcome.STILL_BLOCKED,
@@ -312,6 +405,7 @@ def dismiss_blocking_modal(
         lookup.dialog,
         button.label,
         after,
+        None if budget is None else budget.describe(),
     )
 
 
@@ -404,6 +498,22 @@ class Win32Backend:
 
     def window_exists(self, handle: int) -> bool:
         return bool(self._user32.IsWindow(handle))
+
+    def child_texts(self, handle: int) -> tuple[tuple[str, str], ...]:
+        ctypes, wt, user32 = self._ctypes, self._wt, self._user32
+        found: list[tuple[str, str]] = []
+        enum_proc = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
+
+        def collect(child, _lparam):
+            class_buffer = ctypes.create_unicode_buffer(128)
+            user32.GetClassNameW(child, class_buffer, 128)
+            text = self._text(child, 512)
+            if text:
+                found.append((class_buffer.value, text))
+            return True
+
+        user32.EnumChildWindows(handle, enum_proc(collect), 0)
+        return tuple(found)
 
     def post_click(self, handle: int) -> bool:
         return bool(self._user32.PostMessageW(handle, BM_CLICK, 0, 0))

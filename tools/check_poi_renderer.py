@@ -79,10 +79,22 @@ def main(argv: list[str] | None = None) -> int:
             "the reload button is never addressable."
         ),
     )
+    parser.add_argument(
+        "--dialog-texts",
+        action="store_true",
+        help=(
+            "read-only: print the title and every control text the blocking "
+            "dialog carries. Used to calibrate content matching; sends no input "
+            "and needs no CDP connection."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if not args.timeout > 0:
         parser.error("--timeout must be positive")
+
+    if args.dialog_texts:
+        return _dialog_texts()
 
     try:
         probe = live_probe(timeout=args.timeout)
@@ -101,6 +113,48 @@ def main(argv: list[str] | None = None) -> int:
         return _dismiss(probe)
 
     return 0 if probe.input_allowed else 2
+
+
+def _dialog_texts(backend: object | None = None) -> int:
+    """Print what the blocking dialog actually says, without touching it.
+
+    The dismissal identifies a dialog by shape alone, so this exists to close
+    that gap: run it while the prompt is on screen and the real title and body
+    become available to match on.
+    """
+    from kancollebot.adapters.poi.modal_window import (
+        DialogState,
+        Win32Backend,
+        find_modal_dialog,
+    )
+
+    if backend is None:
+        try:
+            backend = Win32Backend()
+        except Exception as exc:  # noqa: BLE001 - window access can be unavailable
+            print(
+                f"window access unavailable: {type(exc).__name__}: {exc}", file=sys.stderr
+            )
+            return 1
+
+    lookup = find_modal_dialog(backend)
+    print(f"dialog state : {lookup.state.value}")
+    print(f"detail       : {lookup.detail}")
+    if lookup.state is not DialogState.FOUND or lookup.dialog is None:
+        print()
+        print("No blocking dialog is on screen right now; nothing to calibrate.")
+        return 2
+
+    print(f"handle       : {lookup.dialog.handle:#x}")
+    print(f"owner        : {lookup.dialog.owner_handle:#x}")
+    print(f"size         : {lookup.dialog.width}x{lookup.dialog.height}")
+    print(f"title        : {lookup.dialog.title!r}")
+    print("child texts  :")
+    for class_name, text in backend.child_texts(lookup.dialog.handle):
+        print(f"  {class_name:22s} {text!r}")
+    print()
+    print("These strings are the candidates for content matching. Nothing was sent.")
+    return 0
 
 
 def _dismiss(probe: BlockProbe) -> int:
