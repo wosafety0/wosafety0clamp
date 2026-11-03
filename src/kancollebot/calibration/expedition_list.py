@@ -463,20 +463,20 @@ def scan_page(
 
 
 def classify_boundary(scan: PageScan, *, capacity: int | None = None) -> ListBoundary:
-    """Decide whether the list provably ends on this page.
+    """Conservatively classify whether more rows may exist below this page.
 
-    Only two things count as proof: the page is not full (rows are painted from
-    the top, so a short page has nothing below it), or a detected scroll control
-    reports the bottom. A completely full page proves nothing, so it is reported
-    as unknown rather than as the end of the list.
+    A visible scroll-control candidate takes precedence over row count and means
+    more rows may be below. Without a candidate, a short page is end-confirmed
+    because rows are expected to be painted contiguously from the top. A full
+    page without a candidate proves nothing and remains unknown.
     """
     limit = scan.capacity if capacity is None else capacity
     if not scan.rows:
         return ListBoundary(BoundaryState.UNKNOWN, "no_rows_detected")
-    if len(scan.rows) < limit:
-        return ListBoundary(BoundaryState.END_CONFIRMED, "rows_below_capacity")
     if scan.scroll_candidates:
         return ListBoundary(BoundaryState.MORE_BELOW, "scroll_affordance_present")
+    if len(scan.rows) < limit:
+        return ListBoundary(BoundaryState.END_CONFIRMED, "rows_below_capacity")
     return ListBoundary(BoundaryState.UNKNOWN, "full_page_without_scroll_affordance")
 
 

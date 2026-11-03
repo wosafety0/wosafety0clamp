@@ -197,6 +197,13 @@ class ScanPageTests(unittest.TestCase):
         self.assertIs(boundary.state, BoundaryState.END_CONFIRMED)
         self.assertEqual(boundary.reason, "rows_below_capacity")
 
+    def test_short_page_with_scroll_affordance_means_more_below(self) -> None:
+        image = _page([0, 1, 2])
+        image = _fill(image, 760, 604, 772, 614, BLACK)
+        scan = scan_page(image)
+        self.assertTrue(scan.scroll_candidates)
+        self.assertIs(classify_boundary(scan).state, BoundaryState.MORE_BELOW)
+
     def test_scroll_affordance_means_more_below(self) -> None:
         image = _page(list(range(8)))
         image = _fill(image, 760, 604, 772, 614, BLACK)
