@@ -3737,3 +3737,14 @@ The Hand plugin's read-only probe reported:
 - **COMMITS:** initial scroll-precedence implementation/test `168549b83e2ad8ada30448841cff941da85e62b3`; no-row-count-end implementation `6d3fd416a5ad5cd48e3efdaaf2a46705101acbf9`; final regression-test correction `6dde75de2d59d7fe02e00d565776e91de16295e1`.
 - **SCOPE / SAFETY:** Offline CI only. No Poi connection, live screenshot capture, game input, scrolling, dispatch, supply, reward collection, game API request, Runtime.evaluate, page JavaScript execution, getter access, or system change.
 - **PR:** [Draft PR #30](https://github.com/wosafety0/wosafety0clamp/pull/30) is stacked on [Draft PR #29](https://github.com/wosafety0/wosafety0clamp/pull/29), itself stacked on PR #28. All remain open/unmerged.
+
+
+## 2026-11-04 — Refuse expedition relocation when the active area tab is unknown
+
+- **FINDING:** ExpeditionListIndex.locate treated scan.tab is None as a wildcard. Row signatures cover row pixels rather than the tab strip, so an unknown/ambiguous selected area tab could match a signature learned on a different tab and return a plausible coordinate.
+- **IMPLEMENTED:** A fresh scan with no uniquely detected active area tab now returns tab_unknown with no point or row index. Signature bindings are matched only against the exact selected tab; unknown or unscoped tab values are no longer wildcards.
+- **TESTED:** Added a regression using identical row pixels with a previously bound tab-0 signature and a fresh screenshot with no selected-tab highlight. Relocation is blocked and returns no coordinate.
+- **EXACT-HEAD PUSH CI:** [Run 41737993338](https://github.com/wosafety0/wosafety0clamp/actions/runs/41737993338) succeeded. Node static tests **17/17**; passive observer node --check; package install and unified CLI/compatibility-shim smoke checks; Python compileall; full Python suite **762 tests, 20 skipped**.
+- **COMMIT:** implementation/test commit 48184c70ebfc4d9ec1ff16fc9cef62d9e90f64a3 on dev/expedition-unknown-tab-locate-guard-20261104, stacked on PR #30 head a42495a9040e1b4de1a28cb501948e6b179d357a.
+- **REMOTE READBACK:** src/kancollebot/calibration/expedition_list.py blob 8dfea2c0cb0bee3c82a685f5f7f6ac4d376d028f; tests/test_expedition_list_scanner.py blob 054490dde98e1f5d62aedd1593da26c5defe6c6a.
+- **SCOPE / SAFETY:** Offline CI only. No Poi connection, screenshot capture, game input, scrolling, dispatch, supply, reward collection, game API request, Runtime.evaluate, page JavaScript execution, getter access, or system change. Production dispatch/freshness gates remain unchanged and fail-closed.
