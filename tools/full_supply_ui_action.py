@@ -1,10 +1,9 @@
-"""Perform guarded fleet-wide resupply for every eligible unlocked fleet through the visible Poi UI.
+"""Perform guarded Fleet 3-only resupply through the visible Poi UI.
 
-No game API request is initiated by this tool. It observes a natural port response,
-validates the current Poi store, and sends at most one click per supported fleet.
-A fresh natural port witness is required between fleet actions. Unsupported fleets
-that need supply block the entire batch before any resource click. An ambiguous
-click is never retried.
+All unlocked fleets are read and validated, but only Fleet 3 may enter the
+resource-action queue. Fleets 1 and 2 remain read-only; their supply deficits
+are observed but never actioned. A fresh natural port witness is required
+between checks and before the Fleet 3 action. An ambiguous click is never retried.
 """
 from __future__ import annotations
 
@@ -28,7 +27,6 @@ from kancollebot.adapters.poi.full_supply import (
     build_full_supply_plan,
     select_full_supply_targets,
     validate_full_supply_progress,
-    verify_full_supply_complete,
     verify_fleet_supply_complete,
 )
 from kancollebot.adapters.poi.mcp_client import PoiMcpClient, PoiMcpError
@@ -46,6 +44,7 @@ LOG_PATH = ROOT / "logs" / "full_supply_ui_action.jsonl"
 OBSERVER_SCRIPT = ROOT / "tools" / "hand_sandbox" / "poi_port_response_observer_20261029.js"
 SUPPLY_MENU_POINT = RecordedPoint(103, 340, "supply-menu")
 MAX_AGE = timedelta(seconds=30)
+TARGET_FLEET_IDS = (3,)
 
 
 def log(event: str, **fields: Any) -> None:
@@ -286,7 +285,10 @@ def _acquire_passive_fresh_witness() -> dict[str, Any]:
 
 
 def _prepare_full_supply_preflight(
-    client: PoiMcpClient, witness: dict[str, Any]
+    client: PoiMcpClient,
+    witness: dict[str, Any],
+    *,
+    target_fleet_ids: tuple[int, ...] = TARGET_FLEET_IDS,
 ) -> tuple[
     tuple[list[Any], dict[str, Any], list[Any], dict[str, Any]],
     datetime,
@@ -306,15 +308,35 @@ def _prepare_full_supply_preflight(
         max_age=MAX_AGE,
         expected_fleet_ids=(1, 2, 3),
     )
-    needed_fleets = select_full_supply_targets(plan)
+    all_needed_fleets = select_full_supply_targets(plan)
+    needed_fleets = select_full_supply_targets(
+        plan, target_fleet_ids=target_fleet_ids
+    )
+    target_ship_count = sum(item.ship_count for item in needed_fleets)
+    target_fuel_required = sum(item.fuel_required for item in needed_fleets)
+    target_ammo_required = sum(item.ammo_required for item in needed_fleets)
+    read_only_fleet_deficits = [
+        {
+            "fleet_id": item.fleet_id,
+            "fuel_required": item.fuel_required,
+            "ammo_required": item.ammo_required,
+        }
+        for item in all_needed_fleets
+        if item.fleet_id not in target_fleet_ids
+    ]
     log(
         "full_supply_preflight_passed",
-        fleet_ids=list(plan.fleet_ids),
-        fleet_count=len(plan.fleet_ids),
-        ship_count=plan.ship_count,
-        fuel_required=plan.fuel_required,
-        ammo_required=plan.ammo_required,
+        observed_fleet_ids=list(plan.fleet_ids),
+        observed_fleet_count=len(plan.fleet_ids),
+        observed_ship_count=plan.ship_count,
+        observed_all_fleet_fuel_required=plan.fuel_required,
+        observed_all_fleet_ammo_required=plan.ammo_required,
+        target_fleet_ids=list(target_fleet_ids),
         target_fleets=[item.fleet_id for item in needed_fleets],
+        target_ship_count=target_ship_count,
+        target_fuel_required=target_fuel_required,
+        target_ammo_required=target_ammo_required,
+        read_only_fleet_deficits=read_only_fleet_deficits,
         planned_fleet_wide_clicks=len(needed_fleets),
         fuel_available=plan.fuel_available,
         ammo_available=plan.ammo_available,
@@ -341,19 +363,24 @@ def run(*, dry_run: bool = False) -> int:
     if dry_run:
         witness = _acquire_passive_fresh_witness()
         initial_state, observed_at, plan, needed_fleets = _prepare_full_supply_preflight(
-            client, witness
+            client, witness, target_fleet_ids=TARGET_FLEET_IDS
         )
         if not needed_fleets:
-            log("full_supply_not_needed", reason="all ships in all unlocked fleets are already fully supplied")
+            log(
+                "full_supply_not_needed",
+                reason="all configured target fleets are already fully supplied",
+                target_fleet_ids=list(TARGET_FLEET_IDS),
+            )
             return 0
         log(
             "full_supply_dry_run_passed",
-            fleet_count=len(plan.fleet_ids),
-            ship_count=plan.ship_count,
+            observed_fleet_count=len(plan.fleet_ids),
+            target_fleet_ids=list(TARGET_FLEET_IDS),
+            target_ship_count=sum(item.ship_count for item in needed_fleets),
             target_fleets=[item.fleet_id for item in needed_fleets],
             planned_fleet_wide_clicks=len(needed_fleets),
-            fuel_required=plan.fuel_required,
-            ammo_required=plan.ammo_required,
+            fuel_required=sum(item.fuel_required for item in needed_fleets),
+            ammo_required=sum(item.ammo_required for item in needed_fleets),
             fuel_available=plan.fuel_available,
             ammo_available=plan.ammo_available,
             ui_clicks_sent=0,
@@ -367,10 +394,14 @@ def run(*, dry_run: bool = False) -> int:
     with ui_arbiter.operation("full-supply-batch"), connect_game_webview(timeout=3.0) as session:
         witness = _acquire_fresh_witness(session, ui_arbiter)
         initial_state, observed_at, plan, needed_fleets = _prepare_full_supply_preflight(
-            client, witness
+            client, witness, target_fleet_ids=TARGET_FLEET_IDS
         )
         if not needed_fleets:
-            log("full_supply_not_needed", reason="all ships in all unlocked fleets are already fully supplied")
+            log(
+                "full_supply_not_needed",
+                reason="all configured target fleets are already fully supplied",
+                target_fleet_ids=list(TARGET_FLEET_IDS),
+            )
             return 0
 
         completed_fleet_ids: list[int] = []
@@ -407,7 +438,8 @@ def run(*, dry_run: bool = False) -> int:
                 )
 
             remaining = validate_full_supply_progress(
-                plan, cycle_plan, tuple(completed_fleet_ids)
+                plan, cycle_plan, tuple(completed_fleet_ids),
+                target_fleet_ids=TARGET_FLEET_IDS,
             )
             if not remaining or remaining[0].fleet_id != initial_target_cost.fleet_id:
                 raise FullSupplyPreflightError("batch progress does not match the next configured fleet")
@@ -452,7 +484,8 @@ def run(*, dry_run: bool = False) -> int:
                 expected_fleet_ids=(1, 2, 3),
             )
             before_remaining = validate_full_supply_progress(
-                plan, before_plan, tuple(completed_fleet_ids)
+                plan, before_plan, tuple(completed_fleet_ids),
+                target_fleet_ids=TARGET_FLEET_IDS,
             )
             if not before_remaining or before_remaining[0] != target_fleet_cost:
                 raise FullSupplyPreflightError("full-supply cost or target changed before the UI click")
@@ -533,24 +566,33 @@ def run(*, dry_run: bool = False) -> int:
         if final_state is None:
             raise FullSupplyPreflightError("full-supply batch ended without a verified action result")
         final_fleets, final_ships, final_resources, final_masters = final_state
-        if not verify_full_supply_complete(plan, final_fleets, final_ships, final_masters):
-            raise FullSupplyPreflightError("not every ship in every unlocked fleet is fully supplied")
+        for fleet_id in completed_fleet_ids:
+            if not verify_fleet_supply_complete(
+                fleet_id, final_fleets, final_ships, final_masters
+            ):
+                raise FullSupplyPreflightError(
+                    f"target fleet {fleet_id} is not fully supplied"
+                )
+        target_fuel_required = sum(item.fuel_required for item in needed_fleets)
+        target_ammo_required = sum(item.ammo_required for item in needed_fleets)
+        target_ship_count = sum(item.ship_count for item in needed_fleets)
         if (
-            final_resources[0] != plan.fuel_available - plan.fuel_required
-            or final_resources[1] != plan.ammo_available - plan.ammo_required
+            final_resources[0] != plan.fuel_available - target_fuel_required
+            or final_resources[1] != plan.ammo_available - target_ammo_required
         ):
-            raise FullSupplyPreflightError("final material delta differs from the complete batch preflight")
+            raise FullSupplyPreflightError("final material delta differs from the target-fleet preflight")
         log(
             "full_supply_completed_and_verified",
             target_fleet_ids=list(completed_fleet_ids),
-            fleet_count=len(plan.fleet_ids),
-            ship_count=plan.ship_count,
-            fuel_consumed=plan.fuel_required,
-            ammo_consumed=plan.ammo_required,
+            observed_fleet_count=len(plan.fleet_ids),
+            target_ship_count=target_ship_count,
+            fuel_consumed=target_fuel_required,
+            ammo_consumed=target_ammo_required,
             fuel_remaining=final_resources[0],
             ammo_remaining=final_resources[1],
             ui_click_count=len(completed_fleet_ids),
-            all_fleets_complete=True,
+            target_fleets_complete=True,
+            non_target_fleets_untouched=True,
             game_api_request_initiated=False,
         )
     return 0
@@ -560,7 +602,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--authorize-full-supply", action="store_true",
-        help="Explicitly authorize one fleet-wide supply click per supported unlocked fleet that needs supply; unsupported fleets block before any resource click",
+        help="Explicitly authorize the Fleet 3-only supply action; Fleets 1 and 2 remain read-only",
     )
     parser.add_argument(
         "--dry-run", action="store_true",

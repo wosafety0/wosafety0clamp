@@ -71,6 +71,48 @@ class FullSupplyPreflightTests(unittest.TestCase):
         self.assertEqual(sum(item.fuel_required for item in targets), 10)
         self.assertEqual(sum(item.ammo_required for item in targets), 10)
 
+    def test_selects_only_explicit_target_fleet(self):
+        plan = self.plan()
+        targets = select_full_supply_targets(plan, target_fleet_ids=(3,))
+        self.assertEqual([item.fleet_id for item in targets], [3])
+        self.assertEqual(targets[0].fuel_required, 3)
+        self.assertEqual(targets[0].ammo_required, 6)
+
+    def test_targeted_progress_accepts_fleet_three_and_preserves_other_fleets(self):
+        initial = self.plan()
+        fleets, ships, masters, resources = sample()
+        ship = ships["14"]
+        master = masters[str(ship["api_ship_id"])]
+        ship["api_fuel"] = master["api_fuel_max"]
+        ship["api_bull"] = master["api_bull_max"]
+        resources[0] -= 3
+        resources[1] -= 6
+        current = self.plan(fleets=fleets, ships=ships, masters=masters, resources=resources)
+        self.assertEqual(
+            validate_full_supply_progress(
+                initial, current, (3,), target_fleet_ids=(3,)
+            ),
+            (),
+        )
+
+        ships["12"]["api_fuel"] -= 1
+        changed_non_target = self.plan(
+            fleets=fleets, ships=ships, masters=masters, resources=resources
+        )
+        with self.assertRaisesRegex(
+            FullSupplyPreflightError, "unprocessed fleet 2 supply state changed"
+        ):
+            validate_full_supply_progress(
+                initial, changed_non_target, (3,), target_fleet_ids=(3,)
+            )
+
+    def test_targeted_selection_rejects_unknown_or_duplicate_fleet_ids(self):
+        plan = self.plan()
+        with self.assertRaisesRegex(FullSupplyPreflightError, "outside the verified fleet set"):
+            select_full_supply_targets(plan, target_fleet_ids=(4,))
+        with self.assertRaisesRegex(ValueError, "must be unique"):
+            select_full_supply_targets(plan, target_fleet_ids=(3, 3))
+
     def test_batch_progress_accepts_sequential_fleet_wide_supply(self):
         initial = self.plan()
         fleets, ships, masters, resources = sample()
@@ -224,28 +266,32 @@ class FullSupplyRuntimeSafetyTests(unittest.TestCase):
             fuel_available=100,
             ammo_available=100,
         )
-        targets = [SimpleNamespace(fleet_id=2)]
+        targets = [SimpleNamespace(fleet_id=3, ship_count=4, fuel_required=3, ammo_required=6)]
         with patch("tools.full_supply_ui_action.PoiMcpClient", return_value=client), patch(
             "tools.full_supply_ui_action._acquire_passive_fresh_witness",
             return_value=witness,
         ), patch(
             "tools.full_supply_ui_action._prepare_full_supply_preflight",
             return_value=(([], {}, [], {}), NOW, plan, targets),
-        ), patch("tools.full_supply_ui_action.connect_game_webview") as connect_ui, patch(
+        ) as prepare_preflight, patch("tools.full_supply_ui_action.connect_game_webview") as connect_ui, patch(
             "tools.full_supply_ui_action._acquire_fresh_witness"
         ) as acquire_with_ui, patch("tools.full_supply_ui_action.log") as event_log:
             self.assertEqual(run(dry_run=True), 0)
 
         connect_ui.assert_not_called()
         acquire_with_ui.assert_not_called()
+        prepare_preflight.assert_called_once_with(
+            client, witness, target_fleet_ids=(3,)
+        )
         event_log.assert_any_call(
             "full_supply_dry_run_passed",
-            fleet_count=3,
-            ship_count=4,
-            target_fleets=[2],
+            observed_fleet_count=3,
+            target_fleet_ids=[3],
+            target_ship_count=4,
+            target_fleets=[3],
             planned_fleet_wide_clicks=1,
-            fuel_required=10,
-            ammo_required=10,
+            fuel_required=3,
+            ammo_required=6,
             fuel_available=100,
             ammo_available=100,
             ui_clicks_sent=0,

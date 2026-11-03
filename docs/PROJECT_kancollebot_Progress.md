@@ -3607,3 +3607,11 @@ The Hand plugin's read-only probe reported:
 - **SAFETY:** Zero supply clicks, zero dispatch clicks, zero game API requests. Only the three visible navigation clicks were sent to obtain the natural witness. The UI ended at HOME_PORT; screenshots remained in memory.
 - **ARTIFACT:** Local log `logs/fleet3_supply_preflight_20261103.jsonl`.
 - **LIMITS / NEXT:** This is a verified cost preflight, not a completed supply action. Add an explicit Fleet 3-only target boundary to the supply workflow and tests before considering any resource-consuming click. Do not supply Fleet 1 or Fleet 2. Expedition dispatch remains NOT_VERIFIED.
+
+## 2026-11-03 - Fleet 3-only supply action boundary
+
+- **IMPLEMENTED:** Added explicit `target_fleet_ids` filtering to the pure supply target selector and progress validator. The production UI supply tool now fixes `TARGET_FLEET_IDS=(3,)`; Fleet 1 and Fleet 2 deficits are logged as read-only observations and never enter the resource-action queue. Post-action verification checks Fleet 3 completion and its exact target cost/resource delta, while confirming non-target fleet supply values remain unchanged.
+- **SAFETY:** The `--authorize-full-supply` CLI description now explicitly states Fleet 3 only. No live supply click or resource-consuming action was performed in this change.
+- **TESTED:** Added tests for Fleet 3-only target selection, non-target state immutability, invalid target IDs, and runtime dry-run wiring. Full Python suite: **493 tests, 18 skipped, all remaining passed**. Supply tests 20/20; freshness validator 7/7; Poi reader 18/18. Compileall, CLI help, and `git diff --check` passed.
+- **CONSERVATIVE LIMIT:** The current shared plan builder still requires all three unlocked fleets to be idle and the resource inventory to cover all observed fleet deficits. This can block a Fleet 3-only action unnecessarily, but does not expand the target set or permit Fleet 1/2 actions.
+- **NEXT / NOT VERIFIED:** The Fleet 3-only execution path has offline test coverage but has not yet been exercised with a resource click. Obtain a new natural freshness witness at execution time and verify the Fleet 3 target/cost again. Actual supply requires explicit runtime authorization; dispatch and the full expedition loop remain NOT_VERIFIED.

@@ -234,9 +234,12 @@ def verify_full_supply_complete(
 
 
 def select_full_supply_targets(
-    plan: FullSupplyPlan, *, supported_fleet_ids: tuple[int, ...] = (1, 2, 3)
+    plan: FullSupplyPlan,
+    *,
+    supported_fleet_ids: tuple[int, ...] = (1, 2, 3),
+    target_fleet_ids: tuple[int, ...] | None = None,
 ) -> tuple[FleetSupplyCost, ...]:
-    """Return every required fleet-wide action; reject unsupported targets up front."""
+    """Select deficits only from explicit targets; reject unsupported targets."""
     if not isinstance(plan, FullSupplyPlan):
         raise TypeError("plan must be a FullSupplyPlan")
     if not isinstance(supported_fleet_ids, tuple) or not supported_fleet_ids:
@@ -245,9 +248,19 @@ def select_full_supply_targets(
         raise ValueError("supported fleet IDs must be positive integers")
     if len(set(supported_fleet_ids)) != len(supported_fleet_ids):
         raise ValueError("supported fleet IDs must be unique")
+    selected_ids = plan.fleet_ids if target_fleet_ids is None else target_fleet_ids
+    if not isinstance(selected_ids, tuple) or not selected_ids:
+        raise ValueError("target_fleet_ids must be a non-empty tuple")
+    if any(isinstance(item, bool) or not isinstance(item, int) or item < 1 for item in selected_ids):
+        raise ValueError("target fleet IDs must be positive integers")
+    if len(set(selected_ids)) != len(selected_ids):
+        raise ValueError("target fleet IDs must be unique")
+    if not set(selected_ids).issubset(plan.fleet_ids):
+        raise FullSupplyPreflightError("target fleet IDs are outside the verified fleet set")
     targets = tuple(
         item for item in plan.fleet_costs
-        if item.fuel_required > 0 or item.ammo_required > 0
+        if item.fleet_id in selected_ids
+        and (item.fuel_required > 0 or item.ammo_required > 0)
     )
     unsupported = tuple(item.fleet_id for item in targets if item.fleet_id not in supported_fleet_ids)
     if unsupported:
@@ -262,13 +275,15 @@ def validate_full_supply_progress(
     initial_plan: FullSupplyPlan,
     current_plan: FullSupplyPlan,
     completed_fleet_ids: tuple[int, ...] = (),
+    *,
+    target_fleet_ids: tuple[int, ...] | None = None,
 ) -> tuple[FleetSupplyCost, ...]:
-    """Verify that only the configured completed fleet-wide actions changed state."""
+    """Verify selected target progress and reject changes to every unprocessed fleet."""
     if not isinstance(initial_plan, FullSupplyPlan) or not isinstance(current_plan, FullSupplyPlan):
         raise TypeError("initial_plan and current_plan must be FullSupplyPlan instances")
     if current_plan.fleet_ids != initial_plan.fleet_ids or current_plan.ship_ids != initial_plan.ship_ids:
         raise FullSupplyPreflightError("fleet or ship roster changed during the full-supply batch")
-    targets = select_full_supply_targets(initial_plan)
+    targets = select_full_supply_targets(initial_plan, target_fleet_ids=target_fleet_ids)
     target_ids = tuple(item.fleet_id for item in targets)
     if not isinstance(completed_fleet_ids, tuple):
         raise ValueError("completed_fleet_ids must be a tuple")
