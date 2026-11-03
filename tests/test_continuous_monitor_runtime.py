@@ -127,7 +127,9 @@ class ContinuousMonitorRuntimeTests(unittest.TestCase):
             verifier = _build_ui_state_verifier(game_session)
             evidence = verifier("HOME_PORT")
 
-        checkpoint.assert_called_once_with(game_session, UiState.HOME_PORT)
+        checkpoint.assert_called_once_with(
+            game_session, UiState.HOME_PORT, visual_attempts=6
+        )
         self.assertEqual(evidence.state, "HOME_PORT")
         self.assertEqual(evidence.consecutive_states, ("HOME_PORT", "HOME_PORT"))
         self.assertEqual(evidence.evidence, "two_consecutive_ooi_frames")

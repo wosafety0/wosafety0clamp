@@ -138,8 +138,16 @@ def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra:
             stream.write(line + "\n")
 
 
-def _require_ui_state(game_session, expected: UiState) -> str:
+def _require_ui_state(
+    game_session, expected: UiState, *, visual_attempts: int = 3
+) -> str:
     """Require accessible labels or two consecutive in-memory visual matches."""
+    if (
+        isinstance(visual_attempts, bool)
+        or not isinstance(visual_attempts, int)
+        or not 2 <= visual_attempts <= 12
+    ):
+        raise ValueError("visual_attempts must be an integer from 2 through 12")
     result = game_session.transport.send("Accessibility.getFullAXTree", {})
     nodes = result.get("nodes") if isinstance(result, dict) else None
     try:
@@ -189,7 +197,7 @@ def _require_ui_state(game_session, expected: UiState) -> str:
                 ship_index = int(state_parts[4])
 
                 consecutive_matches = 0
-                for attempt in range(3):
+                for attempt in range(visual_attempts):
                     game_session.transport.send(
                         "Input.dispatchMouseEvent",
                         {"type": "mouseMoved", "x": 1195, "y": 715},
@@ -224,15 +232,15 @@ def _require_ui_state(game_session, expected: UiState) -> str:
                         ) from accessible_error
                     else:
                         consecutive_matches = 0
-                    if attempt < 2:
+                    if attempt < visual_attempts - 1:
                         time.sleep(0.25)
                 raise LoopError(
-                    f"Expected {expected.value}; no stable parent+checkbox fingerprint match after three attempts"
+                    f"Expected {expected.value}; no stable parent+checkbox fingerprint match after {visual_attempts} attempts"
                 ) from accessible_error
 
             if expected.value in fingerprint_states:
                 consecutive_matches = 0
-                for attempt in range(3):
+                for attempt in range(visual_attempts):
                     game_session.transport.send(
                         "Input.dispatchMouseEvent",
                         {"type": "mouseMoved", "x": 1195, "y": 715},
@@ -264,11 +272,11 @@ def _require_ui_state(game_session, expected: UiState) -> str:
                         ) from accessible_error
                     else:
                         consecutive_matches = 0
-                    if attempt < 2:
+                    if attempt < visual_attempts - 1:
                         time.sleep(0.25)
                 if not template_dir:
                     raise LoopError(
-                        f"Expected {expected.value}; no stable fingerprint match was obtained after three attempts"
+                        f"Expected {expected.value}; no stable fingerprint match was obtained after {visual_attempts} attempts"
                     ) from accessible_error
 
             if not template_dir:
@@ -280,7 +288,7 @@ def _require_ui_state(game_session, expected: UiState) -> str:
                 raise LoopError(f"Visual template directory does not exist: {template_path}") from accessible_error
 
             consecutive_matches = 0
-            for attempt in range(3):
+            for attempt in range(visual_attempts):
                 game_session.transport.send(
                     "Input.dispatchMouseEvent",
                     {"type": "mouseMoved", "x": 1195, "y": 715},
@@ -317,10 +325,10 @@ def _require_ui_state(game_session, expected: UiState) -> str:
                     ) from accessible_error
                 else:
                     consecutive_matches = 0
-                if attempt < 2:
+                if attempt < visual_attempts - 1:
                     time.sleep(0.25)
             raise LoopError(
-                f"Expected {expected.value}; no stable template match was obtained after three attempts"
+                f"Expected {expected.value}; no stable template match was obtained after {visual_attempts} attempts"
             ) from accessible_error
         except (VisualFingerprintError, VisualStateError, OSError, ValueError) as visual_error:
             raise LoopError(

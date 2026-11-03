@@ -174,6 +174,27 @@ class LiveCheckpointVerifierTests(unittest.TestCase):
         self.assertEqual(evidence, "two_consecutive_in_memory_ooi_fingerprints")
         self.assertEqual(classify.call_count, 3)
 
+    def test_monitor_visual_checkpoint_uses_extended_bounded_attempts(self):
+        self.game_session.transport.send.return_value = {"nodes": []}
+        self.game_session.input.capture_screenshot.return_value = "in-memory-payload"
+        scores = {"SORTIE_MENU": 1.0}
+        observations = [("UNKNOWN", scores)] * 3 + [("SORTIE_MENU", scores)] * 2
+        with (
+            patch.object(
+                controller,
+                "classify_screenshot_fingerprints",
+                side_effect=observations,
+            ) as classify,
+            patch.object(controller.time, "sleep"),
+        ):
+            evidence = controller._require_ui_state(
+                self.game_session,
+                controller.UiState.SORTIE_MENU,
+                visual_attempts=5,
+            )
+        self.assertEqual(evidence, "two_consecutive_in_memory_ooi_fingerprints")
+        self.assertEqual(classify.call_count, 5)
+
     def test_template_only_checkpoint_requires_two_consecutive_matches(self):
         self.game_session.transport.send.return_value = {"nodes": []}
         self.game_session.input.capture_screenshot.return_value = "in-memory-payload"

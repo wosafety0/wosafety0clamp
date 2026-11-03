@@ -305,7 +305,7 @@ def _build_ui_state_verifier(game_session: Any) -> Callable[[str], UiStateEviden
 
     def verify(expected: str) -> UiStateEvidence:
         state = UiState(expected)
-        evidence = _require_ui_state(game_session, state)
+        evidence = _require_ui_state(game_session, state, visual_attempts=6)
         return UiStateEvidence(
             state=state.value,
             consecutive_states=(state.value, state.value),
