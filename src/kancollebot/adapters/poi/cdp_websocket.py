@@ -232,6 +232,10 @@ class CdpWebSocketTransport:
             if response is None:
                 raise CdpInputError(f"CDP transport closed while awaiting {method}")
             if "error" in response:
+                error = response.get("error")
+                code = error.get("code") if isinstance(error, dict) else None
+                if isinstance(code, int) and not isinstance(code, bool):
+                    raise CdpInputError(f"CDP command failed: {method} (code={code})")
                 raise CdpInputError(f"CDP command failed: {method}")
             result = response.get("result", {})
             if not isinstance(result, dict):

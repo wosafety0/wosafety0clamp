@@ -20,9 +20,9 @@ Reduce unnecessary Desktop Commander (DC) calls without weakening safety checks,
 
 ## Standard local batch entry point
 
-Use `scripts/dc_clamp_batch_check.ps1` when a local project-state check is actually necessary. It is read-only and designed for Windows PowerShell 5.1.
+For the current cross-project workflow, use the local shared helper at `D:\AI_Project\Project_KancolleBot\diagnostics\shared-execution\Invoke-SharedProjectBatch.ps1` from the persistent PowerShell session. It batches KancolleBot and Harness audits/tests and supports bounded repository-relative file reads. See the helper's adjacent `README.md` for the exact commands and safety limits.
 
-The script intentionally checks only known CLAMP worktree locations and tracked project paths; it does not recursively scan the machine.
+`scripts/dc_clamp_batch_check.ps1` is a legacy, read-only diagnostic. Its embedded worktree paths are stale and it is **not** the standard entry point; do not use it for current project-state checks. The shared helper is local-only and is not part of the repository or CI.
 
 ## Measurement policy
 
@@ -35,8 +35,35 @@ If complete project-attribution data is unavailable, report that fact rather tha
 
 ## Current baseline
 
-The current DC service snapshot observed during this optimization reported 1548 total calls, 99% success, and 83% monthly calls remaining. This is an overall DC baseline, **not** a CLAMP-only count. No CLAMP savings percentage is claimed from it.
+The earlier historical DC service snapshot reported 1548 total calls, 99% success, and 83% monthly calls remaining. On 2026-11-03, a later account-wide snapshot reported 7126 total calls and 71% monthly calls remaining (the preceding observed snapshot was 7090). These are overall service counters, **not** CLAMP- or Harness-attributed counts; the +36 change cannot be attributed to this workflow. No project-specific savings percentage is claimed. Future comparisons must use attributable per-task call histories or a controlled same-task before/after measurement.
 
 ## Verification boundary
 
 This optimization changes only the collaboration workflow and adds a read-only local batch helper. It does not authorize game input, game API requests, refreshes, dispatch, or reward collection.
+
+## Runtime file-read deduplication
+
+- The tools/one_expedition_ui_loop.py controller caches Ooi and supply-checkbox fingerprint JSON documents within the process, keyed by resolved path, modification timestamp, and file size. A changed file version is reloaded; the cache is bounded to four entries.
+- This removes repeated reads during consecutive visual fallback checkpoints without caching screenshots, Poi state, network responses, or UI evidence. Accessibility checks, fresh screenshot captures, two-consecutive-match requirements, and fail-closed behavior remain unchanged.
+- The Harness audit found no proven same-execution duplicate file read or safely mergeable subprocess; config loading, acceptance-contract hashing, Git metadata, and independently timed tasks serve distinct purposes.
+
+## Visual template image cache
+
+- The KancolleBot visual state classifier and two-frame target locator share a bounded in-process grayscale-template cache.
+- Cache identity includes resolved path, modification timestamp, file size, and the injected OpenCV/NumPy module identities. A changed file or module context triggers a fresh read and decode; stale versions for the same path are evicted.
+- The cache is capped at 32 entries. Screenshot payloads, Poi state, accessibility results, network responses, and UI evidence are never cached. Matching, two-frame confirmation, ambiguity checks, and fail-closed behavior remain per screenshot.
+- Unit tests verify one read for an unchanged template and invalidation after file modification. No live-game performance or DC-credit savings are claimed.
+
+## Monitor MCP setup reuse
+
+- PoiExpeditionReader validates the static info.fleets description once per reader instance. Every monitor read still performs health validation and fresh fleet/ship reads, including the before/after consistency confirmation and targeted master lookup.
+- PoiMcpClient constructs one no-redirect urllib opener per client and reuses it for MCP and health requests, avoiding repeated handler/opener construction. HTTP responses are still read and closed per request; no game data or HTTP response is cached.
+- Unit tests verify one static description request across repeated reads, live state re-reads on every cycle, health checks on every cycle, and one opener construction across MCP and health calls.
+## Remaining monitor read-path audit (2026-11-03)
+
+- Each `PoiExpeditionReader.read_fleets()` observation performs at most one `poi_lookup` request for the sorted, deduplicated master IDs referenced by the current fleet/ship snapshot; it is not one lookup per ship or per fleet. The request is already batched.
+- The selected master fields (`api_fuel_max`, `api_bull_max`) are metadata, but the bridge exposes no master-data revision or Poi-session generation token. Health checks establish bridge readiness, not master-dataset identity. Cross-observation caching therefore has no reliable invalidation condition and could retain stale data after a Poi reload or dataset change; keep the lookup live.
+- Keep the before/after fleet and ship reads: they detect visible state changes while composing one observation. Keep per-observation bridge health checks: they verify current liveness/readiness. Neither is a redundant read with a safe replacement established by this audit.
+- The background port observer is intentionally one-shot and waits for a natural response. Its owner re-arms it after each capture/timeout with a 250 ms delay. Converting it to a persistent listener would require a separately designed re-arm/lifecycle protocol and dedicated integration tests; no low-risk process merge is justified.
+- `ContinuousExpeditionSupervisor.tick()` is caller-driven and contains no polling loop or sleep interval. Poll cadence is configured outside this class, so changing it here would be speculative.
+- Result: no additional runtime optimization applied in this audit; retain freshness, consistency, and fail-closed gates.

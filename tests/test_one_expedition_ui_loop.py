@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -17,26 +18,58 @@ def _full_supply(ship_ids):
     return tuple(PoiShipSupplyState(ship_id, 10, 20, 10, 20) for ship_id in ship_ids)
 
 
+class VisualDocumentCacheTests(unittest.TestCase):
+    def setUp(self):
+        controller._VISUAL_DOCUMENT_CACHE.clear()
+
+    def test_unchanged_document_is_read_once_and_changed_file_is_reloaded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "fingerprints.json"
+            path.write_text('{"states":{}}', encoding="utf-8")
+            original_read_text = Path.read_text
+            with patch.object(
+                Path,
+                "read_text",
+                autospec=True,
+                side_effect=lambda instance, *args, **kwargs: original_read_text(instance, *args, **kwargs),
+            ) as read_text:
+                first = controller._read_visual_document(path)
+                second = controller._read_visual_document(path)
+                self.assertIs(first, second)
+                read_text.assert_called_once()
+
+                path.write_text('{"states":{"HOME_PORT":{}}}', encoding="utf-8")
+                third = controller._read_visual_document(path)
+                self.assertEqual(third, {"states": {"HOME_PORT": {}}})
+                self.assertEqual(read_text.call_count, 2)
+
+
 class ProductionStartupSafetyGateTests(unittest.TestCase):
-    def test_run_fails_before_opening_any_cdp_session(self):
+    def make_args(self, *, authorized):
         args = MagicMock()
-        args.authorize_ui_actions = True
+        args.authorize_ui_actions = authorized
         args.poll_seconds = 5.0
         args.timeout_seconds = 1800.0
         args.grace_delay_seconds = 10.0
+        return args
 
-        with (
-            patch.object(controller, "connect_poi_session") as connect_poi,
-            patch.object(controller, "connect_game_webview") as connect_game,
-        ):
+    def test_run_requires_explicit_authorization_before_composition(self):
+        args = self.make_args(authorized=False)
+        with patch.object(controller, "_run_production_supervisor_once") as compose:
             with self.assertRaisesRegex(
                 controller.LoopError,
-                "end-to-end acceptance has not been completed",
+                "Missing explicit --authorize-ui-actions flag",
             ):
                 controller.run(args)
+        compose.assert_not_called()
 
-        connect_poi.assert_not_called()
-        connect_game.assert_not_called()
+    def test_authorized_run_enters_production_supervisor_composition(self):
+        args = self.make_args(authorized=True)
+        with patch.object(
+            controller, "_run_production_supervisor_once", return_value=0
+        ) as compose:
+            self.assertEqual(controller.run(args), 0)
+        compose.assert_called_once_with(args)
 
 
 class LiveCheckpointVerifierTests(unittest.TestCase):
@@ -107,7 +140,7 @@ class LiveCheckpointVerifierTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(controller.LoopError, "no stable fingerprint match"):
                 controller._require_ui_state(
-                    self.game_session, controller.UiState.HOME_PORT
+                    self.game_session, controller.UiState.HOME_PORT, visual_attempts=6
                 )
         self.assertEqual(classify.call_count, 6)
 
@@ -140,6 +173,27 @@ class LiveCheckpointVerifierTests(unittest.TestCase):
             )
         self.assertEqual(evidence, "two_consecutive_in_memory_ooi_fingerprints")
         self.assertEqual(classify.call_count, 3)
+
+    def test_monitor_visual_checkpoint_uses_extended_bounded_attempts(self):
+        self.game_session.transport.send.return_value = {"nodes": []}
+        self.game_session.input.capture_screenshot.return_value = "in-memory-payload"
+        scores = {"SORTIE_MENU": 1.0}
+        observations = [("UNKNOWN", scores)] * 3 + [("SORTIE_MENU", scores)] * 2
+        with (
+            patch.object(
+                controller,
+                "classify_screenshot_fingerprints",
+                side_effect=observations,
+            ) as classify,
+            patch.object(controller.time, "sleep"),
+        ):
+            evidence = controller._require_ui_state(
+                self.game_session,
+                controller.UiState.SORTIE_MENU,
+                visual_attempts=5,
+            )
+        self.assertEqual(evidence, "two_consecutive_in_memory_ooi_fingerprints")
+        self.assertEqual(classify.call_count, 5)
 
     def test_template_only_checkpoint_requires_two_consecutive_matches(self):
         self.game_session.transport.send.return_value = {"nodes": []}

@@ -128,6 +128,17 @@ class CdpInputTests(unittest.TestCase):
                 source_frame_sha256="d" * 64, locator="opencv-canny-square-v1",
             )
 
+    def test_visual_target_point_accepts_bounded_supply_fleet1_tab(self):
+        from kancollebot.adapters.poi.cdp_input import VisualTargetPoint
+
+        point = VisualTargetPoint(
+            x=220.0, y=179.5, label="supply-fleet1-tab",
+            bounds=(203, 164, 34, 31), region=(195, 155, 50, 50),
+            source_frame_sha256="e" * 64,
+            locator="opencv-canny-tab-v1",
+        )
+        self.assertEqual(point.label, "supply-fleet1-tab")
+
     def test_visual_target_point_accepts_bounded_supply_fleet_tab(self):
         from kancollebot.adapters.poi.cdp_input import VisualTargetPoint
 

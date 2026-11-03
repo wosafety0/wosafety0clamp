@@ -38,13 +38,13 @@ class ExpeditionFleetSnapshotTests(unittest.TestCase):
                 fleet_id=1,
                 ship_ids=(1,),
                 damaged_ship_ids=(1,),
-                critical_damaged_ship_ids=(2,),
+                heavy_damage_ship_ids=(2,),
             )
 
     def test_rejects_critical_damage_not_listed_as_damaged(self):
         with self.assertRaisesRegex(ValueError, "also be listed"):
             ExpeditionFleetSnapshot(
-                fleet_id=1, ship_ids=(1,), critical_damaged_ship_ids=(1,)
+                fleet_id=1, ship_ids=(1,), heavy_damage_ship_ids=(1,)
             )
 
 
@@ -76,7 +76,7 @@ class ExpeditionPlannerTests(unittest.TestCase):
             fuel_ready=True,
             ammo_ready=True,
             damaged_ship_ids=(2,),
-            critical_damaged_ship_ids=(2,),
+            heavy_damage_ship_ids=(2,),
         )
         self.assertEqual(
             evaluate_expedition_fleet(snapshot, now=self.now).decision,

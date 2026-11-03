@@ -58,6 +58,7 @@ class PoiMcpClient:
         self._session_id: str | None = None
         self._protocol_version = "2025-03-26"
         self._initialized = False
+        self._opener = urllib.request.build_opener(_NoRedirectHandler())
 
     def _post(self, payload: dict[str, Any], *, notification: bool = False) -> Any:
         headers = {
@@ -71,8 +72,7 @@ class PoiMcpClient:
         data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         request = urllib.request.Request(self.endpoint, data=data, headers=headers, method="POST")
         try:
-            opener = urllib.request.build_opener(_NoRedirectHandler())
-            with opener.open(request, timeout=self.timeout) as response:
+            with self._opener.open(request, timeout=self.timeout) as response:
                 status = response.status
                 content_type = response.headers.get("Content-Type", "").lower()
                 session_id = response.headers.get("Mcp-Session-Id")
@@ -185,8 +185,7 @@ class PoiMcpClient:
         url = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "/health", "", ""))
         request = urllib.request.Request(url, headers={"Accept": "application/json"})
         try:
-            opener = urllib.request.build_opener(_NoRedirectHandler())
-            with opener.open(request, timeout=self.timeout) as response:
+            with self._opener.open(request, timeout=self.timeout) as response:
                 data = response.read(65537)
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise PoiMcpError(f"Cannot read Poi MCP health endpoint: {exc}") from exc

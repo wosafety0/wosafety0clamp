@@ -3516,3 +3516,183 @@ The Hand plugin's read-only probe reported:
 - **Exact-head Push CI:** [run 41546902366](https://github.com/wosafety0/wosafety0clamp/actions/runs/41546902366) succeeded. Node static extraction tests passed 17/17; passive observer `node --check` and Python `compileall` passed; Python suite passed **461 tests**, with **17 optional vision tests skipped** because OpenCV/NumPy dependencies were unavailable.
 - **Remote readback:** source blob `b981eb58201396672250ef2ffc63eb31aee55c63`; test blob `38b67cad5fb9290e1c43677ffdbd2ea39112b10d`.
 - **Safety:** offline source/test change only. No Poi connection, game input, game API request, dispatch, reward, repair, resupply, `Runtime.evaluate`, page JavaScript execution, getter access, or system/proxy modification. Production freshness/dispatch remains fail-closed.
+
+
+## 2026-11-03 - Multi-fleet full-supply batch
+
+- **IMPLEMENTED:** `full_supply_ui_action.py` now handles every supported unlocked fleet with a supply deficit in one invocation. It still uses the visible fleet-wide supply button once per target fleet; it does not click individual ship checkboxes.
+- **Preflight:** all target fleets are selected and validated before the first resource-consuming click. Fleet 2 and Fleet 3 are supported. If Fleet 1 ever needs supply, the batch aborts before any supply click because its selected-tab UI gate is not independently verified.
+- **Freshness and batch integrity:** each fleet action has its own fresh natural `/api_port/port` witness. Between actions, the batch verifies stable Poi snapshots, unchanged fleet/ship roster, completed-fleet full supply, unchanged unprocessed-fleet costs, and exact fuel/ammunition inventory deltas. Ambiguous clicks are never retried.
+- **Final verification:** after the last target, every ship in every unlocked fleet must be fully supplied and total resource consumption must match the initial all-fleet preflight exactly. Dry-run output includes all target fleet IDs and planned fleet-wide click count.
+- **TESTED:** focused full-supply tests 12/12 passed; KancolleBot offline CI passed with Python 459/459, Node 17/17, and compile checks. CLI help and `git diff --check` passed.
+- **LIMITS:** this is still a standalone full-supply action, not yet wired into `ContinuousExpeditionSupervisor`. No live game supply action was executed during this code change. Fleet 1 remains fail-closed if it becomes under-supplied.
+- **NEXT:** connect the batch resupply workflow to the continuous scheduler only after defining safe behavior when one dispatchable fleet is active and another is awaiting resupply; do not resupply a fleet on expedition or during settlement.
+
+
+## 2026-11-03 - Fleet 1 supply-tab gate and no-op batch preflight
+
+- **IMPLEMENTED:** Added the Fleet 1 selected-tab UI state, a three-sample visual fingerprint (crop [203,155,30,40], grid [10,8]), an independently bounded tab locator (region [195,155,50,50]), and its exact visual-input allowlist. The fingerprint classifier treats Fleet 1 as a child of the supply page without weakening the minimum score or margin rules.
+- **LIVE VERIFICATION:** The production UI gate identified Fleet 1 on two consecutive in-memory frames with exact-match score 1.0. Fleet 2/Fleet 3 scores remained below the 0.97 acceptance threshold. The live locator returned the unique Fleet 1 tab bounds [203,164,34,31]. No screenshot bytes were saved.
+- **BATCH FLOW:** The full-supply driver now recognizes Fleet 1/2/3 selected states as valid supply-page states. If the requested fleet is already selected, it records a zero-click selection result and skips the redundant tab click; otherwise it uses the existing bounded visual target and two-frame destination gate.
+- **TESTED:** Focused visual/UI suite 52/52 passed. Full Python suite 462/462 passed in 2.127 seconds. Python compile checks and git diff --check passed. No JavaScript files changed; Node tests were not rerun in this stage.
+- **LIVE DRY-RUN:** Starting from the supply page, the driver passed the Fleet 1 page gate, returned to Home Port through normal UI navigation, and captured a fresh natural /api_port/port witness. Preflight covered all three idle fleets and 13 ships: fuel/ammunition deficit 0/0, target fleets empty, planned resource clicks 0. The dry-run returned full_supply_not_needed; current resources were 2500 fuel and 3453 ammunition.
+- **SAFETY / LIMITS:** No resource-consuming click or game API request was initiated. One ship has hull damage, which resupply does not repair. Since no fleet currently has a fuel/ammunition deficit, an actual multi-fleet resource-action run remains unverified; no deficit was manufactured for testing. The all-fleets-idle precondition and fail-closed behavior remain unchanged.
+- **NEXT:** When natural supply deficits exist, run one controlled multi-fleet batch and verify every post-click state and exact resource delta. Do not connect the batch to the continuous expedition supervisor in this stage.
+
+- **FOLLOW-UP LIVE DRY-RUN (14:35 +08:00):** Re-ran the existing `full_supply_ui_action.py --dry-run` from Home Port using the reused Poi/DC session. The UI freshness path was confirmed as HOME_PORT → SORTIE_MENU → EXPEDITION_LIST → HOME_PORT (three navigation clicks, no sortie dispatch); the final Home Port state passed its two-frame gate. A fresh natural `/api_port/port` witness was captured and matched the current Poi snapshot. All three fleets were idle; all 13 ships were checked; fuel/ammunition deficit remained 0/0, target fleets were empty, and planned resource clicks were 0. Result: `full_supply_not_needed`. No resource-consuming click or game API request was initiated. The game remained at Home Port; one damaged ship remains damaged. Checkpoint and local session log were updated.
+
+
+## 2026-11-03 - Full-supply Home Port detection fast path
+
+- **IMPLEMENTED:** `_acquire_fresh_witness()` now checks the Home Port state first. Only when that two-frame gate rejects Home Port does it scan the supported supply-page states. This avoids four unnecessary supply-page checks when the UI is already at Home Port; the Home Port two-frame requirement and supply-page fail-closed gate are unchanged.
+- **TESTED:** Added two focused tests for the Home Port fast path and supply-page fallback. Full-supply tests 14/14 passed; KancolleBot offline test batch passed with Python 464/464, Node 17/17, compile checks, and `git diff --check`. The two modified Python files also passed `py_compile`.
+- **LIVE DRY-RUN:** From Home Port, the optimized path confirmed Home Port on two consecutive in-memory frames, refreshed through SORTIE_MENU → EXPEDITION_LIST → HOME_PORT, captured a fresh natural `/api_port/port` witness, and verified all three idle fleets / 13 ships. Fuel/ammunition deficit 0/0, target fleets empty, resource clicks 0. Result `full_supply_not_needed`; no game API request or resource action was initiated.
+- **TIMING:** The optimized dry-run completed in 36.66 seconds end-to-end. The preceding run took approximately 44.8 seconds based on event timestamps, but it was not measured with the same stopwatch method; treat the comparison as indicative, not a controlled performance claim.
+- **LIMITS:** No natural supply deficit was present, so actual multi-fleet resource clicks remain unverified. One damaged ship remains damaged. The all-fleets-idle and freshness requirements remain in force.
+
+## 2026-11-03 - P0 Poi UI arbitration and read-only dry-run hardening
+
+- **IMPLEMENTED:** Replaced the process-local-only `UiOperationArbiter` mutex with a shared Poi UI operation lock. Windows uses the named session-local kernel mutex `Local\KancolleBot.PoiUiOperation.v1`; a process-wide reentrant thread lock preserves nested same-thread operations. Non-Windows development uses an OS file lock.
+- **FAIL-CLOSED RECOVERY:** A Windows `WAIT_ABANDONED` result releases the abandoned mutex and raises `PoiUiOperationLockError`, requiring UI inspection before the next attempt. A dedicated test holds a second handle to preserve the mutex object, terminates its owner process, verifies the first subsequent operation is rejected, and verifies a later operation can reacquire the lock.
+- **ENTRYPOINT COVERAGE:** The shared lock now protects full-supply actions, continuous dispatch/refresh, checkbox calibration/probe/restore, fleet-tab navigation, Ooi visual fingerprint capture/verification (including pointer movement), and the currently disabled one-expedition UI loop. The full-supply refresh helper reuses the same arbiter instance as its parent batch.
+- **DRY-RUN SAFETY:** `full_supply_ui_action.py --dry-run` now obtains only a naturally occurring `/api_port/port` witness and reads the Poi snapshot. It does not open a game UI session, navigate, refresh, click, or initiate a game API request. If no fresh natural witness exists, it fails closed.
+- **TESTED:** Poi lock tests **4/4**; full-supply tests **16/16**; scheduler tests **15/15**; visible UI refresh tests **9/9**; dispatch-controller tests **16/16**. Full Python suite **470/470**, Node tests **17/17**, compileall across `src`, `tests`, and `tools`, eight CLI help/import checks, and `git diff --check` all passed.
+- **AUDIT:** Scanned 68 Python/JavaScript script files for CDP mouse input and click entrypoints. All active click paths are protected by the shared lock; the one-expedition production loop remains disabled pending end-to-end acceptance, with the lock guard in place if it is later enabled. The current Git repository has one registered worktree. No active KancolleBot full-supply or continuous-monitor process was found during the process audit; Poi's child processes belong to one Electron instance, while ALAS is a separate Azur Lane application.
+- **HISTORICAL COPY SAFETY:** The prior read-only comparison found 8 byte-identical files, 9 same-path files with different contents, 262 files unique to the current workspace, and 59 files unique to the Cloud copy. No historical copy was deleted or overwritten; divergent files remain preserved for a separate reviewed reconciliation.
+- **LIMITS:** The new passive dry-run path has offline safety-test coverage but was not rerun live in this stage because no fresh natural port witness was established. No resource-consuming game action was performed. Actual multi-fleet resource-action acceptance remains dependent on a natural supply deficit; the batch is not integrated into `ContinuousExpeditionSupervisor`.
+
+## 2026-11-03 - Cloud repository read-only reconciliation audit
+
+- **SCOPE:** Compared the active MVP repository `wosafety0/wosafety0clamp` at `27ec634` with the separate Cloud repository `wosafety0/KancolleBot` at `4df92dd`. The Cloud repository and its worktree were treated as read-only throughout.
+- **METHOD:** Compared SHA-256 hashes by relative path, excluding `.git`, `.venv`, `node_modules`, and `__pycache__`.
+- **RESULTS:** Active workspace 281 files; Cloud workspace 76 files; 8 byte-identical same-path files; 9 same-path files with different content; 264 active-workspace-only files; 59 Cloud-only files.
+- **DIVERGENCE REVIEW:** The nine divergent paths are not safe duplicates. Examples include older GitHub Actions versions and missing Node checks in Cloud CI, absent optional vision dependencies in the Cloud pyproject, older read-only health-gated runtime documentation in the Cloud README, page-only CDP target handling in Cloud versus current WebView support, and different source-freshness guarantees in `ObservedState`. Core model validation and Poi MCP client tests also differ. These files require separate design review; no wholesale merge is justified.
+- **PRESERVATION:** No Cloud file was modified, deleted, moved, or overwritten. All 59 Cloud-only files and all 9 divergent files remain intact. The 8 identical files were also retained under the explicit read-only constraint.
+- **ARTIFACTS:** Full path/hash manifest: `D:\AI_Project\Project_KancolleBot\diagnostics\redundancy-cleanup\cloud-comparison-20261103.json`; readable inventory: `cloud-comparison-20261103.md`; selected text diffs: `cloud-divergence-diff-20261103.txt`.
+- **DECISION:** Continue active MVP development only in `wosafety0/wosafety0clamp` / `dev/expedition-closed-loop-mvp`. Retain `wosafety0/KancolleBot` as a read-only historical reference; no destructive Cloud cleanup is authorized.
+
+## 2026-11-03 - P0 Poi UI mutex lifetime correction
+
+- **IMPLEMENTED:** Narrowed the one-expedition UI loop's shared mutex to bounded UI transactions: initial verification/dispatch, return-refresh navigation, reward-screen advancement, and Home Port recovery. The lock is released during expedition timer waits, refreshed-state polling, and reward-completion idle polling.
+- **REGRESSION GUARD:** Added an AST-based test that checks expedition timer waits and reward-completion polling remain outside every shared UI mutex scope, and verifies the four intended UI transaction scopes.
+- **TESTED:** Full Python unittest suite **471/471**; Node static tests **17/17**; JavaScript syntax check, Python compileall, and `git diff --check` all passed.
+- **LIMITS:** The one-expedition production entrypoint remains hard-disabled pending end-to-end acceptance. This change has offline/static test coverage only; no live expedition or gameplay action was run.
+
+
+## 2026-11-03 - Fleet 1 full-supply gate alignment and live read-only preflight
+
+- **IMPLEMENTED:** Aligned select_full_supply_targets() with the already verified Fleet 1 supply-tab gate by changing its default supported fleet set from (2, 3) to (1, 2, 3). Explicitly restricted supported sets still fail closed when a requested fleet is not included.
+- **REGRESSION COVERAGE:** Added a positive test proving Fleet 1 is included when it has a supply deficit and a negative test proving an explicitly unsupported Fleet 1 still blocks the batch before any action.
+- **LIVE READ-ONLY PREFLIGHT:** Poi health and the read-only MCP tools passed. The visible refresh sequence HOME_PORT → SORTIE_MENU → EXPEDITION_LIST → HOME_PORT passed its two-frame state gates and captured a natural /api_port/port witness. The corrected preflight then passed with a 7.91-second witness: 3 fleets, 12 ships, total required 34 fuel / 16 ammunition, available 2500 fuel / 3453 ammunition, target fleets [1, 2, 3].
+- **TESTED:** Full Python suite **472/472**; focused full-supply tests **17/17**; Node static tests **17/17**; JavaScript syntax check, Python compileall, and git diff --check all passed.
+- **SAFETY / LIMITS:** The live step used only the existing visible refresh navigation and read-only Poi queries. No resupply click, repair, expedition dispatch, reward collection, or game API request was initiated. The three planned fleet-wide supply actions were not executed. The one-expedition production entrypoint remains hard-disabled pending its separate end-to-end acceptance.
+
+## 2026-11-03 - Active workspace exact-duplicate audit
+
+- **TRACKED SOURCE:** SHA-256 scan of all 147 Git-tracked files found zero exact duplicate files.
+- **WORKTREE ARTIFACTS:** Scanned 281 files, excluding .git, .venv, node_modules, and __pycache__. Found 4 exact-hash groups containing 63 files: three non-empty duplicate help-log pairs and one group of 57 zero-byte log files. This represents 59 extra copies beyond one file per hash group.
+- **CLASSIFICATION:** Every duplicate group is under the ignored logs/ directory; .gitignore explicitly excludes that directory. No duplicate source, test, or documentation files were found among tracked files.
+- **PRESERVATION:** No log was deleted or modified. These diagnostic artifacts remain until a separate log-retention policy is approved.
+- **ARTIFACTS:** Full tracked-file manifest: D:\AI_Project\Project_KancolleBot\diagnostics\redundancy-cleanup\internal-duplicate-files-20261103.json; worktree manifest and inventory: working-tree-duplicate-files-20261103.json and working-tree-duplicate-files-20261103.md.
+- **CLOUD INVENTORY COUNT NOTE:** The current 281-file snapshot yields 264 current-only files, 8 identical paths, and 9 divergent same-path files against the 76-file Cloud snapshot. No Cloud files were changed. The earlier 262 current-only figure in the Cloud audit summary is superseded by this re-count.
+
+## 2026-11-03 - P0 production UI controller integration
+
+- **IMPLEMENTED:** tools/one_expedition_ui_loop.py now wires the fresh Poi monitor, Fleet 3-only scheduler configuration, durable dispatch-intent coordinator, ContinuousDispatchController, single-tick ContinuousExpeditionSupervisor, and visible-CDP CdpContinuousExpeditionUiDriver. The runtime target is deliberately fixed to Fleet 3 / mission 3; Fleets 1 and 2 are read-only, Fleet 4 is deferred, and a dedicated SQLite database is used.
+- **SAFETY:** The driver uses visible CDP mouse input only. It does not invoke game APIs or mutate page state, requires two consecutive visual frames for each UI checkpoint, rejects unsupported fleet/mission mappings, and never automatically repeats an ambiguous click. The CLI requires explicit --authorize-ui-actions.
+- **LIVE VERIFIED:** Fleet 2 and Fleet 3 selected-tab fingerprints were recalibrated to disjoint tab-label crops. Both selected states passed positive two-frame recognition and rejected the opposite fleet state. Mission-3 selection and the production driver's HOME_PORT -> SORTIE_MENU -> EXPEDITION_LIST -> MISSION_SELECTED -> FLEET_2_SELECTED/FLEET_3_SELECTED -> HOME_PORT preparation/recovery path passed live. Screenshot bytes remained in memory; no screenshot files were written.
+- **TESTED:** Offline production integration covers monitor/controller/supervisor composition, exact Fleet 3 / mission 3 intent, fresh pre/post Poi observations, Home Port postcondition, and fail-closed behavior for an untrusted observation. Full Python suite: 487/487; Node tests: 19/19; Python compileall, production CLI help, and git diff --check passed.
+- **ACCEPTANCE LIMIT:** Live execution stopped after the pre-dispatch preparation and Home Port recovery checks. The irreversible expedition-start click was not sent; no expedition was dispatched and no resources were consumed. Post-dispatch natural freshness/readback, return/result/reward/idle, resupply integration, and unattended operation remain NOT_VERIFIED.
+- **NEXT:** Perform one explicitly authorized Fleet 3 / mission 3 live dispatch only when a new natural /api_port/port freshness witness is available and all pre-dispatch supply, composition, viewport, and visual gates pass. Then verify the exact active mission tuple and Home Port state before proceeding to the return/result/reward/idle stages.
+
+## 2026-11-03 - CDP UI-refresh failure diagnostics
+
+- **IMPLEMENTED:** CDP command-error handling now preserves only the allowlisted CDP method name and numeric protocol error code; Chromium's raw error message is discarded. The visible UI refresh blocker walks the exception chain and records only a fixed diagnostic category, method name, and numeric error code when they match an explicit safe pattern.
+- **TESTED:** Added regression coverage for CDP error responses and the initial UI checkpoint failure path. Focused CDP transport tests **17/17**; visible UI refresh tests **10/10**; full Python suite **489 tests, 18 skipped, all remaining passed**. Python compileall across `src`, `tests`, and `tools`, and `git diff --check` passed.
+- **SAFETY:** The initial checkpoint failure test confirms zero clicks. No Poi UI refresh, expedition dispatch, reward collection, resupply, page reload, or game-server request was performed in this change.
+- **LIMITS:** This improves offline diagnosis only. It does not establish why the previous live CDP transport failed, prove that CDP is currently healthy, or establish a fresh `/api_port/port` witness. The live refresh and expedition flow remain NOT_VERIFIED.
+- **NEXT:** After this diagnostic change is archived, perform a separate read-only CDP health/state check; only consider visible navigation after the current UI state is independently confirmed.
+
+## 2026-11-03 - Bounded visual wait for freshness UI navigation
+
+- **IMPLEMENTED:** Added a bounded `visual_attempts` parameter to the shared UI state verifier (default remains 3; accepted range 2–12). The continuous freshness monitor now requests 6 visual samples for its navigation checkpoints. The 0.97 minimum similarity, 0.04 separation margin, two-consecutive-frame requirement, and fail-closed behavior for a different recognized state are unchanged. The production dispatch path continues to use the default 3 attempts.
+- **EVIDENCE:** The prior live refresh produced three UNKNOWN samples after the single sortie-menu click; a later passive two-frame check recognized SORTIE_MENU at score 1.000. Earlier live logs also showed the first post-click sample UNKNOWN followed by successful recognition on the next sample. This supports extending the bounded observation window rather than weakening thresholds.
+- **TESTED:** Added regression coverage for three UNKNOWN samples followed by two consecutive matching samples. Focused tests: UI loop 40/40, visible refresh 10/10, monitor runtime 10/10. Full Python suite: **490 tests, 18 skipped, all remaining passed**. Compileall and `git diff --check` passed.
+- **LIMITS / SAFETY:** This change has offline test evidence only. No new live UI click or refresh was performed after the change. The later passive SORTIE_MENU recognition does not establish a fresh `/api_port/port` witness. Dispatch, reward collection, resupply, and unattended operation remain NOT_VERIFIED.
+- **NEXT:** After remote archive and readback, run one controlled freshness-only navigation using the 6-sample monitor verifier; verify a natural non-cached `/api_port/port` response before considering any dispatch workflow.
+
+## 2026-11-03 - Six-sample freshness navigation live verification
+
+- **LIVE VERIFIED:** The monitor-only visible navigation completed `HOME_PORT -> SORTIE_MENU -> EXPEDITION_LIST -> HOME_PORT`. The reset from the previously confirmed SORTIE_MENU to HOME_PORT required five visual samples (the first three were UNKNOWN); the refresh sequence then confirmed SORTIE_MENU on samples 2 and 3, EXPEDITION_LIST on samples 1 and 2, and final HOME_PORT on samples 3 and 4. The original 0.97 score threshold, 0.04 margin, and consecutive-two-frame requirement were unchanged.
+- **FRESHNESS WITNESS:** The passive observer returned `captured`; the monitor returned `MONITOR_TICK_OK` with exit code 0. The production reader accepts only an in-memory witness from the passive observer. Its capture path requires a natural HTTP 200 `/kcsapi/api_port/port` response from the Kancolle server, skips disk-cache/service-worker/prefetch-cache responses, validates the response body structure, and checks the witness age and exact fleet/ship field equality against the current Poi Redux read. `ObservedState.require_fresh()` then requires `source_freshness_verified=True`; the successful monitor tick proves this gate passed for this observation.
+- **READINESS:** The read-only monitor reported Fleet 2 `not_ready` because at least one ship is damaged, and Fleet 3 `not_ready` because of insufficient fuel. No fleet was dispatched.
+- **SAFETY:** `game_actions_enabled=false`. The observer initiated no game API request and sent no game input. No dispatch, reward collection, or resupply click occurred. Screenshots remained in memory; no screenshot files were written.
+- **ARTIFACTS:** Local diagnostic log `logs/freshness_retry_6frame_20261103.jsonl`; read-only event database `logs/freshness_refresh_20261103_six_attempts.sqlite3`.
+- **DOCUMENTATION CORRECTION:** Corrected the stale module docstring in `port_freshness.py`, which incorrectly claimed the validator was not wired into production; `PoiExpeditionReader` does call it to derive `source_freshness_verified`.
+- **TESTED:** Freshness validator 7/7, Poi reader 18/18, background provider 6/6, passive observer 10/10; compileall and `git diff --check` passed. The previously completed full Python suite remains 490 tests with 18 skipped and all remaining passed.
+- **LIMITS / NEXT:** This verifies one natural port witness and read-only monitor reconciliation, not expedition dispatch or its post-dispatch mission tuple. Fleet 3 currently needs fuel; before any resource-consuming supply action, perform a read-only resource/supply preflight and confirm the exact target and resource delta. Dispatch remains NOT_VERIFIED.
+
+## 2026-11-03 - Fleet 3 fresh supply-cost preflight
+
+- **LIVE VERIFIED:** Reused the passive port observer and existing full-supply preflight helpers with the six-sample visible-state verifier. The navigation sequence completed `HOME_PORT -> SORTIE_MENU -> EXPEDITION_LIST -> HOME_PORT`; three visible navigation clicks were sent. The natural port witness was captured at 11:29:44.420 UTC and matched the current stable Poi fleet/ship/resource read; the preflight completed at 11:29:49.970 UTC (approximately 5.55 seconds after witness capture).
+- **FLEET 3 COST:** Four ships; fuel deficit **16**, ammunition deficit **0**. Current resource inventory: **2500 fuel / 3453 ammunition**. Resources are sufficient for Fleet 3's calculated supply cost.
+- **READ-ONLY SCOPE:** The same snapshot showed Fleet 1 deficit 12 fuel / 8 ammunition and Fleet 2 deficit 6 fuel / 8 ammunition. These are recorded as observations only; Fleet 1 and Fleet 2 remain excluded from any action. The generic all-fleet plan reported all three as needing supply, so the existing all-fleet action loop must not be used for the Fleet 3-only task.
+- **SAFETY:** Zero supply clicks, zero dispatch clicks, zero game API requests. Only the three visible navigation clicks were sent to obtain the natural witness. The UI ended at HOME_PORT; screenshots remained in memory.
+- **ARTIFACT:** Local log `logs/fleet3_supply_preflight_20261103.jsonl`.
+- **LIMITS / NEXT:** This is a verified cost preflight, not a completed supply action. Add an explicit Fleet 3-only target boundary to the supply workflow and tests before considering any resource-consuming click. Do not supply Fleet 1 or Fleet 2. Expedition dispatch remains NOT_VERIFIED.
+
+## 2026-11-03 - Fleet 3-only supply action boundary
+
+- **IMPLEMENTED:** Added explicit `target_fleet_ids` filtering to the pure supply target selector and progress validator. The production UI supply tool now fixes `TARGET_FLEET_IDS=(3,)`; Fleet 1 and Fleet 2 deficits are logged as read-only observations and never enter the resource-action queue. Post-action verification checks Fleet 3 completion and its exact target cost/resource delta, while confirming non-target fleet supply values remain unchanged.
+- **SAFETY:** The `--authorize-full-supply` CLI description now explicitly states Fleet 3 only. No live supply click or resource-consuming action was performed in this change.
+- **TESTED:** Added tests for Fleet 3-only target selection, non-target state immutability, invalid target IDs, and runtime dry-run wiring. Full Python suite: **493 tests, 18 skipped, all remaining passed**. Supply tests 20/20; freshness validator 7/7; Poi reader 18/18. Compileall, CLI help, and `git diff --check` passed.
+- **CONSERVATIVE LIMIT:** The current shared plan builder still requires all three unlocked fleets to be idle and the resource inventory to cover all observed fleet deficits. This can block a Fleet 3-only action unnecessarily, but does not expand the target set or permit Fleet 1/2 actions.
+- **NEXT / NOT VERIFIED:** The Fleet 3-only execution path has offline test coverage but has not yet been exercised with a resource click. Obtain a new natural freshness witness at execution time and verify the Fleet 3 target/cost again. Actual supply requires explicit runtime authorization; dispatch and the full expedition loop remain NOT_VERIFIED.
+
+## 2026-11-03 - Fleet 3-only target boundary live preflight
+
+- **LIVE VERIFIED:** The updated production preflight helper completed the visible navigation `HOME_PORT -> SORTIE_MENU -> EXPEDITION_LIST -> HOME_PORT` and captured a natural port witness. It returned `source_freshness_verified=true`, `target_fleet_ids=[3]`, and `selected_target_fleets=[3]`.
+- **FLEET 3 COST:** Four ships; fuel required **16**, ammunition required **0**. Available inventory: **2500 fuel / 3453 ammunition**. The target cost is covered by current resources.
+- **READ-ONLY FLEETS:** Fleet 1 deficit 12 fuel / 8 ammunition; Fleet 2 deficit 6 fuel / 8 ammunition. Both appear only in `read_only_fleet_deficits`; neither is selected as an action target.
+- **SAFETY:** Three visible navigation clicks were used to obtain the natural witness. Zero supply clicks, zero dispatches, zero game API requests. The UI ended at HOME_PORT; screenshots remained in memory.
+- **ARTIFACT:** Local log `logs/fleet3_supply_preflight_after_target_filter_20261103.jsonl`.
+- **LIMITS / NEXT:** This verifies Fleet 3-only targeting and fresh cost preflight, not the resource-consuming supply click. The explicit `--authorize-full-supply` action has not been run. Obtain explicit authorization before spending the 16 fuel; dispatch and the complete expedition loop remain NOT_VERIFIED.
+
+## 2026-11-03 - Six-sample visible refresh state verification
+
+- **IMPLEMENTED:** The Fleet 3 supply workflow's visible refresh verifier now allows up to six visual samples when confirming each navigation checkpoint. The existing requirement for two consecutive matching in-memory frames remains unchanged; this only accommodates delayed rendering before fail-closed evaluation.
+- **TESTED:** Added a unit test asserting that the production refresh verifier passes `visual_attempts=6` to the shared UI state gate. Full Python suite: **494 tests, 18 skipped, all remaining passed**. Fleet supply tests: **21/21**. Production expedition integration tests: **2/2**. Compileall and `git diff --check` passed.
+- **LIMITS / NEXT:** This improves refresh checkpoint tolerance but does not itself verify or perform a supply action. Fleet 3 remains the only configured target; actual supply still requires a fresh natural port witness, live state/cost validation, one visible supply click, and post-action verification. Dispatch and the full expedition loop remain NOT_VERIFIED.
+
+## 2026-11-03 - Six-sample return-home gate and runtime environment
+
+- **IMPLEMENTED:** The path that exits a verified supply page back to HOME_PORT now uses the same six-sample visual state verifier as the visible freshness-refresh sequence. The gate still requires two consecutive matching in-memory frames.
+- **RUNTIME REQUIREMENT:** The production visual locator dependencies (OpenCV and NumPy) are installed in the project `.venv`, not the system Python. Run the production supply tool with `.venv\\Scripts\\python.exe` so visual target localization is available.
+- **TESTED:** Added a test proving supply-page return navigation uses the six-sample verifier. Supply tests: **22/22**. Full Python suite: **495 tests passed**. Compileall and `git diff --check` passed.
+- **LIMITS / NEXT:** No supply-resource click has yet been verified. The Fleet 3-only target, fresh natural port witness, live state/cost checks, visual Fleet 3 selection, and post-click resource/ship verification remain mandatory. Dispatch and the full expedition loop remain NOT_VERIFIED.
+
+## 2026-11-03 - Fleet 3 single supply action live verified
+
+- **LIVE VERIFIED:** One visible fleet-wide supply click was sent to Fleet 3 only. A later stable double-read of the Poi store confirms all **4/4 Fleet 3 ships are fully supplied**. Fleet 3 mission state is idle `[0,0,0,0]`.
+- **COST:** The preflight inventory was **2500 fuel / 3453 ammunition** and the target cost was **16 fuel / 0 ammunition**. The first stable post-action readback showed **2484 / 3453**, matching the exact expected delta. A later stable readback showed **2487 / 3453**; the intervening +3 fuel change is observed but not attributed.
+- **SCOPE / SAFETY:** Exactly **one** Fleet 3 supply click; **zero retries**; no game API requests initiated. The production post-action checks confirmed non-target fleet fuel/ammunition values were unchanged. Fleet 1 and Fleet 2 remain read-only.
+- **ARTIFACT:** `logs/full_supply_ui_action.jsonl` event `full_supply_completed_and_verified_after_delayed_store_sync` records the delayed stable readback and one-click boundary.
+- **LIMITS / NEXT:** The game action is complete and verified, but the first immediate post-click Poi read did not yet show full supply; later stable readback did. Improve the production verifier with bounded read-only polling for store propagation before treating a non-final first read as final. Do not repeat the supply click. Expedition dispatch and the full closed loop remain NOT_VERIFIED.
+
+## 2026-11-03 - Bounded read-only post-supply verification
+
+- **IMPLEMENTED:** Replaced the single fixed-delay post-click Poi read with bounded read-only polling (up to 10 stable snapshots, 0.5 seconds between polls). The first poll is immediate. Polling never sends another UI click and never initiates a game API request.
+- **SAFETY GATES:** Every poll verifies unchanged fleet membership/mission state and master data; non-target ship fuel/ammunition must remain unchanged; target ship fuel/ammunition may only increase toward the corresponding master maximum; material values must remain within the preflight-to-exact-cost range. Success requires every target-fleet ship fully supplied and the exact expected fuel/ammunition delta. Invalid changes stop immediately; exhaustion of the poll limit fails closed with an explicit no-repeat instruction.
+- **OBSERVABILITY:** Added per-poll structured events and a success event recording the poll count, final resources, single-click count, and retry_allowed=false.
+- **TESTED:** Added four focused tests covering delayed store propagation succeeding on a later read, bounded timeout without a second click, unexpected resource delta rejection, and non-target fleet mutation rejection. Full Python suite: **499 tests passed**. compileall and git diff --check passed.
+- **LIMITS / NOT VERIFIED:** This change was validated with offline tests only; no live supply click, game API request, Poi navigation, or game-state mutation was performed. The Fleet 3 supply already completed and verified in the preceding live run; do not repeat it. Expedition dispatch, large-damage interception, and the full expedition loop remain NOT_VERIFIED.
+- **ARTIFACTS:** tools/full_supply_ui_action.py; tests/test_full_supply.py. Local validation report: logs/delayed_supply_verification_validation_20261103.txt.
+
+
+## 2026-11-03 - Pre-dispatch Taiha interception
+
+- **IMPLEMENTED:** Poi fleet normalization now records heavy_damage_ship_ids separately from the existing damaged_ship_ids. Taiha (大破) is classified at **25% HP or below**, using integer arithmetic (api_nowhp * 4 <= api_maxhp) with the inclusive boundary covered by tests.
+- **DISPATCH GATE:** ContinuousDispatchController checks the fresh normalized fleet snapshot before creating a durable dispatch intent. Any Taiha ship emits dispatch_blocked_large_damage with fleet/ship IDs, the 25% threshold, dispatch_clicks_sent=0, and replacement_implemented=false, then raises and stops. Missing or invalid HP data continues to fail closed during normalization.
+- **SAFETY / SCOPE:** No ship replacement, fleet composition change, game UI click, dispatch, or game-server request was performed. Healthy-ship replacement is deliberately deferred. The existing general damaged-ship readiness policy remains unchanged and is stricter than the new Taiha-specific gate.
+- **TESTED:** Added exact-25%-boundary and above-threshold classification tests, plus a controller test proving Taiha blocks before intent creation and UI input. Full Python suite: **502/502 passed**. Project Python compileall and git diff --check passed.
+- **LIMITS / NOT VERIFIED:** Offline tests verify the gate logic only; no live Poi Taiha snapshot or dispatch attempt was performed. Fleet 3 / mission 3 dispatch, healthy-ship replacement, and the complete expedition loop remain NOT_VERIFIED.

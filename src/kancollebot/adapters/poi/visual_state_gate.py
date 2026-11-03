@@ -39,6 +39,35 @@ def _decode_grayscale(payload: str, cv2_module, numpy_module):
     return image
 
 
+_TEMPLATE_IMAGE_CACHE: dict[tuple[str, int, int, int, int], object | None] = {}
+_TEMPLATE_IMAGE_CACHE_LIMIT = 32
+
+
+def _load_grayscale_template(path: Path, cv2_module, numpy_module):
+    # Load an unchanged template once per process; invalidate on file or module change.
+    metadata = path.stat()
+    resolved_path = str(path.resolve())
+    cache_key = (
+        resolved_path,
+        metadata.st_mtime_ns,
+        metadata.st_size,
+        id(cv2_module),
+        id(numpy_module),
+    )
+    if cache_key in _TEMPLATE_IMAGE_CACHE:
+        return _TEMPLATE_IMAGE_CACHE[cache_key]
+
+    encoded = numpy_module.frombuffer(path.read_bytes(), dtype=numpy_module.uint8)
+    template = cv2_module.imdecode(encoded, cv2_module.IMREAD_GRAYSCALE)
+    for stale_key in tuple(_TEMPLATE_IMAGE_CACHE):
+        if stale_key[0] == resolved_path:
+            del _TEMPLATE_IMAGE_CACHE[stale_key]
+    if len(_TEMPLATE_IMAGE_CACHE) >= _TEMPLATE_IMAGE_CACHE_LIMIT:
+        _TEMPLATE_IMAGE_CACHE.pop(next(iter(_TEMPLATE_IMAGE_CACHE)))
+    _TEMPLATE_IMAGE_CACHE[cache_key] = template
+    return template
+
+
 def home_reference_similarity(
     current_screenshot_base64: str,
     home_reference_base64: str,
@@ -230,10 +259,9 @@ def classify_screenshot_png(
         if not path.is_file():
             continue
         try:
-            encoded = numpy_module.frombuffer(path.read_bytes(), dtype=numpy_module.uint8)
+            template = _load_grayscale_template(path, cv2_module, numpy_module)
         except OSError:
             continue
-        template = cv2_module.imdecode(encoded, cv2_module.IMREAD_GRAYSCALE)
         if template is None:
             continue
         if template.shape[0] > image.shape[0] or template.shape[1] > image.shape[1]:

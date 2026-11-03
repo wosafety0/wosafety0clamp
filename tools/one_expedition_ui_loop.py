@@ -1,10 +1,11 @@
-"""Run one UI-mediated fleet-2 mission-3 expedition from idle back to idle.
+"""Run one supervised Fleet 3 -> mission 3 UI dispatch transaction.
 
-The controller reads the Poi Redux fleet snapshot and sends mouse input only to
-the visible game UI. It never constructs or sends game-server requests. The four
-navigation transitions leading to Fleet 2 selection have live Ooi fingerprint
-checkpoints. The expedition-start action and full return/result/bonus flow remain
-blocked until their remaining production checkpoints are independently verified.
+The production entry composes the fresh Poi monitor, durable scheduler and
+dispatch-intent coordinator, ContinuousDispatchController, single-tick
+ContinuousExpeditionSupervisor, and a visible CDP UI driver. It exits only after
+Poi confirms the new mission tuple and two-frame Home Port evidence. It does not
+wait for return, collect rewards, resupply, or run unattended. All game input is
+visible UI input; no game-server requests or page-state mutation are performed.
 """
 from __future__ import annotations
 
@@ -36,6 +37,7 @@ from kancollebot.adapters.poi.cdp_websocket import (  # noqa: E402
     connect_game_webview,
     connect_poi_session,
 )
+from kancollebot.adapters.poi.ui_operation_lock import poi_ui_operation  # noqa: E402
 from kancollebot.adapters.poi.ui_state_gate import (  # noqa: E402
     UiState,
     UiStateGateError,
@@ -52,9 +54,12 @@ from kancollebot.adapters.poi.visual_fingerprint import (  # noqa: E402
     classify_screenshot_fingerprints,
     classify_supply_checkbox_state,
 )
+from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
 
 
-FLEET_ID = 2
+# Legacy helper/test path only; production target is RUNTIME_CONFIG.
+LEGACY_HELPER_FLEET_ID = 2
+FLEET_ID = LEGACY_HELPER_FLEET_ID
 MISSION_ID = 3
 HOME_PORT = home_port_point()
 SORTIE = RecordedPoint(280, 425, "sortie")
@@ -84,7 +89,7 @@ class LoopError(RuntimeError):
     """The observed state or UI sequence no longer matches the fixed loop."""
 
 
-def _fleet(states: tuple[PoiFleetMissionState, ...], fleet_id: int = FLEET_ID) -> PoiFleetMissionState:
+def _fleet(states: tuple[PoiFleetMissionState, ...], fleet_id: int = LEGACY_HELPER_FLEET_ID) -> PoiFleetMissionState:
     matches = [state for state in states if state.fleet_id == fleet_id]
     if len(matches) != 1:
         raise LoopError(f"Expected exactly one fleet {fleet_id} in the Poi snapshot")
@@ -98,6 +103,29 @@ def _idle(state: PoiFleetMissionState) -> bool:
 LOG_PATH: Path | None = None
 RUN_ID = "uninitialized"
 HOME_REFERENCE_BASE64: str | None = None
+_VISUAL_DOCUMENT_CACHE: dict[tuple[str, int, int], object] = {}
+
+
+def _read_visual_document(path: Path) -> object:
+    # Read each unchanged fingerprint document only once per process.
+    try:
+        metadata = path.stat()
+    except OSError:
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    resolved_path = str(path.resolve())
+    cache_key = (resolved_path, metadata.st_mtime_ns, metadata.st_size)
+    if cache_key in _VISUAL_DOCUMENT_CACHE:
+        return _VISUAL_DOCUMENT_CACHE[cache_key]
+
+    document = json.loads(path.read_text(encoding="utf-8"))
+    for stale_key in tuple(_VISUAL_DOCUMENT_CACHE):
+        if stale_key[0] == resolved_path:
+            del _VISUAL_DOCUMENT_CACHE[stale_key]
+    if len(_VISUAL_DOCUMENT_CACHE) >= 4:
+        _VISUAL_DOCUMENT_CACHE.pop(next(iter(_VISUAL_DOCUMENT_CACHE)))
+    _VISUAL_DOCUMENT_CACHE[cache_key] = document
+    return document
 
 
 def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra: object) -> None:
@@ -118,8 +146,16 @@ def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra:
             stream.write(line + "\n")
 
 
-def _require_ui_state(game_session, expected: UiState) -> str:
+def _require_ui_state(
+    game_session, expected: UiState, *, visual_attempts: int = 3
+) -> str:
     """Require accessible labels or two consecutive in-memory visual matches."""
+    if (
+        isinstance(visual_attempts, bool)
+        or not isinstance(visual_attempts, int)
+        or not 2 <= visual_attempts <= 12
+    ):
+        raise ValueError("visual_attempts must be an integer from 2 through 12")
     result = game_session.transport.send("Accessibility.getFullAXTree", {})
     nodes = result.get("nodes") if isinstance(result, dict) else None
     try:
@@ -138,7 +174,7 @@ def _require_ui_state(game_session, expected: UiState) -> str:
         try:
             document = None
             if fingerprint_path.is_file():
-                document = json.loads(fingerprint_path.read_text(encoding="utf-8"))
+                document = _read_visual_document(fingerprint_path)
             fingerprint_states = document.get("states", {}) if isinstance(document, dict) else {}
             checkbox_states = {
                 state for state in UiState
@@ -158,7 +194,7 @@ def _require_ui_state(game_session, expected: UiState) -> str:
                     raise LoopError(
                         f"Supply checkbox fingerprint file is missing: {checkbox_path}"
                     ) from accessible_error
-                checkbox_document = json.loads(checkbox_path.read_text(encoding="utf-8"))
+                checkbox_document = _read_visual_document(checkbox_path)
                 checkbox_descriptors = checkbox_document.get("states", {})
                 if expected.value not in checkbox_descriptors:
                     raise LoopError(
@@ -169,7 +205,7 @@ def _require_ui_state(game_session, expected: UiState) -> str:
                 ship_index = int(state_parts[4])
 
                 consecutive_matches = 0
-                for attempt in range(6):
+                for attempt in range(visual_attempts):
                     game_session.transport.send(
                         "Input.dispatchMouseEvent",
                         {"type": "mouseMoved", "x": 1195, "y": 715},
@@ -204,15 +240,15 @@ def _require_ui_state(game_session, expected: UiState) -> str:
                         ) from accessible_error
                     else:
                         consecutive_matches = 0
-                    if attempt < 5:
-                        time.sleep(0.4)
+                    if attempt < visual_attempts - 1:
+                        time.sleep(0.25)
                 raise LoopError(
-                    f"Expected {expected.value}; no stable parent+checkbox fingerprint match after six attempts"
+                    f"Expected {expected.value}; no stable parent+checkbox fingerprint match after {visual_attempts} attempts"
                 ) from accessible_error
 
             if expected.value in fingerprint_states:
                 consecutive_matches = 0
-                for attempt in range(6):
+                for attempt in range(visual_attempts):
                     game_session.transport.send(
                         "Input.dispatchMouseEvent",
                         {"type": "mouseMoved", "x": 1195, "y": 715},
@@ -244,11 +280,11 @@ def _require_ui_state(game_session, expected: UiState) -> str:
                         ) from accessible_error
                     else:
                         consecutive_matches = 0
-                    if attempt < 5:
-                        time.sleep(0.4)
+                    if attempt < visual_attempts - 1:
+                        time.sleep(0.25)
                 if not template_dir:
                     raise LoopError(
-                        f"Expected {expected.value}; no stable fingerprint match was obtained after six attempts"
+                        f"Expected {expected.value}; no stable fingerprint match was obtained after {visual_attempts} attempts"
                     ) from accessible_error
 
             if not template_dir:
@@ -260,7 +296,7 @@ def _require_ui_state(game_session, expected: UiState) -> str:
                 raise LoopError(f"Visual template directory does not exist: {template_path}") from accessible_error
 
             consecutive_matches = 0
-            for attempt in range(3):
+            for attempt in range(visual_attempts):
                 game_session.transport.send(
                     "Input.dispatchMouseEvent",
                     {"type": "mouseMoved", "x": 1195, "y": 715},
@@ -297,10 +333,10 @@ def _require_ui_state(game_session, expected: UiState) -> str:
                     ) from accessible_error
                 else:
                     consecutive_matches = 0
-                if attempt < 2:
+                if attempt < visual_attempts - 1:
                     time.sleep(0.25)
             raise LoopError(
-                f"Expected {expected.value}; no stable template match was obtained after six attempts"
+                f"Expected {expected.value}; no stable template match was obtained after {visual_attempts} attempts"
             ) from accessible_error
         except (VisualFingerprintError, VisualStateError, OSError, ValueError) as visual_error:
             raise LoopError(
@@ -403,15 +439,8 @@ def _wait_for_idle(reader_transport, poll_seconds: float = 1.0, timeout_seconds:
     raise LoopError("Fleet 2 did not become idle after bonus advance; refusing further UI actions")
 
 
-def _collect_returned_expedition_reward(
-    game_session, reader_transport, expected_final_time_ms: int
-) -> PoiFleetMissionState:
-    """Advance the verified result and bonus screens, then verify return to Home Port.
-
-    Fleet mission-idle is checked only after the BONUS_ITEMS screen has been
-    confirmed and its normal UI advance has been sent. The idle tuple alone is
-    not treated as proof that the reward screen was collected.
-    """
+def _advance_returned_expedition_screens(game_session) -> None:
+    """Advance the verified result and bonus screens using bounded UI actions."""
     _print_event("ui_action_precondition", action="collect_expedition_reward",
                  fleet_id=FLEET_ID, mission_id=MISSION_ID, expected_state="RETURN_RESULT")
     game_session.input.click(RETURN_CONFIRM)
@@ -426,14 +455,26 @@ def _collect_returned_expedition_reward(
     time.sleep(1.0)
     _print_event("ui_action_wait_completed", point="bonus-next", wait_seconds=1.0)
 
-    _wait_for_idle(reader_transport)
-    _recover_home_port(game_session)
+
+def _verify_returned_expedition_ready(
+    reader_transport, expected_final_time_ms: int
+) -> PoiFleetMissionState:
     final_state = _fleet(read_poi_fleet_states(reader_transport))
     if not _idle(final_state):
         raise LoopError(f"Fleet 2 did not return to idle after collection: {final_state.mission}")
     _print_event("ONE_EXPEDITION_LOOP_VERIFIED_READY", final_state,
                  dispatch_final_time_ms=expected_final_time_ms)
     return final_state
+
+
+def _collect_returned_expedition_reward(
+    game_session, reader_transport, expected_final_time_ms: int
+) -> PoiFleetMissionState:
+    """Compatibility wrapper for the complete reward flow."""
+    _advance_returned_expedition_screens(game_session)
+    _wait_for_idle(reader_transport)
+    _recover_home_port(game_session)
+    return _verify_returned_expedition_ready(reader_transport, expected_final_time_ms)
 
 
 def build_checkpoint_verifier(reader_transport, game_session, expected_start_ms: int):
@@ -581,107 +622,184 @@ def _return_home_port_after_dispatch(
     return observed
 
 
+def _run_production_supervisor_once(args: argparse.Namespace) -> int:
+    """Compose the durable monitor/controller/supervisor with the visible CDP driver."""
+    from datetime import timedelta
+
+    from kancollebot.adapters.poi.continuous_expedition_ui import (
+        CdpContinuousExpeditionUiDriver,
+    )
+    from kancollebot.expeditions.continuous_dispatch_controller import (
+        ContinuousDispatchController,
+        UiStateEvidence,
+    )
+    from kancollebot.expeditions.continuous_scheduler import (
+        FleetPhase,
+        UiOperationArbiter,
+    )
+    from kancollebot.expeditions.continuous_supervisor import (
+        ContinuousExpeditionSupervisor,
+    )
+    from kancollebot.expeditions.dispatch_recovery import (
+        DurableDispatchCoordinator,
+        SqliteDispatchIntentStore,
+    )
+    from run_continuous_expedition_monitor import build_runtime
+
+    runtime = None
+    try:
+        with connect_game_webview(timeout=3.0) as game_session:
+            target_fleet_id = RUNTIME_CONFIG.production_dispatch_fleet_id
+            target_mission_id = RUNTIME_CONFIG.production_mission_id
+            runtime = build_runtime(
+                database_path=args.database,
+                observer_script=args.observer_script,
+                observer_timeout_seconds=args.observer_timeout_seconds,
+                max_state_age_seconds=args.max_state_age_seconds,
+                dispatch_fleet_ids=(target_fleet_id,),
+                enable_ui_refresh=False,
+            )
+            _capture_home_reference(game_session)
+
+            def verify_state(expected: str) -> UiStateEvidence:
+                state = UiState(expected)
+                evidence = _require_ui_state(game_session, state)
+                return UiStateEvidence(
+                    state=state.value,
+                    consecutive_states=(state.value, state.value),
+                    evidence=evidence,
+                )
+
+            ui_driver = CdpContinuousExpeditionUiDriver(
+                game_input=game_session.input,
+                verify_state=verify_state,
+                event_sink=runtime.monitor.event_sink,
+                neutralize_pointer=lambda: game_session.transport.send(
+                    "Input.dispatchMouseEvent",
+                    {"type": "mouseMoved", "x": 1195, "y": 715},
+                ),
+            )
+            dispatch_coordinator = DurableDispatchCoordinator(
+                runtime.scheduler,
+                SqliteDispatchIntentStore(args.database),
+            )
+            dispatch_controller = ContinuousDispatchController(
+                scheduler=runtime.scheduler,
+                dispatch_coordinator=dispatch_coordinator,
+                state_reader=runtime.monitor.state_reader,
+                ui_driver=ui_driver,
+                ui_arbiter=UiOperationArbiter(),
+                mission_requirements=runtime.monitor.mission_requirements,
+                event_sink=runtime.monitor.event_sink,
+                allow_ui_actions=True,
+                max_state_age=timedelta(seconds=args.max_state_age_seconds),
+            )
+            supervisor = ContinuousExpeditionSupervisor(
+                monitor=runtime.monitor,
+                dispatch_controller=dispatch_controller,
+            )
+
+            _print_event(
+                "production_supervisor_started",
+                dispatch_fleets=[target_fleet_id],
+                fixed_mission_id=target_mission_id,
+                read_only_fleets=[
+                    fleet_id for fleet_id in RUNTIME_CONFIG.all_fleet_ids
+                    if fleet_id != target_fleet_id
+                ],
+                deferred_fleets=list(RUNTIME_CONFIG.deferred_fleet_ids),
+                game_api_requests=False,
+            )
+            result = supervisor.tick()
+            if result.paused_reason is not None or not result.dispatches:
+                _print_event(
+                    "PRODUCTION_SUPERVISOR_PAUSED",
+                    reason=result.paused_reason or f"fleet_{target_fleet_id}_not_ready",
+                    dispatch_count=len(result.dispatches),
+                    game_actions_sent=0,
+                )
+                return 2
+
+            if len(result.dispatches) != 1:
+                raise LoopError(
+                    f"Expected exactly one Fleet {target_fleet_id} dispatch, observed {len(result.dispatches)}"
+                )
+            dispatch = result.dispatches[0]
+            state = runtime.scheduler.fleet(target_fleet_id)
+            if (
+                dispatch.fleet_id != target_fleet_id
+                or dispatch.mission_id != target_mission_id
+                or state.phase is not FleetPhase.EXPEDITION_ACTIVE
+                or not state.home_port_verified
+            ):
+                raise LoopError(
+                    f"Supervisor returned without the exact Fleet {target_fleet_id} / "
+                    f"mission {target_mission_id} active tuple and verified Home Port state"
+                )
+            _print_event(
+                "PRODUCTION_UI_CONTROLLER_INTEGRATION_VERIFIED",
+                fleet_id=target_fleet_id,
+                mission_id=target_mission_id,
+                final_time_ms=dispatch.mission.final_time_ms,
+                ship_ids=list(dispatch.mission.ship_ids),
+                home_port_verified=True,
+                evidence="fresh_poi_before_after_and_two_frame_home_port",
+            )
+            return 0
+    except Exception as exc:
+        try:
+            _print_event(
+                "STOPPED_FAIL_CLOSED",
+                error_type=type(exc).__name__,
+                error=str(exc),
+                automatic_retry=False,
+            )
+        except OSError:
+            pass
+        if isinstance(exc, LoopError):
+            raise
+        raise LoopError(
+            f"Production UI controller stopped fail-closed: {type(exc).__name__}: {exc}"
+        ) from exc
+    finally:
+        if runtime is not None:
+            runtime.provider.close(join_timeout_seconds=1.0)
+
+
 def run(args: argparse.Namespace) -> int:
     if not args.authorize_ui_actions:
         raise LoopError("Missing explicit --authorize-ui-actions flag")
-    # RETURN_RESULT and BONUS_ITEMS have passed live two-frame visual checks.
-    # Keep production input disabled until the full end-to-end acceptance passes.
-    raise LoopError("Live UI loop disabled: end-to-end acceptance has not been completed")
-    if not 1 <= args.poll_seconds <= 30:
-        raise LoopError("poll_seconds must be between 1 and 30")
-    if not 60 <= args.timeout_seconds <= 3600:
-        raise LoopError("timeout_seconds must be between 60 and 3600")
-    if not 0 <= args.grace_delay_seconds <= 300:
-        raise LoopError("grace_delay_seconds must be between 0 and 300")
-    with connect_poi_session(timeout=3.0) as state_session, connect_game_webview(timeout=3.0) as game_session:
-        initial_states = read_poi_fleet_states(state_session.transport)
-        initial = _fleet(initial_states)
-        if not _idle(initial):
-            raise LoopError(f"Fleet 2 must be idle before this one-shot run: {initial.mission}")
-        _print_event("startup_idle_state_verified", initial)
-        _capture_home_reference(game_session)
-        _recover_home_port(game_session)
-        baseline_ms = int(time.time() * 1000)
-        checkpoint_verifier = build_checkpoint_verifier(
-            state_session.transport, game_session, baseline_ms
-        )
-        dispatched = _dispatch(
-            state_session.transport, game_session.input, baseline_ms,
-            checkpoint_verifier=checkpoint_verifier,
-        )
-        dispatched = _return_home_port_after_dispatch(
-            game_session, state_session.transport, dispatched
-        )
-        expected_final_time_ms = dispatched.final_time_ms
-        _print_event("dispatch_confirmed_waiting_for_timer", dispatched,
-                     expected_final_time_ms=expected_final_time_ms)
-        _wait_for_return(
-            state_session.transport,
-            expected_final_time_ms,
-            args.poll_seconds,
-            args.timeout_seconds,
-            args.grace_delay_seconds,
-        )
-
-        # Follow the requested UI refresh path: open Sortie, then navigate back
-        # through the top-left Home Port control before checking the refreshed state.
-        _print_event("ui_action_precondition", action="click_sortie", expected="expedition return refresh")
-        game_session.input.click(SORTIE)
-        _print_event("ui_click_sent", point=SORTIE.label)
-        time.sleep(1.5)
-        _print_event("ui_action_wait_completed", point=SORTIE.label, wait_seconds=1.5)
-        _recover_home_port(game_session, force_click=True)
-        refresh_deadline = time.monotonic() + 120.0
-        last_refresh_log = 0.0
-        result_state = None
-        while time.monotonic() < refresh_deadline:
-            observed = _fleet(read_poi_fleet_states(state_session.transport))
-            if observed.mission_status == 2 and observed.mission_id == MISSION_ID and observed.final_time_ms == expected_final_time_ms:
-                result_state = observed
-                _print_event("expedition_completion_confirmed_after_home_port_refresh", observed)
-                break
-            if observed.mission_status != 1 or observed.mission_id != MISSION_ID or observed.final_time_ms != expected_final_time_ms:
-                raise LoopError(f"Unexpected fleet 2 state after Home Port refresh: {observed.mission}")
-            now = time.monotonic()
-            if now - last_refresh_log >= 5.0:
-                _print_event("waiting_for_refreshed_completion_state", observed, retry_interval_seconds=5)
-                last_refresh_log = now
-            time.sleep(5.0)
-        if result_state is None:
-            raise LoopError("Completion state was not confirmed within 120 seconds after Home Port refresh")
-
-        _require_ui_state(game_session, UiState.RETURN_RESULT)
-        _collect_returned_expedition_reward(
-            game_session, state_session.transport, expected_final_time_ms
-        )
-    return 0
+    return _run_production_supervisor_once(args)
 
 
-def main() -> int:
+def _main_impl(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--authorize-ui-actions", action="store_true", required=True,
-                        help="Explicitly authorize this one fixed live UI loop")
-    parser.add_argument("--poll-seconds", type=float, default=5.0)
-    parser.add_argument("--timeout-seconds", type=float, default=1800.0)
-    parser.add_argument("--grace-delay-seconds", type=float, default=10.0,
-                        help="Wait after the scheduled return time before refreshing through the UI")
     parser.add_argument(
-        "--template-dir",
-        type=Path,
-        default=Path(os.environ["KANCOLLEBOT_TEMPLATE_DIR"]) if os.environ.get("KANCOLLEBOT_TEMPLATE_DIR") else None,
-        help="Directory containing local visual templates for RETURN_RESULT and BONUS_ITEMS",
+        "--authorize-ui-actions",
+        action="store_true",
+        required=True,
+        help="Explicitly authorize the fixed Fleet 3 -> mission 3 visible-UI dispatch",
     )
+    parser.add_argument(
+        "--database",
+        type=Path,
+        default=RUNTIME_CONFIG.dispatch_database,
+        help="Dedicated durable scheduler/dispatch database for this one-fleet entry",
+    )
+    parser.add_argument(
+        "--observer-script",
+        type=Path,
+        default=RUNTIME_CONFIG.observer_script,
+    )
+    parser.add_argument("--observer-timeout-seconds", type=float, default=RUNTIME_CONFIG.observer_timeout_seconds)
+    parser.add_argument("--max-state-age-seconds", type=float, default=RUNTIME_CONFIG.max_state_age_seconds)
     parser.add_argument(
         "--log-path",
         type=Path,
-        default=ROOT / "logs" / "one_expedition_ui_loop.jsonl",
+        default=RUNTIME_CONFIG.dispatch_log_path,
         help="The sole permitted local output file; defaults to logs/one_expedition_ui_loop.jsonl",
     )
-    args = parser.parse_args()
-    if args.template_dir is not None:
-        if not args.template_dir.is_dir():
-            parser.error(f"template directory does not exist: {args.template_dir}")
-        os.environ["KANCOLLEBOT_TEMPLATE_DIR"] = str(args.template_dir.expanduser().resolve())
+    args = parser.parse_args(argv)
     global LOG_PATH, RUN_ID, HOME_REFERENCE_BASE64
     LOG_PATH = args.log_path.expanduser().resolve()
     HOME_REFERENCE_BASE64 = None
@@ -704,6 +822,14 @@ def main() -> int:
                 "log_error_type": type(log_error).__name__,
             }, ensure_ascii=False), flush=True)
         return 2
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Compatibility shim; all production commands route through the unified CLI."""
+    from kancollebot.cli import main as unified_main
+
+    forwarded = sys.argv[1:] if argv is None else argv
+    return unified_main(["dispatch-once", *forwarded])
 
 
 if __name__ == "__main__":

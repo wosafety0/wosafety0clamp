@@ -8,6 +8,7 @@ single-shot and requires two-frame state evidence before the next click.
 from __future__ import annotations
 
 import math
+import re
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -21,6 +22,35 @@ from kancollebot.expeditions.continuous_scheduler import UiOperationArbiter
 HOME_PORT = home_port_point()
 SORTIE = RecordedPoint(280, 425, "sortie")
 EXPEDITION_MODE = RecordedPoint(1000, 360, "expedition-mode")
+
+
+def _safe_cdp_diagnostic(exc: BaseException) -> dict[str, object]:
+    """Extract only allowlisted CDP metadata; never persist arbitrary exception text."""
+    current: BaseException | None = exc
+    while current is not None:
+        message = str(current)
+        patterns = (
+            (r"^CDP command failed: ([A-Za-z][A-Za-z0-9.]*) \(code=(-?\d+)\)$", "cdp_error_response"),
+            (r"^CDP command failed: ([A-Za-z][A-Za-z0-9.]*)$", "cdp_error_response"),
+            (r"^CDP command outcome is unknown for ([A-Za-z][A-Za-z0-9.]*)", "cdp_command_outcome_unknown"),
+            (r"^CDP reader failed while awaiting ([A-Za-z][A-Za-z0-9.]*)", "cdp_reader_failed"),
+            (r"^CDP transport closed while awaiting ([A-Za-z][A-Za-z0-9.]*)$", "cdp_transport_closed"),
+            (r"^CDP returned an invalid result for ([A-Za-z][A-Za-z0-9.]*)$", "cdp_invalid_result"),
+        )
+        for pattern, category in patterns:
+            match = re.match(pattern, message)
+            if match:
+                result: dict[str, object] = {
+                    "diagnostic_category": category,
+                    "cdp_method": match.group(1),
+                }
+                if match.lastindex == 2:
+                    result["cdp_error_code"] = int(match.group(2))
+                return result
+        if message == "CDP transport is closed or unusable":
+            return {"diagnostic_category": "cdp_transport_unusable"}
+        current = current.__cause__ or current.__context__
+    return {"diagnostic_category": "unclassified"}
 
 
 class VisibleUiRefreshError(RuntimeError):
@@ -158,6 +188,7 @@ class VisibleUiPortRefreshDriver:
                     "outcome_ambiguous": clicks_attempted > clicks_completed,
                     "last_confirmed_state": current_state,
                     "error_type": type(exc).__name__,
+                    **_safe_cdp_diagnostic(exc),
                     "reason": "checkpoint failed or UI action outcome is ambiguous; automatic retry forbidden",
                 })
             except Exception:

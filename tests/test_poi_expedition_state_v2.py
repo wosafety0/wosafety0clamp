@@ -60,6 +60,22 @@ class PoiStateV2Tests(unittest.TestCase):
                         observed_at=NOW,
                     )
 
+    def test_taiha_threshold_is_25_percent_or_below(self):
+        state = normalize_poi_fleets(
+            [{"api_id": 1, "api_ship": [101, 102], "api_mission": [0, 0, 0, 0]}],
+            {
+                "101": {"api_ship_id": 11, "api_nowhp": 3, "api_maxhp": 12, "api_fuel": 10, "api_bull": 10},
+                "102": {"api_ship_id": 12, "api_nowhp": 4, "api_maxhp": 12, "api_fuel": 10, "api_bull": 10},
+            },
+            {
+                "11": {"api_fuel_max": 10, "api_bull_max": 10},
+                "12": {"api_fuel_max": 10, "api_bull_max": 10},
+            },
+            observed_at=NOW,
+        )
+        self.assertEqual(state.payload[0].damaged_ship_ids, (101, 102))
+        self.assertEqual(state.payload[0].heavy_damage_ship_ids, (101,))
+
     def test_master_consumption_controls_supply_readiness(self):
         state = normalize_poi_fleets([{"api_id": 1, "api_ship": [101], "api_mission": [0, 0, 0, 0]}], {"101": {"api_ship_id": 11, "api_nowhp": 10, "api_maxhp": 10, "api_fuel": 9, "api_bull": 10}}, {"11": {"api_fuel_max": 10, "api_bull_max": 10}}, observed_at=NOW)
         self.assertFalse(state.payload[0].fuel_ready)
@@ -81,7 +97,7 @@ class PoiStateV2Tests(unittest.TestCase):
             observed_at=NOW,
         )
         self.assertEqual(state.payload[0].damaged_ship_ids, (101, 102))
-        self.assertEqual(state.payload[0].critical_damaged_ship_ids, (101,))
+        self.assertEqual(state.payload[0].heavy_damage_ship_ids, (101,))
 
 if __name__ == "__main__":
     unittest.main()

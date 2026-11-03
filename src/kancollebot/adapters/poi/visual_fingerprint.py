@@ -254,6 +254,7 @@ def classify_screenshot_fingerprints(
     # shared header intentionally resembles SUPPLY_MENU, so do not let that
     # parent checkpoint erase an otherwise unique selected-fleet match.
     parent_state = {
+        "SUPPLY_FLEET_1_SELECTED": "SUPPLY_MENU",
         "SUPPLY_FLEET_2_SELECTED": "SUPPLY_MENU",
         "SUPPLY_FLEET_3_SELECTED": "SUPPLY_MENU",
     }.get(best_name)

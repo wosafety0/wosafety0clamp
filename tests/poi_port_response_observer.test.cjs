@@ -32,6 +32,10 @@ async function runObserver({ stdoutWitness }) {
         api_fuel: 15,
         api_bull: 20,
       }],
+      api_material: [
+        { api_id: 1, api_value: 100 },
+        { api_id: 2, api_value: 100 },
+      ],
     },
   });
 

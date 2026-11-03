@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from pathlib import Path
 
-from kancollebot.adapters.poi.visual_state_gate import classify_template_scores
+from kancollebot.adapters.poi.visual_state_gate import (
+    _TEMPLATE_IMAGE_CACHE,
+    _load_grayscale_template,
+    classify_template_scores,
+)
 
 
 class VisualStateGateTests(unittest.TestCase):
@@ -172,6 +177,70 @@ class VisualStateGateTests(unittest.TestCase):
             classify_template_scores({"home_sortie_menu.png": float("nan")})
         with self.assertRaises(ValueError):
             classify_template_scores({}, minimum_score=0)
+
+
+class TemplateImageCacheTests(unittest.TestCase):
+    def setUp(self):
+        _TEMPLATE_IMAGE_CACHE.clear()
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.path = Path(self.temp_dir.name) / "template.bin"
+        self.path.write_bytes(b"first")
+
+        class FakeNumpy:
+            uint8 = "uint8"
+
+            @staticmethod
+            def frombuffer(value, dtype):
+                return value
+
+        class FakeCv2:
+            IMREAD_GRAYSCALE = 0
+
+            @staticmethod
+            def imdecode(value, mode):
+                return (value, mode)
+
+        self.numpy = FakeNumpy()
+        self.cv2 = FakeCv2()
+
+    def tearDown(self):
+        _TEMPLATE_IMAGE_CACHE.clear()
+        self.temp_dir.cleanup()
+
+    def test_unchanged_template_is_read_and_decoded_once(self):
+        original_read_bytes = Path.read_bytes
+        calls = []
+
+        def counted_read_bytes(path):
+            calls.append(path)
+            return original_read_bytes(path)
+
+        from unittest.mock import patch
+        with patch.object(Path, "read_bytes", counted_read_bytes):
+            first = _load_grayscale_template(self.path, self.cv2, self.numpy)
+            second = _load_grayscale_template(self.path, self.cv2, self.numpy)
+
+        self.assertIs(first, second)
+        self.assertEqual(len(calls), 1)
+
+    def test_template_file_change_invalidates_cached_image(self):
+        original_read_bytes = Path.read_bytes
+        calls = []
+
+        def counted_read_bytes(path):
+            calls.append(path)
+            return original_read_bytes(path)
+
+        from unittest.mock import patch
+        with patch.object(Path, "read_bytes", counted_read_bytes):
+            first = _load_grayscale_template(self.path, self.cv2, self.numpy)
+            self.path.write_bytes(b"changed-content")
+            second = _load_grayscale_template(self.path, self.cv2, self.numpy)
+
+        self.assertNotEqual(first, second)
+        self.assertEqual(len(calls), 2)
+
+
 
 
 if __name__ == "__main__":

@@ -111,6 +111,36 @@ class CdpWebSocketTransportTests(unittest.TestCase):
         transport._route_message({"id": 99, "result": {"ignored": True}})
         self.assertEqual(transport.drain_events(), [])
 
+    def test_cdp_error_preserves_only_numeric_code_and_method(self):
+        transport = CdpWebSocketTransport.__new__(CdpWebSocketTransport)
+        transport._closed = False
+        transport._next_id = 1
+        transport._timeout = 1.0
+        transport._condition = threading.Condition()
+        transport._command_lock = threading.Lock()
+        transport._active_request_id = None
+        transport._command_response = None
+        transport._reader_error = None
+
+        def return_cdp_error(opcode, payload):
+            request = json.loads(payload.decode("utf-8"))
+            transport._route_message({
+                "id": request["id"],
+                "error": {
+                    "code": -32000,
+                    "message": "sensitive page content must not be logged",
+                },
+            })
+
+        transport._send_frame = return_cdp_error
+        with self.assertRaisesRegex(
+            CdpInputError,
+            r"CDP command failed: Accessibility.getFullAXTree \(code=-32000\)",
+        ) as raised:
+            transport.send("Accessibility.getFullAXTree", {})
+
+        self.assertNotIn("sensitive page content", str(raised.exception))
+
     def test_command_timeout_fails_closed_without_blind_retry(self):
         transport = CdpWebSocketTransport.__new__(CdpWebSocketTransport)
         transport._closed = False

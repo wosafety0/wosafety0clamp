@@ -56,6 +56,7 @@ class PoiExpeditionReader:
         self._port_snapshot_provider = port_snapshot_provider
         self._freshness_max_age = freshness_max_age
         self._initialized = False
+        self._fleets_description_validated = False
 
     def _ensure_ready(self) -> None:
         health = self._client.health()
@@ -145,12 +146,14 @@ class PoiExpeditionReader:
             if self._port_snapshot_provider is not None
             else None
         )
-        describe = _tool_value(
-            self._client.call_read_tool("poi_describe", {"path": "info.fleets"}),
-            "poi_describe",
-        )
-        if not isinstance(describe, dict) or describe.get("kind") not in {"array", "collection", "object-map"}:
-            raise PoiMcpError("Poi info.fleets has an unknown collection kind")
+        if not self._fleets_description_validated:
+            describe = _tool_value(
+                self._client.call_read_tool("poi_describe", {"path": "info.fleets"}),
+                "poi_describe",
+            )
+            if not isinstance(describe, dict) or describe.get("kind") not in {"array", "collection", "object-map"}:
+                raise PoiMcpError("Poi info.fleets has an unknown collection kind")
+            self._fleets_description_validated = True
         fleets_result = _tool_value(
             self._client.call_read_tool("poi_get", {"path": "info.fleets"}), "poi_get(info.fleets)"
         )

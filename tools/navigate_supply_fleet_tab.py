@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tools"))
 
 from kancollebot.adapters.poi.cdp_websocket import connect_game_webview
+from kancollebot.expeditions.continuous_scheduler import UiOperationArbiter
 from kancollebot.adapters.poi.ui_state_gate import UiState
 from kancollebot.adapters.poi.visual_target import locate_supply_fleet_tab
 from one_expedition_ui_loop import _require_ui_state
@@ -38,7 +39,7 @@ def main() -> int:
     before = UiState[f"SUPPLY_FLEET_{args.from_fleet}_SELECTED"]
     after = UiState[f"SUPPLY_FLEET_{args.to_fleet}_SELECTED"]
     try:
-        with connect_game_webview(timeout=3.0) as session:
+        with UiOperationArbiter().operation("supply-fleet-tab-navigation"), connect_game_webview(timeout=3.0) as session:
             _require_ui_state(session, before)
             frame = session.input.capture_screenshot()
             target = locate_supply_fleet_tab(frame, fleet_index=args.to_fleet)

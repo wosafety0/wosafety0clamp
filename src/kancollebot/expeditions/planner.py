@@ -30,9 +30,9 @@ class ExpeditionFleetSnapshot:
     fuel_ready: bool = False
     ammo_ready: bool = False
     damaged_ship_ids: tuple[int, ...] = ()
-    # Ships at or below 25% HP (大破 / critical). Only these block dispatch;
-    # 小破/中破 (damaged but above 25%) are allowed by the operator policy.
-    critical_damaged_ship_ids: tuple[int, ...] = ()
+    # Ships at or below 25% HP (大破 / heavy damage / Taiha). Only these block
+    # dispatch; 小破/中破 (damaged but above 25%) are allowed by operator policy.
+    heavy_damage_ship_ids: tuple[int, ...] = ()
     mission_status: int | None = None
     reserved: int = 0
     ship_levels: tuple[int, ...] = ()
@@ -51,13 +51,13 @@ class ExpeditionFleetSnapshot:
             raise ValueError("damaged_ship_ids must be unique")
         if not set(self.damaged_ship_ids).issubset(self.ship_ids):
             raise ValueError("damaged_ship_ids must belong to this fleet")
-        if len(set(self.critical_damaged_ship_ids)) != len(self.critical_damaged_ship_ids):
-            raise ValueError("critical_damaged_ship_ids must be unique")
-        if not set(self.critical_damaged_ship_ids).issubset(self.ship_ids):
-            raise ValueError("critical_damaged_ship_ids must belong to this fleet")
-        if not set(self.critical_damaged_ship_ids).issubset(self.damaged_ship_ids):
+        if len(set(self.heavy_damage_ship_ids)) != len(self.heavy_damage_ship_ids):
+            raise ValueError("heavy_damage_ship_ids must be unique")
+        if not set(self.heavy_damage_ship_ids).issubset(self.ship_ids):
+            raise ValueError("heavy_damage_ship_ids must belong to this fleet")
+        if not set(self.heavy_damage_ship_ids).issubset(self.damaged_ship_ids):
             raise ValueError(
-                "critical_damaged_ship_ids must also be listed in damaged_ship_ids"
+                "heavy_damage_ship_ids must also be listed in damaged_ship_ids"
             )
         if self.mission_status not in (None, 0, 1, 2):
             raise ValueError("mission_status must be 0, 1, 2, or unknown")
@@ -145,7 +145,7 @@ def evaluate_expedition_fleet(
             "Fleet has no observed ships.",
         )
 
-    if snapshot.critical_damaged_ship_ids:
+    if snapshot.heavy_damage_ship_ids:
         return ExpeditionPlan(
             snapshot.fleet_id,
             ExpeditionDecision.BLOCKED_CRITICAL_DAMAGE,

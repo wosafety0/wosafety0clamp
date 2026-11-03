@@ -213,6 +213,19 @@ class ContinuousDispatchController:
             baseline, baseline_now = self._read_observation()
             snapshot = self._snapshot_for(baseline, fleet_id)
             requirement = self.mission_requirements[fleet_id]
+            if snapshot.heavy_damage_ship_ids:
+                blocked_ship_ids = tuple(snapshot.heavy_damage_ship_ids)
+                self.event_sink("dispatch_blocked_large_damage", {
+                    "fleet_id": fleet_id,
+                    "ship_ids": blocked_ship_ids,
+                    "hp_threshold_percent": 25,
+                    "dispatch_clicks_sent": 0,
+                    "replacement_implemented": False,
+                })
+                raise ContinuousDispatchError(
+                    f"Fleet {fleet_id} has Taiha (大破) ship(s) {blocked_ship_ids}; "
+                    "dispatch is blocked before intent creation or UI input"
+                )
             self._require_idle_ready_snapshot(snapshot, now=baseline_now, requirement=requirement)
 
             current = self.scheduler.fleet(fleet_id)

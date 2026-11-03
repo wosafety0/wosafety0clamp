@@ -35,6 +35,7 @@ _APPROVED_VISUAL_TARGETS = {
     "fleet3-ship2-checkbox": (150, 302, 55, 50),
     "fleet3-ship3-checkbox": (150, 379, 55, 50),
     "fleet3-ship4-checkbox": (150, 456, 55, 50),
+    "supply-fleet1-tab": (195, 155, 50, 50),
     "supply-fleet2-tab": (240, 155, 50, 50),
     "supply-fleet3-tab": (285, 155, 50, 50),
     "fleet-supply-all-button": (1050, 590, 145, 60),
@@ -153,7 +154,7 @@ class VisualTargetPoint:
                 or abs(width - height) > 4
             ):
                 raise ValueError("checkbox target geometry or locator is not approved")
-        elif self.label in {"supply-fleet2-tab", "supply-fleet3-tab"}:
+        elif self.label in {"supply-fleet1-tab", "supply-fleet2-tab", "supply-fleet3-tab"}:
             if (
                 self.locator != "opencv-canny-tab-v1"
                 or not 28 <= width <= 40 or not 26 <= height <= 38
