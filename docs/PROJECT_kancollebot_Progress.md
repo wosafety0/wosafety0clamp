@@ -3637,3 +3637,11 @@ The Hand plugin's read-only probe reported:
 - **RUNTIME REQUIREMENT:** The production visual locator dependencies (OpenCV and NumPy) are installed in the project `.venv`, not the system Python. Run the production supply tool with `.venv\\Scripts\\python.exe` so visual target localization is available.
 - **TESTED:** Added a test proving supply-page return navigation uses the six-sample verifier. Supply tests: **22/22**. Full Python suite: **495 tests passed**. Compileall and `git diff --check` passed.
 - **LIMITS / NEXT:** No supply-resource click has yet been verified. The Fleet 3-only target, fresh natural port witness, live state/cost checks, visual Fleet 3 selection, and post-click resource/ship verification remain mandatory. Dispatch and the full expedition loop remain NOT_VERIFIED.
+
+## 2026-11-03 - Fleet 3 single supply action live verified
+
+- **LIVE VERIFIED:** One visible fleet-wide supply click was sent to Fleet 3 only. A later stable double-read of the Poi store confirms all **4/4 Fleet 3 ships are fully supplied**. Fleet 3 mission state is idle `[0,0,0,0]`.
+- **COST:** The preflight inventory was **2500 fuel / 3453 ammunition** and the target cost was **16 fuel / 0 ammunition**. The first stable post-action readback showed **2484 / 3453**, matching the exact expected delta. A later stable readback showed **2487 / 3453**; the intervening +3 fuel change is observed but not attributed.
+- **SCOPE / SAFETY:** Exactly **one** Fleet 3 supply click; **zero retries**; no game API requests initiated. The production post-action checks confirmed non-target fleet fuel/ammunition values were unchanged. Fleet 1 and Fleet 2 remain read-only.
+- **ARTIFACT:** `logs/full_supply_ui_action.jsonl` event `full_supply_completed_and_verified_after_delayed_store_sync` records the delayed stable readback and one-click boundary.
+- **LIMITS / NEXT:** The game action is complete and verified, but the first immediate post-click Poi read did not yet show full supply; later stable readback did. Improve the production verifier with bounded read-only polling for store propagation before treating a non-final first read as final. Do not repeat the supply click. Expedition dispatch and the full closed loop remain NOT_VERIFIED.
