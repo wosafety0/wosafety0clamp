@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tools"))
 
 from kancollebot.adapters.poi.cdp_websocket import connect_game_webview
+from kancollebot.expeditions.continuous_scheduler import UiOperationArbiter
 from kancollebot.adapters.poi.ui_state_gate import UiState
 from kancollebot.adapters.poi.visual_fingerprint import (
     average_fingerprints,
@@ -120,7 +121,7 @@ def main() -> int:
     ship = args.ship_index
     parent_state = UiState[f"SUPPLY_FLEET_{fleet}_SELECTED"]
     try:
-        with connect_game_webview(timeout=3.0) as session:
+        with UiOperationArbiter().operation(f"supply-checkbox-{args.action}"), connect_game_webview(timeout=3.0) as session:
             _require_ui_state(session, parent_state)
             if args.action == "capture-unchecked":
                 capture_samples(session, fleet, ship, checked=False)

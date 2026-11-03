@@ -31,6 +31,7 @@ from kancollebot.adapters.poi.cdp_websocket import (  # noqa: E402
     connect_game_webview,
     connect_poi_session,
 )
+from kancollebot.adapters.poi.ui_operation_lock import poi_ui_operation  # noqa: E402
 from kancollebot.adapters.poi.ui_state_gate import (  # noqa: E402
     UiState,
     UiStateGateError,
@@ -604,7 +605,7 @@ def run(args: argparse.Namespace) -> int:
         raise LoopError("timeout_seconds must be between 60 and 3600")
     if not 0 <= args.grace_delay_seconds <= 300:
         raise LoopError("grace_delay_seconds must be between 0 and 300")
-    with connect_poi_session(timeout=3.0) as state_session, connect_game_webview(timeout=3.0) as game_session:
+    with poi_ui_operation("one-expedition-ui-loop"), connect_poi_session(timeout=3.0) as state_session, connect_game_webview(timeout=3.0) as game_session:
         initial_states = read_poi_fleet_states(state_session.transport)
         initial = _fleet(initial_states)
         if not _idle(initial):

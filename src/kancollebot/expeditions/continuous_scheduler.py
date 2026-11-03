@@ -8,8 +8,9 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from enum import Enum
-from threading import Lock
 from typing import Iterator, Protocol
+
+from kancollebot.adapters.poi.ui_operation_lock import poi_ui_operation
 
 
 class FleetPhase(str, Enum):
@@ -249,14 +250,9 @@ class ContinuousExpeditionScheduler:
 
 
 class UiOperationArbiter:
-    """One process-wide mutex for all operations against the shared Poi window."""
-
-    def __init__(self) -> None:
-        self._lock = Lock()
+    """Cross-process mutex for all operations against the shared Poi window."""
 
     @contextmanager
     def operation(self, label: str) -> Iterator[None]:
-        if not isinstance(label, str) or not label.strip():
-            raise ValueError("UI operation label must not be empty")
-        with self._lock:
+        with poi_ui_operation(label):
             yield

@@ -1,8 +1,9 @@
 import unittest
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
-from tools.full_supply_ui_action import LoopError, _is_supply_page
+from tools.full_supply_ui_action import LoopError, _is_supply_page, run
 from kancollebot.adapters.poi.ui_state_gate import UiState
 
 from kancollebot.adapters.poi.full_supply import (
@@ -195,6 +196,72 @@ class SupplyPageDetectionTests(unittest.TestCase):
             self.assertTrue(_is_supply_page(session))
         require_state.assert_called_once_with(session, UiState.HOME_PORT)
         require_supply_page.assert_called_once_with(session)
+
+
+class FullSupplyRuntimeSafetyTests(unittest.TestCase):
+    def test_dry_run_never_opens_game_input_or_runs_visible_refresh(self):
+        client = Mock()
+        client.health.return_value = {
+            "name": "poi-nanodesu-mcp", "status": "ok", "storeReady": True
+        }
+        client.list_tools.return_value = [
+            SimpleNamespace(name="poi_get"),
+            SimpleNamespace(name="poi_lookup"),
+        ]
+        witness = {"source": {"bodyCapturedAt": NOW.isoformat()}}
+        plan = SimpleNamespace(
+            fleet_ids=(1, 2, 3),
+            ship_count=4,
+            fuel_required=10,
+            ammo_required=10,
+            fuel_available=100,
+            ammo_available=100,
+        )
+        targets = [SimpleNamespace(fleet_id=2)]
+        with patch("tools.full_supply_ui_action.PoiMcpClient", return_value=client), patch(
+            "tools.full_supply_ui_action._acquire_passive_fresh_witness",
+            return_value=witness,
+        ), patch(
+            "tools.full_supply_ui_action._prepare_full_supply_preflight",
+            return_value=(([], {}, [], {}), NOW, plan, targets),
+        ), patch("tools.full_supply_ui_action.connect_game_webview") as connect_ui, patch(
+            "tools.full_supply_ui_action._acquire_fresh_witness"
+        ) as acquire_with_ui, patch("tools.full_supply_ui_action.log") as event_log:
+            self.assertEqual(run(dry_run=True), 0)
+
+        connect_ui.assert_not_called()
+        acquire_with_ui.assert_not_called()
+        event_log.assert_any_call(
+            "full_supply_dry_run_passed",
+            fleet_count=3,
+            ship_count=4,
+            target_fleets=[2],
+            planned_fleet_wide_clicks=1,
+            fuel_required=10,
+            ammo_required=10,
+            fuel_available=100,
+            ammo_available=100,
+            ui_clicks_sent=0,
+            resource_actions_sent=0,
+            ui_navigation_sent=0,
+            ui_refresh_sent=0,
+        )
+
+    def test_passive_dry_run_witness_uses_observer_without_game_session(self):
+        witness = {"data": {"api_material": [1, 2, 3]}}
+        observer = Mock()
+        observer.capture.return_value = witness
+        observer.last_status = "captured"
+        with patch(
+            "tools.full_supply_ui_action.PassivePortResponseObserver",
+            return_value=observer,
+        ), patch("tools.full_supply_ui_action.log") as event_log:
+            from tools.full_supply_ui_action import _acquire_passive_fresh_witness
+            self.assertIs(_acquire_passive_fresh_witness(), witness)
+        observer.capture.assert_called_once_with()
+        event_log.assert_called_once()
+        self.assertEqual(event_log.call_args.kwargs["acquisition_mode"], "passive_no_ui")
+
 
 
 if __name__ == "__main__":

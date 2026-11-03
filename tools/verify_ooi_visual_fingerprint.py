@@ -16,6 +16,7 @@ if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
 from kancollebot.adapters.poi.cdp_websocket import connect_game_webview  # noqa: E402
+from kancollebot.adapters.poi.ui_operation_lock import poi_ui_operation  # noqa: E402
 from kancollebot.adapters.poi.visual_fingerprint import (  # noqa: E402
     VisualFingerprintError,
     classify_screenshot_fingerprints,
@@ -38,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         document = json.loads(args.fingerprints.read_text(encoding="utf-8"))
-        with connect_game_webview() as session:
+        with poi_ui_operation("ooi-visual-fingerprint-verify"), connect_game_webview() as session:
             session.transport.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 1195, "y": 715})
             time.sleep(0.15)
             payload = session.transport.send(

@@ -223,7 +223,7 @@ def _is_supply_page(session) -> bool:
         return True
 
 
-def _acquire_fresh_witness(session) -> dict[str, Any]:
+def _acquire_fresh_witness(session, ui_arbiter: UiOperationArbiter) -> dict[str, Any]:
     observer = PassivePortResponseObserver(OBSERVER_SCRIPT, timeout_seconds=45.0)
     cancel = threading.Event()
     result: dict[str, Any] = {}
@@ -249,7 +249,7 @@ def _acquire_fresh_witness(session) -> dict[str, Any]:
         driver = VisibleUiPortRefreshDriver(
             game_input=session.input,
             verify_state=lambda expected: _verify_state(session, expected),
-            ui_arbiter=UiOperationArbiter(),
+            ui_arbiter=ui_arbiter,
             event_sink=lambda event, payload: log(event, **dict(payload)),
             settle_seconds=1.0,
         )
@@ -267,6 +267,67 @@ def _acquire_fresh_witness(session) -> dict[str, Any]:
     return witness
 
 
+def _acquire_passive_fresh_witness() -> dict[str, Any]:
+    """Observe only a naturally occurring port response; never touch the UI."""
+    observer = PassivePortResponseObserver(OBSERVER_SCRIPT, timeout_seconds=45.0)
+    witness = observer.capture()
+    if not isinstance(witness, dict) or observer.last_status != "captured":
+        raise FullSupplyPreflightError(
+            "dry-run requires a naturally occurring fresh api_port/port response; "
+            f"observer status: {observer.last_status}"
+        )
+    log(
+        "fresh_port_witness_captured",
+        source="natural_api_port_port_response",
+        acquisition_mode="passive_no_ui",
+        material_count=len(witness.get("data", {}).get("api_material", [])),
+    )
+    return witness
+
+
+def _prepare_full_supply_preflight(
+    client: PoiMcpClient, witness: dict[str, Any]
+) -> tuple[
+    tuple[list[Any], dict[str, Any], list[Any], dict[str, Any]],
+    datetime,
+    Any,
+    list[Any],
+]:
+    """Build a cost plan only from a matching, source-verified fresh witness."""
+    initial_state = _read_stable_state(client)
+    fleets, ships, resources, masters = initial_state
+    now = datetime.now(timezone.utc)
+    observed_at = _verify_fresh_witness(witness, fleets, ships, resources, now=now)
+    plan = build_full_supply_plan(
+        fleets, ships, masters, resources,
+        source_freshness_verified=True,
+        observed_at=observed_at,
+        now=now,
+        max_age=MAX_AGE,
+        expected_fleet_ids=(1, 2, 3),
+    )
+    needed_fleets = select_full_supply_targets(plan)
+    log(
+        "full_supply_preflight_passed",
+        fleet_ids=list(plan.fleet_ids),
+        fleet_count=len(plan.fleet_ids),
+        ship_count=plan.ship_count,
+        fuel_required=plan.fuel_required,
+        ammo_required=plan.ammo_required,
+        target_fleets=[item.fleet_id for item in needed_fleets],
+        planned_fleet_wide_clicks=len(needed_fleets),
+        fuel_available=plan.fuel_available,
+        ammo_available=plan.ammo_available,
+        damaged_ships_present=sum(
+            1 for record in ships.values()
+            if isinstance(record, dict) and record.get("api_nowhp") is not None
+            and record.get("api_nowhp") < record.get("api_maxhp", record.get("api_nowhp"))
+            and record.get("api_id") in set(plan.ship_ids)
+        ),
+    )
+    return initial_state, observed_at, plan, needed_fleets
+
+
 def run(*, dry_run: bool = False) -> int:
     client = PoiMcpClient(timeout=3.0)
     health = client.health()
@@ -277,56 +338,39 @@ def run(*, dry_run: bool = False) -> int:
     if not {"poi_get", "poi_lookup"}.issubset(required_tools):
         raise FullSupplyPreflightError("Poi MCP bridge lacks required read-only tools")
 
-    with connect_game_webview(timeout=3.0) as session:
-        witness = _acquire_fresh_witness(session)
-        initial_state = _read_stable_state(client)
-        fleets, ships, resources, masters = initial_state
-        now = datetime.now(timezone.utc)
-        observed_at = _verify_fresh_witness(witness, fleets, ships, resources, now=now)
-        plan = build_full_supply_plan(
-            fleets, ships, masters, resources,
-            source_freshness_verified=True,
-            observed_at=observed_at,
-            now=now,
-            max_age=MAX_AGE,
-            expected_fleet_ids=(1, 2, 3),
-        )
-        needed_fleets = select_full_supply_targets(plan)
-        log(
-            "full_supply_preflight_passed",
-            fleet_ids=list(plan.fleet_ids),
-            fleet_count=len(plan.fleet_ids),
-            ship_count=plan.ship_count,
-            fuel_required=plan.fuel_required,
-            ammo_required=plan.ammo_required,
-            target_fleets=[item.fleet_id for item in needed_fleets],
-            planned_fleet_wide_clicks=len(needed_fleets),
-            fuel_available=plan.fuel_available,
-            ammo_available=plan.ammo_available,
-            damaged_ships_present=sum(
-                1 for record in ships.values()
-                if isinstance(record, dict) and record.get("api_nowhp") is not None
-                and record.get("api_nowhp") < record.get("api_maxhp", record.get("api_nowhp"))
-                and record.get("api_id") in set(plan.ship_ids)
-            ),
+    if dry_run:
+        witness = _acquire_passive_fresh_witness()
+        initial_state, observed_at, plan, needed_fleets = _prepare_full_supply_preflight(
+            client, witness
         )
         if not needed_fleets:
             log("full_supply_not_needed", reason="all ships in all unlocked fleets are already fully supplied")
             return 0
-        if dry_run:
-            log(
-                "full_supply_dry_run_passed",
-                fleet_count=len(plan.fleet_ids),
-                ship_count=plan.ship_count,
-                target_fleets=[item.fleet_id for item in needed_fleets],
-                planned_fleet_wide_clicks=len(needed_fleets),
-                fuel_required=plan.fuel_required,
-                ammo_required=plan.ammo_required,
-                fuel_available=plan.fuel_available,
-                ammo_available=plan.ammo_available,
-                ui_clicks_sent=0,
-                resource_actions_sent=0,
-            )
+        log(
+            "full_supply_dry_run_passed",
+            fleet_count=len(plan.fleet_ids),
+            ship_count=plan.ship_count,
+            target_fleets=[item.fleet_id for item in needed_fleets],
+            planned_fleet_wide_clicks=len(needed_fleets),
+            fuel_required=plan.fuel_required,
+            ammo_required=plan.ammo_required,
+            fuel_available=plan.fuel_available,
+            ammo_available=plan.ammo_available,
+            ui_clicks_sent=0,
+            resource_actions_sent=0,
+            ui_navigation_sent=0,
+            ui_refresh_sent=0,
+        )
+        return 0
+
+    ui_arbiter = UiOperationArbiter()
+    with ui_arbiter.operation("full-supply-batch"), connect_game_webview(timeout=3.0) as session:
+        witness = _acquire_fresh_witness(session, ui_arbiter)
+        initial_state, observed_at, plan, needed_fleets = _prepare_full_supply_preflight(
+            client, witness
+        )
+        if not needed_fleets:
+            log("full_supply_not_needed", reason="all ships in all unlocked fleets are already fully supplied")
             return 0
 
         completed_fleet_ids: list[int] = []
@@ -338,7 +382,7 @@ def run(*, dry_run: bool = False) -> int:
                 cycle_state = initial_state
                 cycle_plan = plan
             else:
-                cycle_witness = _acquire_fresh_witness(session)
+                cycle_witness = _acquire_fresh_witness(session, ui_arbiter)
                 cycle_state = _read_stable_state(client)
                 cycle_fleets, cycle_ships, cycle_resources, cycle_masters = cycle_state
                 cycle_now = datetime.now(timezone.utc)
@@ -520,7 +564,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--dry-run", action="store_true",
-        help="Validate freshness, fleet state, material costs, and UI navigation without resupplying",
+        help="Read-only dry run: use only a natural port response; never click, navigate, or refresh the UI",
     )
     args = parser.parse_args()
     if not args.dry_run and not args.authorize_full_supply:

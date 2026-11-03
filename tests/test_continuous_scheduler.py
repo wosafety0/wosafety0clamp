@@ -123,14 +123,14 @@ class ContinuousSchedulerTests(unittest.TestCase):
             self.scheduler.begin_dispatch(2)
 
     def test_ui_arbiter_serializes_shared_window_operations(self):
-        arbiter = UiOperationArbiter()
         active = 0
         peak = 0
         guard = threading.Lock()
 
         def worker(label):
             nonlocal active, peak
-            with arbiter.operation(label):
+            # Separate instances must still coordinate through the shared lock.
+            with UiOperationArbiter().operation(label):
                 with guard:
                     active += 1
                     peak = max(peak, active)

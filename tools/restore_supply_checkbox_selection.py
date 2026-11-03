@@ -20,6 +20,7 @@ if str(ROOT / "tools") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools"))
 
 from kancollebot.adapters.poi.cdp_websocket import connect_game_webview
+from kancollebot.expeditions.continuous_scheduler import UiOperationArbiter
 from kancollebot.adapters.poi.ui_state_gate import UiState
 from kancollebot.adapters.poi.visual_fingerprint import (
     compute_grid_fingerprint,
@@ -63,7 +64,7 @@ def main() -> int:
     parser.parse_args()
 
     try:
-        with connect_game_webview(timeout=3.0) as session:
+        with UiOperationArbiter().operation("supply-checkbox-selection-restore"), connect_game_webview(timeout=3.0) as session:
             _require_ui_state(session, UiState.SUPPLY_FLEET_2_SELECTED)
             _require_ui_state(session, UiState.SUPPLY_FLEET_2_SHIP_1_CHECKED)
             before_image = session.input.capture_screenshot()

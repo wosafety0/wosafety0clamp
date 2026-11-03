@@ -19,6 +19,7 @@ if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
 from kancollebot.adapters.poi.cdp_websocket import connect_game_webview  # noqa: E402
+from kancollebot.adapters.poi.ui_operation_lock import poi_ui_operation  # noqa: E402
 from kancollebot.adapters.poi.visual_fingerprint import (  # noqa: E402
     VisualFingerprintError,
     average_fingerprints,
@@ -75,7 +76,7 @@ def capture_descriptor(state: str, crop: tuple[int, int, int, int], grid: tuple[
         raise VisualFingerprintError("samples must be between 1 and 5")
 
     fingerprints = []
-    with connect_game_webview() as session:
+    with poi_ui_operation("ooi-visual-fingerprint-capture"), connect_game_webview() as session:
         metrics = session.transport.send("Page.getLayoutMetrics", {})
         viewport = metrics.get("cssVisualViewport") or metrics.get("visualViewport") or {}
         width = int(viewport.get("clientWidth", viewport.get("width", 0)))
