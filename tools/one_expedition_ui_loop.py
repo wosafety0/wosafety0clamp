@@ -93,6 +93,29 @@ def _idle(state: PoiFleetMissionState) -> bool:
 LOG_PATH: Path | None = None
 RUN_ID = "uninitialized"
 HOME_REFERENCE_BASE64: str | None = None
+_VISUAL_DOCUMENT_CACHE: dict[tuple[str, int, int], object] = {}
+
+
+def _read_visual_document(path: Path) -> object:
+    # Read each unchanged fingerprint document only once per process.
+    try:
+        metadata = path.stat()
+    except OSError:
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    resolved_path = str(path.resolve())
+    cache_key = (resolved_path, metadata.st_mtime_ns, metadata.st_size)
+    if cache_key in _VISUAL_DOCUMENT_CACHE:
+        return _VISUAL_DOCUMENT_CACHE[cache_key]
+
+    document = json.loads(path.read_text(encoding="utf-8"))
+    for stale_key in tuple(_VISUAL_DOCUMENT_CACHE):
+        if stale_key[0] == resolved_path:
+            del _VISUAL_DOCUMENT_CACHE[stale_key]
+    if len(_VISUAL_DOCUMENT_CACHE) >= 4:
+        _VISUAL_DOCUMENT_CACHE.pop(next(iter(_VISUAL_DOCUMENT_CACHE)))
+    _VISUAL_DOCUMENT_CACHE[cache_key] = document
+    return document
 
 
 def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra: object) -> None:
@@ -133,7 +156,7 @@ def _require_ui_state(game_session, expected: UiState) -> str:
         try:
             document = None
             if fingerprint_path.is_file():
-                document = json.loads(fingerprint_path.read_text(encoding="utf-8"))
+                document = _read_visual_document(fingerprint_path)
             fingerprint_states = document.get("states", {}) if isinstance(document, dict) else {}
             checkbox_states = {
                 state for state in UiState
@@ -153,7 +176,7 @@ def _require_ui_state(game_session, expected: UiState) -> str:
                     raise LoopError(
                         f"Supply checkbox fingerprint file is missing: {checkbox_path}"
                     ) from accessible_error
-                checkbox_document = json.loads(checkbox_path.read_text(encoding="utf-8"))
+                checkbox_document = _read_visual_document(checkbox_path)
                 checkbox_descriptors = checkbox_document.get("states", {})
                 if expected.value not in checkbox_descriptors:
                     raise LoopError(

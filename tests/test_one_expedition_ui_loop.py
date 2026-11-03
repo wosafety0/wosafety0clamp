@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -15,6 +16,32 @@ from kancollebot.adapters.poi.cdp_fleet_state import PoiFleetMissionState, PoiSh
 
 def _full_supply(ship_ids):
     return tuple(PoiShipSupplyState(ship_id, 10, 20, 10, 20) for ship_id in ship_ids)
+
+
+class VisualDocumentCacheTests(unittest.TestCase):
+    def setUp(self):
+        controller._VISUAL_DOCUMENT_CACHE.clear()
+
+    def test_unchanged_document_is_read_once_and_changed_file_is_reloaded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "fingerprints.json"
+            path.write_text('{"states":{}}', encoding="utf-8")
+            original_read_text = Path.read_text
+            with patch.object(
+                Path,
+                "read_text",
+                autospec=True,
+                side_effect=lambda instance, *args, **kwargs: original_read_text(instance, *args, **kwargs),
+            ) as read_text:
+                first = controller._read_visual_document(path)
+                second = controller._read_visual_document(path)
+                self.assertIs(first, second)
+                read_text.assert_called_once()
+
+                path.write_text('{"states":{"HOME_PORT":{}}}', encoding="utf-8")
+                third = controller._read_visual_document(path)
+                self.assertEqual(third, {"states": {"HOME_PORT": {}}})
+                self.assertEqual(read_text.call_count, 2)
 
 
 class ProductionStartupSafetyGateTests(unittest.TestCase):

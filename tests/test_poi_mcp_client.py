@@ -60,5 +60,47 @@ class PoiMcpClientTests(unittest.TestCase):
             client.call_read_tool("arbitrary_tool", {})
 
 
+    def test_opener_is_built_once_and_reused_for_mcp_and_health_requests(self):
+        class FakeResponse:
+            def __init__(self, body):
+                self.status = 200
+                self.headers = {
+                    "Content-Type": "application/json",
+                    "Mcp-Session-Id": "session-1",
+                }
+                self._body = body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self, limit=-1):
+                return self._body
+
+        class FakeOpener:
+            def __init__(self):
+                self.responses = [
+                    FakeResponse(b'{"jsonrpc":"2.0","id":1,"result":{}}'),
+                    FakeResponse(b'{"name":"poi-nanodesu-mcp","status":"ok","storeReady":true}'),
+                ]
+                self.calls = []
+
+            def open(self, request, timeout):
+                self.calls.append((request, timeout))
+                return self.responses.pop(0)
+
+        fake_opener = FakeOpener()
+        with patch("urllib.request.build_opener", return_value=fake_opener) as build:
+            client = PoiMcpClient()
+            client._request("ping")
+            health = client.health()
+
+        self.assertEqual(build.call_count, 1)
+        self.assertEqual(len(fake_opener.calls), 2)
+        self.assertEqual(health["status"], "ok")
+
+
 if __name__ == "__main__":
     unittest.main()

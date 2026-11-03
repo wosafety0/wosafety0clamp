@@ -32,8 +32,10 @@ class FakeClient:
         self.sequence_counts = {}
         self.calls = []
         self.initialize_calls = 0
+        self.health_calls = 0
 
     def health(self):
+        self.health_calls += 1
         return {"name": "poi-nanodesu-mcp", "status": "ok", "storeReady": self.store_ready}
 
     def initialize(self):
@@ -272,6 +274,30 @@ class PoiExpeditionReaderTests(unittest.TestCase):
         _, reader = self.make_reader(payloads=payloads)
         with self.assertRaisesRegex(PoiMcpError, "truncated"):
             reader.read_fleets()
+
+
+    def test_static_fleet_description_is_read_once_but_live_state_is_reread(self):
+        client, reader = self.make_reader()
+
+        first = reader.read_fleets()
+        second = reader.read_fleets()
+
+        describe_calls = [
+            call for call in client.calls if call[0] == "poi_describe"
+        ]
+        fleet_reads = [
+            call for call in client.calls
+            if call[0] == "poi_get" and call[1].get("path") == "info.fleets"
+        ]
+        ship_reads = [
+            call for call in client.calls
+            if call[0] == "poi_get" and call[1].get("path") == "info.ships"
+        ]
+        self.assertEqual(len(describe_calls), 1)
+        self.assertEqual(len(fleet_reads), 4)
+        self.assertEqual(len(ship_reads), 4)
+        self.assertEqual(client.health_calls, 2)
+        self.assertEqual(len(first.payload), len(second.payload))
 
 
 if __name__ == "__main__":

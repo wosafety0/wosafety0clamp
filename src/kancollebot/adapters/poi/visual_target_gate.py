@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
-from .visual_state_gate import VisualStateError, _vision_modules
+from .visual_state_gate import VisualStateError, _load_grayscale_template, _vision_modules
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,13 +78,9 @@ def locate_template_in_region(
 
     path = Path(template_path)
     try:
-        template_bytes = path.read_bytes()
+        template = _load_grayscale_template(path, cv2_module, numpy_module)
     except OSError as exc:
         raise VisualStateError(f"visual target template is unavailable: {path.name}") from exc
-    template = cv2_module.imdecode(
-        numpy_module.frombuffer(template_bytes, dtype=numpy_module.uint8),
-        cv2_module.IMREAD_GRAYSCALE,
-    )
     if template is None:
         raise VisualStateError("visual target template is not a decodable image")
 
