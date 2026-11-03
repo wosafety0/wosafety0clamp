@@ -3630,3 +3630,10 @@ The Hand plugin's read-only probe reported:
 - **IMPLEMENTED:** The Fleet 3 supply workflow's visible refresh verifier now allows up to six visual samples when confirming each navigation checkpoint. The existing requirement for two consecutive matching in-memory frames remains unchanged; this only accommodates delayed rendering before fail-closed evaluation.
 - **TESTED:** Added a unit test asserting that the production refresh verifier passes `visual_attempts=6` to the shared UI state gate. Full Python suite: **494 tests, 18 skipped, all remaining passed**. Fleet supply tests: **21/21**. Production expedition integration tests: **2/2**. Compileall and `git diff --check` passed.
 - **LIMITS / NEXT:** This improves refresh checkpoint tolerance but does not itself verify or perform a supply action. Fleet 3 remains the only configured target; actual supply still requires a fresh natural port witness, live state/cost validation, one visible supply click, and post-action verification. Dispatch and the full expedition loop remain NOT_VERIFIED.
+
+## 2026-11-03 - Six-sample return-home gate and runtime environment
+
+- **IMPLEMENTED:** The path that exits a verified supply page back to HOME_PORT now uses the same six-sample visual state verifier as the visible freshness-refresh sequence. The gate still requires two consecutive matching in-memory frames.
+- **RUNTIME REQUIREMENT:** The production visual locator dependencies (OpenCV and NumPy) are installed in the project `.venv`, not the system Python. Run the production supply tool with `.venv\\Scripts\\python.exe` so visual target localization is available.
+- **TESTED:** Added a test proving supply-page return navigation uses the six-sample verifier. Supply tests: **22/22**. Full Python suite: **495 tests passed**. Compileall and `git diff --check` passed.
+- **LIMITS / NEXT:** No supply-resource click has yet been verified. The Fleet 3-only target, fresh natural port witness, live state/cost checks, visual Fleet 3 selection, and post-click resource/ship verification remain mandatory. Dispatch and the full expedition loop remain NOT_VERIFIED.

@@ -239,7 +239,7 @@ def _acquire_fresh_witness(session, ui_arbiter: UiOperationArbiter) -> dict[str,
         session.input.click(HOME_PORT)
         log("home_port_navigation_click_sent", click_count=1, game_api_request_initiated=False)
         time.sleep(1.0)
-        _require_ui_state(session, UiState.HOME_PORT)
+        _verify_state(session, UiState.HOME_PORT.name)
     else:
         log("home_port_precondition_already_satisfied", click_count=0)
     thread.join(timeout=5.0)

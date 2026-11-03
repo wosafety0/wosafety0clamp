@@ -3,7 +3,13 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from tools.full_supply_ui_action import LoopError, _is_supply_page, _verify_state, run
+from tools.full_supply_ui_action import (
+    LoopError,
+    _acquire_fresh_witness,
+    _is_supply_page,
+    _verify_state,
+    run,
+)
 from kancollebot.adapters.poi.ui_state_gate import UiState
 
 from kancollebot.adapters.poi.full_supply import (
@@ -228,6 +234,24 @@ class FullSupplyPreflightTests(unittest.TestCase):
 
 
 class SupplyPageDetectionTests(unittest.TestCase):
+    def test_supply_page_return_home_uses_six_sample_verifier(self):
+        witness = {"data": {"api_material": [1, 2, 3]}}
+        observer = Mock()
+        observer.last_status = "captured"
+        observer.capture_cancellable.return_value = witness
+        session = SimpleNamespace(input=Mock())
+        with patch(
+            "tools.full_supply_ui_action.PassivePortResponseObserver",
+            return_value=observer,
+        ), patch(
+            "tools.full_supply_ui_action._is_supply_page", return_value=True
+        ), patch(
+            "tools.full_supply_ui_action._verify_state"
+        ) as verify_state, patch("tools.full_supply_ui_action.log"):
+            self.assertIs(_acquire_fresh_witness(session, Mock()), witness)
+        session.input.click.assert_called_once()
+        verify_state.assert_called_once_with(session, "HOME_PORT")
+
     def test_visible_refresh_verifier_allows_six_visual_attempts(self):
         session = object()
         with patch(
