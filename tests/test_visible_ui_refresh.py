@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
+from kancollebot.adapters.poi.cdp_input import CdpInputError
 from kancollebot.adapters.poi.visible_ui_refresh import (
     EXPEDITION_MODE,
     HOME_PORT,
@@ -95,6 +96,23 @@ class VisibleUiPortRefreshDriverTests(unittest.TestCase):
         self.assertEqual(events[-1][0], "ui_refresh_blocked")
         self.assertEqual(events[-1][1]["clicks_attempted"], 0)
         self.assertEqual(events[-1][1]["clicks_completed"], 0)
+
+    def test_initial_cdp_error_records_only_safe_method_and_code(self):
+        diagnostic_error = CdpInputError(
+            "CDP command failed: Accessibility.getFullAXTree (code=-32000)"
+        )
+        driver, game_input, events, _ = self.make_driver([diagnostic_error])
+
+        with self.assertRaises(VisibleUiRefreshError):
+            driver.refresh_port_state()
+
+        fields = events[-1][1]
+        self.assertEqual(fields["diagnostic_category"], "cdp_error_response")
+        self.assertEqual(fields["cdp_method"], "Accessibility.getFullAXTree")
+        self.assertEqual(fields["cdp_error_code"], -32000)
+        self.assertEqual(game_input.clicks, [])
+        self.assertNotIn("message", fields)
+        self.assertNotIn("sensitive", str(fields))
 
     def test_failed_post_click_checkpoint_stops_without_retry(self):
         driver, game_input, events, _ = self.make_driver(
