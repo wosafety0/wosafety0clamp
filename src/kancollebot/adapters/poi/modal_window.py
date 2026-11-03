@@ -43,6 +43,12 @@ So before any press, the sentence must be read and must contain a marker from
 not mention refreshing, is refused -- that is what stops an unrelated Poi dialog
 from being cancelled just because it happens to offer a Cancel button.
 
+The two languages are separate on purpose: the **body** is game text and is
+Japanese only (KanColle has no other client), while the **button labels** are
+drawn by Poi's Electron shell and follow the Windows locale, which is why the
+live prompt reads ``'エラーが発生したため、ページ更新します。'`` with
+``'确定'``/``'取消'``/``'关闭'`` underneath it.
+
 Nothing here is Windows-version specific beyond plain user32/ole32 calls, and
 UI Automation is driven through ctypes so the project stays dependency-free.
 """
@@ -57,17 +63,25 @@ from typing import Callable, Protocol
 
 MODAL_DIALOG_CLASSES = frozenset({"#32770"})
 POI_EXECUTABLE = "poi.exe"
-# Labels that mean "do not do the thing". Matched exactly, after stripping
-# whitespace and Windows accelerator markers, so "取消并关闭" is not accepted.
+# The dialog is drawn by Poi's Electron main process, so its button labels come
+# from the *host* locale (the live machine reports Simplified Chinese: 确定 /
+# 取消 / 关闭), never from the game. That is why this set stays multilingual
+# even though the game text below is Japanese only. Matched exactly, after
+# stripping whitespace and Windows accelerator markers, so "取消并关闭" is not
+# accepted.
 CANCEL_LABELS = frozenset({"取消", "キャンセル", "cancel", "abbrechen", "annuler"})
 BM_CLICK = 0x00F5
 
 # The body of the refresh prompt, as measured from the live UI Automation tree:
 #   'エラーが発生したため、ページ更新します。'
-# Matching one of these is what distinguishes "the game wants to reload" from
-# "some other Poi dialog that happens to have a Cancel button". Only wording
-# actually observed is listed; a build in another language would fail closed
-# with UNRECOGNISED_DIALOG instead of being pressed blind.
+# This sentence is game text, and KanColle ships a Japanese client only -- there
+# is no other language build to accommodate, so a single marker set is correct
+# rather than a placeholder for future i18n. Matching one of these is what
+# distinguishes "the game wants to reload" from "some other Poi dialog that
+# happens to have a Cancel button". Any wording that is not listed still fails
+# closed with UNRECOGNISED_DIALOG rather than being pressed blind, because an
+# unreadable or unexpected body means we are looking at a dialog we do not
+# understand, not at a translation of the one we do.
 CONTENT_MARKERS = ("ページ更新",)
 
 POLL_SECONDS = 0.4
