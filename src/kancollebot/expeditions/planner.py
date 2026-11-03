@@ -29,6 +29,7 @@ class ExpeditionFleetSnapshot:
     fuel_ready: bool = False
     ammo_ready: bool = False
     damaged_ship_ids: tuple[int, ...] = ()
+    heavy_damage_ship_ids: tuple[int, ...] = ()
     mission_status: int | None = None
     reserved: int = 0
     ship_levels: tuple[int, ...] = ()
@@ -47,6 +48,10 @@ class ExpeditionFleetSnapshot:
             raise ValueError("damaged_ship_ids must be unique")
         if not set(self.damaged_ship_ids).issubset(self.ship_ids):
             raise ValueError("damaged_ship_ids must belong to this fleet")
+        if len(set(self.heavy_damage_ship_ids)) != len(self.heavy_damage_ship_ids):
+            raise ValueError("heavy_damage_ship_ids must be unique")
+        if not set(self.heavy_damage_ship_ids).issubset(self.ship_ids):
+            raise ValueError("heavy_damage_ship_ids must belong to this fleet")
         if self.mission_status not in (None, 0, 1, 2):
             raise ValueError("mission_status must be 0, 1, 2, or unknown")
         if isinstance(self.reserved, bool) or not isinstance(self.reserved, int) or self.reserved < 0:

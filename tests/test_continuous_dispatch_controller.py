@@ -37,6 +37,7 @@ def snapshot(
     fuel_ready=True,
     ammo_ready=True,
     damaged=(),
+    heavy_damaged=(),
     reserved=0,
     ship_levels=None,
     ship_types=None,
@@ -55,6 +56,7 @@ def snapshot(
         fuel_ready=fuel_ready,
         ammo_ready=ammo_ready,
         damaged_ship_ids=tuple(damaged),
+        heavy_damage_ship_ids=tuple(heavy_damaged),
         mission_status=status,
         reserved=reserved,
         ship_levels=tuple(ship_levels),
@@ -259,6 +261,25 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
             self.assertEqual(ui.dispatches, [])
             self.assertEqual(scheduler.fleet(2).phase, FleetPhase.IDLE)
             self.assertIsNone(intents.get(2))
+
+    def test_large_damage_blocks_before_intent_creation_and_ui_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            baseline = observation(BASE - timedelta(seconds=1), [
+                snapshot(2, heavy_damaged=(2,)), snapshot(3)
+            ])
+            reader = FakeReader(baseline)
+            ui = FakeUi()
+            controller, scheduler, intents, events = self.make_controller(directory, reader, ui)
+            with self.assertRaisesRegex(ContinuousDispatchError, "Taiha.*大破"):
+                controller.dispatch_one_ready(2)
+            self.assertEqual(ui.dispatches, [])
+            self.assertEqual(scheduler.fleet(2).phase, FleetPhase.IDLE)
+            self.assertIsNone(intents.get(2))
+            blocked = [fields for name, fields in events if name == "dispatch_blocked_large_damage"]
+            self.assertEqual(len(blocked), 1)
+            self.assertEqual(blocked[0]["ship_ids"], (2,))
+            self.assertEqual(blocked[0]["dispatch_clicks_sent"], 0)
+            self.assertFalse(blocked[0]["replacement_implemented"])
 
     def test_missing_mission_composition_metadata_blocks_before_ui(self):
         with tempfile.TemporaryDirectory() as directory:

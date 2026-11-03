@@ -106,6 +106,7 @@ def normalize_poi_fleets(
                 ) from exc
 
         damaged = []
+        heavy_damage = []
         ship_levels = []
         ship_types = []
         composition_complete = True
@@ -123,6 +124,10 @@ def normalize_poi_fleets(
                 raise PoiStateError(f"ship {ship_id} has out-of-range HP fields")
             if now_hp < max_hp:
                 damaged.append(ship_id)
+            # KanColle defines Taiha (大破) at 25% HP or below. Integer
+            # arithmetic avoids floating-point boundary ambiguity.
+            if now_hp * 4 <= max_hp:
+                heavy_damage.append(ship_id)
             master_id = ship.get("api_ship_id")
             if isinstance(master_id, bool) or not isinstance(master_id, int) or master_id < 1:
                 raise PoiStateError(f"ship {ship_id} has invalid master ID")
@@ -163,6 +168,7 @@ def normalize_poi_fleets(
             fuel_ready=fuel_ready,
             ammo_ready=ammo_ready,
             damaged_ship_ids=tuple(damaged),
+            heavy_damage_ship_ids=tuple(heavy_damage),
             reserved=reserved_slot,
             ship_levels=tuple(ship_levels) if composition_complete and len(ship_levels) == len(ship_ids) else (),
             ship_types=tuple(ship_types) if composition_complete and len(ship_types) == len(ship_ids) else (),

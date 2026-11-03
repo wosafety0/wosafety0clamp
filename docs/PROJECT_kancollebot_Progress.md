@@ -3654,3 +3654,12 @@ The Hand plugin's read-only probe reported:
 - **TESTED:** Added four focused tests covering delayed store propagation succeeding on a later read, bounded timeout without a second click, unexpected resource delta rejection, and non-target fleet mutation rejection. Full Python suite: **499 tests passed**. compileall and git diff --check passed.
 - **LIMITS / NOT VERIFIED:** This change was validated with offline tests only; no live supply click, game API request, Poi navigation, or game-state mutation was performed. The Fleet 3 supply already completed and verified in the preceding live run; do not repeat it. Expedition dispatch, large-damage interception, and the full expedition loop remain NOT_VERIFIED.
 - **ARTIFACTS:** tools/full_supply_ui_action.py; tests/test_full_supply.py. Local validation report: logs/delayed_supply_verification_validation_20261103.txt.
+
+
+## 2026-11-03 - Pre-dispatch Taiha interception
+
+- **IMPLEMENTED:** Poi fleet normalization now records heavy_damage_ship_ids separately from the existing damaged_ship_ids. Taiha (大破) is classified at **25% HP or below**, using integer arithmetic (api_nowhp * 4 <= api_maxhp) with the inclusive boundary covered by tests.
+- **DISPATCH GATE:** ContinuousDispatchController checks the fresh normalized fleet snapshot before creating a durable dispatch intent. Any Taiha ship emits dispatch_blocked_large_damage with fleet/ship IDs, the 25% threshold, dispatch_clicks_sent=0, and replacement_implemented=false, then raises and stops. Missing or invalid HP data continues to fail closed during normalization.
+- **SAFETY / SCOPE:** No ship replacement, fleet composition change, game UI click, dispatch, or game-server request was performed. Healthy-ship replacement is deliberately deferred. The existing general damaged-ship readiness policy remains unchanged and is stricter than the new Taiha-specific gate.
+- **TESTED:** Added exact-25%-boundary and above-threshold classification tests, plus a controller test proving Taiha blocks before intent creation and UI input. Full Python suite: **502/502 passed**. Project Python compileall and git diff --check passed.
+- **LIMITS / NOT VERIFIED:** Offline tests verify the gate logic only; no live Poi Taiha snapshot or dispatch attempt was performed. Fleet 3 / mission 3 dispatch, healthy-ship replacement, and the complete expedition loop remain NOT_VERIFIED.

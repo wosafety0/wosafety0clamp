@@ -35,6 +35,15 @@ class PoiFleetNormalizerTests(unittest.TestCase):
             observed_at=NOW,
         )
         self.assertEqual(state.payload[0].damaged_ship_ids, (101,))
+        self.assertEqual(state.payload[0].heavy_damage_ship_ids, ())
+
+    def test_taiha_threshold_is_inclusive_at_25_percent(self):
+        state = normalize_poi_fleets(
+            [{"api_id": 1, "api_ship": [101], "api_mission": [0, 0, 0, 0]}],
+            {"101": {"api_nowhp": 1, "api_maxhp": 4, "api_fuel": 10, "api_fuel_max": 10, "api_bull": 10, "api_bull_max": 10}},
+            observed_at=NOW,
+        )
+        self.assertEqual(state.payload[0].heavy_damage_ship_ids, (101,))
 
     def test_active_mission_with_return_timestamp_is_converted_to_utc(self):
         timestamp = int(NOW.timestamp()) + 60
