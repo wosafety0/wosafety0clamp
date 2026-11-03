@@ -118,3 +118,15 @@ CI success proves the checked offline workflow only. It does not connect to Poi,
 - [ ] Baseline CI and offline tests have been rerun or the existing run has been reviewed.
 - [ ] Fleet target mismatch is resolved before using the one-shot runner.
 - [ ] No live dispatch or unattended operation is enabled before the remaining acceptance gates pass.
+
+## 10. Outstanding GitHub pull requests and branches
+
+Read-only inventory checked on 2026-11-03:
+
+- There are **19 open pull requests** in the repository. No PR was merged or closed during this handoff.
+- The active development branch has many related and historical development branches. No branch was deleted, force-moved, or bulk-renamed.
+- PR [#5](https://github.com/wosafety0/wosafety0clamp/pull/5) is a draft with the current development branch as its head and dev/expedition-planner-mvp as its base. It contains 641 commits and 136 changed files; it is not a PR targeting main. Do not merge it as a routine cleanup step.
+- PR [#27](https://github.com/wosafety0/wosafety0clamp/pull/27), [#26](https://github.com/wosafety0/wosafety0clamp/pull/26), and [#24](https://github.com/wosafety0/wosafety0clamp/pull/24) are open drafts targeting dev/expedition-closed-loop-mvp. Their recorded base SHAs predate the current handoff head. At the time of inspection, #27 and #26 reported mergeable=false; #24 reported mergeable=true. Review their diffs against the current base before deciding whether to rebase, cherry-pick, merge, or close.
+- Additional open drafts and historical PRs remain (including #15, #17, #20, #22, #25). They overlap in Poi freshness, dispatch recovery, safety, and earlier integration work. Do not bulk-close or merge them without a per-PR diff and dependency review.
+
+The purpose of this inventory is to prevent a new developer from mistaking an old draft, a stale base SHA, or a historical branch for the current integrated baseline. It is not a merge recommendation.
