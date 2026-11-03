@@ -35,9 +35,11 @@ This document is the concise handoff entry point. The long design and progress r
 | Semantic DOM targets | src/kancollebot/adapters/poi/cdp_semantic_targets.py | AX/DOM targeting for actual DOM nodes; not suitable for Canvas-only game controls |
 | Fleet state and safety policy | src/kancollebot/adapters/poi/expedition_state.py, expedition_state_v2.py | Normalize ship/fleet state, supply and damage attributes |
 | Scheduling and dispatch gates | src/kancollebot/expeditions/ | Fleet lifecycle, planner, durable intent/recovery, controller and supervisor |
-| One-shot UI runner | tools/one_expedition_ui_loop.py | Guarded visible-UI preparation and one-shot dispatch transaction |
+| Unified runtime configuration | src/kancollebot/runtime_config.py | Single source for production Fleet 3 / mission 3, monitor fleet set, endpoints, timeouts, and runtime paths |
+| Runtime CLI | src/kancollebot/cli.py | Canonical monitor and one-shot dispatch command router |
+| One-shot UI implementation | tools/one_expedition_ui_loop.py | Guarded visible-UI preparation and one-shot dispatch transaction; direct script invocation is a compatibility shim |
 | Fleet-wide supply | src/kancollebot/adapters/poi/full_supply.py, tools/full_supply_ui_action.py | Guarded per-fleet supply action and postcondition checks |
-| Read-only monitor | tools/run_continuous_expedition_monitor.py | Background freshness provider + Poi reader + read-only monitor |
+| Read-only monitor implementation | tools/run_continuous_expedition_monitor.py | Background freshness provider + Poi reader + read-only monitor; direct script invocation is a compatibility shim |
 | Tests | tests/ | Offline unit and integration-contract tests |
 | CI | .github/workflows/ci.yml | Offline validation; not a persistent game runtime |
 
@@ -69,11 +71,11 @@ Do not describe the project as a completed automatic expedition loop.
 - **The DOM geometry chain is incomplete:** the current CDP allowlist contains Accessibility.getFullAXTree, DOM.pushNodesByBackendIdsToFrontend, and DOM.getBoxModel, but not DOM.enable or DOM.getDocument. Therefore the DOM node/BoxModel path is not end-to-end usable as currently configured. Even after fixing that for real DOM nodes, it will not create DOM targets for Canvas-rendered game controls.
 - **Keep arbitrary JavaScript forbidden:** Runtime.evaluate must remain restricted to the exact fixed fleet-snapshot expression. Do not broaden it to solve DOM or Canvas targeting.
 - **Resolution constraint:** the existing visual fingerprint and bounded visual-target code is calibrated to a 1200×720 screenshot; visual_target.py explicitly rejects other viewport dimensions. This is a current implementation constraint, not proof that Poi itself must always use that resolution.
-- **Configuration mismatch to resolve:** tools/one_expedition_ui_loop.py has a module docstring describing Fleet 3 while its current FLEET_ID constant is 2 (with mission ID 3). The long design document also contains older Fleet 3 statements. Confirm the intended fleet and align code, tests, and documentation before any live dispatch.
+- **Runtime configuration is centralized:** the production target is Fleet 3 / mission 3 in src/kancollebot/runtime_config.py. Fleet 2-specific helpers and tests retained in tools/one_expedition_ui_loop.py are legacy/test compatibility paths and are not invoked by the production CLI. Keep this distinction explicit.
 
 ## 6. Recommended next work
 
-1. Resolve the Fleet 2 / Fleet 3 runner-documentation mismatch and make the production target explicit in one configuration source.
+1. Keep the unified CLI and runtime defaults as the only production entry/configuration source; add tests whenever the target or defaults change.
 2. Build a **read-only, scroll-aware expedition scanner**: capture visible rows, identify mission number/name, detect scroll progression, deduplicate across pages, and stop only after a verified end-of-list condition. Do not treat A1 or the current eight rows as the end.
 3. Validate row identity and localization against the current Canvas screenshot. Recompute target location after every scroll; never reuse pre-scroll coordinates.
 4. Keep AX/DOM targeting for genuine DOM nodes only. Decide separately whether the incomplete DOM protocol chain is worth enabling for shell controls; do not use it as a substitute for Canvas recognition.

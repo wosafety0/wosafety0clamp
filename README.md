@@ -39,6 +39,33 @@ Optional visual dependencies:
 
     python -m pip install -e ".[vision]"
 
+## Unified runtime entry
+
+All production runtime commands use the installed `kancollebot` command (or
+`python -m kancollebot.cli` from the repository root):
+
+    # Read-only monitor, one observation cycle
+    kancollebot monitor --once
+
+    # Read-only monitor, continuous observation
+    kancollebot monitor
+
+    # One supervised Fleet 3 -> mission 3 dispatch transaction.
+    # This sends normal visible-UI game input and requires explicit authorization.
+    kancollebot dispatch-once --authorize-ui-actions
+
+The legacy `tools/one_expedition_ui_loop.py` and
+`tools/run_continuous_expedition_monitor.py` script paths remain compatibility
+shims and forward to the same CLI. Shared runtime defaults and the production
+Fleet 3 / mission 3 target are defined in
+`src/kancollebot/runtime_config.py`. Fleet 2-specific helper functions retained
+inside the one-shot module are test/compatibility helpers, not the production
+dispatch target.
+
+`dispatch-once` performs a real in-game dispatch attempt when all safety gates
+pass. Do not use it as an unattended scheduler or assume that the full return,
+reward settlement, and repeat loop has been accepted.
+
 ## Offline validation
 
 Run from the repository root in PowerShell:

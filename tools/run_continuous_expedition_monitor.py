@@ -56,12 +56,12 @@ from kancollebot.expeditions.fleet_state_store import (  # noqa: E402
 from kancollebot.expeditions.mission_eligibility import (  # noqa: E402
     MissionCompositionRequirement,
 )
+from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
 
 
-DEFAULT_OBSERVER_SCRIPT = (
-    ROOT / "tools" / "hand_sandbox" / "poi_port_response_observer_20261029.js"
-)
-DEFAULT_DATABASE = ROOT / "logs" / "continuous_expedition.sqlite3"
+DEFAULT_OBSERVER_SCRIPT = RUNTIME_CONFIG.observer_script
+DEFAULT_DATABASE = RUNTIME_CONFIG.monitor_database
+DEFAULT_POI_ENDPOINT = RUNTIME_CONFIG.poi_endpoint
 
 
 @dataclass
@@ -78,19 +78,19 @@ class MonitorRuntime:
 def build_runtime(
     *,
     database_path: str | Path = DEFAULT_DATABASE,
-    poi_endpoint: str = "http://127.0.0.1:12450/mcp",
+    poi_endpoint: str = DEFAULT_POI_ENDPOINT,
     observer_script: str | Path = DEFAULT_OBSERVER_SCRIPT,
     observer_timeout_seconds: float = 130.0,
     max_state_age_seconds: float = 30.0,
     client: PoiMcpClient | None = None,
     observer: PassivePortResponseObserver | None = None,
-    dispatch_fleet_ids: tuple[int, ...] = (2, 3),
+    dispatch_fleet_ids: tuple[int, ...] = RUNTIME_CONFIG.monitor_candidate_fleet_ids,
     enable_ui_refresh: bool = False,
     ui_input: Any | None = None,
     ui_state_verifier: Callable[[str], UiStateEvidence] | None = None,
-    refresh_wait_seconds: float = 45.0,
-    refresh_poll_seconds: float = 0.5,
-    refresh_cooldown_seconds: float = 30.0,
+    refresh_wait_seconds: float = RUNTIME_CONFIG.refresh_wait_seconds,
+    refresh_poll_seconds: float = RUNTIME_CONFIG.refresh_poll_seconds,
+    refresh_cooldown_seconds: float = RUNTIME_CONFIG.refresh_cooldown_seconds,
 ) -> MonitorRuntime:
     """Compose one read-only monitor with shared durable stores and witness source."""
     if not math.isfinite(observer_timeout_seconds) or observer_timeout_seconds <= 0:
@@ -116,12 +116,12 @@ def build_runtime(
     state_store = SqliteFleetStateStore(database)
     intent_store = SqliteDispatchIntentStore(database)
     read_only_fleet_ids = tuple(
-        fleet_id for fleet_id in (1, 2, 3) if fleet_id not in dispatch_fleet_ids
+        fleet_id for fleet_id in RUNTIME_CONFIG.all_fleet_ids if fleet_id not in dispatch_fleet_ids
     )
     scheduler = ContinuousExpeditionScheduler(
         dispatch_fleet_ids=dispatch_fleet_ids,
         read_only_fleet_ids=read_only_fleet_ids,
-        deferred_fleet_ids=(4,),
+        deferred_fleet_ids=RUNTIME_CONFIG.deferred_fleet_ids,
         state_store=state_store,
     )
     recovery = DurableDispatchCoordinator(scheduler, intent_store)
@@ -355,9 +355,12 @@ def _run_monitor_with_session(args: Any, game_session: Any | None = None) -> int
             "unresolved_dispatch_fleets": list(
                 runtime.unresolved_dispatch_fleets
             ),
-            "dispatch_fleets": [2, 3],
-            "read_only_fleets": [1],
-            "deferred_fleets": [4],
+            "dispatch_fleets": list(RUNTIME_CONFIG.monitor_candidate_fleet_ids),
+            "read_only_fleets": [
+                fleet_id for fleet_id in RUNTIME_CONFIG.all_fleet_ids
+                if fleet_id not in RUNTIME_CONFIG.monitor_candidate_fleet_ids
+            ],
+            "deferred_fleets": list(RUNTIME_CONFIG.deferred_fleet_ids),
             "game_actions_enabled": False,
             "ui_navigation_enabled": runtime.ui_refresh_enabled,
         },
@@ -385,14 +388,14 @@ def _run_monitor_with_session(args: Any, game_session: Any | None = None) -> int
         runtime.provider.close(join_timeout_seconds=1.0)
 
 
-def main(argv: list[str] | None = None) -> int:
+def _main_impl(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--poi-endpoint", default="http://127.0.0.1:12450/mcp")
+    parser.add_argument("--poi-endpoint", default=DEFAULT_POI_ENDPOINT)
     parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
     parser.add_argument("--observer-script", type=Path, default=DEFAULT_OBSERVER_SCRIPT)
-    parser.add_argument("--observer-timeout-seconds", type=float, default=130.0)
-    parser.add_argument("--max-state-age-seconds", type=float, default=30.0)
-    parser.add_argument("--poll-seconds", type=float, default=5.0)
+    parser.add_argument("--observer-timeout-seconds", type=float, default=RUNTIME_CONFIG.observer_timeout_seconds)
+    parser.add_argument("--max-state-age-seconds", type=float, default=RUNTIME_CONFIG.max_state_age_seconds)
+    parser.add_argument("--poll-seconds", type=float, default=RUNTIME_CONFIG.monitor_poll_seconds)
     parser.add_argument("--max-ticks", type=int)
     parser.add_argument(
         "--enable-ui-refresh",
@@ -403,9 +406,9 @@ def main(argv: list[str] | None = None) -> int:
             "freshness witness. Dispatch, settlement, and resupply remain disabled."
         ),
     )
-    parser.add_argument("--refresh-wait-seconds", type=float, default=45.0)
-    parser.add_argument("--refresh-poll-seconds", type=float, default=0.5)
-    parser.add_argument("--refresh-cooldown-seconds", type=float, default=30.0)
+    parser.add_argument("--refresh-wait-seconds", type=float, default=RUNTIME_CONFIG.refresh_wait_seconds)
+    parser.add_argument("--refresh-poll-seconds", type=float, default=RUNTIME_CONFIG.refresh_poll_seconds)
+    parser.add_argument("--refresh-cooldown-seconds", type=float, default=RUNTIME_CONFIG.refresh_cooldown_seconds)
     parser.add_argument(
         "--once",
         action="store_true",
@@ -448,6 +451,14 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
     return _run_monitor_with_session(args)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Compatibility shim; production commands route through the unified CLI."""
+    from kancollebot.cli import main as unified_main
+
+    forwarded = sys.argv[1:] if argv is None else argv
+    return unified_main(["monitor", *forwarded])
 
 
 if __name__ == "__main__":

@@ -49,9 +49,12 @@ from kancollebot.adapters.poi.visual_fingerprint import (  # noqa: E402
     classify_screenshot_fingerprints,
     classify_supply_checkbox_state,
 )
+from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
 
 
-FLEET_ID = 2
+# Legacy helper/test path only; production target is RUNTIME_CONFIG.
+LEGACY_HELPER_FLEET_ID = 2
+FLEET_ID = LEGACY_HELPER_FLEET_ID
 MISSION_ID = 3
 HOME_PORT = RecordedPoint(50, 50, "home-port")
 SORTIE = RecordedPoint(280, 425, "sortie")
@@ -81,7 +84,7 @@ class LoopError(RuntimeError):
     """The observed state or UI sequence no longer matches the fixed loop."""
 
 
-def _fleet(states: tuple[PoiFleetMissionState, ...], fleet_id: int = FLEET_ID) -> PoiFleetMissionState:
+def _fleet(states: tuple[PoiFleetMissionState, ...], fleet_id: int = LEGACY_HELPER_FLEET_ID) -> PoiFleetMissionState:
     matches = [state for state in states if state.fleet_id == fleet_id]
     if len(matches) != 1:
         raise LoopError(f"Expected exactly one fleet {fleet_id} in the Poi snapshot")
@@ -634,12 +637,14 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
     runtime = None
     try:
         with connect_game_webview(timeout=3.0) as game_session:
+            target_fleet_id = RUNTIME_CONFIG.production_dispatch_fleet_id
+            target_mission_id = RUNTIME_CONFIG.production_mission_id
             runtime = build_runtime(
                 database_path=args.database,
                 observer_script=args.observer_script,
                 observer_timeout_seconds=args.observer_timeout_seconds,
                 max_state_age_seconds=args.max_state_age_seconds,
-                dispatch_fleet_ids=(3,),
+                dispatch_fleet_ids=(target_fleet_id,),
                 enable_ui_refresh=False,
             )
             _capture_home_reference(game_session)
@@ -684,17 +689,20 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
 
             _print_event(
                 "production_supervisor_started",
-                dispatch_fleets=[3],
-                fixed_mission_id=3,
-                read_only_fleets=[1, 2],
-                deferred_fleets=[4],
+                dispatch_fleets=[target_fleet_id],
+                fixed_mission_id=target_mission_id,
+                read_only_fleets=[
+                    fleet_id for fleet_id in RUNTIME_CONFIG.all_fleet_ids
+                    if fleet_id != target_fleet_id
+                ],
+                deferred_fleets=list(RUNTIME_CONFIG.deferred_fleet_ids),
                 game_api_requests=False,
             )
             result = supervisor.tick()
             if result.paused_reason is not None or not result.dispatches:
                 _print_event(
                     "PRODUCTION_SUPERVISOR_PAUSED",
-                    reason=result.paused_reason or "fleet_3_not_ready",
+                    reason=result.paused_reason or f"fleet_{target_fleet_id}_not_ready",
                     dispatch_count=len(result.dispatches),
                     game_actions_sent=0,
                 )
@@ -702,24 +710,24 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
 
             if len(result.dispatches) != 1:
                 raise LoopError(
-                    f"Expected exactly one Fleet 3 dispatch, observed {len(result.dispatches)}"
+                    f"Expected exactly one Fleet {target_fleet_id} dispatch, observed {len(result.dispatches)}"
                 )
             dispatch = result.dispatches[0]
-            state = runtime.scheduler.fleet(3)
+            state = runtime.scheduler.fleet(target_fleet_id)
             if (
-                dispatch.fleet_id != 3
-                or dispatch.mission_id != 3
+                dispatch.fleet_id != target_fleet_id
+                or dispatch.mission_id != target_mission_id
                 or state.phase is not FleetPhase.EXPEDITION_ACTIVE
                 or not state.home_port_verified
             ):
                 raise LoopError(
-                    "Supervisor returned without the exact Fleet 3 / mission 3 "
-                    "active tuple and verified Home Port state"
+                    f"Supervisor returned without the exact Fleet {target_fleet_id} / "
+                    f"mission {target_mission_id} active tuple and verified Home Port state"
                 )
             _print_event(
                 "PRODUCTION_UI_CONTROLLER_INTEGRATION_VERIFIED",
-                fleet_id=3,
-                mission_id=3,
+                fleet_id=target_fleet_id,
+                mission_id=target_mission_id,
                 final_time_ms=dispatch.mission.final_time_ms,
                 ship_ids=list(dispatch.mission.ship_ids),
                 home_port_verified=True,
@@ -752,7 +760,7 @@ def run(args: argparse.Namespace) -> int:
     return _run_production_supervisor_once(args)
 
 
-def main() -> int:
+def _main_impl(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--authorize-ui-actions",
@@ -763,23 +771,23 @@ def main() -> int:
     parser.add_argument(
         "--database",
         type=Path,
-        default=ROOT / "logs" / "one_expedition_production.sqlite3",
+        default=RUNTIME_CONFIG.dispatch_database,
         help="Dedicated durable scheduler/dispatch database for this one-fleet entry",
     )
     parser.add_argument(
         "--observer-script",
         type=Path,
-        default=ROOT / "tools" / "hand_sandbox" / "poi_port_response_observer_20261029.js",
+        default=RUNTIME_CONFIG.observer_script,
     )
-    parser.add_argument("--observer-timeout-seconds", type=float, default=130.0)
-    parser.add_argument("--max-state-age-seconds", type=float, default=30.0)
+    parser.add_argument("--observer-timeout-seconds", type=float, default=RUNTIME_CONFIG.observer_timeout_seconds)
+    parser.add_argument("--max-state-age-seconds", type=float, default=RUNTIME_CONFIG.max_state_age_seconds)
     parser.add_argument(
         "--log-path",
         type=Path,
-        default=ROOT / "logs" / "one_expedition_ui_loop.jsonl",
+        default=RUNTIME_CONFIG.dispatch_log_path,
         help="The sole permitted local output file; defaults to logs/one_expedition_ui_loop.jsonl",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     global LOG_PATH, RUN_ID, HOME_REFERENCE_BASE64
     LOG_PATH = args.log_path.expanduser().resolve()
     HOME_REFERENCE_BASE64 = None
@@ -802,6 +810,14 @@ def main() -> int:
                 "log_error_type": type(log_error).__name__,
             }, ensure_ascii=False), flush=True)
         return 2
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Compatibility shim; all production commands route through the unified CLI."""
+    from kancollebot.cli import main as unified_main
+
+    forwarded = sys.argv[1:] if argv is None else argv
+    return unified_main(["dispatch-once", *forwarded])
 
 
 if __name__ == "__main__":
