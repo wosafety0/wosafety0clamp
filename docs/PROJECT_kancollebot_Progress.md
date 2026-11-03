@@ -3753,7 +3753,7 @@ The Hand plugin's read-only probe reported:
 ## 2026-11-04 — Reconcile current-facing README and handoff
 
 - **FINDING:** README still identified PR #27 as the current safety candidate, and HANDOFF still reported the older 1aba358 baseline and 502-test count. Current GitHub refs show base branch head cca8b12debcba4373b10304b462aa902d00c56fc and the open Draft stack PR #28 → #29 → #30 → #31.
-- **IMPLEMENTED:** Updated README current status and HANDOFF baseline/stack summary to distinguish the current base branch from stacked scanner candidates. Recorded exact CI evidence: base run 41644302317 (508 Python tests, 20 skipped; Node 17/17), PR #29 run 41692359602 (760/20 skipped; Node 17/17), PR #30 run 41693984901 (761/20 skipped; Node 17/17), and PR #31 code/test run 41737993338 (762/20 skipped; Node 17/17).
+- **IMPLEMENTED:** Updated README current status and HANDOFF baseline/stack summary to distinguish the current base branch from stacked scanner candidates. Recorded exact CI evidence: base run 41644302317 (508 Python tests, 20 skipped; Node 17/17), PR #29 branch-head run 41693292439 (760/20 skipped; Node 17/17), PR #30 branch-head run 41737941140 (761/20 skipped; Node 17/17), and PR #31 code/test run 41737993338 (762/20 skipped; Node 17/17).
 - **SCOPE:** Documentation-only reconciliation. No code/runtime behavior, game operation, or production gate changed. PRs remain Draft/open/unmerged; no game input or system change.
 
 
