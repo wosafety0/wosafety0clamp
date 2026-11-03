@@ -420,6 +420,26 @@ def main(argv: list[str] | None = None) -> int:
 
         try:
             from kancollebot.adapters.poi.cdp_websocket import connect_game_webview
+            from kancollebot.adapters.poi.renderer_block import MANUAL_ACTION, live_probe
+
+            # A blocking refresh confirm parks the game renderer, so every later
+            # command would burn its own timeout and fail with an unrelated
+            # message. Probe once up front and name the real cause instead.
+            probe = live_probe()
+            if not probe.input_allowed:
+                _emit(
+                    {
+                        "status": "BLOCKED_GAME_RENDERER",
+                        "reason": probe.reason.value,
+                        "detail": probe.detail,
+                        "dialog_suspected": probe.dialog_suspected,
+                        "manual_action": MANUAL_ACTION if probe.dialog_suspected else None,
+                        "game_actions_enabled": False,
+                        "ui_navigation_enabled": True,
+                    },
+                    print,
+                )
+                return 2
 
             with connect_game_webview() as game_session:
                 return _run_monitor_with_session(args, game_session)
