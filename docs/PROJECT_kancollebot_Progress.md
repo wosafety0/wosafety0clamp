@@ -3725,3 +3725,13 @@ The Hand plugin's read-only probe reported:
 - **EXACT-HEAD PUSH CI:** Candidate code/test head `2e026d8d46a5e4b880acf9373f4f2eb6bd765ef3` passed [run 41692359602](https://github.com/wosafety0/wosafety0clamp/actions/runs/41692359602). Node static tests **17/17**; observer `node --check`; package install and CLI help smoke checks; Python compileall; full Python suite **760 tests, 20 skipped**. Every workflow step succeeded.
 - **SCOPE / SAFETY:** Offline CI only. This run did not connect to Poi or send game input, dispatch, supply, collect rewards, call game APIs, execute page JavaScript, use `Runtime.evaluate`, access page getters, or change system settings. The current unattended KancolleBot development scope remains no game input.
 - **PR:** [Draft PR #29](https://github.com/wosafety0/wosafety0clamp/pull/29) contains this one-commit follow-up, stacked on Draft PR #28. Both remain open/unmerged.
+
+## 2026-11-04 - Prefer scroll evidence over the short-page end heuristic
+
+- **FINDING:** `classify_boundary()` checked `len(rows) < capacity` before `scroll_candidates`. A short visible page with a detected scroll-control candidate was therefore classified as `END_CONFIRMED`, potentially hiding later unlocked expeditions.
+- **IMPLEMENTED:** Scroll-control candidates now take precedence and yield `MORE_BELOW`. A short page without a candidate remains `END_CONFIRMED`; a full page without a candidate remains `UNKNOWN`. The scroll proposal still requires a human-confirmed point and this scanner performs no scrolling.
+- **TESTED:** Added a synthetic three-row page with a scroll candidate and asserted `MORE_BELOW`; the existing short-page/no-candidate and full-page/no-candidate cases remain covered.
+- **EXACT-HEAD PUSH CI:** [Run 41693320899](https://github.com/wosafety0/wosafety0clamp/actions/runs/41693320899) passed. Node static tests **17/17**; observer `node --check`; package/CLI help smoke checks; Python compileall; full Python suite **761 tests, 20 skipped**.
+- **COMMIT:** implementation/test commit `168549b83e2ad8ada30448841cff941da85e62b3`. Source blob `9ee175f9dcb2df20826768c017ac25d821ffb0e9`; test blob `23f15796178ca29ac68efd0eadccdf65be2e9c79`.
+- **SCOPE / SAFETY:** Offline CI only. No Poi connection, live screenshot capture, game input, scrolling, dispatch, supply, reward collection, game API request, Runtime.evaluate, page JavaScript execution, getter access, or system change.
+- **PR:** [Draft PR #30](https://github.com/wosafety0/wosafety0clamp/pull/30) is stacked on [Draft PR #29](https://github.com/wosafety0/wosafety0clamp/pull/29), itself stacked on PR #28. All remain open/unmerged.
