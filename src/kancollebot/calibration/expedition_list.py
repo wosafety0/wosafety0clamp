@@ -729,11 +729,17 @@ class ExpeditionListIndex:
         The point returned is measured on the page that was just captured, so a
         scroll between planning and clicking cannot leave a stale coordinate.
         """
+        if scan.tab is None:
+            return Relocation(
+                "tab_unknown",
+                None,
+                None,
+                "the active area tab is unknown; refusing cross-tab signature lookup",
+            )
         keys = [
             (tab, signature_key)
             for (tab, signature_key), bound in self.bindings.items()
-            if bound == expedition_id
-            and (tab is None or scan.tab is None or tab == scan.tab)
+            if bound == expedition_id and tab == scan.tab
         ]
         if not keys:
             return Relocation("unbound", None, None, "no signature is bound to that number")

@@ -3737,3 +3737,30 @@ The Hand plugin's read-only probe reported:
 - **COMMITS:** initial scroll-precedence implementation/test `168549b83e2ad8ada30448841cff941da85e62b3`; no-row-count-end implementation `6d3fd416a5ad5cd48e3efdaaf2a46705101acbf9`; final regression-test correction `6dde75de2d59d7fe02e00d565776e91de16295e1`.
 - **SCOPE / SAFETY:** Offline CI only. No Poi connection, live screenshot capture, game input, scrolling, dispatch, supply, reward collection, game API request, Runtime.evaluate, page JavaScript execution, getter access, or system change.
 - **PR:** [Draft PR #30](https://github.com/wosafety0/wosafety0clamp/pull/30) is stacked on [Draft PR #29](https://github.com/wosafety0/wosafety0clamp/pull/29), itself stacked on PR #28. All remain open/unmerged.
+
+
+## 2026-11-04 — Refuse expedition relocation when the active area tab is unknown
+
+- **FINDING:** ExpeditionListIndex.locate treated scan.tab is None as a wildcard. Row signatures cover row pixels rather than the tab strip, so an unknown/ambiguous selected area tab could match a signature learned on a different tab and return a plausible coordinate.
+- **IMPLEMENTED:** A fresh scan with no uniquely detected active area tab now returns tab_unknown with no point or row index. Signature bindings are matched only against the exact selected tab; unknown or unscoped tab values are no longer wildcards.
+- **TESTED:** Added a regression using identical row pixels with a previously bound tab-0 signature and a fresh screenshot with no selected-tab highlight. Relocation is blocked and returns no coordinate.
+- **EXACT-HEAD PUSH CI:** [Run 41737993338](https://github.com/wosafety0/wosafety0clamp/actions/runs/41737993338) succeeded. Node static tests **17/17**; passive observer node --check; package install and unified CLI/compatibility-shim smoke checks; Python compileall; full Python suite **762 tests, 20 skipped**.
+- **TEST COMMANDS:** `node --test tests/static_decoder_extract.test.cjs tests/verify_cdp_snapshot.test.cjs`; `node --check tools/hand_sandbox/poi_port_response_observer_20261029.js`; `python -m pip install -e .`; `kancollebot --help`, `kancollebot monitor --help`, `kancollebot dispatch-once --help`, `python tools/run_continuous_expedition_monitor.py --help`, `python tools/one_expedition_ui_loop.py --help`; `python -m compileall -q src tests tools`; `PYTHONPATH=src python -m unittest discover -s tests -v`.
+- **COMMIT:** implementation/test commit 48184c70ebfc4d9ec1ff16fc9cef62d9e90f64a3 on dev/expedition-unknown-tab-locate-guard-20261104, stacked on PR #30 head a42495a9040e1b4de1a28cb501948e6b179d357a.
+- **REMOTE READBACK:** src/kancollebot/calibration/expedition_list.py blob 8dfea2c0cb0bee3c82a685f5f7f6ac4d376d028f; tests/test_expedition_list_scanner.py blob 054490dde98e1f5d62aedd1593da26c5defe6c6a.
+- **SCOPE / SAFETY:** Offline CI only. No Poi connection, screenshot capture, game input, scrolling, dispatch, supply, reward collection, game API request, Runtime.evaluate, page JavaScript execution, getter access, or system change. Production dispatch/freshness gates remain unchanged and fail-closed.
+
+
+## 2026-11-04 — Reconcile current-facing README and handoff
+
+- **FINDING:** README still identified PR #27 as the current safety candidate, and HANDOFF still reported the older 1aba358 baseline and 502-test count. Current GitHub refs show base branch head cca8b12debcba4373b10304b462aa902d00c56fc and the open Draft stack PR #28 → #29 → #30 → #31.
+- **IMPLEMENTED:** Updated README current status and HANDOFF baseline/stack summary to distinguish the current base branch from stacked scanner candidates. Recorded exact CI evidence: base run 41644302317 (508 Python tests, 20 skipped; Node 17/17), PR #29 branch-head run 41693292439 (760/20 skipped; Node 17/17), PR #30 branch-head run 41737941140 (761/20 skipped; Node 17/17), and PR #31 code/test run 41737993338 (762/20 skipped; Node 17/17).
+- **SCOPE:** Documentation-only reconciliation. No code/runtime behavior, game operation, or production gate changed. PRs remain Draft/open/unmerged; no game input or system change.
+
+
+## 2026-11-04 — Final README/HANDOFF reconciliation verification
+
+- Documentation commit 87c99237b17e3d54b48ea59eff7c465dc853152d updated the current-facing README and handoff to reflect the current base branch and PR #28 → #29 → #30 → #31 stack.
+- Exact-head Push CI [run 41738598261](https://github.com/wosafety0/wosafety0clamp/actions/runs/41738598261) succeeded: Node static tests 17/17, observer node --check, package/unified CLI smoke checks, compileall, and 762 Python tests (20 skipped).
+- Remote readback: README blob 1a2226160c7f049f32d11a13401e90b91704caee; HANDOFF blob 6f86d551e6f9a99f66d50dccc92bf2f7d7c9b0fc; progress blob d24183ba205005342fb13717d1e29912a874a202.
+- This is documentation reconciliation only. No Poi connection, game input, runtime evaluation, page JavaScript, getter access, or system change occurred.

@@ -24,7 +24,7 @@ At the time of this update, the GitHub default branch **main** contains only the
 3. Continue mocked/offline tests and static CI; missing, stale, ambiguous, or malformed observations must remain fail-closed.
 4. Treat any future live operation as a separately authorized, operator-supervised activity. CI and this repository workflow do not authorize unattended game actions.
 
-## Current status — 2026-11-03
+## Current status — 2026-11-04
 
 The repository is beyond the initial bootstrap stage. The current MVP includes an offline-tested fleet lifecycle state machine, shared-UI arbiter, SQLite fleet-state and dispatch-intent stores/recovery, an injected-port dispatch controller, a read-only continuous monitor, and a single-tick supervisor.
 
@@ -32,7 +32,9 @@ The Poi integration includes a passive Network observer and an in-memory freshne
 
 The recorded operator-supervised UI evidence covers return-result/bonus/home navigation and fleet-wide supply for the unlocked Fleets 1–3. A final audit recorded 13/13 ships at master fuel/ammunition levels. This historical evidence does not establish unattended scheduler readiness.
 
-Production dispatch/supervisor composition, mission/fleet selection, reward progression, automatic resupply integration into the continuous scheduler, and unattended operation remain pending. The production freshness/dispatch gate remains fail-closed. Current safety candidate PR #27 is based directly on the current MVP branch and adds strict dispatch-intent, freshness, and passive-observer validation; its exact-head offline CI passed 460 Python tests, 17 Node static tests, and compile/syntax checks, with 17 optional vision tests skipped because those dependencies were unavailable.
+Production dispatch/supervisor composition, mission/fleet selection, reward progression, automatic resupply integration into the continuous scheduler, and unattended operation remain pending. The production freshness/dispatch gate remains fail-closed.
+
+The current read-only scanner/safety candidate stack is **PR #28 → PR #29 → PR #30 → PR #31**; all four remain open, Draft, and unmerged. PR #30 prevents row count alone from confirming the end of the expedition list and treats detected scroll affordances as proposals only. PR #31 blocks target relocation when the active area tab is unknown, because row signatures do not identify the selected tab. The exact code/test head for PR #31, 48184c70ebfc4d9ec1ff16fc9cef62d9e90f64a3, passed [CI run 41737993338](https://github.com/wosafety0/wosafety0clamp/actions/runs/41737993338): 762 Python tests (20 skipped), 17/17 Node static tests, observer syntax, package/CLI smoke checks, and compileall. This is offline evidence only; the scanner does not scroll or click, and the scroll affordance geometry remains unmeasured.
 
 ## Current state
 

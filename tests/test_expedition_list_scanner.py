@@ -374,6 +374,18 @@ class IndexTests(unittest.TestCase):
         self.assertEqual(relocation.row_index, 2)
         self.assertEqual(round(relocation.point[1]), ROW_TOP + ROW_PITCH + ROW_HEIGHT // 2)
 
+    def test_locate_refuses_unknown_tab_even_when_row_signature_matches(self) -> None:
+        index = ExpeditionListIndex()
+        index.add_page(_scan([0, 1, 2, 3], active_tab=0))
+        index.label_row(0, 3, "03")
+
+        unknown_tab = _scan([0, 1, 2, 3], active_tab=None)
+        relocation = index.locate("03", unknown_tab)
+
+        self.assertEqual(relocation.state, "tab_unknown")
+        self.assertIsNone(relocation.point)
+        self.assertIsNone(relocation.row_index)
+
     def test_locate_reports_a_row_that_left_the_page(self) -> None:
         index = ExpeditionListIndex()
         index.add_page(_scan([0, 1, 2, 3]))
