@@ -112,6 +112,10 @@ CI success proves the checked offline workflow only. It does not connect to Poi,
 - Never dispatch a fleet containing a Taiha ship. Replacement is not implemented; do not silently substitute ships.
 - Keep screenshots in memory unless a specific diagnostic artifact is explicitly needed and safe to retain.
 
+## 8A. Unattended development automation boundary (2026-11-04)
+
+For unattended development runs governed by the current user instruction, KancolleBot work is repository/offline-only. Do not invoke live game UI input, scrolling, dispatch, supply, reward collection, or account operations. Do not use `Runtime.evaluate`, execute page JavaScript, access page getters, or change Windows/system settings. Static review of code that contains UI-input adapters is allowed; invoking those adapters is not. CI/offline tests must not connect to Poi or mutate game state. Any exception requires a new explicit user instruction outside the unattended run.
+
 ## 9. Handover checklist
 
 - [ ] New developer has read the global rules and this handoff.
