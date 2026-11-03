@@ -74,6 +74,13 @@ class VisualTargetTests(unittest.TestCase):
         self.assertEqual(point.bounds, (164, 315, 25, 26))
         self.assertEqual(point.label, "fleet3-ship2-checkbox")
 
+    def test_locates_supply_fleet1_tab_and_merges_nested_contours(self):
+        payload = self._frame(((203, 164, 34, 31), (212, 166, 25, 29)))
+        point = locate_supply_fleet_tab(payload, fleet_index=1)
+        self.assertEqual(point.bounds, (201, 162, 37, 34))
+        self.assertEqual(point.region, (195, 155, 50, 50))
+        self.assertEqual(point.label, "supply-fleet1-tab")
+
     def test_locates_supply_fleet3_tab_and_merges_nested_contours(self):
         payload = self._frame(((293, 164, 34, 31), (302, 166, 25, 29)))
         point = locate_supply_fleet_tab(payload, fleet_index=3)
@@ -86,7 +93,7 @@ class VisualTargetTests(unittest.TestCase):
         payload = self._frame(())
         with self.assertRaisesRegex(VisualTargetError, "found 0"):
             locate_supply_fleet_tab(payload, fleet_index=3)
-        with self.assertRaisesRegex(VisualTargetError, "index must be 2 or 3"):
+        with self.assertRaisesRegex(VisualTargetError, "index must be 1, 2 or 3"):
             locate_supply_fleet_tab(payload, fleet_index=4)
 
     def test_locates_one_fleet_wide_supply_button(self):

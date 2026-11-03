@@ -23,6 +23,7 @@ FLEET_2_FIRST_CHECKBOX_REGION: Final[tuple[int, int, int, int]] = (150, 225, 55,
 
 
 SUPPLY_FLEET_TAB_REGIONS: Final[dict[int, tuple[int, int, int, int]]] = {
+    1: (195, 155, 50, 50),
     2: (240, 155, 50, 50),
     3: (285, 155, 50, 50),
 }
@@ -39,8 +40,8 @@ def locate_supply_fleet_tab(
         import numpy as np
     except ImportError as exc:
         raise VisualTargetError("OpenCV and NumPy are required for visual target localization") from exc
-    if isinstance(fleet_index, bool) or not isinstance(fleet_index, int) or fleet_index not in (2, 3):
-        raise VisualTargetError("supply fleet tab index must be 2 or 3")
+    if isinstance(fleet_index, bool) or not isinstance(fleet_index, int) or fleet_index not in (1, 2, 3):
+        raise VisualTargetError("supply fleet tab index must be 1, 2 or 3")
     region = SUPPLY_FLEET_TAB_REGIONS[fleet_index]
     rx, ry, rw, rh = region
     try:

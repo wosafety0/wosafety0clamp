@@ -72,6 +72,7 @@ class VisualFingerprintTests(unittest.TestCase):
         from tools.capture_ooi_visual_fingerprint import SUPPORTED_STATES
 
         self.assertIn("SUPPLY_MENU", SUPPORTED_STATES)
+        self.assertIn("SUPPLY_FLEET_1_SELECTED", SUPPORTED_STATES)
         self.assertIn("SUPPLY_FLEET_2_SELECTED", SUPPORTED_STATES)
         self.assertIn("SUPPLY_FLEET_3_SELECTED", SUPPORTED_STATES)
         self.assertIn("SUPPLY_FLEET_2_SHIP_1_CHECKED", SUPPORTED_STATES)
@@ -94,6 +95,7 @@ class VisualFingerprintTests(unittest.TestCase):
         self.assertEqual(menu["label_source"], "manually_confirmed_current_screen")
 
         for state, crop in (
+            ("SUPPLY_FLEET_1_SELECTED", [203, 155, 30, 40]),
             ("SUPPLY_FLEET_2_SELECTED", [249, 155, 30, 40]),
             ("SUPPLY_FLEET_3_SELECTED", [295, 155, 30, 40]),
         ):
@@ -179,6 +181,29 @@ class VisualFingerprintTests(unittest.TestCase):
         label, scores = classify_screenshot_fingerprints(self.image, document)
         self.assertEqual(label, "HOME_PORT")
         self.assertEqual(scores["HOME_PORT"], 1.0)
+
+    def test_supply_fleet1_child_state_ignores_only_its_parent_menu_for_margin(self):
+        current = [255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255]
+        parent = current.copy()
+        parent[0] = 254
+        document = {
+            "version": 1,
+            "viewport": [2, 2],
+            "states": {
+                "SUPPLY_MENU": {
+                    "crop": [0, 0, 2, 2], "grid": [2, 2], "fingerprint": parent,
+                },
+                "SUPPLY_FLEET_1_SELECTED": {
+                    "crop": [0, 0, 2, 2], "grid": [2, 2], "fingerprint": current,
+                },
+                "HOME_PORT": {
+                    "crop": [0, 0, 2, 2], "grid": [2, 2], "fingerprint": [0, 0, 0] * 4,
+                },
+            },
+        }
+        label, scores = classify_screenshot_fingerprints(self.image, document)
+        self.assertEqual(label, "SUPPLY_FLEET_1_SELECTED")
+        self.assertGreater(scores["SUPPLY_MENU"], 0.99)
 
     def test_supply_fleet_child_state_ignores_only_its_parent_menu_for_margin(self):
         current = [255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255]

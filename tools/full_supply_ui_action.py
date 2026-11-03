@@ -198,6 +198,21 @@ def _verify_state(session, expected: str) -> UiStateEvidence:
     return UiStateEvidence(expected, (expected, expected), "two_consecutive_in_memory_ooi_fingerprints")
 
 
+def _require_supply_page(session) -> UiState:
+    for expected in (
+        UiState.SUPPLY_FLEET_1_SELECTED,
+        UiState.SUPPLY_FLEET_2_SELECTED,
+        UiState.SUPPLY_FLEET_3_SELECTED,
+        UiState.SUPPLY_MENU,
+    ):
+        try:
+            _require_ui_state(session, expected)
+            return expected
+        except LoopError:
+            continue
+    raise LoopError("current UI is not a verified supply page")
+
+
 def _acquire_fresh_witness(session) -> dict[str, Any]:
     observer = PassivePortResponseObserver(OBSERVER_SCRIPT, timeout_seconds=45.0)
     cancel = threading.Event()
@@ -210,18 +225,11 @@ def _acquire_fresh_witness(session) -> dict[str, Any]:
     thread = threading.Thread(target=capture, name="passive-port-witness", daemon=True)
     thread.start()
     time.sleep(1.0)
-    on_supply_page = False
-    for expected in (
-        UiState.SUPPLY_FLEET_2_SELECTED,
-        UiState.SUPPLY_FLEET_3_SELECTED,
-        UiState.SUPPLY_MENU,
-    ):
-        try:
-            _require_ui_state(session, expected)
-            on_supply_page = True
-            break
-        except LoopError:
-            continue
+    try:
+        _require_supply_page(session)
+        on_supply_page = True
+    except LoopError:
+        on_supply_page = False
     if on_supply_page:
         session.input.click(HOME_PORT)
         log("home_port_navigation_click_sent", click_count=1, game_api_request_initiated=False)
@@ -362,18 +370,21 @@ def run(*, dry_run: bool = False) -> int:
             session.input.click(SUPPLY_MENU_POINT)
             log("supply_menu_navigation_click_sent", fleet_id=target_fleet_id, click_count=1)
             time.sleep(1.0)
-            _require_ui_state(session, UiState.SUPPLY_MENU)
-            tab_frame = session.input.capture_screenshot()
-            fleet_tab = locate_supply_fleet_tab(tab_frame, fleet_index=target_fleet_id)
-            session.input.click_visual_target(fleet_tab, screenshot_base64=tab_frame, button="left")
-            log(
-                "supply_fleet_tab_selected_for_global_button_visibility",
-                fleet_index=target_fleet_id,
-                bounds=list(fleet_tab.bounds),
-                click_count=1,
-            )
-            time.sleep(0.5)
-            _require_ui_state(session, target_fleet_state)
+            selected_supply_state = _require_supply_page(session)
+            if selected_supply_state is target_fleet_state:
+                log("supply_fleet_tab_already_selected", fleet_index=target_fleet_id, click_count=0)
+            else:
+                tab_frame = session.input.capture_screenshot()
+                fleet_tab = locate_supply_fleet_tab(tab_frame, fleet_index=target_fleet_id)
+                session.input.click_visual_target(fleet_tab, screenshot_base64=tab_frame, button="left")
+                log(
+                    "supply_fleet_tab_selected_for_global_button_visibility",
+                    fleet_index=target_fleet_id,
+                    bounds=list(fleet_tab.bounds),
+                    click_count=1,
+                )
+                time.sleep(0.5)
+                _require_ui_state(session, target_fleet_state)
 
             before_state = _read_stable_state(client)
             if before_state != cycle_state:
