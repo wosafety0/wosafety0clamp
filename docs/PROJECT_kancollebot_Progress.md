@@ -3615,3 +3615,12 @@ The Hand plugin's read-only probe reported:
 - **TESTED:** Added tests for Fleet 3-only target selection, non-target state immutability, invalid target IDs, and runtime dry-run wiring. Full Python suite: **493 tests, 18 skipped, all remaining passed**. Supply tests 20/20; freshness validator 7/7; Poi reader 18/18. Compileall, CLI help, and `git diff --check` passed.
 - **CONSERVATIVE LIMIT:** The current shared plan builder still requires all three unlocked fleets to be idle and the resource inventory to cover all observed fleet deficits. This can block a Fleet 3-only action unnecessarily, but does not expand the target set or permit Fleet 1/2 actions.
 - **NEXT / NOT VERIFIED:** The Fleet 3-only execution path has offline test coverage but has not yet been exercised with a resource click. Obtain a new natural freshness witness at execution time and verify the Fleet 3 target/cost again. Actual supply requires explicit runtime authorization; dispatch and the full expedition loop remain NOT_VERIFIED.
+
+## 2026-11-03 - Fleet 3-only target boundary live preflight
+
+- **LIVE VERIFIED:** The updated production preflight helper completed the visible navigation `HOME_PORT -> SORTIE_MENU -> EXPEDITION_LIST -> HOME_PORT` and captured a natural port witness. It returned `source_freshness_verified=true`, `target_fleet_ids=[3]`, and `selected_target_fleets=[3]`.
+- **FLEET 3 COST:** Four ships; fuel required **16**, ammunition required **0**. Available inventory: **2500 fuel / 3453 ammunition**. The target cost is covered by current resources.
+- **READ-ONLY FLEETS:** Fleet 1 deficit 12 fuel / 8 ammunition; Fleet 2 deficit 6 fuel / 8 ammunition. Both appear only in `read_only_fleet_deficits`; neither is selected as an action target.
+- **SAFETY:** Three visible navigation clicks were used to obtain the natural witness. Zero supply clicks, zero dispatches, zero game API requests. The UI ended at HOME_PORT; screenshots remained in memory.
+- **ARTIFACT:** Local log `logs/fleet3_supply_preflight_after_target_filter_20261103.jsonl`.
+- **LIMITS / NEXT:** This verifies Fleet 3-only targeting and fresh cost preflight, not the resource-consuming supply click. The explicit `--authorize-full-supply` action has not been run. Obtain explicit authorization before spending the 16 fuel; dispatch and the complete expedition loop remain NOT_VERIFIED.
