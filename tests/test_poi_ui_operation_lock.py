@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import os
 import subprocess
 import sys
@@ -129,6 +130,76 @@ with poi_ui_operation('abandoned-owner', timeout_seconds=6):
         with poi_ui_operation("outer"):
             with poi_ui_operation("inner"):
                 pass
+
+    def test_expedition_timer_and_read_only_polling_do_not_hold_ui_mutex(self):
+        script = Path(__file__).resolve().parents[1] / "tools" / "one_expedition_ui_loop.py"
+        tree = ast.parse(script.read_text(encoding="utf-8"))
+        run_function = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "run"
+        )
+        lock_labels = set()
+        for node in ast.walk(run_function):
+            if not isinstance(node, (ast.With, ast.AsyncWith)):
+                continue
+            lock_calls = [
+                item.context_expr for item in node.items
+                if isinstance(item.context_expr, ast.Call)
+                and isinstance(item.context_expr.func, ast.Name)
+                and item.context_expr.func.id == "poi_ui_operation"
+            ]
+            if not lock_calls:
+                continue
+            for call in lock_calls:
+                if call.args and isinstance(call.args[0], ast.Constant):
+                    lock_labels.add(call.args[0].value)
+            called_names = {
+                item.func.id for item in ast.walk(node)
+                if isinstance(item, ast.Call) and isinstance(item.func, ast.Name)
+            }
+            self.assertNotIn(
+                "_wait_for_return", called_names,
+                "expedition timer waiting must not hold the shared Poi UI mutex",
+            )
+            self.assertNotIn(
+                "_wait_for_idle", called_names,
+                "read-only reward completion polling must not hold the shared Poi UI mutex",
+            )
+
+        def assert_read_only_polling_is_unlocked(node, lock_held=False):
+            if isinstance(node, (ast.With, ast.AsyncWith)):
+                owns_ui_lock = lock_held or any(
+                    isinstance(item.context_expr, ast.Call)
+                    and isinstance(item.context_expr.func, ast.Name)
+                    and item.context_expr.func.id == "poi_ui_operation"
+                    for item in node.items
+                )
+                for statement in node.body:
+                    assert_read_only_polling_is_unlocked(statement, owns_ui_lock)
+                return
+            if isinstance(node, ast.While):
+                loop_calls = {
+                    item.func.id for item in ast.walk(node)
+                    if isinstance(item, ast.Call) and isinstance(item.func, ast.Name)
+                }
+                if "read_poi_fleet_states" in loop_calls:
+                    self.assertFalse(
+                        lock_held,
+                        "read-only Redux polling must not hold the shared Poi UI mutex",
+                    )
+            for child in ast.iter_child_nodes(node):
+                assert_read_only_polling_is_unlocked(child, lock_held)
+
+        assert_read_only_polling_is_unlocked(run_function)
+        self.assertEqual(
+            lock_labels,
+            {
+                "one-expedition-dispatch",
+                "one-expedition-return-refresh",
+                "one-expedition-reward-screens",
+                "one-expedition-reward-home-recovery",
+            },
+        )
 
 
 if __name__ == "__main__":

@@ -415,15 +415,8 @@ def _wait_for_idle(reader_transport, poll_seconds: float = 1.0, timeout_seconds:
     raise LoopError("Fleet 2 did not become idle after bonus advance; refusing further UI actions")
 
 
-def _collect_returned_expedition_reward(
-    game_session, reader_transport, expected_final_time_ms: int
-) -> PoiFleetMissionState:
-    """Advance the verified result and bonus screens, then verify return to Home Port.
-
-    Fleet mission-idle is checked only after the BONUS_ITEMS screen has been
-    confirmed and its normal UI advance has been sent. The idle tuple alone is
-    not treated as proof that the reward screen was collected.
-    """
+def _advance_returned_expedition_screens(game_session) -> None:
+    """Advance the verified result and bonus screens using bounded UI actions."""
     _print_event("ui_action_precondition", action="collect_expedition_reward",
                  fleet_id=FLEET_ID, mission_id=MISSION_ID, expected_state="RETURN_RESULT")
     game_session.input.click(RETURN_CONFIRM)
@@ -438,14 +431,26 @@ def _collect_returned_expedition_reward(
     time.sleep(1.0)
     _print_event("ui_action_wait_completed", point="bonus-next", wait_seconds=1.0)
 
-    _wait_for_idle(reader_transport)
-    _recover_home_port(game_session)
+
+def _verify_returned_expedition_ready(
+    reader_transport, expected_final_time_ms: int
+) -> PoiFleetMissionState:
     final_state = _fleet(read_poi_fleet_states(reader_transport))
     if not _idle(final_state):
         raise LoopError(f"Fleet 2 did not return to idle after collection: {final_state.mission}")
     _print_event("ONE_EXPEDITION_LOOP_VERIFIED_READY", final_state,
                  dispatch_final_time_ms=expected_final_time_ms)
     return final_state
+
+
+def _collect_returned_expedition_reward(
+    game_session, reader_transport, expected_final_time_ms: int
+) -> PoiFleetMissionState:
+    """Compatibility wrapper for the complete reward flow."""
+    _advance_returned_expedition_screens(game_session)
+    _wait_for_idle(reader_transport)
+    _recover_home_port(game_session)
+    return _verify_returned_expedition_ready(reader_transport, expected_final_time_ms)
 
 
 def build_checkpoint_verifier(reader_transport, game_session, expected_start_ms: int):
@@ -605,28 +610,34 @@ def run(args: argparse.Namespace) -> int:
         raise LoopError("timeout_seconds must be between 60 and 3600")
     if not 0 <= args.grace_delay_seconds <= 300:
         raise LoopError("grace_delay_seconds must be between 0 and 300")
-    with poi_ui_operation("one-expedition-ui-loop"), connect_poi_session(timeout=3.0) as state_session, connect_game_webview(timeout=3.0) as game_session:
-        initial_states = read_poi_fleet_states(state_session.transport)
-        initial = _fleet(initial_states)
-        if not _idle(initial):
-            raise LoopError(f"Fleet 2 must be idle before this one-shot run: {initial.mission}")
-        _print_event("startup_idle_state_verified", initial)
-        _capture_home_reference(game_session)
-        _recover_home_port(game_session)
-        baseline_ms = int(time.time() * 1000)
-        checkpoint_verifier = build_checkpoint_verifier(
-            state_session.transport, game_session, baseline_ms
-        )
-        dispatched = _dispatch(
-            state_session.transport, game_session.input, baseline_ms,
-            checkpoint_verifier=checkpoint_verifier,
-        )
-        dispatched = _return_home_port_after_dispatch(
-            game_session, state_session.transport, dispatched
-        )
+    with connect_poi_session(timeout=3.0) as state_session, connect_game_webview(timeout=3.0) as game_session:
+        # Serialize the initial snapshot and dispatch transaction, then release
+        # the shared UI mutex before the potentially long expedition wait.
+        with poi_ui_operation("one-expedition-dispatch"):
+            initial_states = read_poi_fleet_states(state_session.transport)
+            initial = _fleet(initial_states)
+            if not _idle(initial):
+                raise LoopError(f"Fleet 2 must be idle before this one-shot run: {initial.mission}")
+            _print_event("startup_idle_state_verified", initial)
+            _capture_home_reference(game_session)
+            _recover_home_port(game_session)
+            baseline_ms = int(time.time() * 1000)
+            checkpoint_verifier = build_checkpoint_verifier(
+                state_session.transport, game_session, baseline_ms
+            )
+            dispatched = _dispatch(
+                state_session.transport, game_session.input, baseline_ms,
+                checkpoint_verifier=checkpoint_verifier,
+            )
+            dispatched = _return_home_port_after_dispatch(
+                game_session, state_session.transport, dispatched
+            )
         expected_final_time_ms = dispatched.final_time_ms
         _print_event("dispatch_confirmed_waiting_for_timer", dispatched,
                      expected_final_time_ms=expected_final_time_ms)
+
+        # This phase only polls the Poi Redux snapshot and waits for the timer.
+        # It must never reserve the shared UI mutex.
         _wait_for_return(
             state_session.transport,
             expected_final_time_ms,
@@ -635,14 +646,16 @@ def run(args: argparse.Namespace) -> int:
             args.grace_delay_seconds,
         )
 
-        # Follow the requested UI refresh path: open Sortie, then navigate back
-        # through the top-left Home Port control before checking the refreshed state.
-        _print_event("ui_action_precondition", action="click_sortie", expected="expedition return refresh")
-        game_session.input.click(SORTIE)
-        _print_event("ui_click_sent", point=SORTIE.label)
-        time.sleep(1.5)
-        _print_event("ui_action_wait_completed", point=SORTIE.label, wait_seconds=1.5)
-        _recover_home_port(game_session, force_click=True)
+        # Refresh is a short UI transaction; release the mutex during subsequent
+        # read-only Redux polling for the returned mission tuple.
+        with poi_ui_operation("one-expedition-return-refresh"):
+            _print_event("ui_action_precondition", action="click_sortie", expected="expedition return refresh")
+            game_session.input.click(SORTIE)
+            _print_event("ui_click_sent", point=SORTIE.label)
+            time.sleep(1.5)
+            _print_event("ui_action_wait_completed", point=SORTIE.label, wait_seconds=1.5)
+            _recover_home_port(game_session, force_click=True)
+
         refresh_deadline = time.monotonic() + 120.0
         last_refresh_log = 0.0
         result_state = None
@@ -662,9 +675,18 @@ def run(args: argparse.Namespace) -> int:
         if result_state is None:
             raise LoopError("Completion state was not confirmed within 120 seconds after Home Port refresh")
 
-        _require_ui_state(game_session, UiState.RETURN_RESULT)
-        _collect_returned_expedition_reward(
-            game_session, state_session.transport, expected_final_time_ms
+        with poi_ui_operation("one-expedition-reward-screens"):
+            _require_ui_state(game_session, UiState.RETURN_RESULT)
+            _advance_returned_expedition_screens(game_session)
+
+        # The reward UI has advanced; wait for the fleet's idle Redux tuple
+        # without holding the shared UI mutex.
+        _wait_for_idle(state_session.transport)
+
+        with poi_ui_operation("one-expedition-reward-home-recovery"):
+            _recover_home_port(game_session)
+        _verify_returned_expedition_ready(
+            state_session.transport, expected_final_time_ms
         )
     return 0
 

@@ -3537,3 +3537,11 @@ The Hand plugin's read-only probe reported:
 - **PRESERVATION:** No Cloud file was modified, deleted, moved, or overwritten. All 59 Cloud-only files and all 9 divergent files remain intact. The 8 identical files were also retained under the explicit read-only constraint.
 - **ARTIFACTS:** Full path/hash manifest: `D:\AI_Project\Project_KancolleBot\diagnostics\redundancy-cleanup\cloud-comparison-20261103.json`; readable inventory: `cloud-comparison-20261103.md`; selected text diffs: `cloud-divergence-diff-20261103.txt`.
 - **DECISION:** Continue active MVP development only in `wosafety0/wosafety0clamp` / `dev/expedition-closed-loop-mvp`. Retain `wosafety0/KancolleBot` as a read-only historical reference; no destructive Cloud cleanup is authorized.
+
+## 2026-11-03 - P0 Poi UI mutex lifetime correction
+
+- **IMPLEMENTED:** Narrowed the one-expedition UI loop's shared mutex to bounded UI transactions: initial verification/dispatch, return-refresh navigation, reward-screen advancement, and Home Port recovery. The lock is released during expedition timer waits, refreshed-state polling, and reward-completion idle polling.
+- **REGRESSION GUARD:** Added an AST-based test that checks expedition timer waits and reward-completion polling remain outside every shared UI mutex scope, and verifies the four intended UI transaction scopes.
+- **TESTED:** Full Python unittest suite **471/471**; Node static tests **17/17**; JavaScript syntax check, Python compileall, and `git diff --check` all passed.
+- **LIMITS:** The one-expedition production entrypoint remains hard-disabled pending end-to-end acceptance. This change has offline/static test coverage only; no live expedition or gameplay action was run.
+
