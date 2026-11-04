@@ -42,6 +42,7 @@ class SettlementObservation:
             or any(not isinstance(frame, CapturedFrame) for frame in self.frames)
             or self.frames[0].frame_id >= self.frames[1].frame_id
             or self.frames[0].sha256 == self.frames[1].sha256
+            or self.frames[0].captured_monotonic_ns >= self.frames[1].captured_monotonic_ns
         ):
             raise ValueError("settlement requires two distinct, increasing captured frames")
 
@@ -84,6 +85,7 @@ class SettlementStateObserver:
             or any(not isinstance(frame, CapturedFrame) for frame in frames_evidence)
             or frames_evidence[0].frame_id >= frames_evidence[1].frame_id
             or frames_evidence[0].sha256 == frames_evidence[1].sha256
+            or frames_evidence[0].captured_monotonic_ns >= frames_evidence[1].captured_monotonic_ns
         ):
             raise SettlementObservationError("two distinct captured frame objects are required")
         return SettlementObservation(
