@@ -104,10 +104,16 @@ class RowSignature:
     dark_total: int
 
     def __post_init__(self) -> None:
+        if type(self.bins) is not tuple:
+            raise ValueError("signature bins must be an immutable tuple")
         if not self.bins:
             raise ValueError("a signature needs at least one bin")
+        if any(type(value) is not int for value in self.bins):
+            raise ValueError("signature bins must be integers")
         if any(not 0 <= value <= SIGNATURE_MAX_LEVEL for value in self.bins):
             raise ValueError("signature bins are outside the quantisation range")
+        if type(self.dark_total) is not int:
+            raise ValueError("dark_total must be an integer")
         if self.dark_total < 0:
             raise ValueError("dark_total must be non-negative")
 
