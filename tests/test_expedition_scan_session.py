@@ -126,7 +126,7 @@ class ScanSessionTests(unittest.TestCase):
                 _scan([]), marker_id="bottom", evidence_source="test"
             )
 
-    def test_new_page_invalidates_previous_end_marker(self) -> None:
+    def test_completed_session_rejects_later_page(self) -> None:
         session = ExpeditionScanSession(expected_tab=0)
         first = _scan([1, 2, 3, 4])
         for row, mission in enumerate(("01", "02", "03", "04"), start=1):
