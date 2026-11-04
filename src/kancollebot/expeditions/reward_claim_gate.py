@@ -199,6 +199,11 @@ class RewardClaimGate:
     ) -> RewardClaimAuthorization:
         if not isinstance(target, RewardClaimTarget):
             raise TypeError("target must be a RewardClaimTarget")
+        approved_id = self._approved.get(target.template_sha256)
+        if approved_id is None or approved_id != target.calibration_id:
+            raise RewardClaimAuthorizationError(
+                "reward target template has no matching approved live Poi calibration"
+            )
         now = time.monotonic_ns() if now_monotonic_ns is None else now_monotonic_ns
         if isinstance(now, bool) or not isinstance(now, int):
             raise RewardClaimAuthorizationError("authorization clock must be monotonic nanoseconds")
@@ -206,11 +211,6 @@ class RewardClaimGate:
             raise RewardClaimAuthorizationError("target frame timestamp is later than authorization time")
         if now - target.frame.captured_monotonic_ns > self._authorization_ttl_ns:
             raise RewardClaimAuthorizationError("target frame is stale; recapture before authorization")
-        approved_id = self._approved.get(target.template_sha256)
-        if approved_id is None or approved_id != target.calibration_id:
-            raise RewardClaimAuthorizationError(
-                "reward target template has no matching approved live Poi calibration"
-            )
         return RewardClaimAuthorization(
             frame_id=target.frame_id,
             frame_sha256=target.frame_sha256,
