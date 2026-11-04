@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import itertools
 import math
 import time
 from dataclasses import dataclass
@@ -17,6 +18,35 @@ from typing import Any, Protocol
 
 class CdpInputError(RuntimeError):
     """Raised when a CDP command cannot be completed safely."""
+
+
+_PNG_SIGNATURE = b"\\x89PNG\\r\\n\\x1a\\n"
+_FRAME_IDS = itertools.count(1)
+
+
+@dataclass(frozen=True, slots=True)
+class CapturedFrame:
+    """Immutable in-memory screenshot with a digest computed from its PNG bytes."""
+
+    frame_id: int
+    captured_monotonic_ns: int
+    png_bytes: bytes
+    sha256: str
+
+    def __post_init__(self) -> None:
+        if isinstance(self.frame_id, bool) or not isinstance(self.frame_id, int) or self.frame_id < 1:
+            raise ValueError("frame_id must be a positive integer")
+        if isinstance(self.captured_monotonic_ns, bool) or not isinstance(self.captured_monotonic_ns, int) or self.captured_monotonic_ns < 1:
+            raise ValueError("capture timestamp must be a positive monotonic nanosecond value")
+        if not isinstance(self.png_bytes, bytes) or not self.png_bytes.startswith(_PNG_SIGNATURE):
+            raise ValueError("captured frame must contain PNG bytes")
+        if not isinstance(self.sha256, str) or self.sha256 != hashlib.sha256(self.png_bytes).hexdigest():
+            raise ValueError("frame SHA-256 must be computed from the exact PNG bytes")
+
+    @property
+    def screenshot_base64(self) -> str:
+        """Return the exact captured bytes in the format accepted by visual classifiers."""
+        return base64.b64encode(self.png_bytes).decode("ascii")
 
 
 class CdpTransport(Protocol):
@@ -209,6 +239,22 @@ class CdpInput:
         if hashlib.sha256(frame_bytes).hexdigest() != point.source_frame_sha256:
             raise CdpInputError("visual target is stale or belongs to a different screenshot frame")
         self.click(RecordedPoint(point.x, point.y, point.label), button=button)
+
+    def capture_frame(self) -> CapturedFrame:
+        """Capture one PNG and bind its monotonic ID/time and digest to those exact bytes."""
+        payload = self.capture_screenshot()
+        try:
+            png_bytes = base64.b64decode(payload, validate=True)
+        except (ValueError, base64.binascii.Error) as exc:
+            raise CdpInputError("CDP screenshot payload is not valid base64") from exc
+        if not png_bytes.startswith(_PNG_SIGNATURE):
+            raise CdpInputError("CDP screenshot payload is not a PNG image")
+        return CapturedFrame(
+            frame_id=next(_FRAME_IDS),
+            captured_monotonic_ns=time.monotonic_ns(),
+            png_bytes=png_bytes,
+            sha256=hashlib.sha256(png_bytes).hexdigest(),
+        )
 
     def capture_screenshot(self) -> str:
         """Return CDP's base64 PNG payload for diagnostics; does not prove success."""
