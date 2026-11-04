@@ -29,6 +29,8 @@ def target(**changes):
         "second_best_score": 0.70,
         "candidate_count": 1,
         "consecutive_states": ("BONUS_ITEMS", "BONUS_ITEMS"),
+        "state_frame_ids": (10, 12),
+        "state_frame_sha256s": ("c" * 64, FRAME_HASH),
     }
     values.update(changes)
     return RewardClaimTarget(**values)
@@ -83,6 +85,22 @@ class RewardClaimGateTests(unittest.TestCase):
     def test_rejects_missing_two_frame_bonus_state(self):
         with self.assertRaisesRegex(ValueError, "two consecutive BONUS_ITEMS"):
             target(consecutive_states=("BONUS_ITEMS", "RETURN_RESULT"))
+
+    def test_rejects_reused_or_non_increasing_state_frame_ids(self):
+        with self.assertRaisesRegex(ValueError, "distinct, increasing"):
+            target(state_frame_ids=(12, 12))
+        with self.assertRaisesRegex(ValueError, "distinct, increasing"):
+            target(state_frame_ids=(13, 12))
+
+    def test_rejects_reused_state_frame_fingerprints(self):
+        with self.assertRaisesRegex(ValueError, "two distinct state frame"):
+            target(state_frame_sha256s=(FRAME_HASH, FRAME_HASH))
+
+    def test_target_must_be_bound_to_second_verified_state_frame(self):
+        with self.assertRaisesRegex(ValueError, "second verified state frame"):
+            target(frame_id=11)
+        with self.assertRaisesRegex(ValueError, "second verified state frame"):
+            target(frame_sha256="d" * 64)
 
     def test_rejects_unapproved_calibration_id_for_known_template_hash(self):
         gate = RewardClaimGate({TEMPLATE_HASH: "another-calibration"})
