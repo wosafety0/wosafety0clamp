@@ -1,0 +1,80 @@
+{
+  "contract": "kancollebot.task-contract",
+  "version": "1.0.0",
+  "generated_from": "kancollebot.task_scope",
+  "role": "consumer",
+  "direction": "inbound",
+  "read_only": true,
+  "authority": {
+    "wosafety0clamp": "consumer: accepts a task intent and owns every execution safety decision",
+    "external_decision_layer": "producer: supplies intent; receives no execution authority, no game session and no click path"
+  },
+  "hard_constraints": [
+    "wosafety0clamp consumes decisions and never produces them",
+    "no second Poi MCP endpoint is introduced; 127.0.0.1:12450 stays the only one",
+    "no decision layer receives game action authority",
+    "freshness, state machine, authorization and fail-closed gates stay inside wosafety0clamp",
+    "declaring a task is not implementing it"
+  ],
+  "event_attribution_keys": [
+    "task_kind",
+    "task_implemented",
+    "task_ui_click_capable"
+  ],
+  "tasks": [
+    {
+      "task_kind": "expedition",
+      "implemented": true,
+      "ui_click_capable": true,
+      "accepts_intent": true,
+      "dispatchable_fleet_ids": [
+        2,
+        3,
+        4
+      ],
+      "reserved_fleet_ids": [
+        1
+      ],
+      "resupply_verified_fleet_ids": [
+        2,
+        3
+      ]
+    },
+    {
+      "task_kind": "combat",
+      "implemented": false,
+      "ui_click_capable": false,
+      "accepts_intent": false,
+      "dispatchable_fleet_ids": [],
+      "reserved_fleet_ids": [],
+      "resupply_verified_fleet_ids": []
+    },
+    {
+      "task_kind": "sparkle",
+      "implemented": false,
+      "ui_click_capable": false,
+      "accepts_intent": false,
+      "dispatchable_fleet_ids": [],
+      "reserved_fleet_ids": [],
+      "resupply_verified_fleet_ids": []
+    },
+    {
+      "task_kind": "composition",
+      "implemented": false,
+      "ui_click_capable": false,
+      "accepts_intent": false,
+      "dispatchable_fleet_ids": [],
+      "reserved_fleet_ids": [],
+      "resupply_verified_fleet_ids": []
+    },
+    {
+      "task_kind": "quests",
+      "implemented": false,
+      "ui_click_capable": false,
+      "accepts_intent": false,
+      "dispatchable_fleet_ids": [],
+      "reserved_fleet_ids": [],
+      "resupply_verified_fleet_ids": []
+    }
+  ]
+}
