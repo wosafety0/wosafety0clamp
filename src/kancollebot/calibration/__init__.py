@@ -40,6 +40,13 @@ from .expedition_list import (
     scan_page,
     signature_from_key,
 )
+from .expedition_scan_session import (
+    ExpeditionScanSession,
+    ScanSessionSnapshot,
+    ScanSessionState,
+    VerifiedEndMarker,
+    VerifiedStartMarker,
+)
 from .expedition_rows import (
     DEFAULT_DARK_THRESHOLD,
     DEFAULT_MERGE_GAP,
@@ -83,6 +90,7 @@ __all__ = [
     "ButtonCandidate",
     "ExpeditionListError",
     "ExpeditionListIndex",
+    "ExpeditionScanSession",
     "ExpeditionRow",
     "ListBoundary",
     "ListEntry",
@@ -95,6 +103,10 @@ __all__ = [
     "RowGrid",
     "RowSignature",
     "ScrollProposal",
+    "ScanSessionSnapshot",
+    "ScanSessionState",
+    "VerifiedEndMarker",
+    "VerifiedStartMarker",
     "VisibleRow",
     "align_pages",
     "calibrate_rows",

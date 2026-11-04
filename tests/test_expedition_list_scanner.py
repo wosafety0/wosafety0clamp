@@ -18,6 +18,7 @@ from kancollebot.calibration import (
     ExpeditionListError,
     ExpeditionListIndex,
     PageScan,
+    ScanSessionState,
     RowSignature,
     align_pages,
     check_display_order,
@@ -455,6 +456,9 @@ class ToolTests(unittest.TestCase):
             payload = json.loads(out.read_text(encoding="utf-8"))
             self.assertEqual(payload["boundary"]["state"], "unknown")
             self.assertEqual(payload["boundary"]["reason"], "short_page_without_verified_end_marker")
+            self.assertEqual(payload["scan_session"]["state"], ScanSessionState.INCOMPLETE.value)
+            self.assertFalse(payload["scan_session"]["start_verified"])
+            self.assertFalse(payload["scan_session"]["end_verified"])
             self.assertEqual([row["expedition_id"] for row in payload["rows"]], ["01", "02", "03"])
             self.assertEqual(payload["rows"][0]["center"]["x"], 350)
             self.assertTrue(payload["rows"][0]["visible"])
@@ -478,6 +482,16 @@ class ToolTests(unittest.TestCase):
             self.assertEqual([row["expedition_id"] for row in payload["rows"]], ["02", "03"])
             self.assertEqual(len(payload["unbound_rows"]), 1)
             self.assertEqual(payload["unbound_rows"][0]["row"], 3)
+
+    def test_duplicate_page_is_not_counted_as_scan_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            shot = self._write(directory, "page0.png", _page([0, 1, 2, 3]))
+            error = io.StringIO()
+            with redirect_stdout(io.StringIO()), redirect_stderr(error):
+                code = main(["--image", str(shot), "--image", str(shot)])
+            self.assertEqual(code, 2)
+            self.assertIn("SCAN_NO_PROGRESS", error.getvalue())
 
     def test_label_count_mismatch_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
