@@ -1,0 +1,100 @@
+name: Feature CI - closed-loop settlement
+
+# The repository-wide ci.yml only fires on main / dev/** pushes and installs
+# the package WITHOUT its optional vision extra, so this preservation branch
+# gets no CI and 17 OpenCV/NumPy tests are silently skipped there. This
+# workflow is scoped to the feature branch and runs the suite both with and
+# without the vision extra, so the fail-closed dependency gate is verified in
+# both directions.
+on:
+  push:
+    branches:
+      - feat/closed-loop-settlement-20261104
+  pull_request:
+    branches:
+      - main
+      - "dev/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-tests:
+    name: py${{ matrix.python-version }} / vision=${{ matrix.vision }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+        vision: ["with", "without"]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package with the vision extra
+        if: matrix.vision == 'with'
+        run: python -m pip install -e ".[vision]"
+
+      - name: Install package without the vision extra
+        if: matrix.vision == 'without'
+        run: |
+          python -m pip install -e .
+          # Guarantee the missing-dependency path is exercised even if the
+          # runner image happens to ship cv2/numpy in its system Python.
+          python -m pip uninstall -y opencv-python-headless numpy || true
+
+      - name: Assert dependency availability matches the matrix
+        env:
+          VISION: ${{ matrix.vision }}
+          PYTHONPATH: src
+        run: |
+          python - <<'PY'
+          import importlib.util
+          import os
+
+          found = (
+              importlib.util.find_spec("cv2") is not None
+              and importlib.util.find_spec("numpy") is not None
+          )
+          expected = os.environ["VISION"] == "with"
+          assert found is expected, (
+              f"cv2/numpy present={found}, expected={expected} "
+              f"for VISION={os.environ['VISION']}"
+          )
+
+          from kancollebot.adapters.poi.visual_target import (
+              VisualTargetError,
+              require_visual_dependencies,
+          )
+
+          try:
+              require_visual_dependencies()
+          except VisualTargetError as exc:
+              assert not expected, f"unexpected missing dependency: {exc}"
+              print("dependency gate failed closed as designed:", exc)
+          else:
+              assert expected, "dependency gate should have failed closed"
+              print("dependency gate passed with vision deps installed")
+          PY
+
+      - name: Compile Python source
+        run: python -m compileall -q src tests tools
+
+      - name: Run the full Python unit suite
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests
+
+      - name: Run offline JavaScript tests
+        run: >-
+          node --test
+          tests/static_decoder_extract.test.cjs
+          tests/verify_cdp_snapshot.test.cjs
+          tests/poi_port_response_observer.test.cjs

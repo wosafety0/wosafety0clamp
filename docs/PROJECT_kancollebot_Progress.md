@@ -3906,3 +3906,22 @@ The Hand plugin's read-only probe reported:
 - **SAFETY (fail-closed 默认):** 缺依赖时**严格暂停**、给出可操作安装指引，**不静默降级**为无视觉点击；真实游戏点击（补给/结算定位小可逆控件）依赖 cv2/numpy，未安装时绝不会半途失败在模糊的定位步骤上。
 - **LIMITS / 待办:** (1) 实际安装未做（受网络代理限制）；需在能联网环境 `pip install opencv-python-headless numpy` 后再做 P1-2/P1-3 实机与持续循环测试。(2) CI 验证 + 与 dev 整合/PR 方案仍未启动（缺口 #5）。(3) Fleet 4 是否提升为派遣舰队仍是待用户决策项（保持 deferred）。
 - **ARTIFACTS:** `src/kancollebot/adapters/poi/visual_target.py`、`tools/full_supply_ui_action.py`、`tools/one_expedition_ui_loop.py`、`tests/test_visual_target.py`、`tests/test_one_expedition_ui_loop.py`、`tests/test_one_expedition_production_integration.py`、`docs/PROJECT_kancollebot_Progress.md`。
+
+## 2026-11-04 - P1 视觉依赖落地：OpenCV/NumPy 安装 + 17 项测试解阻塞
+
+- **IMPLEMENTED / VERIFIED (安装已落地):** 此前"安装受网络代理限制未做"的阻塞已解除。实测本地代理端口：`9996`/`4160`/`6647` 均不可用，`7890` 在监听且 `curl -x ... https://github.com` 返回 200；`git push` 经 `7890` 成功。通过 `python -m pip install --proxy http://127.0.0.1:7890 "opencv-python-headless>=4.10" "numpy>=2.0"` 成功安装 `numpy 2.5.4` + `opencv-python-headless 5.0.0.93`（Python 3.13.14）。实测 `require_visual_dependencies()` 现返回 `None`，两个生产入口的依赖门禁放行。
+- **VERIFIED (测试解阻塞):** 全量套件从 `976 tests OK (skipped=19)` 变为 **`976 tests ... OK (skipped=2)`** —— 17 项此前因缺 cv2/numpy 被跳过的视觉测试（含 `test_visual_target.py` 全部 OpenCV 定位/歧义/双帧像素计数测试）现真实执行并全部通过，验证了 OpenCV 5.x 兼容。仅剩 2 项跳过：`RequireVisualDependenciesMissingTests` 与 `ProductionStartupVisualDependencyTests`（在依赖已安装环境下按设计跳过，其互补的"依赖存在"分支测试正常运行）。Node 侧 `static_decoder_extract.test.cjs`、`poi_port_response_observer.test.cjs` 及 `node --test` 三文件合并（19 项）均 0 失败。
+- **SAFETY:** 依赖安装只影响本机 Python 环境，未改动任何点击逻辑或运行时默认行为；缺依赖时的 fail-closed 门禁仍保留并由"无依赖"分支测试覆盖。
+- **IMPACT:** P1-1（奖励领取视觉门禁校准）、P1-2（实机测试）、P1-3（持续循环测试）的**依赖阻塞已解除**；剩余阻塞是需要真实 Poi/游戏会话与用户的一次性授权，不是代码或依赖问题。
+- **LIMITS:** OpenCV 5.0.0 通过测试，但 `pyproject.toml` 仅约束 `>=4.10` 无上限；CI 将以 3.12/3.13 × 有/无视觉依赖四组验证兼容性。
+- **ARTIFACTS:** 本机 Python 环境（`numpy`、`opencv-python-headless`）、`pyproject.toml`（`[project.optional-dependencies] vision` 已存在，本次未改）、`docs/PROJECT_kancollebot_Progress.md`。
+
+## 2026-11-04 - P1 功能分支 CI 验证 + 与 dev 整合方案（方案待用户决策）
+
+- **IMPLEMENTED (功能分支 CI):** 新增 `.github/workflows/feature-closed-loop-ci.yml`。既有 `ci.yml` 仅对 `main`/`dev/**` 的 push 与 PR→main 触发，且 `pip install -e .` 不带 `vision` extra —— 导致 (a) 本保全分支完全没有 CI，(b) 即使触发也有 17 项视觉测试被静默跳过。新工作流在 `push` 到 `feat/closed-loop-settlement-20261104`、`pull_request`→`main`/`dev/**`、`workflow_dispatch` 时触发；`python-version ∈ {3.12, 3.13}` × `vision ∈ {with, without}` 四组矩阵：`with` 组 `pip install -e ".[vision]"` 跑完整视觉套件，`without` 组 `pip install -e .` 并显式卸载 cv2/numpy 以强制走 fail-closed 路径；每组均断言依赖可用性与矩阵一致、执行 `require_visual_dependencies()` 双向校验、`compileall`、全量 `unittest discover -s tests`、以及 3 个 Node 测试文件的 `node --test`。
+- **VERIFIED (本地验证，非远端 CI):** YAML 经 PyYAML 解析通过（4 组矩阵、3 类触发器、8 个步骤）；CI 内嵌 heredoc 脚本两向实测：`VISION=with` 输出 "dependency gate passed"，`VISION=without`（用 meta_path blocker 模拟缺依赖）输出 "dependency gate failed closed as designed" 并含完整安装指引；`node --test` 三文件 19 项 0 失败；`without` 场景的真实全量套件结果见本会话早前实测（976 OK / 19 skipped，缺依赖时 `require_visual_dependencies` 抛 `VisualTargetError`）。**远端 GitHub Actions 运行结果尚未观察，不声称 CI 已在远端通过。**
+- **IMPLEMENTED (整合方案，未执行):** 远端现状：`origin` 共 75 个分支；`main` = `a4f3777`（按项目约定默认分支主要承载 `.github`）；本保全分支 = `c5f30fb`；当天存在多个活跃 `dev/expedition-*-20261104` 分支（return-grace-guard / scan-session / scroll-boundary / unknown-tab-locate-guard）与 `dev/dispatch-observer-safety-current-mvp-20261103` 等，整合目标不唯一。三个候选：(A) 仅保留独立保全分支、暂不合并（当前状态，最保守）；(B) 合并/PR 到某个 `dev/expedition-*` 分支；(C) PR 到 `main`（不推荐，且默认分支只有 `.github`，需先确认项目约定）。已知技术限制：GitHub 连接器建 PR 返回 403（缺 `pull_request` 权限），建 PR 需用本机 `git credential fill` 凭据 + urllib 调 API。
+- **SAFETY / 授权边界:** 依全局规则 `AGENTS.md` v2.1.0-rc1 §10.2，推送/建 PR/合并/修改远端数据须有适用授权。本次仅向用户已明确要求的"独立保全分支"推送；**未创建 PR、未合并、未触碰 `main`**。远端 ref 已用 `git ls-remote` 核验与本地 HEAD 一致。
+- **需用户决策（未执行，不臆断）:** (1) 整合目标分支选 A/B/C 中哪一个、是否授权创建 PR/合并；(2) Fleet 4 是否从 deferred 提升为可派遣舰队；(3) P1-1/P1-2/P1-3 何时提供真实 Poi/游戏会话与一次性派遣授权。
+- **LIMITS:** CI 远端运行、P1-1 视觉门禁校准、P1-2 实机证据（返回/结算/领取/补给四项独立证据）、P1-3 无人干预完整循环均未完成。
+- **ARTIFACTS:** `.github/workflows/feature-closed-loop-ci.yml`（新增）、`docs/PROJECT_kancollebot_Progress.md`。
