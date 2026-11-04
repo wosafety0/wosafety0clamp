@@ -34,10 +34,11 @@ if str(ROOT / "src") not in sys.path:
 
 from kancollebot.calibration import (  # noqa: E402
     DEFAULT_PANEL_BOX,
-    BoundaryState,
     ExpeditionListError,
     ExpeditionListIndex,
+    ExpeditionScanSession,
     PageScan,
+    ScanSessionState,
     check_display_order,
     classify_boundary,
     decode_png,
@@ -237,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
         paths.extend(args.image or [])
 
     index = load_index(args.index) if args.index else ExpeditionListIndex()
+    session = ExpeditionScanSession(index=index)
     scans: list[PageScan] = []
     try:
         for path in paths:
@@ -248,7 +250,6 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 1
-            scans.append(scan)
             if scan.tab is None:
                 print(
                     "TAB_UNKNOWN: the selected area tab is not identifiable; "
@@ -256,7 +257,15 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 2
-            index.add_page(scan)
+            session_result = session.observe_page(scan)
+            if session_result.reason == "unchanged_view_no_progress":
+                print(
+                    f"SCAN_NO_PROGRESS: page {len(scans)} is unchanged; "
+                    "refusing to count it as a new page",
+                    file=sys.stderr,
+                )
+                return 2
+            scans.append(scan)
     except (ExpeditionListError, ValueError) as exc:
         print(f"SCAN_FAILED: {exc}", file=sys.stderr)
         return 1
@@ -310,7 +319,8 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
     latest = scans[-1]
-    boundary = classify_boundary(latest)
+    session_result = session.snapshot()
+    boundary = session_result.boundary
     entries = index.entries()
     unbound = index.unbound_rows
     order_check = "unverified"
@@ -334,6 +344,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"pages scanned    : {len(scans)}")
     print(f"area tab         : {latest.tab}")
     print(f"boundary         : {boundary.state.value} ({boundary.reason})")
+    print(f"scan session     : {session_result.state.value} ({session_result.reason})")
+    print(f"start verified   : {session_result.start_verified}")
+    print(f"end verified     : {session_result.end_verified}")
     print(f"rows identified  : {sum(1 for entry in entries if entry.visible)}/{len(latest.rows)}")
     print(f"display order    : {order_check}")
 
@@ -399,6 +412,12 @@ def main(argv: list[str] | None = None) -> int:
         "tab_scores": list(latest.tabs.scores),
         "capacity": latest.capacity,
         "boundary": {"state": boundary.state.value, "reason": boundary.reason},
+        "scan_session": {
+            "state": session_result.state.value,
+            "reason": session_result.reason,
+            "start_verified": session_result.start_verified,
+            "end_verified": session_result.end_verified,
+        },
         "display_order_check": order_check,
         "scroll_candidates": [
             {"center": list(candidate.center), "width": candidate.width, "height": candidate.height}
@@ -450,7 +469,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if unbound:
         return 2
-    if boundary.state is not BoundaryState.END_CONFIRMED:
+    if session_result.state is not ScanSessionState.COMPLETE:
         return 2
     return 0
 
