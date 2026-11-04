@@ -70,7 +70,7 @@ class ExpeditionListScanAccumulatorTests(unittest.TestCase):
 
     def test_first_page_must_start_at_top(self):
         with self.assertRaisesRegex(ExpeditionListScanError, "start at the top"):
-            ExpeditionListScanAccumulator().add_page(page(1, [row(1)]))
+            ExpeditionListScanAccumulator().add_page(page(2, [row(1)])
 
     def test_scroll_must_advance(self):
         scan = ExpeditionListScanAccumulator()
@@ -120,6 +120,7 @@ class ExpeditionListScanAccumulatorTests(unittest.TestCase):
     def test_reaching_geometry_bottom_without_visual_confirmation_is_rejected(self):
         scan = ExpeditionListScanAccumulator()
         scan.add_page(page(0, [row(1)]))
+        scan.add_page(page(300, [row(2)]))
         with self.assertRaisesRegex(ExpeditionListScanError, "conflicts"):
             scan.add_page(page(600, [row(4)], bottom=False))
 
