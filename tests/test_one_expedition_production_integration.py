@@ -84,7 +84,7 @@ def make_ui_state_verifier():
         if captured_frames is not None:
             for _ in range(2):
                 frame_id += 1
-                png = b"\\x89PNG\\r\\n\\x1a\\n" + str(frame_id).encode("ascii")
+                png = b"\x89PNG\r\n\x1a\n" + str(frame_id).encode("ascii")
                 captured_frames.append(
                     CapturedFrame(
                         frame_id,
