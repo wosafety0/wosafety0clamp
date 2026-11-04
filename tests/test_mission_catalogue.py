@@ -32,6 +32,44 @@ class LoadMissionCatalogueTests(unittest.TestCase):
             catalogue = load_mission_catalogue(path)
         self.assertEqual(catalogue, {5: 4, 9: 3})
 
+    def test_flat_shape_rejects_boolean_float_and_string_counts(self):
+        for value in (True, 4.0, "4"):
+            with self.subTest(value=value):
+                with tempfile.TemporaryDirectory() as directory:
+                    path = Path(directory) / "flat.json"
+                    path.write_text(json.dumps({"5": value}), encoding="utf-8")
+                    with self.assertRaises(ValueError):
+                        load_mission_catalogue(path)
+
+    def test_api_start2_shape_rejects_non_object_items_and_entries(self):
+        invalid_documents = (
+            {"items": []},
+            {"items": {"5": 4}},
+            {"items": {"5": {"api_deck_num": 4.0}}},
+        )
+        for document in invalid_documents:
+            with self.subTest(document=document):
+                with tempfile.TemporaryDirectory() as directory:
+                    path = Path(directory) / "bad.json"
+                    path.write_text(json.dumps(document), encoding="utf-8")
+                    with self.assertRaises(ValueError):
+                        load_mission_catalogue(path)
+
+    def test_invalid_or_duplicate_normalized_mission_ids_are_rejected(self):
+        invalid_documents = (
+            {"0": 2},
+            {"-1": 2},
+            {"mission-5": 4},
+            {"1": 2, "01": 3},
+        )
+        for document in invalid_documents:
+            with self.subTest(document=document):
+                with tempfile.TemporaryDirectory() as directory:
+                    path = Path(directory) / "bad.json"
+                    path.write_text(json.dumps(document), encoding="utf-8")
+                    with self.assertRaises(ValueError):
+                        load_mission_catalogue(path)
+
     def test_api_start2_object_map_shape_is_accepted(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "map.json"

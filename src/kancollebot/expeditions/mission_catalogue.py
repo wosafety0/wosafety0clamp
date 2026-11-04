@@ -45,15 +45,32 @@ def load_mission_catalogue(path: str | Path) -> dict[int, int]:
     except FileNotFoundError as exc:
         raise FileNotFoundError(f"mission catalogue not found: {path}") from exc
 
-    if not isinstance(raw, dict):
+    if type(raw) is not dict:
         raise ValueError(f"mission catalogue at {path} must be a JSON object")
 
-    source = raw.get("items", raw)
+    is_api_start2 = "items" in raw
+    source = raw["items"] if is_api_start2 else raw
+    if type(source) is not dict:
+        raise ValueError(f"mission catalogue entries at {path} must be a JSON object")
+
     catalogue: dict[int, int] = {}
     for key, entry in source.items():
+        if type(key) is not str or not key.isascii() or not key.isdecimal():
+            raise ValueError(f"mission catalogue key must be a positive ASCII integer, got {key!r}")
         mission_id = int(key)
-        deck_num = entry.get("api_deck_num") if isinstance(entry, dict) else int(entry)
-        if isinstance(deck_num, bool) or not isinstance(deck_num, int) or not 1 <= deck_num <= 6:
+        if mission_id < 1 or mission_id in catalogue:
+            raise ValueError(f"mission catalogue contains an invalid or duplicate mission id: {key!r}")
+
+        if is_api_start2:
+            if type(entry) is not dict:
+                raise ValueError(f"mission {mission_id}: api_start2 item must be a JSON object")
+            deck_num = entry.get("api_deck_num")
+        else:
+            # The flat format is already a typed JSON mapping. Do not coerce
+            # strings, floats, or booleans into integers before validation.
+            deck_num = entry
+
+        if type(deck_num) is not int or not 1 <= deck_num <= 6:
             raise ValueError(
                 f"mission {mission_id}: api_deck_num must be an integer 1..6, got {deck_num!r}"
             )
