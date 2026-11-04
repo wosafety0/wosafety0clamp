@@ -338,6 +338,79 @@ class ContinuousDispatchController:
                 self._block_after_ambiguous_action(fleet_id, exc)
                 raise
 
+    def wait_for_return(self, fleet_id: int) -> MissionTuple:
+        """Confirm one due expedition returned using a newer passive Poi witness.
+
+        This method performs no UI input and never retries a game action. It is
+        callable only after dispatch was confirmed and Home Port was verified.
+        """
+        current = self.scheduler.fleet(fleet_id)
+        if not self.scheduler.may_wait_for_return(fleet_id) or current.mission is None:
+            raise ContinuousDispatchError(
+                f"Fleet {fleet_id} is not eligible for return observation; "
+                "dispatch and Home Port must both be verified"
+            )
+
+        active_mission = current.mission
+        return_deadline = datetime.fromtimestamp(
+            active_mission.final_time_ms / 1000,
+            tz=timezone.utc,
+        )
+        now = self.clock()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ContinuousDispatchError("return observation clock must be timezone-aware")
+        if now < return_deadline:
+            raise ContinuousDispatchError(
+                f"Fleet {fleet_id} expedition return time has not elapsed"
+            )
+
+        self.event_sink("expedition_return_observation_started", {
+            "fleet_id": fleet_id,
+            "mission_id": active_mission.mission_id,
+            "expected_return_at": return_deadline.isoformat(),
+            "source": "passive_port_observer",
+        })
+        try:
+            self._wait_for_fresh_port_witness(
+                after=return_deadline,
+                phase="post_return_deadline",
+            )
+            observation, _ = self._read_observation(newer_than=return_deadline)
+            snapshot = self._snapshot_for(observation, fleet_id)
+            if (
+                snapshot.mission_status != 2
+                or snapshot.mission_id != active_mission.mission_id
+                or snapshot.return_at is None
+            ):
+                raise ContinuousDispatchError(
+                    f"Poi has not confirmed Fleet {fleet_id} returned from its expedition"
+                )
+            returned_mission = MissionTuple(
+                mission_status=2,
+                mission_id=snapshot.mission_id,
+                final_time_ms=int(snapshot.return_at.timestamp() * 1000),
+                reserved=snapshot.reserved,
+                ship_ids=snapshot.ship_ids,
+            )
+            if not returned_mission.same_expedition(active_mission):
+                raise ContinuousDispatchError(
+                    "returned mission tuple does not match the dispatched mission identity"
+                )
+
+            self.scheduler.confirm_returned(fleet_id, returned_mission)
+            self.event_sink("expedition_return_confirmed_by_poi", {
+                "fleet_id": fleet_id,
+                "mission_id": returned_mission.mission_id,
+                "final_time_ms": returned_mission.final_time_ms,
+                "reserved": returned_mission.reserved,
+                "ship_ids": returned_mission.ship_ids,
+                "observed_at": observation.observed_at.isoformat(),
+            })
+            return returned_mission
+        except Exception as exc:
+            self._block_after_ambiguous_action(fleet_id, exc)
+            raise
+
     def _wait_for_fresh_port_witness(self, *, after: datetime, phase: str) -> None:
         """Wait only on the already-armed passive observer; never poll MCP or retry UI input."""
         waiter = getattr(self.state_reader, "wait_for_fresh_port_witness", None)
