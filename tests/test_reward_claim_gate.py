@@ -181,6 +181,24 @@ class RewardClaimGateTests(unittest.TestCase):
                 now_monotonic_ns=SECOND_FRAME.captured_monotonic_ns + 100,
             )
 
+    def test_rejects_old_state_frame_at_consumption_before_authorization_expiry(self):
+        authorization = RewardClaimGate(
+            {TEMPLATE_HASH: CALIBRATION_ID}
+        ).authorize(
+            target(),
+            now_monotonic_ns=SECOND_FRAME.captured_monotonic_ns + 100,
+        )
+        # The original first frame exceeds the two-second evidence TTL while
+        # the authorization itself is still inside its own expiry window.
+        consume_time = FIRST_FRAME.captured_monotonic_ns + 2_000_000_001
+        self.assertLess(consume_time, authorization.expires_monotonic_ns)
+        with self.assertRaisesRegex(RewardClaimAuthorizationError, "state evidence expired"):
+            authorization.assert_same_frame(
+                frame_id=12,
+                frame_sha256=FRAME_HASH,
+                now_monotonic_ns=consume_time,
+            )
+
     def test_rejects_non_integer_current_frame_id(self):
         authorization = RewardClaimGate(
             {TEMPLATE_HASH: CALIBRATION_ID}
