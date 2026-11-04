@@ -143,7 +143,8 @@ def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra:
 
 
 def _require_ui_state(
-    game_session, expected: UiState, *, visual_attempts: int = 3
+    game_session, expected: UiState, *, visual_attempts: int = 3,
+    captured_frames: list[CapturedFrame] | None = None,
 ) -> str:
     """Require accessible labels or two consecutive in-memory visual matches."""
     if (
@@ -207,7 +208,8 @@ def _require_ui_state(
                         {"type": "mouseMoved", "x": 1195, "y": 715},
                     )
                     time.sleep(0.15)
-                    payload = game_session.input.capture_screenshot()
+                    frame = game_session.input.capture_frame()
+                    payload = frame.screenshot_base64
                     observed, scores = classify_supply_checkbox_state(
                         payload, document, checkbox_document,
                         fleet_index=fleet_index, ship_index=ship_index
@@ -221,7 +223,11 @@ def _require_ui_state(
                         screenshot_written_to_disk=False,
                     )
                     if observed == expected.value:
-                        consecutive_matches += 1
+                        if captured_frames is not None:
+                            captured_frames.append(frame)
+                            if captured_frames is not None:
+                        captured_frames.append(frame)
+                    consecutive_matches += 1
                         if consecutive_matches >= 2:
                             evidence = "two_consecutive_in_memory_parent_and_checkbox_fingerprints"
                             _print_event(
@@ -250,7 +256,8 @@ def _require_ui_state(
                         {"type": "mouseMoved", "x": 1195, "y": 715},
                     )
                     time.sleep(0.15)
-                    payload = game_session.input.capture_screenshot()
+                    frame = game_session.input.capture_frame()
+                payload = frame.screenshot_base64
                     observed, scores = classify_screenshot_fingerprints(payload, document)
                     _print_event(
                         "ui_fingerprint_state_check",
@@ -261,7 +268,11 @@ def _require_ui_state(
                         screenshot_written_to_disk=False,
                     )
                     if observed == expected.value:
-                        consecutive_matches += 1
+                        if captured_frames is not None:
+                            captured_frames.append(frame)
+                            if captured_frames is not None:
+                        captured_frames.append(frame)
+                    consecutive_matches += 1
                         if consecutive_matches >= 2:
                             evidence = "two_consecutive_in_memory_ooi_fingerprints"
                             _print_event(
@@ -314,6 +325,8 @@ def _require_ui_state(
                     screenshot_written_to_disk=False,
                 )
                 if visual_state == expected.value:
+                        if captured_frames is not None:
+                        captured_frames.append(frame)
                     consecutive_matches += 1
                     if consecutive_matches >= 2:
                         evidence = "two_consecutive_in_memory_template_matches"
@@ -652,13 +665,20 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
 
             def verify_state(expected: str) -> UiStateEvidence:
                 state = UiState(expected)
-                first_evidence = _require_ui_state(game_session, state)
-                time.sleep(0.15)
-                second_evidence = _require_ui_state(game_session, state)
+                frames: list[CapturedFrame] = []
+                evidence = _require_ui_state(
+                    game_session, state, captured_frames=frames,
+                )
+                if len(frames) < 2:
+                    raise LoopError(
+                        f"{expected}: two captured visual frames are required; "
+                        "accessibility-only evidence cannot authorize settlement"
+                    )
                 return UiStateEvidence(
                     state=state.value,
                     consecutive_states=(state.value, state.value),
-                    evidence=f"{first_evidence}+{second_evidence}",
+                    evidence=evidence,
+                    frames=(frames[-2], frames[-1]),
                 )
 
             ui_driver = CdpContinuousExpeditionUiDriver(
