@@ -16,6 +16,8 @@ from kancollebot.adapters.poi.cdp_ui_driver import (
     DispatchStep,
     PoiCdpContinuousUiDriver,
     ProductionStateGate,
+    SettlementPlan,
+    SettlementStep,
 )
 from kancollebot.adapters.poi.ui_state_gate import UiState, UiStateGateError
 
@@ -86,7 +88,7 @@ class FakeClock:
         return value
 
 
-def build_driver(states, gate, game_input=None, clock=None):
+def build_driver(states, gate, game_input=None, clock=None, settlement_plan=None):
     clock = clock or FakeClock()
     return PoiCdpContinuousUiDriver(
         plan=DEFAULT_FLEET2_MISSION3_PLAN,
@@ -96,6 +98,35 @@ def build_driver(states, gate, game_input=None, clock=None):
         sleep_fn=lambda seconds: None,
         monotonic_fn=clock.monotonic,
         time_ms_fn=lambda: 1_000_000,
+        settlement_plan=settlement_plan,
+    )
+
+
+def review_settlement_plan():
+    """A reviewed (fake-calibrated) settlement plan for the F2/M3 driver."""
+    return SettlementPlan(
+        return_result_steps=(
+            SettlementStep(
+                RecordedPoint(400, 500, "reward-next"), 1.0,
+                "HOME_PORT_RETURN_NOTICE", "RETURN_RESULT",
+            ),
+        ),
+        bonus_items_steps=(
+            SettlementStep(
+                RecordedPoint(400, 500, "bonus-next"), 1.0,
+                "RETURN_RESULT", "BONUS_ITEMS",
+            ),
+            SettlementStep(
+                RecordedPoint(900, 600, "bonus-finish"), 1.0,
+                "BONUS_ITEMS", "BONUS_ITEMS",
+            ),
+        ),
+        reward_steps=(
+            SettlementStep(
+                RecordedPoint(640, 650, "reward-home"), 1.5,
+                "BONUS_ITEMS", "HOME_PORT",
+            ),
+        ),
     )
 
 
@@ -423,6 +454,143 @@ class ProductionStateGateTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(ContinuousUiDriverError, "does not exist"):
                 gate.require(UiState.HOME_PORT)
+
+
+class SettlementPlanValidationTests(unittest.TestCase):
+    def test_plan_rejects_wrong_chain_start(self):
+        with self.assertRaisesRegex(ValueError, "must start from HOME_PORT_RETURN_NOTICE"):
+            SettlementPlan(
+                return_result_steps=(
+                    SettlementStep(
+                        RecordedPoint(1, 1, "a"), 1.0, "RETURN_RESULT", "RETURN_RESULT"
+                    ),
+                ),
+                bonus_items_steps=(
+                    SettlementStep(
+                        RecordedPoint(2, 2, "b"), 1.0, "RETURN_RESULT", "BONUS_ITEMS"
+                    ),
+                ),
+                reward_steps=(
+                    SettlementStep(
+                        RecordedPoint(3, 3, "c"), 1.0, "BONUS_ITEMS", "HOME_PORT"
+                    ),
+                ),
+            )
+
+    def test_plan_rejects_wrong_terminal_state(self):
+        with self.assertRaisesRegex(ValueError, "must end at HOME_PORT"):
+            SettlementPlan(
+                return_result_steps=(
+                    SettlementStep(
+                        RecordedPoint(1, 1, "a"), 1.0,
+                        "HOME_PORT_RETURN_NOTICE", "RETURN_RESULT",
+                    ),
+                ),
+                bonus_items_steps=(
+                    SettlementStep(
+                        RecordedPoint(2, 2, "b"), 1.0, "RETURN_RESULT", "BONUS_ITEMS"
+                    ),
+                ),
+                reward_steps=(
+                    SettlementStep(
+                        RecordedPoint(3, 3, "c"), 1.0, "BONUS_ITEMS", "BONUS_ITEMS"
+                    ),
+                ),
+            )
+
+    def test_plan_rejects_empty_chain(self):
+        with self.assertRaisesRegex(ValueError, "non-empty tuple"):
+            SettlementPlan(
+                return_result_steps=(),
+                bonus_items_steps=(
+                    SettlementStep(
+                        RecordedPoint(2, 2, "b"), 1.0, "RETURN_RESULT", "BONUS_ITEMS"
+                    ),
+                ),
+                reward_steps=(
+                    SettlementStep(
+                        RecordedPoint(3, 3, "c"), 1.0, "BONUS_ITEMS", "HOME_PORT"
+                    ),
+                ),
+            )
+
+
+class SettlementExecutionTests(unittest.TestCase):
+    def make_settlement_driver(self, gate, game_input=None):
+        states = ScriptedFleetStates((make_fleet(),))
+        return build_driver(
+            states, gate, game_input, settlement_plan=review_settlement_plan()
+        )
+
+    def test_missing_plan_fails_closed_before_any_click(self):
+        gate = ScriptedGate()
+        game_input = FakeInput()
+        driver = build_driver(ScriptedFleetStates((make_fleet(),)), gate, game_input)
+        with self.assertRaisesRegex(ContinuousUiDriverError, "No reviewed settlement plan"):
+            driver.collect_return_result(fleet_id=2)
+        self.assertEqual(game_input.clicks, [])
+        self.assertEqual(gate.calls, [])
+
+    def test_wrong_fleet_fails_closed_before_any_click(self):
+        gate = ScriptedGate()
+        game_input = FakeInput()
+        driver = self.make_settlement_driver(gate, game_input)
+        with self.assertRaisesRegex(ContinuousUiDriverError, "No reviewed settlement plan for fleet 3"):
+            driver.claim_reward(fleet_id=3)
+        self.assertEqual(game_input.clicks, [])
+        self.assertEqual(gate.calls, [])
+
+    def test_collect_return_result_confirms_each_checkpoint_and_returns_evidence(self):
+        gate = ScriptedGate()
+        game_input = FakeInput()
+        driver = self.make_settlement_driver(gate, game_input)
+        evidence = driver.collect_return_result(fleet_id=2)
+        self.assertEqual(evidence.state, "RETURN_RESULT")
+        self.assertEqual(evidence.consecutive_states, ("RETURN_RESULT", "RETURN_RESULT"))
+        self.assertEqual(evidence.evidence, "stub-evidence")
+        self.assertEqual(game_input.clicks, ["reward-next"])
+        self.assertEqual(
+            gate.calls,
+            [
+                UiState.HOME_PORT_RETURN_NOTICE,
+                UiState.RETURN_RESULT,
+                UiState.RETURN_RESULT,
+            ],
+        )
+
+    def test_bonus_chain_mid_checkpoint_failure_stops_remaining_clicks(self):
+        gate = ScriptedGate(fail_counts={UiState.BONUS_ITEMS: 1})
+        game_input = FakeInput()
+        driver = self.make_settlement_driver(gate, game_input)
+        with self.assertRaises(ContinuousUiDriverError):
+            driver.claim_bonus_items(fleet_id=2)
+        # BONUS_ITEMS first appears as step 1's "after" checkpoint, so the
+        # failure blocks step 2; no further clicks were sent.
+        self.assertEqual(game_input.clicks, ["bonus-next"])
+
+    def test_claim_reward_confirms_home_port_terminal_state(self):
+        gate = ScriptedGate()
+        game_input = FakeInput()
+        driver = self.make_settlement_driver(gate, game_input)
+        evidence = driver.claim_reward(fleet_id=2)
+        self.assertEqual(evidence.state, "HOME_PORT")
+        self.assertEqual(evidence.consecutive_states, ("HOME_PORT", "HOME_PORT"))
+        self.assertEqual(game_input.clicks, ["reward-home"])
+        self.assertEqual(
+            gate.calls,
+            [UiState.BONUS_ITEMS, UiState.HOME_PORT, UiState.HOME_PORT],
+        )
+
+    def test_constructor_rejects_non_plan_settlement(self):
+        with self.assertRaisesRegex(ValueError, "SettlementPlan or None"):
+            PoiCdpContinuousUiDriver(
+                plan=DEFAULT_FLEET2_MISSION3_PLAN,
+                fleet_states_fn=ScriptedFleetStates((make_fleet(),)),
+                game_input=FakeInput(),
+                gate=ScriptedGate(),
+                sleep_fn=lambda seconds: None,
+                settlement_plan=("not", "a", "plan"),
+            )
 
 
 if __name__ == "__main__":

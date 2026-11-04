@@ -10,6 +10,7 @@ class SupervisorTickResult:
     monitor_result: Any
     dispatches: tuple[Any, ...]
     paused_reason: Optional[str] = None
+    settlements: tuple[Any, ...] = ()
 
 
 class ContinuousExpeditionSupervisor:
@@ -30,9 +31,11 @@ class ContinuousExpeditionSupervisor:
         self,
         monitor: Any,
         dispatch_controller: Any,
+        settlement_controller: Any = None,
     ) -> None:
         self.monitor = monitor
         self.dispatch_controller = dispatch_controller
+        self.settlement_controller = settlement_controller
 
         monitor_scheduler = getattr(monitor, "scheduler", None)
         controller_scheduler = getattr(
@@ -83,6 +86,29 @@ class ContinuousExpeditionSupervisor:
             raise ValueError(
                 "monitor and dispatch controller must use identical mission requirements"
             )
+
+        if settlement_controller is not None:
+            settlement_scheduler = getattr(
+                settlement_controller, "scheduler", None
+            )
+            if settlement_scheduler is not monitor_scheduler:
+                raise ValueError(
+                    "settlement controller must share one scheduler"
+                )
+            if (
+                getattr(settlement_controller, "state_reader", None)
+                is not monitor_reader
+            ):
+                raise ValueError(
+                    "settlement controller must share one Poi state reader"
+                )
+            if (
+                getattr(settlement_controller, "event_sink", None)
+                is not monitor_event_sink
+            ):
+                raise ValueError(
+                    "settlement controller must share one event sink"
+                )
 
     @staticmethod
     def _phase_name(state: Any) -> str:
@@ -140,16 +166,63 @@ class ContinuousExpeditionSupervisor:
 
         return None
 
+    @staticmethod
+    def _settlement_fleet_id(pause_reason: str) -> Optional[int]:
+        """Parse ``fleet_<id>_settlement_pending`` into the fleet id, else None."""
+        prefix = "fleet_"
+        suffix = "_settlement_pending"
+        if not pause_reason.startswith(prefix) or not pause_reason.endswith(suffix):
+            return None
+        middle = pause_reason[len(prefix): -len(suffix)]
+        try:
+            return int(middle)
+        except ValueError:
+            return None
+
     def tick(self) -> SupervisorTickResult:
         monitor_result = self.monitor.tick()
 
+        settlements: tuple[Any, ...] = ()
         pause_reason = self._pause_reason()
+
         if pause_reason is not None:
-            return SupervisorTickResult(
-                monitor_result=monitor_result,
-                dispatches=(),
-                paused_reason=pause_reason,
+            settlement_fleet_id = (
+                self._settlement_fleet_id(pause_reason)
+                if self.settlement_controller is not None
+                else None
             )
+            if (
+                settlement_fleet_id is None
+                or not bool(
+                    getattr(
+                        self.settlement_controller,
+                        "allow_ui_actions",
+                        False,
+                    )
+                )
+            ):
+                # No settlement controller, or live settlement is not
+                # explicitly enabled: keep the fail-closed pause.
+                return SupervisorTickResult(
+                    monitor_result=monitor_result,
+                    dispatches=(),
+                    paused_reason=pause_reason,
+                    settlements=settlements,
+                )
+
+            settlement = self.settlement_controller.settle_one_returned(
+                settlement_fleet_id
+            )
+            settlements = (settlement,)
+
+            pause_reason = self._pause_reason()
+            if pause_reason is not None:
+                return SupervisorTickResult(
+                    monitor_result=monitor_result,
+                    dispatches=(),
+                    paused_reason=pause_reason,
+                    settlements=settlements,
+                )
 
         if not bool(
             getattr(
@@ -162,6 +235,7 @@ class ContinuousExpeditionSupervisor:
                 monitor_result=monitor_result,
                 dispatches=(),
                 paused_reason="ui_actions_disabled",
+                settlements=settlements,
             )
 
         scheduler = self.monitor.scheduler
@@ -194,6 +268,7 @@ class ContinuousExpeditionSupervisor:
                     paused_reason=(
                         f"fleet_{fleet_id}_post_dispatch_not_active"
                     ),
+                    settlements=settlements,
                 )
 
             if not bool(
@@ -205,10 +280,12 @@ class ContinuousExpeditionSupervisor:
                     paused_reason=(
                         f"fleet_{fleet_id}_post_dispatch_home_port_not_verified"
                     ),
+                    settlements=settlements,
                 )
 
         return SupervisorTickResult(
             monitor_result=monitor_result,
             dispatches=tuple(dispatches),
             paused_reason=None,
+            settlements=settlements,
         )

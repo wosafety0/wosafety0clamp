@@ -142,6 +142,63 @@ DEFAULT_FLEET2_MISSION3_PLAN = DispatchPlan(
 )
 
 
+@dataclass(frozen=True, slots=True)
+class SettlementStep:
+    """One reviewed reward-screen click with its mandatory pre/post checkpoint."""
+
+    point: RecordedPoint
+    settle_seconds: float
+    state_before: str
+    state_after: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.point, RecordedPoint):
+            raise ValueError("point must be a RecordedPoint")
+        if (
+            isinstance(self.settle_seconds, bool)
+            or not isinstance(self.settle_seconds, (int, float))
+            or not math.isfinite(self.settle_seconds)
+            or self.settle_seconds < 0
+        ):
+            raise ValueError("settle_seconds must be a finite non-negative number")
+        for name in (self.state_before, self.state_after):
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("checkpoint state names must be non-empty strings")
+        if UiState.UNKNOWN.value in (self.state_before, self.state_after):
+            raise ValueError("UNKNOWN is not an acceptable checkpoint state")
+
+
+@dataclass(frozen=True, slots=True)
+class SettlementPlan:
+    """Reviewed click sequences for the three reward-screen transitions.
+
+    Each transition is a chain of reviewed clicks. Coordinates come from
+    reviewed captures; the driver refuses input until a reviewed plan is
+    configured, so uncalibrated deployments fail closed instead of inventing
+    reward-screen targets.
+    """
+
+    return_result_steps: tuple[SettlementStep, ...]
+    bonus_items_steps: tuple[SettlementStep, ...]
+    reward_steps: tuple[SettlementStep, ...]
+
+    def __post_init__(self) -> None:
+        for name, steps, start, end in (
+            ("return_result", self.return_result_steps, UiState.HOME_PORT_RETURN_NOTICE.value, UiState.RETURN_RESULT.value),
+            ("bonus_items", self.bonus_items_steps, UiState.RETURN_RESULT.value, UiState.BONUS_ITEMS.value),
+            ("reward", self.reward_steps, UiState.BONUS_ITEMS.value, UiState.HOME_PORT.value),
+        ):
+            if not isinstance(steps, tuple) or not steps:
+                raise ValueError(f"{name} steps must be a non-empty tuple")
+            if steps[0].state_before != start:
+                raise ValueError(f"{name} steps must start from {start}")
+            if steps[-1].state_after != end:
+                raise ValueError(f"{name} steps must end at {end}")
+            for current, following in zip(steps, steps[1:]):
+                if current.state_after != following.state_before:
+                    raise ValueError(f"{name} steps must chain")
+
+
 class ProductionStateGate:
     """Three-tier fail-closed UI state gate.
 
@@ -332,6 +389,7 @@ class PoiCdpContinuousUiDriver:
         monotonic_fn: Callable[[], float] = time.monotonic,
         time_ms_fn: Callable[[], int] = lambda: int(time.time() * 1000),
         event_sink: Callable[[str, Mapping[str, object]], None] | None = None,
+        settlement_plan: "SettlementPlan | None" = None,
         recovery_attempts: int = 3,
         dispatch_verify_timeout_seconds: float = 12.0,
         home_port_recovery_settle_seconds: float = 2.0,
@@ -356,7 +414,10 @@ class PoiCdpContinuousUiDriver:
             or home_port_recovery_settle_seconds < 0
         ):
             raise ValueError("home_port_recovery_settle_seconds must be a finite non-negative number")
+        if settlement_plan is not None and not isinstance(settlement_plan, SettlementPlan):
+            raise ValueError("settlement_plan must be a SettlementPlan or None")
         self._plan = plan
+        self._settlement_plan = settlement_plan
         self._fleet_states_fn = fleet_states_fn
         self._game_input = game_input
         self._gate = gate
@@ -478,6 +539,94 @@ class PoiCdpContinuousUiDriver:
         capture = getattr(self._gate, "capture_home_reference", None)
         if callable(capture):
             capture()
+
+    def collect_return_result(self, *, fleet_id: int) -> UiStateEvidence:
+        """Advance RETURNED_PENDING_UI -> RETURN_RESULT via the reviewed chain."""
+        return self._execute_settlement_chain(
+            fleet_id=fleet_id,
+            steps=self._require_settlement_plan().return_result_steps,
+            final_state=UiState.RETURN_RESULT.value,
+            action="collect_return_result",
+        )
+
+    def claim_bonus_items(self, *, fleet_id: int) -> UiStateEvidence:
+        """Advance RETURN_RESULT -> BONUS_ITEMS via the reviewed chain."""
+        return self._execute_settlement_chain(
+            fleet_id=fleet_id,
+            steps=self._require_settlement_plan().bonus_items_steps,
+            final_state=UiState.BONUS_ITEMS.value,
+            action="claim_bonus_items",
+        )
+
+    def claim_reward(self, *, fleet_id: int) -> UiStateEvidence:
+        """Advance BONUS_ITEMS -> idle Home Port via the reviewed chain."""
+        return self._execute_settlement_chain(
+            fleet_id=fleet_id,
+            steps=self._require_settlement_plan().reward_steps,
+            final_state=UiState.HOME_PORT.value,
+            action="claim_reward",
+        )
+
+    def _require_settlement_plan(self) -> SettlementPlan:
+        if self._settlement_plan is None:
+            raise ContinuousUiDriverError(
+                "No reviewed settlement plan configured; refusing to click reward screens"
+            )
+        return self._settlement_plan
+
+    def _execute_settlement_chain(
+        self,
+        *,
+        fleet_id: int,
+        steps: tuple[SettlementStep, ...],
+        final_state: str,
+        action: str,
+    ) -> UiStateEvidence:
+        if isinstance(fleet_id, bool) or not isinstance(fleet_id, int) or fleet_id < 1:
+            raise ContinuousUiDriverError("fleet_id must be a positive integer")
+        if fleet_id != self._plan.fleet_id:
+            raise ContinuousUiDriverError(
+                f"No reviewed settlement plan for fleet {fleet_id}; "
+                f"this driver only executes fleet {self._plan.fleet_id}"
+            )
+        for step_number, step in enumerate(steps, start=1):
+            self._verify_checkpoint(step_number, "before", step.state_before)
+            self._emit(
+                "ui_action_precondition",
+                action=action,
+                fleet_id=fleet_id,
+                step=step_number,
+                point=step.point.label,
+                expected_ui_state=step.state_before,
+            )
+            self._game_input.click(step.point)
+            self._emit(
+                "ui_click_sent", action=action, point=step.point.label, step=step_number
+            )
+            self._sleep(step.settle_seconds)
+            self._emit(
+                "ui_action_wait_completed",
+                action=action,
+                point=step.point.label,
+                step=step_number,
+                wait_seconds=step.settle_seconds,
+            )
+            self._verify_checkpoint(step_number, "after", step.state_after)
+        # A final independent two-frame confirmation of the terminal state;
+        # its evidence string is returned to the settlement controller.
+        final_evidence = self._gate.require(UiState(final_state))
+        self._emit(
+            "settlement_chain_confirmed",
+            action=action,
+            fleet_id=fleet_id,
+            final_state=final_state,
+            evidence=final_evidence,
+        )
+        return UiStateEvidence(
+            state=final_state,
+            consecutive_states=(final_state, final_state),
+            evidence=final_evidence,
+        )
 
     def _require_fleet(self, fleet_id: int) -> PoiFleetMissionState:
         matches = [state for state in self._fleet_states_fn() if state.fleet_id == fleet_id]
