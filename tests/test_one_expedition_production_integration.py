@@ -357,7 +357,7 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
 
 
     def test_a_fleet_the_runtime_treats_as_deferred_is_refused_before_composition(self):
-        """Fleet 4 exists in the game but not in this runtime's fleet set."""
+        """Fleet 4 is unlocked in the game but deferred in runtime_config."""
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "production" / "state.sqlite3"
             database.parent.mkdir(parents=True)
@@ -373,7 +373,7 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
                 patch.object(entry, "_print_event"),
                 patch.object(monitor_runtime, "build_runtime") as build,
             ):
-                with self.assertRaisesRegex(entry.LoopError, "outside the configured fleets"):
+                with self.assertRaisesRegex(entry.LoopError, "deferred"):
                     entry.run(args)
 
             build.assert_not_called()

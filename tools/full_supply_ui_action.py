@@ -37,6 +37,7 @@ from kancollebot.adapters.poi.visible_ui_refresh import VisibleUiPortRefreshDriv
 from kancollebot.adapters.poi.visual_target import locate_fleet_supply_all_button, locate_supply_fleet_tab
 from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
 from kancollebot.expeditions.continuous_scheduler import UiOperationArbiter
+from kancollebot.runtime_config import RUNTIME_CONFIG
 from one_expedition_ui_loop import HOME_PORT, LoopError, _require_ui_state
 
 
@@ -481,7 +482,7 @@ def _prepare_full_supply_preflight(
         observed_at=observed_at,
         now=now,
         max_age=MAX_AGE,
-        expected_fleet_ids=(1, 2, 3, 4),
+        expected_fleet_ids=RUNTIME_CONFIG.all_fleet_ids,
     )
     all_needed_fleets = select_full_supply_targets(plan, supported_fleet_ids=plan.fleet_ids)
     needed_fleets = select_full_supply_targets(
@@ -601,7 +602,7 @@ def run(*, dry_run: bool = False) -> int:
                     observed_at=cycle_observed_at,
                     now=cycle_now,
                     max_age=MAX_AGE,
-                    expected_fleet_ids=(1, 2, 3, 4),
+                    expected_fleet_ids=RUNTIME_CONFIG.all_fleet_ids,
                 )
                 log(
                     "next_fleet_freshness_cycle_verified",
@@ -656,7 +657,7 @@ def run(*, dry_run: bool = False) -> int:
                 observed_at=cycle_observed_at,
                 now=before_now,
                 max_age=MAX_AGE,
-                expected_fleet_ids=(1, 2, 3, 4),
+                expected_fleet_ids=RUNTIME_CONFIG.all_fleet_ids,
             )
             before_remaining = validate_full_supply_progress(
                 plan, before_plan, tuple(completed_fleet_ids),

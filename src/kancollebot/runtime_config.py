@@ -10,7 +10,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 @dataclass(frozen=True, slots=True)
 class RuntimeConfig:
-    all_fleet_ids: tuple[int, ...] = (1, 2, 3)
+    all_fleet_ids: tuple[int, ...] = (1, 2, 3, 4)
     monitor_candidate_fleet_ids: tuple[int, ...] = (2, 3)
     production_dispatch_fleet_id: int = 3
     production_mission_id: int = 3

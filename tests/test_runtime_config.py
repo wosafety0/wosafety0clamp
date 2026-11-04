@@ -13,7 +13,7 @@ class RuntimeConfigTests(unittest.TestCase):
 
     def test_monitor_and_production_fleet_sets_are_distinct(self):
         self.assertEqual(RUNTIME_CONFIG.monitor_candidate_fleet_ids, (2, 3))
-        self.assertEqual(RUNTIME_CONFIG.all_fleet_ids, (1, 2, 3))
+        self.assertEqual(RUNTIME_CONFIG.all_fleet_ids, (1, 2, 3, 4))
         self.assertEqual(RUNTIME_CONFIG.deferred_fleet_ids, (4,))
 
     def test_fleet_1_is_reserved_and_not_dispatchable(self):

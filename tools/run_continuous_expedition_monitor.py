@@ -121,7 +121,10 @@ def build_runtime(
     state_store = SqliteFleetStateStore(database)
     intent_store = SqliteDispatchIntentStore(database)
     read_only_fleet_ids = tuple(
-        fleet_id for fleet_id in RUNTIME_CONFIG.all_fleet_ids if fleet_id not in dispatch_fleet_ids
+        fleet_id
+        for fleet_id in RUNTIME_CONFIG.all_fleet_ids
+        if fleet_id not in dispatch_fleet_ids
+        and fleet_id not in RUNTIME_CONFIG.deferred_fleet_ids
     )
     scheduler = ContinuousExpeditionScheduler(
         dispatch_fleet_ids=dispatch_fleet_ids,

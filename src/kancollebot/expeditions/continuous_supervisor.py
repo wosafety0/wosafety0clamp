@@ -11,6 +11,7 @@ class SupervisorTickResult:
     dispatches: tuple[Any, ...]
     paused_reason: Optional[str] = None
     settlements: tuple[Any, ...] = ()
+    resupplies: tuple[Any, ...] = ()
 
 
 class ContinuousExpeditionSupervisor:
@@ -20,6 +21,10 @@ class ContinuousExpeditionSupervisor:
         "RETURNED_PENDING_UI",
         "RETURN_RESULT",
         "BONUS_ITEMS",
+    }
+
+    RESUPPLY_PHASES = {
+        "RESUPPLY_REQUIRED",
     }
 
     ACTIVE_PHASES = {
@@ -32,10 +37,12 @@ class ContinuousExpeditionSupervisor:
         monitor: Any,
         dispatch_controller: Any,
         settlement_controller: Any = None,
+        resupply_controller: Any = None,
     ) -> None:
         self.monitor = monitor
         self.dispatch_controller = dispatch_controller
         self.settlement_controller = settlement_controller
+        self.resupply_controller = resupply_controller
 
         monitor_scheduler = getattr(monitor, "scheduler", None)
         controller_scheduler = getattr(
@@ -110,6 +117,25 @@ class ContinuousExpeditionSupervisor:
                     "settlement controller must share one event sink"
                 )
 
+        if resupply_controller is not None:
+            resupply_scheduler = getattr(
+                resupply_controller, "scheduler", None
+            )
+            if resupply_scheduler is not monitor_scheduler:
+                raise ValueError(
+                    "resupply controller must share one scheduler"
+                )
+            # The resupply controller reads supply data from an injected
+            # fleet_data_provider rather than the shared PoiFleetStateReader,
+            # so it intentionally exposes no state_reader to compare against.
+            if (
+                getattr(resupply_controller, "event_sink", None)
+                is not monitor_event_sink
+            ):
+                raise ValueError(
+                    "resupply controller must share one event sink"
+                )
+
     @staticmethod
     def _phase_name(state: Any) -> str:
         phase = getattr(state, "phase", None)
@@ -156,6 +182,9 @@ class ContinuousExpeditionSupervisor:
             if phase in self.SETTLEMENT_PHASES:
                 return f"fleet_{fleet_id}_settlement_pending"
 
+            if phase in self.RESUPPLY_PHASES:
+                return f"fleet_{fleet_id}_resupply_pending"
+
             if phase in self.ACTIVE_PHASES:
                 if not bool(
                     getattr(state, "home_port_verified", False)
@@ -179,10 +208,40 @@ class ContinuousExpeditionSupervisor:
         except ValueError:
             return None
 
+    @staticmethod
+    def _resupply_fleet_id(pause_reason: str) -> Optional[int]:
+        """Parse ``fleet_<id>_resupply_pending`` into the fleet id, else None."""
+        prefix = "fleet_"
+        suffix = "_resupply_pending"
+        if not pause_reason.startswith(prefix) or not pause_reason.endswith(suffix):
+            return None
+        middle = pause_reason[len(prefix): -len(suffix)]
+        try:
+            return int(middle)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _paused(
+        monitor_result: Any,
+        pause_reason: str,
+        settlements: tuple[Any, ...],
+        resupplies: tuple[Any, ...],
+        dispatches: tuple[Any, ...] = (),
+    ) -> SupervisorTickResult:
+        return SupervisorTickResult(
+            monitor_result=monitor_result,
+            dispatches=tuple(dispatches),
+            paused_reason=pause_reason,
+            settlements=settlements,
+            resupplies=resupplies,
+        )
+
     def tick(self) -> SupervisorTickResult:
         monitor_result = self.monitor.tick()
 
         settlements: tuple[Any, ...] = ()
+        resupplies: tuple[Any, ...] = ()
         pause_reason = self._pause_reason()
 
         if pause_reason is not None:
@@ -191,38 +250,61 @@ class ContinuousExpeditionSupervisor:
                 if self.settlement_controller is not None
                 else None
             )
-            if (
-                settlement_fleet_id is None
-                or not bool(
+            if settlement_fleet_id is not None:
+                if not bool(
                     getattr(
                         self.settlement_controller,
                         "allow_ui_actions",
                         False,
                     )
+                ):
+                    # Settlement is required but not available: fail closed
+                    # rather than dispatching around an unresolved fleet.
+                    return self._paused(
+                        monitor_result, pause_reason, settlements, resupplies
+                    )
+                settlement = self.settlement_controller.settle_one_returned(
+                    settlement_fleet_id
                 )
-            ):
-                # No settlement controller, or live settlement is not
-                # explicitly enabled: keep the fail-closed pause.
-                return SupervisorTickResult(
-                    monitor_result=monitor_result,
-                    dispatches=(),
-                    paused_reason=pause_reason,
-                    settlements=settlements,
-                )
+                settlements = (settlement,)
+                # A fleet that just finished claiming its reward becomes
+                # RESUPPLY_REQUIRED; advance the pause reason so the resupply
+                # branch below can close the loop in the same tick.
+                pause_reason = self._pause_reason()
 
-            settlement = self.settlement_controller.settle_one_returned(
-                settlement_fleet_id
+            resupply_fleet_id = (
+                self._resupply_fleet_id(pause_reason)
+                if self.resupply_controller is not None
+                else None
             )
-            settlements = (settlement,)
-
-            pause_reason = self._pause_reason()
-            if pause_reason is not None:
-                return SupervisorTickResult(
-                    monitor_result=monitor_result,
-                    dispatches=(),
-                    paused_reason=pause_reason,
-                    settlements=settlements,
+            if resupply_fleet_id is not None:
+                if not bool(
+                    getattr(
+                        self.resupply_controller,
+                        "allow_ui_actions",
+                        False,
+                    )
+                ):
+                    # Resupply is required but not available: fail closed.
+                    # A fleet stuck in RESUPPLY_REQUIRED can never reach READY,
+                    # so the loop cannot re-dispatch it; pausing is the safe
+                    # stance rather than dispatching the other fleets and
+                    # leaving this one stranded.
+                    return self._paused(
+                        monitor_result, pause_reason, settlements, resupplies
+                    )
+                resupply = self.resupply_controller.resupply_one_needed(
+                    resupply_fleet_id
                 )
+                resupplies = (resupply,)
+                pause_reason = self._pause_reason()
+
+        # Still paused after the one settlement + following resupply we allow
+        # per tick (e.g. a second fleet also needs an action): report and stop.
+        if pause_reason is not None:
+            return self._paused(
+                monitor_result, pause_reason, settlements, resupplies
+            )
 
         if not bool(
             getattr(
@@ -231,11 +313,8 @@ class ContinuousExpeditionSupervisor:
                 False,
             )
         ):
-            return SupervisorTickResult(
-                monitor_result=monitor_result,
-                dispatches=(),
-                paused_reason="ui_actions_disabled",
-                settlements=settlements,
+            return self._paused(
+                monitor_result, "ui_actions_disabled", settlements, resupplies
             )
 
         scheduler = self.monitor.scheduler
@@ -262,25 +341,23 @@ class ContinuousExpeditionSupervisor:
             updated_state = scheduler.fleet(fleet_id)
 
             if self._phase_name(updated_state) not in self.ACTIVE_PHASES:
-                return SupervisorTickResult(
-                    monitor_result=monitor_result,
-                    dispatches=tuple(dispatches),
-                    paused_reason=(
-                        f"fleet_{fleet_id}_post_dispatch_not_active"
-                    ),
-                    settlements=settlements,
+                return self._paused(
+                    monitor_result,
+                    f"fleet_{fleet_id}_post_dispatch_not_active",
+                    settlements,
+                    resupplies,
+                    tuple(dispatches),
                 )
 
             if not bool(
                 getattr(updated_state, "home_port_verified", False)
             ):
-                return SupervisorTickResult(
-                    monitor_result=monitor_result,
-                    dispatches=tuple(dispatches),
-                    paused_reason=(
-                        f"fleet_{fleet_id}_post_dispatch_home_port_not_verified"
-                    ),
-                    settlements=settlements,
+                return self._paused(
+                    monitor_result,
+                    f"fleet_{fleet_id}_post_dispatch_home_port_not_verified",
+                    settlements,
+                    resupplies,
+                    tuple(dispatches),
                 )
 
         return SupervisorTickResult(
@@ -288,4 +365,5 @@ class ContinuousExpeditionSupervisor:
             dispatches=tuple(dispatches),
             paused_reason=None,
             settlements=settlements,
+            resupplies=resupplies,
         )

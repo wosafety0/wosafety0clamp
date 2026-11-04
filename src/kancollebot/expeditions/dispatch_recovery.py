@@ -17,6 +17,7 @@ from kancollebot.expeditions.continuous_scheduler import (
     SchedulerInvariantError,
 )
 from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
+from kancollebot.runtime_config import RUNTIME_CONFIG
 
 
 class DispatchIntentError(RuntimeError):
@@ -35,8 +36,15 @@ class DispatchIntent:
     action_completed_at: datetime | None = None
 
     def __post_init__(self) -> None:
-        if isinstance(self.fleet_id, bool) or not isinstance(self.fleet_id, int) or self.fleet_id not in (2, 3):
-            raise ValueError("dispatch intent fleet_id must be Fleet 2 or Fleet 3")
+        if (
+            isinstance(self.fleet_id, bool)
+            or not isinstance(self.fleet_id, int)
+            or self.fleet_id not in RUNTIME_CONFIG.dispatchable_fleet_ids
+        ):
+            raise ValueError(
+                f"dispatch intent fleet_id must be one of the dispatchable fleets "
+                f"{RUNTIME_CONFIG.dispatchable_fleet_ids}"
+            )
         if isinstance(self.mission_id, bool) or not isinstance(self.mission_id, int) or self.mission_id < 1:
             raise ValueError("mission_id must be a positive integer")
         if not isinstance(self.ship_ids, tuple) or not self.ship_ids or len(self.ship_ids) > 6:

@@ -725,8 +725,10 @@ def _validate_dispatch_fleet_id(target_fleet_id: int) -> None:
     """Refuse fleet ids the bot is not allowed to send on an expedition.
 
     Runs before any game/webview connection so an invalid target fails closed
-    with zero clicks. Fleet 1 is reserved (``non_dispatchable``) by design;
-    fleets outside ``all_fleet_ids`` are treated as deferred (not yet promoted).
+    with zero clicks. The authoritative gate is ``dispatchable_fleet_ids``:
+    Fleet 1 is reserved (``non_dispatchable``) by design, Fleet 4 is deferred
+    (unlocked in the game but not promoted to a dispatch target), and any other
+    id is simply not a configured fleet.
     """
     if target_fleet_id in RUNTIME_CONFIG.non_dispatchable_fleet_ids:
         raise LoopError(
@@ -734,12 +736,17 @@ def _validate_dispatch_fleet_id(target_fleet_id: int) -> None:
             "expedition. It is marked non_dispatchable in runtime_config; promoting "
             "it to a dispatch target is a game-policy change, not a dispatch decision."
         )
+    if target_fleet_id in RUNTIME_CONFIG.deferred_fleet_ids:
+        raise LoopError(
+            f"Fleet {target_fleet_id} is deferred in runtime_config (unlocked but not "
+            "promoted to a dispatch target). Promoting it is a runtime-config change, "
+            "not a dispatch decision; nothing was clicked."
+        )
     if target_fleet_id not in RUNTIME_CONFIG.all_fleet_ids:
         raise LoopError(
             f"Fleet {target_fleet_id} is outside the configured fleets "
-            f"{list(RUNTIME_CONFIG.all_fleet_ids)}: this runtime treats it as "
-            "deferred, so nothing was clicked. The game may have it unlocked; "
-            "promoting it is a runtime-config change, not a dispatch decision."
+            f"{list(RUNTIME_CONFIG.all_fleet_ids)}. Nothing was clicked; promoting "
+            "it is a runtime-config change, not a dispatch decision."
         )
 
 
