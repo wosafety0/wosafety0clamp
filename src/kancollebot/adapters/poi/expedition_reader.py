@@ -95,6 +95,81 @@ class PoiExpeditionReader:
         return items
 
     @staticmethod
+    def _referenced_instance_ids(fleets: list[Any]) -> list[int]:
+        """Collect the ship instance ids referenced by any fleet slot.
+
+        The supervisor only ever needs the instances that are actually in a
+        fleet, which is a bounded set (<= 6 per fleet) even on large accounts.
+        """
+        ids: list[int] = []
+        for index, fleet in enumerate(fleets):
+            if not isinstance(fleet, dict):
+                raise PoiMcpError(f"Fleet entry {index} is not an object")
+            raw_ship_ids = fleet.get("api_ship")
+            if not isinstance(raw_ship_ids, list) or len(raw_ship_ids) > 6:
+                raise PoiMcpError(f"Fleet entry {index} has an invalid api_ship array")
+            for ship_id in raw_ship_ids:
+                if isinstance(ship_id, bool) or not isinstance(ship_id, int):
+                    raise PoiMcpError(f"Fleet entry {index} has a non-integer ship slot")
+                if ship_id == -1:
+                    continue
+                if ship_id < 1:
+                    raise PoiMcpError(f"Fleet entry {index} has an invalid empty-slot marker")
+                ids.append(ship_id)
+        return ids
+
+    @staticmethod
+    def _info_ships_complete(value: Any) -> dict[str, Any] | None:
+        """Return info.ships items only if the full read is whole and untruncated."""
+        if not isinstance(value, dict) or value.get("kind") != "object-map":
+            return None
+        if value.get("truncated") is not False:
+            return None
+        items = value.get("items")
+        total = value.get("total")
+        returned = value.get("returned")
+        if not isinstance(items, dict) or not isinstance(total, int) or not isinstance(returned, int):
+            return None
+        if returned != len(items) or total != returned:
+            return None
+        return items
+
+    def _read_info_ships(self, referenced_ids: list[int]) -> dict[str, Any]:
+        """Return an info.ships object-map covering the referenced instances.
+
+        The Poi MCP truncates large accounts' info.ships (this account holds
+        239 instances) and ignores limit/offset pagination, so the whole map
+        can never be read off the bridge. The supervisor only needs the
+        instances actually referenced by fleets, so when the full read is
+        truncated we fetch those instances one id at a time instead.
+        """
+        full_result = _tool_value(
+            self._client.call_read_tool("poi_get", {"path": "info.ships"}), "poi_get(info.ships)"
+        )
+        complete = self._info_ships_complete(full_result)
+        if complete is not None:
+            return complete
+        return self._read_info_ships_by_id(referenced_ids)
+
+    def _read_info_ships_by_id(self, referenced_ids: list[int]) -> dict[str, Any]:
+        ships: dict[str, Any] = {}
+        for ship_id in referenced_ids:
+            result = _tool_value(
+                self._client.call_read_tool("poi_get", {"path": f"info.ships.{ship_id}"}),
+                f"poi_get(info.ships.{ship_id})",
+            )
+            if (
+                not isinstance(result, dict)
+                or result.get("kind") != "object"
+                or not isinstance(result.get("value"), dict)
+            ):
+                raise PoiMcpError(
+                    f"Poi info.ships.{ship_id} did not return a ship instance"
+                )
+            ships[str(ship_id)] = result["value"]
+        return ships
+
+    @staticmethod
     def _referenced_master_ids(fleets: list[Any], ships: dict[str, Any]) -> list[int]:
         """Resolve fleet instance references to a sorted, deduplicated master-ID list."""
         master_ids: set[int] = set()
@@ -157,11 +232,9 @@ class PoiExpeditionReader:
         fleets_result = _tool_value(
             self._client.call_read_tool("poi_get", {"path": "info.fleets"}), "poi_get(info.fleets)"
         )
-        ships_result = _tool_value(
-            self._client.call_read_tool("poi_get", {"path": "info.ships"}), "poi_get(info.ships)"
-        )
         fleets = self._collection_items(fleets_result, "info.fleets", expected_kind="array")
-        ships = self._collection_items(ships_result, "info.ships", expected_kind="object-map")
+        referenced_ids = sorted(set(self._referenced_instance_ids(fleets)))
+        ships = self._read_info_ships(referenced_ids)
         master_ids = self._referenced_master_ids(fleets, ships)
         if master_ids:
             lookup_result = _tool_value(
@@ -187,15 +260,9 @@ class PoiExpeditionReader:
             self._client.call_read_tool("poi_get", {"path": "info.fleets"}),
             "poi_get(info.fleets) confirmation",
         )
-        confirm_ships_result = _tool_value(
-            self._client.call_read_tool("poi_get", {"path": "info.ships"}),
-            "poi_get(info.ships) confirmation",
-        )
+        confirm_ships = self._read_info_ships(referenced_ids)
         confirm_fleets = self._collection_items(
             confirm_fleets_result, "info.fleets", expected_kind="array"
-        )
-        confirm_ships = self._collection_items(
-            confirm_ships_result, "info.ships", expected_kind="object-map"
         )
         if fleets != confirm_fleets or ships != confirm_ships:
             raise PoiMcpError(

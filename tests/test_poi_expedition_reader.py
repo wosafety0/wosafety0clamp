@@ -53,7 +53,20 @@ class FakeClient:
             payload = self.lookup if self.lookup is not None else self.payloads["lookup"]
         else:
             path = arguments["path"]
-            if path in self.sequences:
+            if path.startswith("info.ships."):
+                if path in self.sequences:
+                    index = self.sequence_counts.get(path, 0)
+                    sequence = self.sequences[path]
+                    record = sequence[min(index, len(sequence) - 1)]
+                    self.sequence_counts[path] = index + 1
+                else:
+                    ship_id = path[len("info.ships."):]
+                    record = self.payloads["info.ships"]["items"].get(ship_id)
+                if record is None:
+                    payload = {"kind": "error", "message": f"no key '{path[len('info.ships.'):]}'"}
+                else:
+                    payload = {"kind": "object", "value": record}
+            elif path in self.sequences:
                 index = self.sequence_counts.get(path, 0)
                 sequence = self.sequences[path]
                 payload = sequence[min(index, len(sequence) - 1)]
@@ -271,11 +284,61 @@ class PoiExpeditionReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(PoiMcpError, "missing required"):
             reader.read_fleets()
 
-    def test_truncated_ship_payload_fails_closed(self):
+    def test_truncated_ship_payload_falls_back_to_per_id_fetch(self):
+        payloads = sample_payloads()
+        # Simulate a large account: the whole map is truncated, but the two
+        # instances the fleet references are present in the (partial) items the
+        # bridge happened to return.
+        payloads["info.ships"]["truncated"] = True
+        payloads["info.ships"]["total"] = 239
+        payloads["info.ships"]["returned"] = 2
+        client, reader = self.make_reader(payloads=payloads)
+        observed = reader.read_fleets()
+        self.assertEqual(len(observed.payload), 1)
+        self.assertEqual(observed.payload[0].fleet_id, 1)
+        self.assertTrue(observed.payload[0].fuel_ready)
+        self.assertTrue(observed.payload[0].ammo_ready)
+        per_id_calls = [
+            args["path"] for name, args in client.calls
+            if name == "poi_get" and args["path"].startswith("info.ships.")
+        ]
+        # The initial read and the consistency re-read each fetch the two
+        # referenced instances by id (4 calls); no full-ships read is used.
+        self.assertEqual(per_id_calls, ["info.ships.101", "info.ships.102"] * 2)
+
+    def test_complete_ship_payload_uses_full_read_without_per_id(self):
+        client, reader = self.make_reader()
+        reader.read_fleets()
+        per_id_calls = [
+            args["path"] for name, args in client.calls
+            if name == "poi_get" and args["path"].startswith("info.ships.")
+        ]
+        self.assertEqual(per_id_calls, [])
+
+    def test_missing_referenced_instance_in_fallback_fails_closed(self):
         payloads = sample_payloads()
         payloads["info.ships"]["truncated"] = True
+        payloads["info.ships"]["total"] = 239
+        payloads["info.ships"]["returned"] = 1
+        # 102 is referenced by the fleet but absent from the partial items, so
+        # the per-id lookup must fail closed rather than guess.
+        del payloads["info.ships"]["items"]["102"]
         _, reader = self.make_reader(payloads=payloads)
-        with self.assertRaisesRegex(PoiMcpError, "truncated"):
+        with self.assertRaisesRegex(PoiMcpError, "info.ships.102"):
+            reader.read_fleets()
+
+    def test_consistency_check_uses_subset_on_truncated(self):
+        payloads = sample_payloads()
+        payloads["info.ships"]["truncated"] = True
+        payloads["info.ships"]["total"] = 239
+        payloads["info.ships"]["returned"] = 2
+        first101 = payloads["info.ships"]["items"]["101"]
+        changed101 = json.loads(json.dumps(first101))
+        changed101["api_nowhp"] = 3
+        # Between the two reads a referenced ship instance changed in place.
+        sequences = {"info.ships.101": [first101, changed101]}
+        _, reader = self.make_reader(payloads=payloads, sequences=sequences)
+        with self.assertRaisesRegex(PoiMcpError, "changed during observation"):
             reader.read_fleets()
 
 
