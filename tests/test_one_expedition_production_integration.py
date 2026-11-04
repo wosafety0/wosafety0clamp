@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 import one_expedition_ui_loop as entry
 import run_continuous_expedition_monitor as monitor_runtime
 from kancollebot.core.observed_state import ObservedState
+from kancollebot.adapters.poi.cdp_input import CapturedFrame
 from kancollebot.expeditions.continuous_monitor import ContinuousExpeditionMonitor
 from kancollebot.expeditions.continuous_scheduler import (
     ContinuousExpeditionScheduler,
@@ -72,6 +73,29 @@ def make_snapshot(*, status=0, mission_id=None, return_at=None):
         ship_levels=(3, 1, 1),
         ship_types=(1, 1, 1),
     )
+
+def make_ui_state_verifier():
+    import hashlib
+
+    frame_id = 0
+
+    def verify(_game_session, _expected, *, captured_frames=None, **_kwargs):
+        nonlocal frame_id
+        if captured_frames is not None:
+            for _ in range(2):
+                frame_id += 1
+                png = b"\\x89PNG\\r\\n\\x1a\\n" + str(frame_id).encode("ascii")
+                captured_frames.append(
+                    CapturedFrame(
+                        frame_id,
+                        frame_id,
+                        png,
+                        hashlib.sha256(png).hexdigest(),
+                    )
+                )
+        return "two_consecutive_in_memory_ooi_fingerprints"
+
+    return verify
 
 
 class OneExpeditionProductionIntegrationTests(unittest.TestCase):
@@ -134,8 +158,7 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
             with (
                 patch.object(entry, "connect_game_webview", return_value=game_session),
                 patch.object(entry, "_capture_home_reference"),
-                patch.object(entry, "_require_ui_state",
-                             return_value="two_consecutive_in_memory_ooi_fingerprints"),
+                patch.object(entry, "_require_ui_state", side_effect=make_ui_state_verifier()),
                 patch.object(entry, "_print_event"),
                 patch.object(monitor_runtime, "build_runtime", return_value=runtime) as build,
             ):
