@@ -20,7 +20,7 @@ This document is the concise handoff entry point. The long design and progress r
 - Repository visibility: **public**.
 - Active code branch: **dev/expedition-closed-loop-mvp**.
 - Current code baseline: **19cd081973c4cf315b3e4aa961c024b24b61133c** — “Import monotonic clock for passive witness wait”.
-- Latest verified CI: [run 41764320977](https://github.com/wosafety0/wosafety0clamp/actions/runs/41764320977), conclusion **success**. The test job passed JavaScript static tests, passive observer syntax check, package/CLI smoke checks, Python compile, and the complete Python unit suite (**561 tests; 20 skipped; all remaining passed**).
+- Latest verified CI for the archived branch head: [run 41764490876](https://github.com/wosafety0/wosafety0clamp/actions/runs/41764490876), conclusion **success**. The test job passed JavaScript static tests, passive observer syntax check, package/CLI smoke checks, Python compile, and the complete Python unit suite (**561 tests; 20 skipped; all remaining passed**).
 - The default branch has not been changed, no PR has been created or merged as part of this handoff, and no collaborator permissions have been changed. Public read access does not grant push access; a new developer needs repository write permission to push.
 
 ## 3. Architecture map
@@ -84,9 +84,9 @@ Do not describe the project as a completed automatic expedition loop.
 2. When Poi is available, calibrate the visual adapter using operator-local mission number crops and a scrollbar-thumb crop. Verify the 1200×720 list/track regions, marker thresholds, scrollbar proportionality, and the bottom tolerance with real top/middle/bottom captures. Keep those assets local unless separately approved for sharing.
 3. Validate row identity and localization against each current screenshot. Recompute every row target after every scroll; never reuse pre-scroll coordinates. Feed page observations into the offline accumulator and do not treat A1 or the current eight rows as the end.
 4. After visual calibration, perform a separately authorized live dispatch acceptance: confirm a new natural port witness after dispatch, verify the exact fleet/mission/ship/reservation tuple, return to Home Port, then wait for a second post-navigation witness and verify the tuple remains unchanged. No retry is allowed on ambiguous clicks or missing freshness evidence.
-4. Keep AX/DOM targeting for genuine DOM nodes only. Decide separately whether the incomplete DOM protocol chain is worth enabling for shell controls; do not use it as a substitute for Canvas recognition.
-5. Add live read-only verification for the Taiha gate before considering any dispatch attempt. Healthy-ship replacement remains a separate, later feature requiring explicit fleet-composition and safety tests.
-6. Only after all state gates and the post-dispatch / return / reward / idle path are independently verified should the full expedition loop be considered for live acceptance.
+5. Keep AX/DOM targeting for genuine DOM nodes only. Decide separately whether the incomplete DOM protocol chain is worth enabling for shell controls; do not use it as a substitute for Canvas recognition.
+6. Add live read-only verification for the Taiha gate before considering any dispatch attempt. Healthy-ship replacement remains a separate, later feature requiring explicit fleet-composition and safety tests.
+7. Only after all state gates and the post-dispatch / return / reward / idle path are independently verified should the full expedition loop be considered for live acceptance.
 
 ## 7. Setup and validation
 
