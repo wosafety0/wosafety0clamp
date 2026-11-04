@@ -43,13 +43,23 @@ class FakeController:
         *,
         enabled=True,
         verify_home_port=True,
+        returned_fleets=(),
     ):
         self.scheduler = scheduler
         self.state_reader = state_reader
         self.event_sink = event_sink
         self.allow_ui_actions = enabled
         self.verify_home_port = verify_home_port
+        self.returned_fleets = set(returned_fleets)
+        self.return_calls = []
         self.calls = []
+
+    def wait_for_return(self, fleet_id):
+        self.return_calls.append(fleet_id)
+        if fleet_id in self.returned_fleets:
+            self.scheduler.states[fleet_id].phase = FleetPhase.RETURNED_PENDING_UI
+            return SimpleNamespace(mission_status=2)
+        return None
 
     def dispatch_one_ready(self, fleet_id):
         self.calls.append(fleet_id)
@@ -66,6 +76,7 @@ class ContinuousExpeditionSupervisorTests(unittest.TestCase):
         home_verified=None,
         enabled=True,
         verify_home_port=True,
+        returned_fleets=(),
     ):
         scheduler = FakeScheduler(phases, home_verified)
         reader = object()
@@ -77,6 +88,7 @@ class ContinuousExpeditionSupervisorTests(unittest.TestCase):
             event_sink,
             enabled=enabled,
             verify_home_port=verify_home_port,
+            returned_fleets=returned_fleets,
         )
         return ContinuousExpeditionSupervisor(
             monitor=monitor,
@@ -102,6 +114,35 @@ class ContinuousExpeditionSupervisorTests(unittest.TestCase):
         report = supervisor.tick()
         self.assertEqual(controller.calls, [3])
         self.assertEqual(report.dispatches[0].fleet_id, 3)
+
+    def test_due_return_is_observed_before_dispatching_another_fleet(self):
+        supervisor, scheduler, _, controller = self.make_supervisor(
+            {2: FleetPhase.EXPEDITION_ACTIVE, 3: FleetPhase.READY},
+            home_verified={2: True},
+            returned_fleets={2},
+        )
+
+        report = supervisor.tick()
+
+        self.assertEqual(controller.return_calls, [2])
+        self.assertEqual(controller.calls, [])
+        self.assertEqual(scheduler.fleet(2).phase, FleetPhase.RETURNED_PENDING_UI)
+        self.assertEqual(report.paused_reason, "fleet_2_settlement_pending")
+
+    def test_active_fleet_without_home_port_proof_is_not_return_observed(self):
+        supervisor, _, _, controller = self.make_supervisor(
+            {2: FleetPhase.EXPEDITION_ACTIVE, 3: FleetPhase.READY},
+            home_verified={2: False},
+        )
+
+        report = supervisor.tick()
+
+        self.assertEqual(controller.return_calls, [])
+        self.assertEqual(controller.calls, [])
+        self.assertEqual(
+            report.paused_reason,
+            "fleet_2_home_port_verification_required",
+        )
 
     def test_pending_settlement_pauses_all_dispatches(self):
         for phase in (

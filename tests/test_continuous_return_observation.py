@@ -154,8 +154,7 @@ class ContinuousReturnObservationTests(unittest.TestCase):
             FakeClock(due - timedelta(seconds=1)),
         )
 
-        with self.assertRaisesRegex(ContinuousDispatchError, "has not elapsed"):
-            controller.wait_for_return(3)
+        self.assertIsNone(controller.wait_for_return(3))
 
         self.assertEqual(reader.read_count, 0)
         self.assertEqual(reader.wait_calls, [])

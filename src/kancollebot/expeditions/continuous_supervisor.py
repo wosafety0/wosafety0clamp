@@ -140,8 +140,22 @@ class ContinuousExpeditionSupervisor:
 
         return None
 
+    def _observe_due_returns(self) -> None:
+        """Passively observe due active fleets before considering another dispatch."""
+        waiter = getattr(self.dispatch_controller, "wait_for_return", None)
+        if not callable(waiter):
+            return
+
+        for fleet_id, state in self._fleet_states():
+            if (
+                self._phase_name(state) in self.ACTIVE_PHASES
+                and bool(getattr(state, "home_port_verified", False))
+            ):
+                waiter(fleet_id)
+
     def tick(self) -> SupervisorTickResult:
         monitor_result = self.monitor.tick()
+        self._observe_due_returns()
 
         pause_reason = self._pause_reason()
         if pause_reason is not None:

@@ -338,7 +338,7 @@ class ContinuousDispatchController:
                 self._block_after_ambiguous_action(fleet_id, exc)
                 raise
 
-    def wait_for_return(self, fleet_id: int) -> MissionTuple:
+    def wait_for_return(self, fleet_id: int) -> MissionTuple | None:
         """Confirm one due expedition returned using a newer passive Poi witness.
 
         This method performs no UI input and never retries a game action. It is
@@ -360,9 +360,12 @@ class ContinuousDispatchController:
         if now.tzinfo is None or now.utcoffset() is None:
             raise ContinuousDispatchError("return observation clock must be timezone-aware")
         if now < return_deadline:
-            raise ContinuousDispatchError(
-                f"Fleet {fleet_id} expedition return time has not elapsed"
-            )
+            self.event_sink("expedition_return_not_due", {
+                "fleet_id": fleet_id,
+                "mission_id": active_mission.mission_id,
+                "expected_return_at": return_deadline.isoformat(),
+            })
+            return None
 
         self.event_sink("expedition_return_observation_started", {
             "fleet_id": fleet_id,
