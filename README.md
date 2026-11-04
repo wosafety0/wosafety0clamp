@@ -4,18 +4,28 @@ A local-first Python framework for safety-gated desktop game automation. The gam
 
 > **Handover entry point:** read [docs/HANDOFF.md](docs/HANDOFF.md) before changing code.
 
-## Active development branch
+## Development branches and integration state (2026-11-04)
 
-The application source and current MVP work are on:
+The GitHub default branch **main** contains only the `.github` directory. It is not, and never was, the application source baseline.
 
-**dev/expedition-closed-loop-mvp**
+The integration performed on 2026-11-04 is **local only**. Nothing has been pushed, so `3bd949b` is a local-only commit and **must not be described as an integrated remote version**.
 
-At the time of this update, the GitHub default branch **main** contains only the **.github** directory. Do not assume that **main** is the current development baseline.
+| Role | Branch | Local HEAD | Remote HEAD |
+| --- | --- | --- | --- |
+| Integration target | `dev/dispatch-observer-safety-current-mvp-20261103` | `3bd949b` | `86f294c` |
+| Preservation / active work line | `feat/closed-loop-settlement-20261104` | `3bd949b` | `caa3e5a` |
+| Verified fast-forward snapshot (local, temporary) | `temp/integration-ff-20261104` | `caa3e5a` | n/a |
+
+The target branch was advanced locally by a pure fast-forward of 81 commits (zero conflicts, no new merge commit). These SHAs are the integration snapshot; later local commits advance the local HEAD, so re-check with `git rev-parse` and `git ls-remote origin <branch>` before relying on them. Until a separately authorized push happens, a fresh clone can obtain only `caa3e5a` from `origin/feat/closed-loop-settlement-20261104` and `86f294c` from the target dev branch.
+
+`dev/expedition-closed-loop-mvp` is a **historical** MVP branch. Older handoff notes and PR descriptions still call it the active baseline; that statement is superseded. It has diverged substantially from the current line (56 / 141 commits from the merge base) and cannot be fast-forwarded.
 
     git clone https://github.com/wosafety0/wosafety0clamp.git
     Set-Location wosafety0clamp
     git fetch origin
-    git switch --track origin/dev/expedition-closed-loop-mvp
+    git switch --track origin/feat/closed-loop-settlement-20261104
+
+The remote branch above is behind the local integration head until the pending push is authorized.
 
 ## Current development priorities
 
@@ -33,7 +43,7 @@ Only `expedition` has a reviewed visible-UI path. Every other declared task is *
 Two rules protect the roadmap:
 
 - **Fleet policy is per task.** `RuntimeConfig`'s fleet-permission fields (`non_dispatchable_fleet_ids`, `dispatchable_fleet_ids`, `monitor_candidate_fleet_ids`, `resupply_verified_fleet_ids`) belong to the expedition task. Reusing them for combat would wrongly forbid Fleet 1.
-- **Shared infrastructure stays task-neutral.** The cross-process UI mutex, read-only Poi fleet snapshot, supply preflight/verification, composition snapshot shapes, the append-only event sink, and the visual dependency gate are shared by all tasks; no task-specific game logic belongs inside them.
+- **Shared infrastructure is classified per symbol, not per module.** `task_scope.SHARED_CAPABILITIES` is the single source of truth: 3 `task_neutral` items, 3 `needs_decoupling` items (fleet snapshot, resupply preflight, supply-tab coordinates), and 2 `task_specific` items deliberately excluded from shared infrastructure. `require_task_neutral_capability()` fails closed when another task tries to reuse a non-neutral symbol. Run `kancollebot tasks` for the current list.
 
 Known work before a second task runs alongside expedition: fleet runtime state is keyed by `fleet_id` alone (`fleet_runtime`, `dispatch_intents`), so a shared fleet-lease / `(task_kind, fleet_id)` key is required; `dispatch_events` needs structured task attribution; and each new task needs its own screen registry (UI states, fingerprints, coordinates, click plans). These are documented in `docs/PROJECT_kancollebot_Progress.md` and are intentionally not implemented yet.
 

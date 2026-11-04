@@ -1,16 +1,30 @@
 # Developer Handoff
 
-**Updated:** 2026-11-03  
-**Repository:** wosafety0/wosafety0clamp  
-**Working branch:** dev/expedition-closed-loop-mvp  
-**Code baseline before this documentation update:** 1aba35893daa3974c55a6ac54aec2c9dcac8cccb
+- **Updated:** 2026-11-03 (historical snapshot; current state below)
+- **Repository:** wosafety0/wosafety0clamp
+- **Working branch at the time of this handoff (historical):** dev/expedition-closed-loop-mvp
+- **Code baseline before this documentation update:** 1aba35893daa3974c55a6ac54aec2c9dcac8cccb
+
+## Current integration state (2026-11-04) — read this first
+
+The body of this file is a **2026-11-03 point-in-time handoff**. Its branch names, baseline SHA and CI run describe that moment only; they are not the current integration target.
+
+| Role | Branch | Local HEAD | Remote HEAD |
+| --- | --- | --- | --- |
+| Integration target | `dev/dispatch-observer-safety-current-mvp-20261103` | `3bd949b` | `86f294c` |
+| Preservation / active work line | `feat/closed-loop-settlement-20261104` | `3bd949b` | `caa3e5a` |
+| Verified fast-forward snapshot (local, temporary) | `temp/integration-ff-20261104` | `caa3e5a` | n/a |
+
+The 2026-11-04 integration was a **local-only** pure fast-forward (81 commits, no new merge commit). **No push, PR or merge to a remote branch has occurred.** `3bd949b` is a local-only commit and must not be described as an integrated remote version; a fresh clone cannot contain it. The GitHub default branch **main** (`a4f3777`) still contains only `.github`. Re-check with `git ls-remote origin <branch>` before relying on any SHA here.
+
+`dev/expedition-closed-loop-mvp` is a historical MVP branch that has diverged from the current line and cannot be fast-forwarded. For the authoritative chronological record see `docs/PROJECT_kancollebot_Progress.md`.
 
 This document is the concise handoff entry point. The long design and progress records remain useful for implementation history, but older entries are point-in-time records and may be superseded by later entries.
 
 ## 1. Start here
 
 1. Read the authoritative global rules: [wosafety0/Agents-global main/AGENTS.md](https://github.com/wosafety0/Agents-global/blob/main/AGENTS.md). Current retrieved version: 2.1.0-rc1 (Candidate).
-2. Check out dev/expedition-closed-loop-mvp. The GitHub default branch main currently contains only .github; it is not the application source baseline.
+2. Read the "Current integration state" section above before checking out any branch; the `dev/expedition-closed-loop-mvp` named in the original handoff is historical. The GitHub default branch main contains only .github; it is not the application source baseline.
 3. Read this file, then [MVP_EXPEDITION_SINGLE_LOOP.md](MVP_EXPEDITION_SINGLE_LOOP.md) and [POI_PORT_RESPONSE_OBSERVER.md](POI_PORT_RESPONSE_OBSERVER.md).
 4. Before coding, run git status --short --branch and preserve any existing local modifications. Do not assume another checkout or worktree is clean.
 5. Keep local credentials, cookies, game data, screenshots, logs containing private state, and machine-specific paths out of the repository.
@@ -18,7 +32,8 @@ This document is the concise handoff entry point. The long design and progress r
 ## 2. Repository and CI baseline
 
 - Repository visibility: **public**.
-- Active code branch: **dev/expedition-closed-loop-mvp**.
+- Active code branch at the time of this handoff (historical, superseded): **dev/expedition-closed-loop-mvp**.
+- All baseline SHA, CI run and test-count figures in this section describe 2026-11-03 only; the current integration head is listed in "Current integration state" above.
 - Baseline commit: **1aba35893daa3974c55a6ac54aec2c9dcac8cccb** — “Block expedition dispatch on Taiha ships”.
 - Latest verified CI for that commit: [run 41637134894](https://github.com/wosafety0/wosafety0clamp/actions/runs/41637134894), conclusion **success**. The test job passed JavaScript static tests, passive observer syntax check, Python compile, and Python unit tests.
 - The project progress record reports **502 Python tests passed** for the Taiha-gate change. CI success is independently verified; the exact test count is recorded in the progress log.
@@ -132,3 +147,5 @@ Read-only inventory checked on 2026-11-03:
 - Additional open drafts and historical PRs remain (including #15, #17, #20, #22, #25). They overlap in Poi freshness, dispatch recovery, safety, and earlier integration work. Do not bulk-close or merge them without a per-PR diff and dependency review.
 
 The purpose of this inventory is to prevent a new developer from mistaking an old draft, a stale base SHA, or a historical branch for the current integrated baseline. It is not a merge recommendation.
+
+As of 2026-11-04 the local integration target is `dev/dispatch-observer-safety-current-mvp-20261103` (local `3bd949b`, remote `86f294c`); the local fast-forward updated no remote branch.
