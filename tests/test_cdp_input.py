@@ -188,7 +188,7 @@ class CdpInputTests(unittest.TestCase):
         import base64
         import hashlib
 
-        png_bytes = b"\\x89PNG\\r\\n\\x1a\\nframe-payload"
+        png_bytes = b"\x89PNG\r\n\x1a\nframe-payload"
         class PngTransport(FakeTransport):
             def send(self, method, params):
                 if method == "Page.captureScreenshot":
@@ -211,7 +211,7 @@ class CdpInputTests(unittest.TestCase):
     def test_captured_frame_rejects_fabricated_digest(self):
         from kancollebot.adapters.poi.cdp_input import CapturedFrame
 
-        png_bytes = b"\\x89PNG\\r\\n\\x1a\\nframe-payload"
+        png_bytes = b"\x89PNG\r\n\x1a\nframe-payload"
         with self.assertRaisesRegex(ValueError, "exact PNG bytes"):
             CapturedFrame(1, 1, png_bytes, "0" * 64)
 
