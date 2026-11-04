@@ -66,11 +66,11 @@ class RewardClaimGateTests(unittest.TestCase):
 
     def test_default_gate_refuses_without_approved_live_calibration(self):
         with self.assertRaisesRegex(RewardClaimAuthorizationError, "no matching approved"):
-            RewardClaimGate().authorize(target())
+            RewardClaimGate().authorize(target(), now_monotonic_ns=SECOND_FRAME.captured_monotonic_ns + 100)
 
     def test_approved_unique_target_produces_frame_bound_authorization(self):
         gate = RewardClaimGate({TEMPLATE_HASH: CALIBRATION_ID})
-        authorization = gate.authorize(target())
+        authorization = gate.authorize(target(), now_monotonic_ns=SECOND_FRAME.captured_monotonic_ns + 100)
         self.assertEqual(authorization.frame_id, 12)
         self.assertEqual(authorization.frame_sha256, FRAME_HASH)
         self.assertEqual(authorization.target_center, (970, 650))
@@ -137,7 +137,7 @@ class RewardClaimGateTests(unittest.TestCase):
     def test_rejects_unapproved_calibration_id_for_known_template_hash(self):
         gate = RewardClaimGate({TEMPLATE_HASH: "another-calibration"})
         with self.assertRaisesRegex(RewardClaimAuthorizationError, "no matching approved"):
-            gate.authorize(target())
+            gate.authorize(target(), now_monotonic_ns=SECOND_FRAME.captured_monotonic_ns + 100)
 
     def test_rejects_stale_target_frame_before_authorization(self):
         gate = RewardClaimGate({TEMPLATE_HASH: CALIBRATION_ID}, authorization_ttl_ns=500)
@@ -170,7 +170,7 @@ class RewardClaimGateTests(unittest.TestCase):
             )
 
     def test_authorization_does_not_expose_a_click_operation(self):
-        authorization = RewardClaimGate({TEMPLATE_HASH: CALIBRATION_ID}).authorize(target())
+        authorization = RewardClaimGate({TEMPLATE_HASH: CALIBRATION_ID}).authorize(target(), now_monotonic_ns=SECOND_FRAME.captured_monotonic_ns + 100)
         self.assertFalse(hasattr(authorization, "click"))
         self.assertFalse(hasattr(authorization, "execute"))
 
