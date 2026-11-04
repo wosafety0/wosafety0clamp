@@ -50,6 +50,7 @@ from kancollebot.adapters.poi.visual_fingerprint import (  # noqa: E402
     classify_supply_checkbox_state,
 )
 from kancollebot.expeditions.settlement_observer import SettlementStateObserver  # noqa: E402
+from kancollebot.expeditions.reward_claim_preparation import build_reward_claim_preparer  # noqa: E402
 from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
 
 
@@ -646,6 +647,8 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 enable_ui_refresh=False,
             )
             _capture_home_reference(game_session)
+            reward_claim_preparer = build_reward_claim_preparer()
+            _print_event("reward_claim_preparation_configured", enabled=reward_claim_preparer is not None, ui_input_enabled=False)
 
             def verify_state(expected: str) -> UiStateEvidence:
                 state = UiState(expected)
@@ -682,12 +685,32 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                         f"{expected}: two captured visual frames are required; "
                         "accessibility-only evidence cannot authorize settlement"
                     )
-                return UiStateEvidence(
+                state_evidence = UiStateEvidence(
                     state=state.value,
                     consecutive_states=(state.value, state.value),
                     evidence=evidence,
                     frames=(frames[-2], frames[-1]),
                 )
+                if state is UiState.BONUS_ITEMS:
+                    if reward_claim_preparer is None:
+                        _print_event(
+                            "reward_claim_authorization_unavailable",
+                            reason="explicit_live_calibration_not_configured",
+                            ui_input_enabled=False,
+                        )
+                    else:
+                        authorization = reward_claim_preparer.prepare(state_evidence)
+                        _print_event(
+                            "reward_claim_authorization_prepared",
+                            frame_id=authorization.frame_id,
+                            frame_sha256=authorization.frame_sha256,
+                            calibration_id=authorization.calibration_id,
+                            target_center=authorization.target_center,
+                            target_bounds=authorization.target_bounds,
+                            template_sha256=authorization.template_sha256,
+                            ui_input_enabled=False,
+                        )
+                return state_evidence
 
             ui_driver = CdpContinuousExpeditionUiDriver(
                 game_input=game_session.input,
