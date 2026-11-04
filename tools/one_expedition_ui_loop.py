@@ -14,6 +14,7 @@ import base64
 import json
 import os
 import sys
+import tempfile
 import time
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -55,7 +56,23 @@ from kancollebot.adapters.poi.visual_fingerprint import (  # noqa: E402
     classify_screenshot_fingerprints,
     classify_supply_checkbox_state,
 )
+from kancollebot.calibration import (  # noqa: E402
+    DEFAULT_CATALOG,
+    DEFAULT_DETAIL_PATH,
+    DEFAULT_MARKS_PATH,
+    DEFAULT_POSITION_INDEX_PATH,
+    ExpeditionListSession,
+    decode_png,
+    load_detail_index,
+    load_marks,
+    load_position_index,
+    scan_page,
+)
 from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
+
+# Long enough for the Home Port scene to finish settling before a frame is
+# classified; the same settle the state gate uses between its two samples.
+HOME_REFERENCE_SETTLE_SECONDS = 0.3
 
 
 # Legacy helper/test path only; production target is RUNTIME_CONFIG.
@@ -687,8 +704,14 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
     runtime = None
     try:
         with connect_game_webview(timeout=3.0) as game_session:
-            target_fleet_id = RUNTIME_CONFIG.production_dispatch_fleet_id
-            target_mission_id = RUNTIME_CONFIG.production_mission_id
+            target_fleet_id = args.fleet_id
+            target_mission_id = args.mission_id
+            expedition_id = DEFAULT_CATALOG.number_of_mission_id(target_mission_id)
+            if expedition_id is None:
+                raise LoopError(
+                    f"Mission id {target_mission_id} is not in the master-data table; "
+                    "refusing to guess which row it is"
+                )
             runtime = build_runtime(
                 database_path=args.database,
                 observer_script=args.observer_script,
@@ -708,10 +731,39 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     evidence=evidence,
                 )
 
+            def capture_frame() -> str:
+                game_session.transport.send(
+                    "Input.dispatchMouseEvent",
+                    {"type": "mouseMoved", "x": 1195, "y": 715},
+                )
+                time.sleep(HOME_REFERENCE_SETTLE_SECONDS)
+                return game_session.input.capture_screenshot()
+
+            scratch = Path(tempfile.mkdtemp(prefix="dispatch_row_")) / "frame.png"
+
+            def scan_list():
+                payload = capture_frame()
+                scratch.write_bytes(base64.b64decode(payload))
+                return scan_page(decode_png(scratch))
+
+            list_session = ExpeditionListSession(
+                scan=scan_list,
+                click=lambda point, label: game_session.input.click(
+                    RecordedPoint(point[0], point[1], label)
+                ),
+                index=load_position_index(args.position_index),
+                settle_seconds=0.55,
+            )
+
             ui_driver = CdpContinuousExpeditionUiDriver(
                 game_input=game_session.input,
                 verify_state=verify_state,
                 event_sink=runtime.monitor.event_sink,
+                details=load_detail_index(args.detail_index),
+                marks=load_marks(args.marks),
+                capture=capture_frame,
+                locate_row=list_session.locate,
+                supported_fleets=(2, 3, 4),
                 neutralize_pointer=lambda: game_session.transport.send(
                     "Input.dispatchMouseEvent",
                     {"type": "mouseMoved", "x": 1195, "y": 715},
@@ -831,6 +883,36 @@ def _main_impl(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--observer-timeout-seconds", type=float, default=RUNTIME_CONFIG.observer_timeout_seconds)
     parser.add_argument("--max-state-age-seconds", type=float, default=RUNTIME_CONFIG.max_state_age_seconds)
+    parser.add_argument(
+        "--fleet-id",
+        type=int,
+        default=RUNTIME_CONFIG.production_dispatch_fleet_id,
+        help="Fleet to send (2, 3 or 4); defaults to the configured production fleet",
+    )
+    parser.add_argument(
+        "--mission-id",
+        type=int,
+        default=RUNTIME_CONFIG.production_mission_id,
+        help="Master-data mission id; defaults to the configured production mission",
+    )
+    parser.add_argument(
+        "--position-index",
+        type=Path,
+        default=DEFAULT_POSITION_INDEX_PATH,
+        help="Position index walked on this account",
+    )
+    parser.add_argument(
+        "--detail-index",
+        type=Path,
+        default=DEFAULT_DETAIL_PATH,
+        help="Per-expedition detail-panel references walked on this account",
+    )
+    parser.add_argument(
+        "--marks",
+        type=Path,
+        default=DEFAULT_MARKS_PATH,
+        help="決定 control and fleet tab references",
+    )
     parser.add_argument(
         "--log-path",
         type=Path,

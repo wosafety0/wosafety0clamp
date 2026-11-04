@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,6 +15,14 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import one_expedition_ui_loop as entry
 import run_continuous_expedition_monitor as monitor_runtime
+from kancollebot.calibration import (
+    DEFAULT_DETAIL_PATH,
+    DEFAULT_MARKS_PATH,
+    DEFAULT_POSITION_INDEX_PATH,
+    DetailMatch,
+    MarkMatch,
+    RowLocation,
+)
 from kancollebot.core.observed_state import ObservedState
 from kancollebot.expeditions.continuous_monitor import ContinuousExpeditionMonitor
 from kancollebot.expeditions.continuous_scheduler import (
@@ -43,11 +52,93 @@ class FakeReader:
 
 
 class FakeGameInput:
-    def __init__(self):
+    """Records the visible clicks, and lets the fleet strip repaint after them.
+
+    This stands in for the game's own rendering: the driver can only continue
+    if the screen it reads afterwards agrees with the click it just sent, so the
+    fake has to change what it "shows" the way the real screens do.
+    """
+
+    def __init__(self, *, marks=None, fleet_after_confirm=2):
         self.clicks = []
+        self.marks = marks
+        self.fleet_after_confirm = fleet_after_confirm
+        self.frames = 0
 
     def click(self, point):
         self.clicks.append(point.label)
+        if self.marks is None:
+            return
+        if point.label == "mission-confirm":
+            self.marks.selected = self.fleet_after_confirm
+        elif point.label.startswith("fleet-") and point.label.endswith("-tab"):
+            self.marks.selected = int(point.label.split("-")[1])
+
+    def capture_screenshot(self):
+        self.frames += 1
+        return f"frame-{self.frames}"
+
+
+class FakeDetails:
+    """Name-band evidence, standing in for captions read off a real screen."""
+
+    def __init__(self, known=("03",)):
+        self.known = set(known)
+        self.asked = []
+
+    def reference(self, expedition_id):
+        return object() if expedition_id in self.known else None
+
+    def require(self, expedition_id, screenshot_base64):
+        self.asked.append((expedition_id, screenshot_base64))
+        return DetailMatch(
+            expedition_id=expedition_id,
+            score=1.0,
+            runner_up="04",
+            runner_up_score=0.95,
+        )
+
+
+class FakeMarks:
+    """決定 control plus the fleet tabs, with the painted tab as state."""
+
+    def __init__(self, *, fleets=(2, 3, 4), selected=2):
+        self._fleets = tuple(fleets)
+        self.selected = selected
+
+    def fleets(self):
+        return self._fleets
+
+    def require_decision(self, screenshot_base64):
+        return MarkMatch(score=1.0, threshold=0.97, detail="決定 control recognised")
+
+    def require_fleet(self, fleet_id, screenshot_base64):
+        if fleet_id == self.selected:
+            return MarkMatch(score=1.0, threshold=0.95, detail=f"fleet {fleet_id} tab")
+        raise RuntimeError(f"fleet {self.selected} is selected, not {fleet_id}")
+
+
+class FakeListSession:
+    """The row locator, standing in for a walked position index."""
+
+    def __init__(self, *, scan, click, index, settle_seconds):
+        self.scan = scan
+        self.click = click
+        self.index = index
+        self.settle_seconds = settle_seconds
+
+    def locate(self, expedition_id, tab=None):
+        return RowLocation(
+            expedition_id=expedition_id,
+            tab=0,
+            position=2,
+            offset=0,
+            row_index=3,
+            point=(350, 351.5),
+            scroll_clicks=0,
+            tab_clicks=1,
+            detail="list position on a page starting at 0",
+        )
 
 
 class FakeProvider:
@@ -114,32 +205,72 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
         args.observer_script = ROOT / "tools" / "observer.js"
         args.observer_timeout_seconds = 5.0
         args.max_state_age_seconds = 30.0
+        # The dispatch target is now an argument rather than a constant, so the
+        # stub has to carry a real master-data id: an unset MagicMock attribute
+        # is deliberately refused rather than coerced.
+        args.fleet_id = 3
+        args.mission_id = 3
+        args.position_index = DEFAULT_POSITION_INDEX_PATH
+        args.detail_index = DEFAULT_DETAIL_PATH
+        args.marks = DEFAULT_MARKS_PATH
         return args
+
+    def patch_evidence_sources(self, stack, *, marks):
+        """Stand in for the pixels the entry would otherwise read off the screen.
+
+        The entry loads its calibration assets from disk and screenshots the
+        live game; a unit test has neither, so the row locator and the visual
+        references are replaced while the driver, controller, supervisor and
+        monitor under test stay real.
+        """
+        stack.enter_context(
+            patch.object(entry, "ExpeditionListSession", FakeListSession)
+        )
+        stack.enter_context(
+            patch.object(entry, "load_detail_index", lambda _path: FakeDetails())
+        )
+        stack.enter_context(
+            patch.object(entry, "load_marks", lambda _path: marks)
+        )
+        stack.enter_context(
+            patch.object(entry, "load_position_index", lambda _path: object())
+        )
 
     def test_entry_wires_real_monitor_controller_supervisor_and_cdp_driver(self):
         return_at = datetime.now(timezone.utc) + timedelta(minutes=20)
         idle = make_snapshot()
         active = make_snapshot(status=1, mission_id=3, return_at=return_at)
         runtime, reader, provider = self.make_runtime([idle, idle, active, active])
+        marks = FakeMarks(selected=2)
 
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "production" / "state.sqlite3"
             database.parent.mkdir(parents=True)
             args = self.make_args(database)
             game_session = MagicMock()
-            game_session.input = FakeGameInput()
+            game_session.input = FakeGameInput(marks=marks, fleet_after_confirm=2)
             game_session.__enter__.return_value = game_session
             game_session.__exit__.return_value = False
 
-            with (
-                patch.object(entry, "connect_game_webview", return_value=game_session),
-                patch.object(entry, "_capture_home_reference"),
-                patch.object(entry, "_require_ui_state",
-                             return_value="two_consecutive_in_memory_ooi_fingerprints"),
-                patch.object(entry, "_print_event"),
-                patch.object(monitor_runtime, "build_runtime", return_value=runtime) as build,
-            ):
-                self.assertEqual(entry.run(args), 0)
+            with ExitStack() as stack:
+                stack.enter_context(
+                    patch.object(entry, "connect_game_webview", return_value=game_session)
+                )
+                stack.enter_context(patch.object(entry, "_capture_home_reference"))
+                stack.enter_context(
+                    patch.object(
+                        entry, "_require_ui_state",
+                        return_value="two_consecutive_in_memory_ooi_fingerprints",
+                    )
+                )
+                stack.enter_context(patch.object(entry, "_print_event"))
+                self.patch_evidence_sources(stack, marks=marks)
+                # HOME_REFERENCE_SETTLE_SECONDS is deliberately left real: it is
+                # the pause the production frame capture uses, and the click
+                # order below must not depend on it being zero.
+                with patch.object(monitor_runtime, "build_runtime",
+                                  return_value=runtime) as build:
+                    self.assertEqual(entry.run(args), 0)
 
             build.assert_called_once()
             self.assertEqual(build.call_args.kwargs["dispatch_fleet_ids"], (3,))
@@ -149,7 +280,7 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
                 [
                     "sortie",
                     "expedition-mode",
-                    "mission-3-row",
+                    "expedition-row-03-pos2",
                     "mission-confirm",
                     "fleet-3-tab",
                     "expedition-start",
@@ -163,23 +294,32 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
 
     def test_unfresh_monitor_observation_stops_before_any_ui_click(self):
         runtime, reader, provider = self.make_runtime([make_snapshot()], fresh=False)
+        marks = FakeMarks(selected=2)
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "production" / "state.sqlite3"
             database.parent.mkdir(parents=True)
             args = self.make_args(database)
             game_session = MagicMock()
-            game_session.input = FakeGameInput()
+            game_session.input = FakeGameInput(marks=marks)
             game_session.__enter__.return_value = game_session
             game_session.__exit__.return_value = False
 
-            with (
-                patch.object(entry, "connect_game_webview", return_value=game_session),
-                patch.object(entry, "_capture_home_reference"),
-                patch.object(entry, "_require_ui_state",
-                             return_value="two_consecutive_in_memory_ooi_fingerprints"),
-                patch.object(entry, "_print_event"),
-                patch.object(monitor_runtime, "build_runtime", return_value=runtime),
-            ):
+            with ExitStack() as stack:
+                stack.enter_context(
+                    patch.object(entry, "connect_game_webview", return_value=game_session)
+                )
+                stack.enter_context(patch.object(entry, "_capture_home_reference"))
+                stack.enter_context(
+                    patch.object(
+                        entry, "_require_ui_state",
+                        return_value="two_consecutive_in_memory_ooi_fingerprints",
+                    )
+                )
+                stack.enter_context(patch.object(entry, "_print_event"))
+                stack.enter_context(
+                    patch.object(monitor_runtime, "build_runtime", return_value=runtime)
+                )
+                self.patch_evidence_sources(stack, marks=marks)
                 with self.assertRaisesRegex(entry.LoopError, "Poi observation is not trusted"):
                     entry.run(args)
 
