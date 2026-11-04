@@ -146,6 +146,8 @@ class ExpeditionListScanAccumulator:
                 raise ExpeditionListScanError(
                     f"mission {row.mission_id} has conflicting names across pages"
                 )
+
+        for row in page.rows:
             self._missions.setdefault(row.mission_id, row)
 
         self._pages.append(page)

@@ -89,7 +89,7 @@ class ExpeditionListScanAccumulatorTests(unittest.TestCase):
         scan = ExpeditionListScanAccumulator()
         scan.add_page(page(0, [row(1)]))
         with self.assertRaisesRegex(ExpeditionListScanError, "exceeds one viewport"):
-            scan.add_page(page(301, [row(5)]))
+            scan.add_page(page(302, [row(5)]))
 
     def test_viewport_or_content_geometry_cannot_change_mid_scan(self):
         scan = ExpeditionListScanAccumulator()
@@ -102,6 +102,15 @@ class ExpeditionListScanAccumulatorTests(unittest.TestCase):
         scan.add_page(page(0, [row(1, "Mission A")]))
         with self.assertRaisesRegex(ExpeditionListScanError, "conflicting names"):
             scan.add_page(page(240, [row(1, "Different Mission")]))
+
+    def test_rejected_page_does_not_partially_add_new_missions(self):
+        scan = ExpeditionListScanAccumulator()
+        scan.add_page(page(0, [row(1, "Mission A")]))
+        with self.assertRaisesRegex(ExpeditionListScanError, "conflicting names"):
+            scan.add_page(page(240, [row(2, "Mission B"), row(1, "Different Mission A")]))
+        snapshot = scan.snapshot()
+        self.assertEqual(snapshot.pages_scanned, 1)
+        self.assertEqual([item.mission_id for item in snapshot.missions], [1])
 
     def test_bottom_flag_without_bottom_geometry_is_rejected(self):
         scan = ExpeditionListScanAccumulator()
