@@ -159,6 +159,36 @@ class LiveCheckpointVerifierTests(unittest.TestCase):
         )
         self.game_session.input.capture_screenshot.assert_not_called()
 
+    def test_captured_frame_payload_is_the_exact_classifier_input(self):
+        import hashlib
+        from kancollebot.adapters.poi.cdp_input import CapturedFrame
+
+        png1 = b"\\x89PNG\\r\\n\\x1a\\nframe-one"
+        png2 = b"\\x89PNG\\r\\n\\x1a\\nframe-two"
+        frames = [
+            CapturedFrame(900001, 1000001, png1, hashlib.sha256(png1).hexdigest()),
+            CapturedFrame(900002, 1000002, png2, hashlib.sha256(png2).hexdigest()),
+        ]
+        self.game_session.transport.send.return_value = {"nodes": []}
+        scores = {"HOME_PORT": 1.0}
+        retained = []
+        with (
+            patch.object(controller, "_read_visual_document", return_value={"states": {"HOME_PORT": {}}}),
+            patch.object(Path, "is_file", return_value=True),
+            patch.object(controller, "classify_screenshot_fingerprints",
+                         side_effect=[("HOME_PORT", scores), ("HOME_PORT", scores)]) as classify,
+            patch.object(controller.time, "sleep"),
+        ):
+            self.game_session.input.capture_frame.side_effect = frames
+            evidence = controller._require_ui_state(
+                self.game_session, controller.UiState.HOME_PORT, captured_frames=retained,
+            )
+        self.assertEqual(evidence, "two_consecutive_in_memory_ooi_fingerprints")
+        self.assertEqual(retained, frames)
+        self.assertEqual(classify.call_args_list[0].args[0], frames[0].screenshot_base64)
+        self.assertEqual(classify.call_args_list[1].args[0], frames[1].screenshot_base64)
+        self.game_session.input.capture_screenshot.assert_not_called()
+
     def test_visual_state_requires_two_consecutive_matches(self):
         self.game_session.transport.send.return_value = {"nodes": []}
         self.game_session.input.capture_screenshot.return_value = "in-memory-payload"
