@@ -8,9 +8,9 @@ from __future__ import annotations
 import hashlib
 import math
 from pathlib import Path
-from typing import Any
-
 from kancollebot.adapters.poi.cdp_input import CapturedFrame
+from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
+from kancollebot.expeditions.settlement_observer import SettlementObservation
 from kancollebot.adapters.poi.visual_state_gate import (
     VisualStateError,
     _decode_grayscale,
@@ -25,7 +25,7 @@ class RewardClaimLocalizationError(RuntimeError):
 
 
 def locate_reward_claim_target(
-    state_evidence: Any,
+    state_evidence: SettlementObservation | UiStateEvidence,
     template_path: str | Path,
     *,
     calibration_id: str,
@@ -43,9 +43,13 @@ def locate_reward_claim_target(
     Region is (left, top, right, bottom) and must come from a reviewed live
     calibration, not an inferred/default coordinate.
     """
-    state = getattr(state_evidence, "state", None)
-    consecutive = getattr(state_evidence, "consecutive_states", None)
-    frames = getattr(state_evidence, "frames", None)
+    if not isinstance(state_evidence, (SettlementObservation, UiStateEvidence)):
+        raise RewardClaimLocalizationError(
+            "reward localization requires production UiStateEvidence or SettlementObservation"
+        )
+    state = state_evidence.state
+    consecutive = state_evidence.consecutive_states
+    frames = state_evidence.frames
     if state != "BONUS_ITEMS" or consecutive != ("BONUS_ITEMS", "BONUS_ITEMS"):
         raise RewardClaimLocalizationError(
             "reward localization requires two consecutive BONUS_ITEMS state checks"
@@ -160,7 +164,7 @@ def locate_reward_claim_target(
             frame=second_frame,
             state_frames=frames,
         )
-    except (OSError, VisualStateError, ValueError) as exc:
+    except Exception as exc:
         if isinstance(exc, RewardClaimLocalizationError):
             raise
         raise RewardClaimLocalizationError(
