@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -85,8 +86,9 @@ class RewardClaimPreparationConfigTests(unittest.TestCase):
             self.assertTrue(ok)
             second_png = second_encoded.tobytes()
 
-            first = CapturedFrame(301, 301000, first_png, hashlib.sha256(first_png).hexdigest())
-            second = CapturedFrame(302, 302000, second_png, hashlib.sha256(second_png).hexdigest())
+            captured_at = time.monotonic_ns()
+            first = CapturedFrame(301, captured_at - 1_000_000, first_png, hashlib.sha256(first_png).hexdigest())
+            second = CapturedFrame(302, captured_at - 500_000, second_png, hashlib.sha256(second_png).hexdigest())
             evidence = UiStateEvidence(
                 state="BONUS_ITEMS",
                 consecutive_states=("BONUS_ITEMS", "BONUS_ITEMS"),
