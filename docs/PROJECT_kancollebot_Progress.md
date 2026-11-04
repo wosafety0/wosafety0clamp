@@ -4094,3 +4094,12 @@ The Hand plugin's read-only probe reported:
 - **BRANCH / BASE:** `dev/expedition-min-ships-hardening-20261105`, three commits ahead and zero behind base `dev/dispatch-observer-safety-current-mvp-20261103` at `0b18900764d01a678e955bf29dac29b849ba14ac`. Compare reports exactly seven changed paths; no unrelated baseline files are included.
 - **TESTED:** Exact-head Push CI [run 41936687255](https://github.com/wosafety0/wosafety0clamp/actions/runs/41936687255) passed on code head `5290f5105bdbdb0b3c9b1cb0bc7615d3c416d50e`: **1,113 Python tests, 21 skipped**, Node static tests **17/17**, package/CLI smoke checks, and compileall.
 - **LIMITS / SAFETY:** The 63-entry table remains a read-only `api_deck_num` mapping. `api_sample_fleet` and `api_stype` remain unused; no `allowed_ship_types` inference or flagship-level inference was added. The 6-ship ceiling, freshness, Poi interface, production click chain, and execution gates are unchanged. No Poi connection, screenshot, scrolling, game input, dispatch, supply, reward collection, Runtime.evaluate, page JavaScript, getter access, or system change occurred.
+
+
+### M1 final archive-head CI verification
+
+- **ARCHIVE HEAD:** `58f36abce1ed851ea7343ad2fa01b5bf860adaff`; progress-file blob `600aa7e4d57dd303625224937603a76541ee7644` was read back at that head.
+- **PUSH CI:** [run 41937035379](https://github.com/wosafety0/wosafety0clamp/actions/runs/41937035379) passed on the exact archive head: **1,113 Python tests, 21 skipped**, no failures.
+- **PR-CONTEXT FEATURE CI:** [run 41937071781](https://github.com/wosafety0/wosafety0clamp/actions/runs/41937071781) passed all four Python 3.12/3.13 × vision with/without jobs. Each ran 1,113 tests; vision-enabled jobs skipped 4 optional tests, vision-disabled jobs skipped 21; Node static tests **19/19** in each matrix job.
+- **PR:** [Draft PR #35](https://github.com/wosafety0/wosafety0clamp/pull/35) is open, unmerged, and stacked directly on PR #27's safety baseline. No merge or production gate change occurred.
+- **SAFETY:** Repository/offline-only. No Poi connection, screenshot, scrolling, game input, dispatch, supply, reward collection, Runtime.evaluate, page JavaScript, getter access, or system change.
