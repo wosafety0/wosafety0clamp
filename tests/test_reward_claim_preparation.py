@@ -55,6 +55,58 @@ class RewardClaimPreparationConfigTests(unittest.TestCase):
                     region=(800, 500, 1150, 700),
                 )
 
+
+    def test_preparer_builds_frame_bound_authorization_from_production_evidence(self):
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            self.skipTest("optional vision dependencies are unavailable")
+        from kancollebot.adapters.poi.cdp_input import CapturedFrame
+        from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
+
+        with tempfile.TemporaryDirectory() as directory:
+            template_path = Path(directory) / "bonus_claim_button.png"
+            rng = np.random.default_rng(20261104)
+            template = rng.integers(0, 255, size=(24, 80), dtype=np.uint8)
+            ok, encoded = cv2.imencode(".png", template)
+            self.assertTrue(ok)
+            template_bytes = encoded.tobytes()
+            template_path.write_bytes(template_bytes)
+
+            first_image = rng.integers(0, 255, size=(720, 1200), dtype=np.uint8)
+            ok, first_encoded = cv2.imencode(".png", first_image)
+            self.assertTrue(ok)
+            first_png = first_encoded.tobytes()
+
+            second_image = rng.integers(0, 255, size=(720, 1200), dtype=np.uint8)
+            second_image[610:634, 940:1020] = template
+            ok, second_encoded = cv2.imencode(".png", second_image)
+            self.assertTrue(ok)
+            second_png = second_encoded.tobytes()
+
+            first = CapturedFrame(301, 301000, first_png, hashlib.sha256(first_png).hexdigest())
+            second = CapturedFrame(302, 302000, second_png, hashlib.sha256(second_png).hexdigest())
+            evidence = UiStateEvidence(
+                state="BONUS_ITEMS",
+                consecutive_states=("BONUS_ITEMS", "BONUS_ITEMS"),
+                evidence="two independent production visual checks",
+                frames=(first, second),
+            )
+            digest = hashlib.sha256(template_bytes).hexdigest()
+            preparer = RewardClaimPreparer(
+                template_path=template_path,
+                calibration_id="synthetic-reviewed-calibration",
+                approved_template_sha256=digest,
+                region=(850, 580, 1120, 690),
+            )
+            authorization = preparer.prepare(evidence)
+            self.assertEqual(authorization.frame_id, second.frame_id)
+            self.assertEqual(authorization.frame_sha256, second.sha256)
+            self.assertEqual(authorization.target_center, (980, 622))
+            self.assertFalse(hasattr(authorization, "click"))
+            self.assertFalse(hasattr(authorization, "execute"))
+
     def test_factory_requires_all_four_explicit_settings(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "bonus_claim_button.png"
