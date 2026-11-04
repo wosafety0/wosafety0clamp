@@ -163,8 +163,8 @@ class LiveCheckpointVerifierTests(unittest.TestCase):
         import hashlib
         from kancollebot.adapters.poi.cdp_input import CapturedFrame
 
-        png1 = b"\\x89PNG\\r\\n\\x1a\\nframe-one"
-        png2 = b"\\x89PNG\\r\\n\\x1a\\nframe-two"
+        png1 = b"\x89PNG\r\n\x1a\nframe-one"
+        png2 = b"\x89PNG\r\n\x1a\nframe-two"
         frames = [
             CapturedFrame(900001, 1000001, png1, hashlib.sha256(png1).hexdigest()),
             CapturedFrame(900002, 1000002, png2, hashlib.sha256(png2).hexdigest()),
