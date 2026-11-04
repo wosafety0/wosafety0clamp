@@ -3,7 +3,7 @@
 **Updated:** 2026-11-04  
 **Repository:** wosafety0/wosafety0clamp  
 **Working branch:** dev/expedition-closed-loop-mvp  
-**Current code baseline:** 8e6b82651223093c53964db26441c91c43d5e664
+**Current code baseline:** 25de147d718d2939e6b84a7c6882fc784a94bc68
 
 This document is the concise handoff entry point. The long design and progress records remain useful for implementation history, but older entries are point-in-time records and may be superseded by later entries.
 
@@ -19,8 +19,8 @@ This document is the concise handoff entry point. The long design and progress r
 
 - Repository visibility: **public**.
 - Active code branch: **dev/expedition-closed-loop-mvp**.
-- Current code baseline: **8e6b82651223093c53964db26441c91c43d5e664** — “Add fail-closed expedition return observation”.
-- Latest verified CI for the archived branch head: [run 41766747004](https://github.com/wosafety0/wosafety0clamp/actions/runs/41766747004), conclusion **success**. The test job passed JavaScript static tests, passive observer syntax check, package/CLI smoke checks, Python compile, and the complete Python unit suite (**567 tests; 20 skipped; all remaining passed**).
+- Current code baseline: **25de147d718d2939e6b84a7c6882fc784a94bc68** — “Observe due expedition returns in supervisor tick”.
+- Latest verified CI for the archived branch head: [run 41767117657](https://github.com/wosafety0/wosafety0clamp/actions/runs/41767117657), conclusion **success**. The test job passed JavaScript static tests, passive observer syntax check, package/CLI smoke checks, Python compile, and the complete Python unit suite (**569 tests; 20 skipped; all remaining passed**).
 - The default branch has not been changed, no PR has been created or merged as part of this handoff, and no collaborator permissions have been changed. Public read access does not grant push access; a new developer needs repository write permission to push.
 
 ## 3. Architecture map
@@ -33,7 +33,7 @@ This document is the concise handoff entry point. The long design and progress r
 | UI state and visual gates | src/kancollebot/adapters/poi/visual_state_gate.py, visual_fingerprint.py, visual_target.py | In-memory screenshot classification and bounded visual target localization |
 | Semantic DOM targets | src/kancollebot/adapters/poi/cdp_semantic_targets.py | AX/DOM targeting for actual DOM nodes; not suitable for Canvas-only game controls |
 | Fleet state and safety policy | src/kancollebot/adapters/poi/expedition_state.py, expedition_state_v2.py | Normalize ship/fleet state, supply and damage attributes |
-| Scheduling and dispatch gates | src/kancollebot/expeditions/ | Fleet lifecycle, planner, durable intent/recovery, controller and supervisor; controller waits for passive freshness after dispatch and Home Port navigation, and exposes a due-time return observer that verifies status 2 against the exact dispatched mission tuple |
+| Scheduling and dispatch gates | src/kancollebot/expeditions/ | Fleet lifecycle, planner, durable intent/recovery, controller and supervisor; controller waits for passive freshness after dispatch and Home Port navigation, and exposes a due-time return observer that verifies status 2 against the exact dispatched mission tuple; the supervisor invokes it for active fleets with verified Home Port before considering another dispatch |
 | Mission catalogue scan aggregation | src/kancollebot/expeditions/mission_catalog_scan.py | Offline page aggregation, overlap deduplication, scroll-coverage and verified-bottom gates; no UI input |
 | Mission catalogue visual adapter | src/kancollebot/expeditions/mission_catalog_vision.py | Bounded OpenCV matching of locally supplied mission-marker and scrollbar templates; requires explicit scrollbar-scale calibration; no screenshots written or UI input |
 | Unified runtime configuration | src/kancollebot/runtime_config.py | Single source for production Fleet 3 / mission 3, monitor fleet set, endpoints, timeouts, and runtime paths |
@@ -69,7 +69,7 @@ This document is the concise handoff entry point. The long design and progress r
 Do not describe the project as a completed automatic expedition loop.
 
 - **No end-to-end live dispatch acceptance:** the expedition-start action has not been verified in the current production acceptance record. Fresh post-dispatch readback, return/result progression, reward collection, idle confirmation, and the complete repeat cycle are not accepted.
-- **Return observer is offline-tested only:** six new unit tests cover due-time gating, passive witness timeout, exact returned tuple matching, and rejection of unverified Poi state. No live expedition has reached its return deadline through this method. It performs no UI input and does not yet recognize/advance RETURN_RESULT, BONUS_ITEMS, or reward collection.
+- **Return observer is offline-tested only:** six new controller tests plus supervisor integration tests cover due-time gating, passive witness timeout, exact returned tuple matching, rejection of unverified Poi state, and settlement pause before another dispatch. No live expedition has reached its return deadline through this method. It performs no UI input and does not yet recognize/advance RETURN_RESULT, BONUS_ITEMS, or reward collection.
 - **Taiha gate is offline-tested only:** no live Taiha snapshot or live dispatch-block attempt has been recorded. Healthy-ship replacement is deliberately deferred and is not implemented.
 - **Unattended scheduler is not accepted:** the read-only monitor is separate from the one-shot UI runner. Do not infer that the continuous supervisor is a ready-to-run unattended game process.
 - **Mission list discovery remains incomplete:** the offline page aggregator and OpenCV adapter are implemented, but no local mission-marker templates, calibrated visual profile, live Canvas row-recognition sequence, or verified scrollbar proportionality evidence is available in GitHub. `scrollbar_scale_verified` defaults to false, so screenshot scanning cannot produce complete-scan evidence until Poi calibration. The previously observed eight rows (01 through A1) are not the complete mission catalogue.
