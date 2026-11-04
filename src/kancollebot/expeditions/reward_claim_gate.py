@@ -140,6 +140,7 @@ class RewardClaimAuthorization:
     target_bounds: tuple[int, int, int, int]
     template_sha256: str
     authorization_id: str
+    oldest_state_frame_captured_monotonic_ns: int
     issued_monotonic_ns: int
     expires_monotonic_ns: int
 
@@ -163,11 +164,20 @@ class RewardClaimAuthorization:
         if (
             isinstance(now, bool)
             or not isinstance(now, int)
+            or isinstance(self.oldest_state_frame_captured_monotonic_ns, bool)
+            or not isinstance(self.oldest_state_frame_captured_monotonic_ns, int)
+            or self.oldest_state_frame_captured_monotonic_ns < 1
+            or self.oldest_state_frame_captured_monotonic_ns > self.issued_monotonic_ns
             or now < self.issued_monotonic_ns
             or now > self.expires_monotonic_ns
         ):
             raise RewardClaimAuthorizationError(
                 "reward authorization expired; recapture and reauthorize"
+            )
+        authorization_ttl_ns = self.expires_monotonic_ns - self.issued_monotonic_ns
+        if now - self.oldest_state_frame_captured_monotonic_ns > authorization_ttl_ns:
+            raise RewardClaimAuthorizationError(
+                "BONUS_ITEMS state evidence expired; recapture and reauthorize"
             )
         if frame_id != self.frame_id or frame_sha256 != self.frame_sha256:
             raise RewardClaimAuthorizationError(
@@ -316,6 +326,7 @@ class RewardClaimGate:
             template_sha256=target.template_sha256,
             issued_monotonic_ns=now,
             authorization_id=secrets.token_urlsafe(32),
+            oldest_state_frame_captured_monotonic_ns=first_frame.captured_monotonic_ns,
             expires_monotonic_ns=now + self._authorization_ttl_ns,
         )
         self._authorization_registry._register(authorization)
