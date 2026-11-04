@@ -614,3 +614,12 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - **INPUT VALIDATION:** `assert_same_frame` now rejects non-integer frame IDs (including booleans and floats), non-positive IDs, and malformed SHA-256 values before comparing frame identity.
 - **TESTED:** GitHub Actions run [41774962958](https://github.com/wosafety0/wosafety0clamp/actions/runs/41774962958) passed 625 Python tests. The regression cases cover a stale first frame with a fresh target frame and malformed frame identifiers.
 - **LIMITS:** this remains an in-process, non-executable authorization record. It is not a one-time capability, does not authenticate a caller, and does not prove live display continuity. No reward click executor or live calibration is enabled.
+
+
+## 2026-11-04 — Process-local one-time reward authorization consumption
+
+- **IMPLEMENTED:** `RewardClaimGate` now issues each authorization with a random identifier and registers the exact returned object in a gate-owned `RewardClaimAuthorizationRegistry`. The registry atomically consumes an authorization once under a thread lock; replay, a copied/fabricated object, a foreign registry, and an expired authorization are rejected.
+- **BOUNDS:** the registry is process-local and volatile. A process restart clears pending/consumed history; it does not provide durable exactly-once semantics across crashes or restarts. Pending entries are bounded (default 1,024); expired entries are pruned when a newer authorization is registered. Saturation fails closed.
+- **SAFETY:** consumption only marks an authorization as used. It performs no CDP call, click, or game request. A future executor must consume immediately at its input boundary, re-capture and re-localize the current UI immediately beforehand, re-check consecutive BONUS_ITEMS evidence and TTL, and independently verify the post-click state. The registry is an in-process replay guard, not an unforgeable capability or protection against malicious code in the same process.
+- **TESTS:** regression coverage verifies exactly-once consumption, replay rejection, fabricated/foreign object rejection, expiry, and two concurrent consumers racing for the same authorization.
+- **LIMITS:** no live Poi calibration, reward-click executor, or post-click verification is enabled. Reward claiming remains disabled.
