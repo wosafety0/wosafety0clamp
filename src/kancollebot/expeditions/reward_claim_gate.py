@@ -42,7 +42,12 @@ class RewardClaimTarget:
     def __post_init__(self) -> None:
         if self.template_name != _APPROVED_TARGET:
             raise ValueError("only bonus_claim_button.png can identify a reward claim target")
-        if not _SHA256.fullmatch(self.template_sha256) or not _SHA256.fullmatch(self.frame_sha256):
+        if (
+            not isinstance(self.template_sha256, str)
+            or not isinstance(self.frame_sha256, str)
+            or not _SHA256.fullmatch(self.template_sha256)
+            or not _SHA256.fullmatch(self.frame_sha256)
+        ):
             raise ValueError("template and frame fingerprints must be lowercase SHA-256")
         if not isinstance(self.calibration_id, str) or not self.calibration_id.strip():
             raise ValueError("a live calibration identifier is required")
@@ -97,7 +102,8 @@ class RewardClaimGate:
     def __init__(self, approved_calibrations: Mapping[str, str] | None = None) -> None:
         approved = dict(approved_calibrations or {})
         if any(
-            not _SHA256.fullmatch(template_hash)
+            not isinstance(template_hash, str)
+            or not _SHA256.fullmatch(template_hash)
             or not isinstance(calibration_id, str)
             or not calibration_id.strip()
             for template_hash, calibration_id in approved.items()
