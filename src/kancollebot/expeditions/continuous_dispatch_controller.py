@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
 from kancollebot.core.observed_state import ObservedState
+from kancollebot.adapters.poi.cdp_input import CapturedFrame
 from kancollebot.expeditions.continuous_scheduler import (
     ContinuousExpeditionScheduler,
     FleetPhase,
@@ -57,6 +58,7 @@ class UiStateEvidence:
     state: str
     consecutive_states: tuple[str, str]
     evidence: str
+    frames: tuple[CapturedFrame, CapturedFrame] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.state, str) or not self.state.strip():
@@ -69,6 +71,12 @@ class UiStateEvidence:
             raise ValueError("consecutive_states must contain exactly two state labels")
         if not isinstance(self.evidence, str) or not self.evidence.strip():
             raise ValueError("evidence must be a non-empty string")
+        if self.frames is not None and (
+            not isinstance(self.frames, tuple)
+            or len(self.frames) != 2
+            or any(not isinstance(frame, CapturedFrame) for frame in self.frames)
+        ):
+            raise ValueError("frames must contain exactly two CapturedFrame instances")
 
 
 class ContinuousUiDriver(Protocol):
