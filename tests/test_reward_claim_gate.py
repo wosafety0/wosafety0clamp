@@ -1,4 +1,7 @@
+import hashlib
 import unittest
+
+from kancollebot.adapters.poi.cdp_input import CapturedFrame
 
 from kancollebot.expeditions.reward_claim_gate import (
     RewardClaimAuthorizationError,
@@ -10,6 +13,19 @@ from kancollebot.expeditions.reward_claim_gate import (
 TEMPLATE_HASH = "a" * 64
 FRAME_HASH = "b" * 64
 CALIBRATION_ID = "live-poi-reward-button-v1"
+
+
+def make_frame(frame_id: int, payload: bytes) -> CapturedFrame:
+    return CapturedFrame(
+        frame_id,
+        frame_id * 1000,
+        payload,
+        hashlib.sha256(payload).hexdigest(),
+    )
+
+
+FIRST_FRAME = make_frame(10, b"\\x89PNG\\r\\n\\x1a\\nstate-one")
+SECOND_FRAME = make_frame(12, b"\\x89PNG\\r\\n\\x1a\\nstate-two")
 
 
 def target(**changes):
@@ -30,7 +46,9 @@ def target(**changes):
         "candidate_count": 1,
         "consecutive_states": ("BONUS_ITEMS", "BONUS_ITEMS"),
         "state_frame_ids": (10, 12),
-        "state_frame_sha256s": ("c" * 64, FRAME_HASH),
+        "state_frame_sha256s": (FIRST_FRAME.sha256, SECOND_FRAME.sha256),
+        "frame": SECOND_FRAME,
+        "state_frames": (FIRST_FRAME, SECOND_FRAME),
     }
     values.update(changes)
     return RewardClaimTarget(**values)
@@ -101,6 +119,18 @@ class RewardClaimGateTests(unittest.TestCase):
             target(frame_id=11)
         with self.assertRaisesRegex(ValueError, "second verified state frame"):
             target(frame_sha256="d" * 64)
+
+
+    def test_rejects_metadata_not_bound_to_retained_captured_frames(self):
+        with self.assertRaisesRegex(ValueError, "metadata must match"):
+            target(frame_id=11)
+        with self.assertRaisesRegex(ValueError, "metadata must match"):
+            target(frame_sha256="d" * 64)
+
+    def test_target_must_retain_the_identical_second_frame_object(self):
+        duplicate = make_frame(12, b"\\x89PNG\\r\\n\\x1a\\nstate-two")
+        with self.assertRaisesRegex(ValueError, "identical second"):
+            target(frame=duplicate)
 
     def test_rejects_unapproved_calibration_id_for_known_template_hash(self):
         gate = RewardClaimGate({TEMPLATE_HASH: "another-calibration"})
