@@ -30,9 +30,11 @@ class ContinuousExpeditionSupervisor:
         self,
         monitor: Any,
         dispatch_controller: Any,
+        settlement_observer: Any | None = None,
     ) -> None:
         self.monitor = monitor
         self.dispatch_controller = dispatch_controller
+        self.settlement_observer = settlement_observer
 
         monitor_scheduler = getattr(monitor, "scheduler", None)
         controller_scheduler = getattr(
@@ -153,9 +155,39 @@ class ContinuousExpeditionSupervisor:
             ):
                 waiter(fleet_id)
 
+    def _observe_pending_settlement(self) -> None:
+        """Advance one uniquely attributable settlement screen using read-only evidence."""
+        observer = self.settlement_observer
+        if observer is None:
+            return
+
+        pending = [
+            (fleet_id, state, self._phase_name(state))
+            for fleet_id, state in self._fleet_states()
+            if self._phase_name(state) in {"RETURNED_PENDING_UI", "RETURN_RESULT"}
+        ]
+        # The Poi window is shared. If multiple fleets need settlement, the visible
+        # screen cannot safely be attributed to one fleet without additional proof.
+        if len(pending) != 1:
+            return
+
+        fleet_id, _state, phase = pending[0]
+        expected = (
+            "RETURN_RESULT" if phase == "RETURNED_PENDING_UI" else "BONUS_ITEMS"
+        )
+        observation = observer.observe(fleet_id, expected)
+        scheduler = self.monitor.scheduler
+        if observation.fleet_id != fleet_id or observation.state != expected:
+            raise RuntimeError("settlement observer returned mismatched fleet or state evidence")
+        if phase == "RETURNED_PENDING_UI":
+            scheduler.confirm_return_result(fleet_id, ui_state=observation.state)
+        else:
+            scheduler.confirm_bonus_items(fleet_id, ui_state=observation.state)
+
     def tick(self) -> SupervisorTickResult:
         monitor_result = self.monitor.tick()
         self._observe_due_returns()
+        self._observe_pending_settlement()
 
         pause_reason = self._pause_reason()
         if pause_reason is not None:
