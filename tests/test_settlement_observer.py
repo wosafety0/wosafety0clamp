@@ -1,4 +1,7 @@
 import unittest
+import hashlib
+
+from kancollebot.adapters.poi.cdp_input import CapturedFrame
 from types import SimpleNamespace
 
 from kancollebot.expeditions.settlement_observer import (
@@ -16,6 +19,7 @@ class SettlementStateObserverTests(unittest.TestCase):
                 state=expected,
                 consecutive_states=(expected, expected),
                 evidence="visual-two-frame-gate",
+                frames=frame_pair(),
             )
 
         observation = SettlementStateObserver(verify).observe(3, "RETURN_RESULT")
@@ -29,6 +33,7 @@ class SettlementStateObserverTests(unittest.TestCase):
             state="BONUS_ITEMS",
             consecutive_states=("BONUS_ITEMS", "BONUS_ITEMS"),
             evidence="visual",
+            frames=frame_pair(),
         ))
         with self.assertRaisesRegex(SettlementObservationError, "different UI state"):
             observer.observe(3, "RETURN_RESULT")
@@ -47,9 +52,31 @@ class SettlementStateObserverTests(unittest.TestCase):
             state=expected,
             consecutive_states=(expected, expected),
             evidence=" ",
+            frames=frame_pair(),
         ))
         with self.assertRaisesRegex(SettlementObservationError, "source is missing"):
             observer.observe(3, "BONUS_ITEMS")
+
+    def test_rejects_missing_captured_frame_objects(self):
+        observer = SettlementStateObserver(lambda expected: SimpleNamespace(
+            state=expected,
+            consecutive_states=(expected, expected),
+            evidence="visual",
+        ))
+        with self.assertRaisesRegex(SettlementObservationError, "captured frame objects"):
+            observer.observe(3, "BONUS_ITEMS")
+
+    def test_rejects_duplicate_frame_identity_or_digest(self):
+        duplicate = captured_frame(3)
+        for pair in ((duplicate, duplicate), (captured_frame(4), captured_frame(4))):
+            observer = SettlementStateObserver(lambda expected, pair=pair: SimpleNamespace(
+                state=expected,
+                consecutive_states=(expected, expected),
+                evidence="visual",
+                frames=pair,
+            ))
+            with self.assertRaisesRegex(SettlementObservationError, "distinct captured frame"):
+                observer.observe(3, "BONUS_ITEMS")
 
     def test_verifier_failure_propagates_without_retry(self):
         calls = []
