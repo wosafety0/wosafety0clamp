@@ -20,7 +20,6 @@ from .expedition_list import (
     ButtonCandidate,
     ExpeditionListError,
     ExpeditionListIndex,
-    ExpeditionScanSession,
     ListBoundary,
     ListEntry,
     PageRecord,
@@ -28,9 +27,6 @@ from .expedition_list import (
     Relocation,
     RowSignature,
     ScrollProposal,
-    ScanSessionSnapshot,
-    ScanSessionState,
-    VerifiedEndMarker,
     VisibleRow,
     align_pages,
     check_display_order,
@@ -43,6 +39,12 @@ from .expedition_list import (
     same_view,
     scan_page,
     signature_from_key,
+)
+from .expedition_scan_session import (
+    ExpeditionScanSession,
+    ScanSessionSnapshot,
+    ScanSessionState,
+    VerifiedEndMarker,
 )
 from .expedition_rows import (
     DEFAULT_DARK_THRESHOLD,
