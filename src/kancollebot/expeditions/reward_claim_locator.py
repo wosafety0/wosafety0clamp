@@ -11,7 +11,6 @@ from pathlib import Path
 from kancollebot.adapters.poi.cdp_input import CapturedFrame
 from kancollebot.adapters.poi.visual_state_gate import (
     _decode_grayscale,
-    _load_grayscale_template,
     _vision_modules,
 )
 from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
@@ -84,8 +83,12 @@ def locate_reward_claim_target(
     if left < 0 or top < 0 or right <= left or bottom <= top:
         raise RewardClaimLocalizationError("search region bounds are invalid")
     if (
-        not math.isfinite(minimum_score)
+        isinstance(minimum_score, bool)
+        or not isinstance(minimum_score, (int, float))
+        or not math.isfinite(minimum_score)
         or not 0 < minimum_score <= 1
+        or isinstance(minimum_margin, bool)
+        or not isinstance(minimum_margin, (int, float))
         or not math.isfinite(minimum_margin)
         or not 0 <= minimum_margin <= 1
     ):
@@ -101,7 +104,8 @@ def locate_reward_claim_target(
         template_hash = hashlib.sha256(template_bytes).hexdigest()
         cv2_module, numpy_module = _vision_modules(cv2_module, numpy_module)
         image = _decode_grayscale(second_frame.screenshot_base64, cv2_module, numpy_module)
-        template = _load_grayscale_template(path, cv2_module, numpy_module)
+        encoded_template = numpy_module.frombuffer(template_bytes, dtype=numpy_module.uint8)
+        template = cv2_module.imdecode(encoded_template, cv2_module.IMREAD_GRAYSCALE)
         if template is None:
             raise RewardClaimLocalizationError("reward button template is not a decodable image")
         height, width = image.shape[:2]
