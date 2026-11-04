@@ -109,36 +109,91 @@ DISPATCH_STEPS = (
 # kept here; anything else must be given explicitly rather than guessed.
 KNOWN_COMPOSITION = {(2, 1): (2, 1), (3, 3): (3, 3)}
 
+# M1 (2026-11-05): the api_start2 / api_mission master-data table supplies the
+# ship count a mission requires (api_deck_num) so it no longer has to be typed by
+# hand for every unverified mission. The flagship level is NOT in that table, so
+# it still comes from the CLI or a verified KNOWN_COMPOSITION pair. We read only
+# api_deck_num; api_sample_fleet and any ship-type data are deliberately unused.
+from kancollebot.expeditions.mission_catalogue import (
+    load_mission_catalogue,
+    minimum_ships_for_mission,
+)
+
+DEFAULT_CATALOGUE_PATH = (
+    ROOT / "src" / "kancollebot" / "expeditions" / "data" / "expedition_min_ships.json"
+)
+_CATALOGUE_CACHE: dict[str, dict[int, int] | None] = {}
+
+
+def _get_catalogue(path=None) -> dict[int, int] | None:
+    """Load the mission master-data table once; tolerate a missing file.
+
+    Returns None when the table is absent so the caller fails closed on a missing
+    minimum-ship count instead of inventing one.
+    """
+    resolved = Path(path) if path is not None else DEFAULT_CATALOGUE_PATH
+    key = str(resolved)
+    if key not in _CATALOGUE_CACHE:
+        try:
+            _CATALOGUE_CACHE[key] = load_mission_catalogue(resolved)
+        except FileNotFoundError:
+            _CATALOGUE_CACHE[key] = None
+    return _CATALOGUE_CACHE[key]
+
 
 class LoopError(RuntimeError):
     """The observed state or UI sequence no longer matches the fixed loop."""
 
 
-def _mission_requirement(args, fleet_id: int, mission_id: int):
+def _mission_requirement(args, fleet_id: int, mission_id: int, catalogue: dict[int, int] | None = None):
     """The composition gate's numbers for this fleet and mission.
 
-    ``--minimum-ships``/``--flagship-level`` win when given; otherwise only a
-    pair that was verified live is used. There is deliberately no default: a
-    made-up requirement would let the gate pass a fleet the mission cannot take.
+    Resolution order for the ship count:
+
+    1. ``--minimum-ships`` (CLI) wins when given;
+    2. a verified ``KNOWN_COMPOSITION`` pair for this (fleet, mission);
+    3. the api_start2 master-data table (``api_deck_num`` -> minimum_ships).
+
+    The flagship level resolves only from the CLI or KNOWN_COMPOSITION: the
+    catalogue does not carry it, so it can never be inferred from api_start2.
+    Either value still missing at the end is a hard refusal — a made-up
+    requirement would let the gate pass a fleet the mission cannot take.
     """
     from kancollebot.expeditions.mission_eligibility import MissionCompositionRequirement
 
-    minimum_ships = getattr(args, "minimum_ships", None)
-    flagship_level = getattr(args, "flagship_level", None)
-    if (minimum_ships is None) != (flagship_level is None):
-        raise LoopError(
-            "--minimum-ships and --flagship-level must be given together; the "
-            "composition gate needs both numbers"
-        )
+    if catalogue is None:
+        # argparse yields a Path or None; tolerate a non-path stub (e.g. an unset
+        # attribute) by falling back to the default table.
+        catalogue_path = getattr(args, "mission_catalogue", None)
+        if not isinstance(catalogue_path, (str, Path)):
+            catalogue_path = None
+        catalogue = _get_catalogue(catalogue_path)
+    else:
+        catalogue = _get_catalogue(catalogue) if not isinstance(catalogue, dict) else catalogue
+
+    cli_min = getattr(args, "minimum_ships", None)
+    cli_flag = getattr(args, "flagship_level", None)
+
+    known = KNOWN_COMPOSITION.get((fleet_id, mission_id))
+    known_min, known_flag = (known if known is not None else (None, None))
+
+    minimum_ships = cli_min if cli_min is not None else (
+        known_min if known_min is not None else minimum_ships_for_mission(catalogue, mission_id)
+    )
+    flagship_level = cli_flag if cli_flag is not None else known_flag
+
     if minimum_ships is None:
-        known = KNOWN_COMPOSITION.get((fleet_id, mission_id))
-        if known is None:
-            raise LoopError(
-                f"no verified composition requirement for fleet {fleet_id} / mission "
-                f"{mission_id}; pass --minimum-ships and --flagship-level read from the "
-                "mission panel rather than guessing them"
-            )
-        minimum_ships, flagship_level = known
+        raise LoopError(
+            f"no minimum ship count for fleet {fleet_id} / mission {mission_id}; "
+            "pass --minimum-ships read from the mission panel, or add a verified "
+            "pair to KNOWN_COMPOSITION"
+        )
+    if flagship_level is None:
+        raise LoopError(
+            f"no flagship level for fleet {fleet_id} / mission {mission_id}; the "
+            "mission catalogue carries api_deck_num but not the flagship level, so "
+            "pass --flagship-level read from the mission panel"
+        )
     for name, value in (
         ("--minimum-ships", minimum_ships),
         ("--flagship-level", flagship_level),
@@ -833,7 +888,9 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
             source="poi-cdp-fleet-snapshot",
         )
         with connect_game_webview(timeout=3.0) as game_session:
-            requirement = _mission_requirement(args, target_fleet_id, target_mission_id)
+            requirement = _mission_requirement(
+                args, target_fleet_id, target_mission_id, _get_catalogue()
+            )
             _recover_home_port(game_session)
             _capture_home_reference(game_session)
 
@@ -1066,15 +1123,24 @@ def _main_impl(argv: list[str] | None = None) -> int:
         "--minimum-ships",
         type=int,
         default=None,
-        help="Ships the chosen mission needs, read from its panel; required for a "
-             "mission with no verified requirement",
+        help="Ships the chosen mission needs; if omitted it is read from the "
+             "mission catalogue (api_deck_num). Required only when neither the "
+             "catalogue nor a verified KNOWN_COMPOSITION pair has it",
     )
     parser.add_argument(
         "--flagship-level",
         type=int,
         default=None,
-        help="Flagship level the chosen mission needs; required together with "
-             "--minimum-ships",
+        help="Flagship level the chosen mission needs; the master-data catalogue "
+             "carries the ship count (api_deck_num) but not this, so it must be "
+             "given for any mission that has no verified KNOWN_COMPOSITION pair",
+    )
+    parser.add_argument(
+        "--mission-catalogue",
+        type=Path,
+        default=None,
+        help="Path to a mission master-data table (mission_id -> api_deck_num); "
+             "defaults to the shipped data/expedition_min_ships.json",
     )
     parser.add_argument(
         "--detail-index",

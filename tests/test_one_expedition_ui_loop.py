@@ -110,6 +110,7 @@ class DispatchTargetGateTests(unittest.TestCase):
         args.mission_id = 3
         args.minimum_ships = None
         args.flagship_level = None
+        args.mission_catalogue = None
         for name, value in overrides.items():
             setattr(args, name, value)
         return args
@@ -125,9 +126,10 @@ class DispatchTargetGateTests(unittest.TestCase):
         self.assertEqual((requirement.minimum_ships, requirement.minimum_flagship_level), (2, 1))
 
     def test_a_mission_without_a_verified_requirement_is_refused(self):
-        with self.assertRaisesRegex(
-            controller.LoopError, "no verified composition requirement for fleet 3 / mission 5"
-        ):
+        # Mission 5 is not in KNOWN_COMPOSITION. Its ship count IS in the catalogue
+        # (api_deck_num=4), but the catalogue has no flagship level, so the gate
+        # still refuses rather than inventing a flagship requirement.
+        with self.assertRaisesRegex(controller.LoopError, "no flagship level"):
             controller._mission_requirement(self.make_args(mission_id=5), 3, 5)
 
     def test_explicit_numbers_are_used_for_an_unverified_mission(self):
@@ -139,7 +141,9 @@ class DispatchTargetGateTests(unittest.TestCase):
         self.assertEqual(requirement.minimum_flagship_level, 2)
 
     def test_half_a_requirement_is_refused(self):
-        with self.assertRaisesRegex(controller.LoopError, "must be given together"):
+        # Giving only --minimum-ships leaves the flagship level unresolvable (the
+        # catalogue cannot supply it), so the gate still refuses.
+        with self.assertRaisesRegex(controller.LoopError, "no flagship level"):
             controller._mission_requirement(self.make_args(minimum_ships=4), 3, 5)
 
     def test_a_number_that_is_not_a_positive_integer_is_refused(self):
@@ -149,6 +153,60 @@ class DispatchTargetGateTests(unittest.TestCase):
                     controller._mission_requirement(
                         self.make_args(minimum_ships=value, flagship_level=2), 3, 5
                     )
+
+
+class MissionCatalogueFallbackTests(unittest.TestCase):
+    """M1: api_start2 / api_deck_num supplies minimum_ships by mission id."""
+
+    def make_args(self, **overrides):
+        args = MagicMock()
+        args.fleet_id = 3
+        args.mission_id = 3
+        args.minimum_ships = None
+        args.flagship_level = None
+        args.mission_catalogue = None
+        for name, value in overrides.items():
+            setattr(args, name, value)
+        return args
+
+    def test_catalogue_supplies_minimum_ships_when_only_flagship_given(self):
+        # Mission 5: not in KNOWN_COMPOSITION, catalogue api_deck_num=4; pass only
+        # the flagship level and confirm the ship count comes from the table.
+        requirement = controller._mission_requirement(
+            self.make_args(mission_id=5, flagship_level=2), 3, 5
+        )
+        self.assertEqual(requirement.minimum_ships, 4)
+        self.assertEqual(requirement.minimum_flagship_level, 2)
+
+    def test_cli_overrides_catalogue(self):
+        requirement = controller._mission_requirement(
+            self.make_args(mission_id=5, minimum_ships=3, flagship_level=1), 3, 5
+        )
+        self.assertEqual(requirement.minimum_ships, 3)
+        self.assertEqual(requirement.minimum_flagship_level, 1)
+
+    def test_known_pair_takes_priority_over_catalogue(self):
+        # Fleet 2 / mission 1 is verified as (2, 1); the catalogue lists mission 1
+        # as needing 2 ships too, but a different flagship level, so assert the
+        # verified pair wins rather than the table.
+        requirement = controller._mission_requirement(self.make_args(fleet_id=2, mission_id=1), 2, 1)
+        self.assertEqual((requirement.minimum_ships, requirement.minimum_flagship_level), (2, 1))
+
+    def test_missing_data_without_cli_or_known_is_refused(self):
+        # Empty catalogue (simulating a missing/absent table) and no CLI/known ->
+        # the ship count cannot be resolved and the gate refuses.
+        with self.assertRaisesRegex(controller.LoopError, "no minimum ship count"):
+            controller._mission_requirement(
+                self.make_args(mission_id=5), 3, 5, catalogue={}
+            )
+
+    def test_catalogue_absence_does_not_invent_a_flagship_level(self):
+        # Even with a valid ship count from the catalogue, an absent flagship level
+        # from every source is fatal.
+        with self.assertRaisesRegex(controller.LoopError, "no flagship level"):
+            controller._mission_requirement(
+                self.make_args(mission_id=5), 3, 5, catalogue={5: 4}
+            )
 
 
 class DispatchFleetValidationTests(unittest.TestCase):

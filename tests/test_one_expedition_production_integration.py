@@ -560,7 +560,11 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
                 patch.object(entry, "_probe_unlocked_fleet_ids", return_value=(1, 2, 3, 4)),
                 patch.object(monitor_runtime, "build_runtime") as build,
             ):
-                with self.assertRaisesRegex(entry.LoopError, "no verified composition requirement"):
+                # Fleet 4 now reaches the composition gate (no static deferral).
+                # It still fails closed: the master-data table supplies the ship
+                # count for mission 3, but the flagship level is not in the table
+                # and no Fleet-4 pair is verified live, so the gate refuses.
+                with self.assertRaisesRegex(entry.LoopError, "no flagship level for fleet 4 / mission 3"):
                     entry.run(args)
 
             build.assert_not_called()
