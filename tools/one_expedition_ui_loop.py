@@ -102,9 +102,53 @@ DISPATCH_STEPS = (
     (EXPEDITION_START, 1.5, "FLEET_2_SELECTED", "EXPEDITION_ACTIVE"),
 )
 
+# The composition gate needs a ship count and a flagship level per mission. The
+# catalogue carries names and areas only, and the client does not render the
+# level requirement, so only the two pairs this account has verified live are
+# kept here; anything else must be given explicitly rather than guessed.
+KNOWN_COMPOSITION = {(2, 1): (2, 1), (3, 3): (3, 3)}
+
 
 class LoopError(RuntimeError):
     """The observed state or UI sequence no longer matches the fixed loop."""
+
+
+def _mission_requirement(args, fleet_id: int, mission_id: int):
+    """The composition gate's numbers for this fleet and mission.
+
+    ``--minimum-ships``/``--flagship-level`` win when given; otherwise only a
+    pair that was verified live is used. There is deliberately no default: a
+    made-up requirement would let the gate pass a fleet the mission cannot take.
+    """
+    from kancollebot.expeditions.mission_eligibility import MissionCompositionRequirement
+
+    minimum_ships = getattr(args, "minimum_ships", None)
+    flagship_level = getattr(args, "flagship_level", None)
+    if (minimum_ships is None) != (flagship_level is None):
+        raise LoopError(
+            "--minimum-ships and --flagship-level must be given together; the "
+            "composition gate needs both numbers"
+        )
+    if minimum_ships is None:
+        known = KNOWN_COMPOSITION.get((fleet_id, mission_id))
+        if known is None:
+            raise LoopError(
+                f"no verified composition requirement for fleet {fleet_id} / mission "
+                f"{mission_id}; pass --minimum-ships and --flagship-level read from the "
+                "mission panel rather than guessing them"
+            )
+        minimum_ships, flagship_level = known
+    for name, value in (
+        ("--minimum-ships", minimum_ships),
+        ("--flagship-level", flagship_level),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise LoopError(f"{name} must be a positive integer")
+    return MissionCompositionRequirement(
+        mission_id=mission_id,
+        minimum_ships=minimum_ships,
+        minimum_flagship_level=flagship_level,
+    )
 
 
 def _fleet(states: tuple[PoiFleetMissionState, ...], fleet_id: int = LEGACY_HELPER_FLEET_ID) -> PoiFleetMissionState:
@@ -712,12 +756,21 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     f"Mission id {target_mission_id} is not in the master-data table; "
                     "refusing to guess which row it is"
                 )
+            if target_fleet_id not in RUNTIME_CONFIG.all_fleet_ids:
+                raise LoopError(
+                    f"Fleet {target_fleet_id} is outside the configured fleets "
+                    f"{list(RUNTIME_CONFIG.all_fleet_ids)}: this runtime treats it as "
+                    "deferred, so nothing was clicked. The game may have it unlocked; "
+                    "promoting it is a runtime-config change, not a dispatch decision."
+                )
+            requirement = _mission_requirement(args, target_fleet_id, target_mission_id)
             runtime = build_runtime(
                 database_path=args.database,
                 observer_script=args.observer_script,
                 observer_timeout_seconds=args.observer_timeout_seconds,
                 max_state_age_seconds=args.max_state_age_seconds,
                 dispatch_fleet_ids=(target_fleet_id,),
+                mission_requirements={target_fleet_id: requirement},
                 enable_ui_refresh=False,
             )
             _capture_home_reference(game_session)
@@ -762,7 +815,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 details=load_detail_index(args.detail_index),
                 marks=load_marks(args.marks),
                 capture=capture_frame,
-                locate_row=list_session.locate,
+                locate_row=list_session.locate_any_tab,
                 supported_fleets=(2, 3, 4),
                 neutralize_pointer=lambda: game_session.transport.send(
                     "Input.dispatchMouseEvent",
@@ -900,6 +953,20 @@ def _main_impl(argv: list[str] | None = None) -> int:
         type=Path,
         default=DEFAULT_POSITION_INDEX_PATH,
         help="Position index walked on this account",
+    )
+    parser.add_argument(
+        "--minimum-ships",
+        type=int,
+        default=None,
+        help="Ships the chosen mission needs, read from its panel; required for a "
+             "mission with no verified requirement",
+    )
+    parser.add_argument(
+        "--flagship-level",
+        type=int,
+        default=None,
+        help="Flagship level the chosen mission needs; required together with "
+             "--minimum-ships",
     )
     parser.add_argument(
         "--detail-index",

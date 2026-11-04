@@ -197,15 +197,15 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
     def test_dispatches_any_mapped_mission_on_its_located_row(self):
         asked = []
 
-        def locate(expedition_id, tab):
-            asked.append((expedition_id, tab))
+        def locate(expedition_id):
+            asked.append(expedition_id)
             return self.location(expedition_id, point=(350, 441.5), position=4)
 
         driver, game_input, events, marks, details = self.make_driver(
             locate_row=locate,
         )
         driver.dispatch_expedition(fleet_id=3, mission_id=26)  # 26 -> "26"
-        self.assertEqual(asked, [("26", None)])
+        self.assertEqual(asked, ["26"])
         self.assertEqual(
             game_input.clicks,
             ["sortie", "expedition-mode", "expedition-row-26-pos4", "mission-confirm", "fleet-3-tab", "expedition-start"],
@@ -214,7 +214,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
         self.assertEqual(marks.checks[-1], 3)
 
     def test_maps_alternate_series_ids_to_their_display_number(self):
-        def locate(expedition_id, tab):
+        def locate(expedition_id):
             return self.location(expedition_id, point=(350, 576.0), position=8)
 
         details = FakeDetails(known=("D1",))
@@ -224,7 +224,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
 
     def test_keeps_the_selected_fleet_without_an_extra_tab_click(self):
         driver, game_input, _, _, _ = self.make_driver(
-            locate_row=lambda expedition_id, tab: self.location(expedition_id),
+            locate_row=lambda expedition_id: self.location(expedition_id),
             marks=FakeMarks(selected=3),
             fleet_after_confirm=3,
         )
@@ -234,7 +234,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
 
     def test_switches_to_the_requested_fleet_and_proves_it(self):
         driver, game_input, events, marks, _ = self.make_driver(
-            locate_row=lambda expedition_id, tab: self.location(expedition_id),
+            locate_row=lambda expedition_id: self.location(expedition_id),
             marks=FakeMarks(selected=2),
             fleet_after_confirm=2,
         )
@@ -248,7 +248,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
 
     def test_a_fleet_that_never_switches_blocks_before_the_start_click(self):
         driver, game_input, events, _, _ = self.make_driver(
-            locate_row=lambda expedition_id, tab: self.location(expedition_id),
+            locate_row=lambda expedition_id: self.location(expedition_id),
             marks=FakeMarks(selected=2, switch_on_click=False),
             fleet_after_confirm=2,
         )
@@ -261,7 +261,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
 
     def test_prepare_dispatch_stops_before_the_irreversible_start_click(self):
         driver, game_input, events, _, _ = self.make_driver(
-            locate_row=lambda expedition_id, tab: self.location(expedition_id),
+            locate_row=lambda expedition_id: self.location(expedition_id),
         )
         evidence = driver.prepare_dispatch(fleet_id=3, mission_id=3)
         self.assertEqual(evidence.state, "FLEET_3_SELECTED")
@@ -274,7 +274,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
 
     def test_rejects_a_mission_the_master_table_does_not_know(self):
         driver, game_input, _, _, _ = self.make_driver(
-            locate_row=lambda expedition_id, tab: self.location(expedition_id),
+            locate_row=lambda expedition_id: self.location(expedition_id),
         )
         with self.assertRaisesRegex(ContinuousUiDriverError, "not in the master-data table"):
             driver.dispatch_expedition(fleet_id=3, mission_id=999)
@@ -282,7 +282,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
 
     def test_rejects_fleet_1_before_any_click(self):
         driver, game_input, _, _, _ = self.make_driver(
-            locate_row=lambda expedition_id, tab: self.location(expedition_id),
+            locate_row=lambda expedition_id: self.location(expedition_id),
         )
         with self.assertRaisesRegex(ContinuousUiDriverError, "fleet 1 cannot be dispatched"):
             driver.dispatch_expedition(fleet_id=1, mission_id=3)
@@ -290,7 +290,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
 
     def test_rejects_a_mission_with_no_detail_reference_before_any_click(self):
         driver, game_input, _, _, _ = self.make_driver(
-            locate_row=lambda expedition_id, tab: self.location(expedition_id),
+            locate_row=lambda expedition_id: self.location(expedition_id),
             details=FakeDetails(known=("03",)),
         )
         with self.assertRaisesRegex(ContinuousUiDriverError, "no detail reference for 04"):
@@ -299,7 +299,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
 
     def test_rejects_a_fleet_with_no_tab_reference_before_any_click(self):
         driver, game_input, _, _, _ = self.make_driver(
-            locate_row=lambda expedition_id, tab: self.location(expedition_id),
+            locate_row=lambda expedition_id: self.location(expedition_id),
             marks=FakeMarks(fleets=(2, 3)),
         )
         with self.assertRaisesRegex(ContinuousUiDriverError, "no fleet tab reference for fleet 4"):
@@ -316,7 +316,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
         ))
 
     def test_a_locator_failure_blocks_before_the_row_click(self):
-        def locate(expedition_id, tab):
+        def locate(expedition_id):
             raise RuntimeError("the list never reached its top")
 
         driver, game_input, events, _, _ = self.make_driver(locate_row=locate)
@@ -326,7 +326,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
 
     def test_a_different_panel_blocks_before_the_confirm_click(self):
         driver, game_input, events, marks, _ = self.make_driver(
-            locate_row=lambda expedition_id, tab: self.location(expedition_id),
+            locate_row=lambda expedition_id: self.location(expedition_id),
             details=FakeDetails(observed="12"),
         )
         with self.assertRaisesRegex(ContinuousUiDriverError, "the selected panel is not 03"):
@@ -337,7 +337,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
     def test_a_running_expedition_blocks_before_the_confirm_click(self):
         """No 決定 means the panel shows 遠征中止/帰還命令 instead."""
         driver, game_input, _, _, _ = self.make_driver(
-            locate_row=lambda expedition_id, tab: self.location(expedition_id),
+            locate_row=lambda expedition_id: self.location(expedition_id),
             marks=FakeMarks(decision=False),
         )
         with self.assertRaisesRegex(ContinuousUiDriverError, "already running"):
@@ -348,7 +348,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
     def test_failed_checkpoint_stops_before_following_clicks(self):
         driver, game_input, events, _, _ = self.make_driver(
             states=["HOME_PORT", "UNKNOWN"],
-            locate_row=lambda expedition_id, tab: self.location(expedition_id),
+            locate_row=lambda expedition_id: self.location(expedition_id),
         )
         with self.assertRaisesRegex(ContinuousUiDriverError, "two consecutive SORTIE_MENU"):
             driver.dispatch_expedition(fleet_id=3, mission_id=3)

@@ -73,6 +73,56 @@ class ProductionStartupSafetyGateTests(unittest.TestCase):
         compose.assert_called_once_with(args)
 
 
+class DispatchTargetGateTests(unittest.TestCase):
+    """Which mission and fleet a run is allowed to aim at, before any click."""
+
+    def make_args(self, **overrides):
+        args = MagicMock()
+        args.fleet_id = 3
+        args.mission_id = 3
+        args.minimum_ships = None
+        args.flagship_level = None
+        for name, value in overrides.items():
+            setattr(args, name, value)
+        return args
+
+    def test_a_verified_pair_needs_no_flags(self):
+        requirement = controller._mission_requirement(self.make_args(), 3, 3)
+        self.assertEqual(requirement.mission_id, 3)
+        self.assertEqual(requirement.minimum_ships, 3)
+        self.assertEqual(requirement.minimum_flagship_level, 3)
+
+    def test_the_other_verified_pair_is_fleet_2_mission_1(self):
+        requirement = controller._mission_requirement(self.make_args(), 2, 1)
+        self.assertEqual((requirement.minimum_ships, requirement.minimum_flagship_level), (2, 1))
+
+    def test_a_mission_without_a_verified_requirement_is_refused(self):
+        with self.assertRaisesRegex(
+            controller.LoopError, "no verified composition requirement for fleet 3 / mission 5"
+        ):
+            controller._mission_requirement(self.make_args(mission_id=5), 3, 5)
+
+    def test_explicit_numbers_are_used_for_an_unverified_mission(self):
+        requirement = controller._mission_requirement(
+            self.make_args(mission_id=5, minimum_ships=4, flagship_level=2), 3, 5
+        )
+        self.assertEqual(requirement.mission_id, 5)
+        self.assertEqual(requirement.minimum_ships, 4)
+        self.assertEqual(requirement.minimum_flagship_level, 2)
+
+    def test_half_a_requirement_is_refused(self):
+        with self.assertRaisesRegex(controller.LoopError, "must be given together"):
+            controller._mission_requirement(self.make_args(minimum_ships=4), 3, 5)
+
+    def test_a_number_that_is_not_a_positive_integer_is_refused(self):
+        for value in (0, -1, True, "4", 2.5):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(controller.LoopError, "must be a positive integer"):
+                    controller._mission_requirement(
+                        self.make_args(minimum_ships=value, flagship_level=2), 3, 5
+                    )
+
+
 class LiveCheckpointVerifierTests(unittest.TestCase):
     def setUp(self):
         self.reader = MagicMock()

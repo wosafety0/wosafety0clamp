@@ -125,6 +125,23 @@ class ExpeditionListSession:
         self.scroll_clicks = 0
         self.tab_clicks = 0
 
+    def locate_any_tab(self, expedition_id: str) -> RowLocation:
+        """Locate ``expedition_id`` on the tab the index says it lives on.
+
+        Dispatching an arbitrary expedition cannot assume the list is showing the
+        right area: the game reopens it on whichever tab was last used. The index
+        already knows the tab for every bound position, so it is read from there
+        rather than guessed - and a number bound on no tab, or on two, is an
+        error.
+        """
+        tab = self._index.tab_of(expedition_id)
+        if tab is None:
+            raise ExpeditionRowError(
+                f"no area tab is bound to {expedition_id}; walk that expedition before "
+                "dispatching it"
+            )
+        return self.locate(expedition_id, tab=tab)
+
     def locate(self, expedition_id: str, *, tab: int | None = None) -> RowLocation:
         """Return the click point for ``expedition_id`` on the live list.
 

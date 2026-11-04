@@ -81,7 +81,7 @@ class CdpContinuousExpeditionUiDriver:
         neutralize_pointer: Callable[[], None] | None = None,
         sleep: Callable[[float], None] = time.sleep,
         settle_seconds: float = 1.0,
-        locate_row: Callable[[str, int | None], RowLocation] | None = None,
+        locate_row: Callable[[str], RowLocation] | None = None,
         supported_fleets: tuple[int, ...] = DEFAULT_SUPPORTED_FLEETS,
     ) -> None:
         if not callable(getattr(game_input, "click", None)):
@@ -178,7 +178,10 @@ class CdpContinuousExpeditionUiDriver:
                 "refusing to click a coordinate that was never measured"
             )
         try:
-            location = self._locate_row(expedition_id, None)
+            # One argument only: the locator resolves the area tab from the
+            # position index, because the game reopens the list on whichever tab
+            # was last used and the index is per-tab.
+            location = self._locate_row(expedition_id)
         except Exception as exc:
             raise ContinuousUiDriverError(
                 f"cannot place {expedition_id}'s row: {type(exc).__name__}: {exc}"

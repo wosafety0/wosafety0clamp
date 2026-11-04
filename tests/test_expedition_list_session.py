@@ -250,6 +250,38 @@ class TabTests(unittest.TestCase):
         self.assertEqual(fake.clicks, [])
 
 
+class LocateAnyTabTests(unittest.TestCase):
+    """The list reopens on whichever tab was last used; the index knows better."""
+
+    def test_the_tab_comes_from_the_index_not_from_the_open_list(self) -> None:
+        fake = FakeList(9, tab=4)
+        session = ExpeditionListSession(
+            scan=fake.scan, click=fake.click, index=_index({8: "D1"}, tab=1)
+        )
+        location = session.locate_any_tab("D1")
+        self.assertEqual(location.tab, 1)
+        self.assertEqual(location.position, 8)
+        self.assertEqual(fake.clicks[0][1], "expedition-tab-2")
+        self.assertEqual(location.tab_clicks, 1)
+
+    def test_a_number_bound_on_no_tab_is_refused_before_any_click(self) -> None:
+        fake = FakeList(9, tab=4)
+        session = ExpeditionListSession(
+            scan=fake.scan, click=fake.click, index=_index({0: "01"}, tab=1)
+        )
+        with self.assertRaisesRegex(ExpeditionRowError, "no area tab is bound to 26"):
+            session.locate_any_tab("26")
+        self.assertEqual(fake.clicks, [])
+
+    def test_the_index_reports_the_tab_it_bound(self) -> None:
+        index = ExpeditionListIndex()
+        index.bind(3, 2, "D1")
+        self.assertEqual(index.tab_of("D1"), 3)
+        self.assertIsNone(index.tab_of("26"))
+        index.bind(0, 2, "D1")
+        self.assertIsNone(index.tab_of("D1"), "two tabs for one number is not an answer")
+
+
 class RefusalTests(unittest.TestCase):
     def test_an_unbound_number_is_refused_before_any_click(self) -> None:
         fake = FakeList(9)

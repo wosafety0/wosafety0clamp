@@ -13,6 +13,7 @@ import json
 import math
 import sys
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -85,6 +86,7 @@ def build_runtime(
     client: PoiMcpClient | None = None,
     observer: PassivePortResponseObserver | None = None,
     dispatch_fleet_ids: tuple[int, ...] = RUNTIME_CONFIG.monitor_candidate_fleet_ids,
+    mission_requirements: Mapping[int, MissionCompositionRequirement] | None = None,
     enable_ui_refresh: bool = False,
     ui_input: Any | None = None,
     ui_state_verifier: Callable[[str], UiStateEvidence] | None = None,
@@ -152,6 +154,16 @@ def build_runtime(
     requirements = {
         fleet_id: all_requirements[fleet_id] for fleet_id in dispatch_fleet_ids
     }
+    if mission_requirements is not None:
+        # A caller that dispatches a mission other than the two configured here
+        # has to say which one, because the composition gate is what stops a
+        # fleet being sent on an expedition it cannot satisfy. The catalogue
+        # carries names and areas only, so these numbers cannot be derived.
+        if set(mission_requirements) != set(dispatch_fleet_ids):
+            raise ValueError(
+                "mission_requirements must configure every and only dispatchable fleet"
+            )
+        requirements = dict(mission_requirements)
     ui_arbiter = UiOperationArbiter() if enable_ui_refresh else None
     ui_refresh_driver = None
     state_reader = reader

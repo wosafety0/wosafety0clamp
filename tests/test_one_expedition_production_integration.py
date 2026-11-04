@@ -127,7 +127,10 @@ class FakeListSession:
         self.index = index
         self.settle_seconds = settle_seconds
 
-    def locate(self, expedition_id, tab=None):
+    def locate_any_tab(self, expedition_id):
+        return self.locate(expedition_id)
+
+    def locate(self, expedition_id, *, tab=None):
         return RowLocation(
             expedition_id=expedition_id,
             tab=0,
@@ -213,6 +216,10 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
         args.position_index = DEFAULT_POSITION_INDEX_PATH
         args.detail_index = DEFAULT_DETAIL_PATH
         args.marks = DEFAULT_MARKS_PATH
+        # The composition gate has no default; unset means "use the verified
+        # pair for this fleet and mission".
+        args.minimum_ships = None
+        args.flagship_level = None
         return args
 
     def patch_evidence_sources(self, stack, *, marks):
@@ -326,6 +333,30 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
             self.assertEqual(game_session.input.clicks, [])
             self.assertEqual(reader.read_count, 1)
             self.assertTrue(provider.closed)
+
+
+    def test_a_fleet_the_runtime_treats_as_deferred_is_refused_before_composition(self):
+        """Fleet 4 exists in the game but not in this runtime's fleet set."""
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "production" / "state.sqlite3"
+            database.parent.mkdir(parents=True)
+            args = self.make_args(database)
+            args.fleet_id = 4
+            game_session = MagicMock()
+            game_session.input = FakeGameInput()
+            game_session.__enter__.return_value = game_session
+            game_session.__exit__.return_value = False
+
+            with (
+                patch.object(entry, "connect_game_webview", return_value=game_session),
+                patch.object(entry, "_print_event"),
+                patch.object(monitor_runtime, "build_runtime") as build,
+            ):
+                with self.assertRaisesRegex(entry.LoopError, "outside the configured fleets"):
+                    entry.run(args)
+
+            build.assert_not_called()
+            self.assertEqual(game_session.input.clicks, [])
 
 
 if __name__ == "__main__":

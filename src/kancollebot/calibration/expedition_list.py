@@ -876,6 +876,21 @@ class ExpeditionListIndex:
         """
         return self.bindings.get((tab, position))
 
+    def tab_of(self, expedition_id: str) -> int | None:
+        """Which area tab holds this number, or None if nothing is bound.
+
+        The game reopens the list on whichever tab was last used, so a caller
+        that only knows the number needs this before it can aim a click. An
+        unbound number is the honest None: guessing a tab would aim a click at
+        an unmeasured position.
+        """
+        tabs = {
+            tab
+            for (tab, _position), bound in self.bindings.items()
+            if bound == expedition_id and tab is not None
+        }
+        return tabs.pop() if len(tabs) == 1 else None
+
     def bind(self, tab: int | None, position: int, expedition_id: str) -> None:
         _validate_expedition_id(expedition_id)
         if position < 0:
