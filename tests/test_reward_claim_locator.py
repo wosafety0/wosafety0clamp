@@ -90,6 +90,15 @@ class RewardClaimLocatorValidationTests(unittest.TestCase):
                 calibration_id="live-calibration", region=(800, 500, 1150, 700),
             )
 
+
+    def test_rejects_boolean_visual_thresholds(self):
+        with self.assertRaisesRegex(RewardClaimLocalizationError, "confidence thresholds"):
+            locate_reward_claim_target(
+                self.evidence, "bonus_claim_button.png",
+                calibration_id="live-calibration", region=(800, 500, 1150, 700),
+                minimum_score=True,
+            )
+
     def test_requires_explicit_calibration_and_region(self):
         with self.assertRaisesRegex(RewardClaimLocalizationError, "calibration ID"):
             locate_reward_claim_target(
@@ -150,6 +159,10 @@ class RewardClaimLocatorVisionTests(unittest.TestCase):
         self.assertEqual(target.frame_id, self.frames[1].frame_id)
         self.assertEqual(target.frame_sha256, self.frames[1].sha256)
         self.assertEqual(target.template_name, "bonus_claim_button.png")
+        self.assertEqual(
+            target.template_sha256,
+            hashlib.sha256(self.template_path.read_bytes()).hexdigest(),
+        )
 
 
     def test_localized_target_can_be_authorized_only_with_explicit_template_allowlist(self):
