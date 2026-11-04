@@ -105,7 +105,10 @@ class ContinuousExpeditionMonitor:
         missing = set(self.scheduler.dispatch_fleet_ids) - set(by_fleet)
         if missing:
             raise ContinuousMonitorError(
-                f"Poi observation omitted dispatchable fleets: {sorted(missing)}"
+                f"Poi observation omitted dispatchable fleets: {sorted(missing)} "
+                f"(observed unlocked fleets: {sorted(by_fleet)}). A fleet that is "
+                "not unlocked on this account must not be in the dispatch set; "
+                "refusing to guess."
             )
 
         results = tuple(

@@ -81,19 +81,26 @@ class ContinuousMonitorRuntimeTests(unittest.TestCase):
                 observer=FakeObserver(),
                 observer_timeout_seconds=2,
                 max_state_age_seconds=15,
+                unlocked_fleet_ids=(1, 2, 3, 4),
             )
             try:
                 reader = runtime.monitor.state_reader
                 self.assertIs(reader._port_snapshot_provider, runtime.provider)
-                self.assertEqual(runtime.scheduler.dispatch_fleet_ids, (2, 3))
+                # Fleet 4 is now a dispatch candidate on a four-fleet account.
+                self.assertEqual(runtime.scheduler.dispatch_fleet_ids, (2, 3, 4))
                 self.assertEqual(runtime.scheduler.read_only_fleet_ids, (1,))
-                self.assertEqual(runtime.scheduler.deferred_fleet_ids, (4,))
+                self.assertEqual(runtime.scheduler.deferred_fleet_ids, ())
                 self.assertEqual(
                     runtime.monitor.mission_requirements[2].mission_id, 1
                 )
                 self.assertEqual(
                     runtime.monitor.mission_requirements[3].mission_id, 3
                 )
+                self.assertEqual(
+                    runtime.monitor.mission_requirements[4].mission_id, 1
+                )
+                self.assertEqual(runtime.unlocked_fleet_ids, (1, 2, 3, 4))
+                self.assertTrue(runtime.fleet_availability_verified)
                 self.assertEqual(runtime.unresolved_dispatch_fleets, ())
                 self.assertTrue(database.is_file())
                 self.assertFalse(hasattr(runtime, "dispatch_controller"))
@@ -111,10 +118,13 @@ class ContinuousMonitorRuntimeTests(unittest.TestCase):
                 client=object(),
                 observer=FakeObserver(),
                 dispatch_fleet_ids=(3,),
+                # An account that has NOT unlocked Fleet 4.
+                unlocked_fleet_ids=(1, 2, 3),
             )
             try:
                 self.assertEqual(runtime.scheduler.dispatch_fleet_ids, (3,))
                 self.assertEqual(runtime.scheduler.read_only_fleet_ids, (1, 2))
+                self.assertEqual(runtime.scheduler.deferred_fleet_ids, (4,))
                 self.assertEqual(
                     set(runtime.monitor.mission_requirements),
                     {3},
@@ -123,6 +133,76 @@ class ContinuousMonitorRuntimeTests(unittest.TestCase):
                     runtime.monitor.mission_requirements[3].mission_id,
                     3,
                 )
+            finally:
+                runtime.provider.close(join_timeout_seconds=1)
+
+    def test_candidate_set_is_trimmed_to_fleets_this_account_unlocked(self):
+        """An account with only two fleets must never monitor a phantom 3/4."""
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = build_runtime(
+                database_path=Path(temporary) / "two-fleet.sqlite3",
+                client=object(),
+                observer=FakeObserver(),
+                unlocked_fleet_ids=(1, 2),
+            )
+            try:
+                self.assertEqual(runtime.scheduler.dispatch_fleet_ids, (2,))
+                self.assertEqual(runtime.scheduler.read_only_fleet_ids, (1,))
+                self.assertEqual(runtime.scheduler.deferred_fleet_ids, (3, 4))
+                self.assertEqual(set(runtime.monitor.mission_requirements), {2})
+                self.assertEqual(runtime.unlocked_fleet_ids, (1, 2))
+            finally:
+                runtime.provider.close(join_timeout_seconds=1)
+
+    def test_explicit_target_not_unlocked_fails_closed(self):
+        """--fleet-id on a missing fleet is a hard error, not a substitution."""
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(ValueError, "not unlocked on this account"):
+                build_runtime(
+                    database_path=Path(temporary) / "missing-fleet.sqlite3",
+                    client=object(),
+                    observer=FakeObserver(),
+                    dispatch_fleet_ids=(4,),
+                    unlocked_fleet_ids=(1, 2, 3),
+                    fleet_availability_strict=True,
+                )
+
+    def test_explicit_fleet_4_target_succeeds_on_a_four_fleet_account(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = build_runtime(
+                database_path=Path(temporary) / "fleet-four.sqlite3",
+                client=object(),
+                observer=FakeObserver(),
+                dispatch_fleet_ids=(4,),
+                unlocked_fleet_ids=(1, 2, 3, 4),
+                fleet_availability_strict=True,
+            )
+            try:
+                self.assertEqual(runtime.scheduler.dispatch_fleet_ids, (4,))
+                self.assertEqual(runtime.scheduler.read_only_fleet_ids, (1, 2, 3))
+                self.assertEqual(runtime.scheduler.deferred_fleet_ids, ())
+                self.assertEqual(set(runtime.monitor.mission_requirements), {4})
+                self.assertTrue(runtime.fleet_availability_verified)
+            finally:
+                runtime.provider.close(join_timeout_seconds=1)
+
+    def test_unverified_account_fleet_set_is_not_reported_as_verified(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = build_runtime(
+                database_path=Path(temporary) / "unverified.sqlite3",
+                client=object(),
+                observer=FakeObserver(),
+                dispatch_fleet_ids=(3,),
+            )
+            try:
+                self.assertIsNone(runtime.unlocked_fleet_ids)
+                self.assertFalse(runtime.fleet_availability_verified)
+                # Without an observed account set, fleets that were not
+                # requested are "unconfirmed", never asserted to exist as
+                # read-only fleets.
+                self.assertEqual(runtime.scheduler.read_only_fleet_ids, (1,))
+                self.assertEqual(runtime.scheduler.deferred_fleet_ids, (2, 4))
+                self.assertEqual(runtime.scheduler.dispatch_fleet_ids, (3,))
             finally:
                 runtime.provider.close(join_timeout_seconds=1)
 

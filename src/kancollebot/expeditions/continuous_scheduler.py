@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Iterator, Protocol
 
 from kancollebot.adapters.poi.ui_operation_lock import poi_ui_operation
+from kancollebot.runtime_config import RUNTIME_CONFIG
 
 
 class FleetPhase(str, Enum):
@@ -114,7 +115,10 @@ class ContinuousExpeditionScheduler:
         *,
         dispatch_fleet_ids: tuple[int, ...] = (2, 3),
         read_only_fleet_ids: tuple[int, ...] = (1,),
-        deferred_fleet_ids: tuple[int, ...] = (4,),
+        # No fleet is statically deferred any more. Whether Fleet 4 (or 3)
+        # exists is an ACCOUNT fact resolved by the caller from the observed
+        # Poi fleet set, then passed in per run. See fleet_availability.
+        deferred_fleet_ids: tuple[int, ...] = RUNTIME_CONFIG.deferred_fleet_ids,
         state_store: FleetStateStore | None = None,
     ) -> None:
         groups = (dispatch_fleet_ids, read_only_fleet_ids, deferred_fleet_ids)

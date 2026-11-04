@@ -20,7 +20,7 @@ At the time of this update, the GitHub default branch **main** contains only the
 ## Current development priorities
 
 1. Complete production dispatch/supervisor composition only after freshness, UI-state gates, durable intent recovery, exact post-action verification, reward settlement, and fleet-wide resupply are integrated.
-2. Keep Fleet 1 read-only, Fleet 2/Fleet 3 as the only dispatch candidates, and Fleet 4 deferred until it is unlocked.
+2. Keep Fleet 1 read-only. Fleets 2/3/4 are the dispatch policy ceiling, but the effective set is always resolved from the fleets this account has actually unlocked (2, 3 and 4 unlock progressively); a missing fleet fails closed rather than being assumed. Fleet 4 may be dispatched but has no verified supply visual gate yet, so its closed-loop resupply remains blocked until real-client calibration.
 3. Continue mocked/offline tests and static CI; missing, stale, ambiguous, or malformed observations must remain fail-closed.
 4. Treat any future live operation as a separately authorized, operator-supervised activity. CI and this repository workflow do not authorize unattended game actions.
 

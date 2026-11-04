@@ -69,7 +69,7 @@ from kancollebot.expeditions.continuous_dispatch_controller import (  # noqa: E4
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fleet-id", type=int, required=True,
-                        help="Fleet to dispatch (must be idle and not deferred)")
+                        help="Fleet to dispatch (must be idle and actually unlocked on this account)")
     parser.add_argument("--mission-id", type=int, required=True,
                         help="Master-data mission id (e.g. 1 for 01 練習航海, 131 for D1)")
     parser.add_argument("--commit", action="store_true",

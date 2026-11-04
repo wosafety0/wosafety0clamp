@@ -472,6 +472,26 @@ class FullSupplyRuntimeSafetyTests(unittest.TestCase):
         self.assertEqual(event_log.call_args.kwargs["acquisition_mode"], "passive_no_ui")
 
 
+class ObservedFleetIdsTests(unittest.TestCase):
+    """The supply preflight must follow the account, not the policy ceiling."""
+
+    def test_three_and_four_fleet_accounts_are_both_accepted(self):
+        from tools.full_supply_ui_action import _observed_fleet_ids
+
+        for count, expected in ((3, (1, 2, 3)), (4, (1, 2, 3, 4)), (2, (1, 2))):
+            with self.subTest(count=count):
+                fleets = [{"api_id": fleet_id} for fleet_id in range(1, count + 1)]
+                self.assertEqual(_observed_fleet_ids(fleets), expected)
+
+    def test_a_non_contiguous_or_out_of_policy_set_is_rejected(self):
+        from kancollebot.expeditions.fleet_availability import FleetAvailabilityError
+        from tools.full_supply_ui_action import _observed_fleet_ids
+
+        with self.assertRaises(FleetAvailabilityError):
+            _observed_fleet_ids([{"api_id": 1}, {"api_id": 3}])
+        with self.assertRaises(FleetAvailabilityError):
+            _observed_fleet_ids([{"api_id": 5}])
+
 
 if __name__ == "__main__":
     unittest.main()

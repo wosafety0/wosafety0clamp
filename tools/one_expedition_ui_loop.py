@@ -722,13 +722,11 @@ def _return_home_port_after_dispatch(
 
 
 def _validate_dispatch_fleet_id(target_fleet_id: int) -> None:
-    """Refuse fleet ids the bot is not allowed to send on an expedition.
+    """Refuse fleet ids POLICY does not allow, before any game connection.
 
-    Runs before any game/webview connection so an invalid target fails closed
-    with zero clicks. The authoritative gate is ``dispatchable_fleet_ids``:
-    Fleet 1 is reserved (``non_dispatchable``) by design, Fleet 4 is deferred
-    (unlocked in the game but not promoted to a dispatch target), and any other
-    id is simply not a configured fleet.
+    This is the static permission gate only. Fleet 4 is now a dispatchable
+    fleet in principle; whether it exists on THIS account is a separate fact
+    checked by ``_probe_unlocked_fleet_ids`` before any click.
     """
     if target_fleet_id in RUNTIME_CONFIG.non_dispatchable_fleet_ids:
         raise LoopError(
@@ -736,18 +734,31 @@ def _validate_dispatch_fleet_id(target_fleet_id: int) -> None:
             "expedition. It is marked non_dispatchable in runtime_config; promoting "
             "it to a dispatch target is a game-policy change, not a dispatch decision."
         )
-    if target_fleet_id in RUNTIME_CONFIG.deferred_fleet_ids:
+    if target_fleet_id not in RUNTIME_CONFIG.dispatchable_fleet_ids:
         raise LoopError(
-            f"Fleet {target_fleet_id} is deferred in runtime_config (unlocked but not "
-            "promoted to a dispatch target). Promoting it is a runtime-config change, "
-            "not a dispatch decision; nothing was clicked."
+            f"Fleet {target_fleet_id} is outside the dispatchable fleet policy "
+            f"{list(RUNTIME_CONFIG.dispatchable_fleet_ids)}. Nothing was clicked; "
+            "changing this is a runtime-config change, not a dispatch decision."
         )
-    if target_fleet_id not in RUNTIME_CONFIG.all_fleet_ids:
-        raise LoopError(
-            f"Fleet {target_fleet_id} is outside the configured fleets "
-            f"{list(RUNTIME_CONFIG.all_fleet_ids)}. Nothing was clicked; promoting "
-            "it is a runtime-config change, not a dispatch decision."
-        )
+
+
+def _probe_unlocked_fleet_ids() -> tuple[int, ...]:
+    """Read-only CDP probe: which fleets actually exist on this account.
+
+    KanColle unlocks fleets 2/3/4 progressively. ``all_fleet_ids`` is only a
+    policy ceiling, so the live Poi fleet snapshot is the sole authority on
+    whether Fleet 3 or Fleet 4 can be sent at all. This opens a read session
+    only: it sends no clicks and performs no navigation.
+    """
+    from kancollebot.expeditions.fleet_availability import (
+        normalize_unlocked_fleet_ids,
+    )
+
+    with connect_poi_session(timeout=5.0) as poi_session:
+        states = tuple(read_poi_fleet_states(poi_session.transport))
+    return normalize_unlocked_fleet_ids(
+        tuple(state.fleet_id for state in states)
+    )
 
 
 def _run_production_supervisor_once(args: argparse.Namespace) -> int:
@@ -772,6 +783,10 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
         DurableDispatchCoordinator,
         SqliteDispatchIntentStore,
     )
+    from kancollebot.expeditions.fleet_availability import (
+        FleetAvailabilityError,
+        resolve_fleet_availability,
+    )
     from run_continuous_expedition_monitor import build_runtime
 
     runtime = None
@@ -785,6 +800,24 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 "refusing to guess which row it is"
             )
         _validate_dispatch_fleet_id(target_fleet_id)
+        # Account fact check, before the game webview and before any click.
+        # An account without Fleet 3/4 must fail closed here rather than have
+        # the monitor demand an observation for a fleet that does not exist.
+        unlocked_fleet_ids = _probe_unlocked_fleet_ids()
+        try:
+            resolve_fleet_availability(
+                unlocked_fleet_ids, (target_fleet_id,), strict=True
+            )
+        except FleetAvailabilityError as exc:
+            raise LoopError(
+                f"Fleet availability check failed: {exc}"
+            ) from exc
+        _print_event(
+            "account_fleet_availability_verified",
+            unlocked_fleet_ids=list(unlocked_fleet_ids),
+            target_fleet_id=target_fleet_id,
+            source="poi-cdp-fleet-snapshot",
+        )
         with connect_game_webview(timeout=3.0) as game_session:
             requirement = _mission_requirement(args, target_fleet_id, target_mission_id)
             _recover_home_port(game_session)
@@ -814,6 +847,8 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 max_state_age_seconds=args.max_state_age_seconds,
                 dispatch_fleet_ids=(target_fleet_id,),
                 mission_requirements={target_fleet_id: requirement},
+                unlocked_fleet_ids=unlocked_fleet_ids,
+                fleet_availability_strict=True,
                 enable_ui_refresh=args.enable_ui_refresh,
                 ui_input=game_session.input if args.enable_ui_refresh else None,
                 ui_state_verifier=refresh_verify_state if args.enable_ui_refresh else None,
@@ -885,11 +920,10 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 "production_supervisor_started",
                 dispatch_fleets=[target_fleet_id],
                 fixed_mission_id=target_mission_id,
-                read_only_fleets=[
-                    fleet_id for fleet_id in RUNTIME_CONFIG.all_fleet_ids
-                    if fleet_id != target_fleet_id
-                ],
-                deferred_fleets=list(RUNTIME_CONFIG.deferred_fleet_ids),
+                unlocked_fleet_ids=list(unlocked_fleet_ids),
+                read_only_fleets=list(runtime.scheduler.read_only_fleet_ids),
+                deferred_fleets=list(runtime.scheduler.deferred_fleet_ids),
+                fleet_availability_verified=runtime.fleet_availability_verified,
                 game_api_requests=False,
                 ui_refresh_enabled=args.enable_ui_refresh,
             )
@@ -997,7 +1031,9 @@ def _main_impl(argv: list[str] | None = None) -> int:
         "--fleet-id",
         type=int,
         default=RUNTIME_CONFIG.production_dispatch_fleet_id,
-        help="Fleet to send (2, 3 or 4); defaults to the configured production fleet",
+        help="Fleet to send (2, 3 or 4); must actually be unlocked on this "
+             "account, and Fleet 4 needs an explicit verified composition "
+             "(--minimum-ships/--flagship-level) until it is calibrated live",
     )
     parser.add_argument(
         "--mission-id",

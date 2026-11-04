@@ -42,6 +42,7 @@ from kancollebot.expeditions.continuous_scheduler import (
     FleetPhase,
     UiOperationArbiter,
 )
+from kancollebot.runtime_config import RUNTIME_CONFIG
 
 
 class ContinuousResupplyError(RuntimeError):
@@ -142,6 +143,18 @@ class ContinuousResupplyController:
         if fleet_id not in self.scheduler.dispatch_fleet_ids:
             raise ContinuousResupplyError(
                 f"Fleet {fleet_id} is not a configured dispatch fleet"
+            )
+        # Being allowed to DISPATCH a fleet does not mean we can safely
+        # RESUPPLY it. A real supply click needs a calibrated tab region,
+        # checkbox fingerprints and a UI state enum. Fleet 4 has an expedition
+        # tab but none of that supply evidence, so the loop stops here rather
+        # than clicking an unlocalizable control or silently skipping resupply.
+        if fleet_id not in RUNTIME_CONFIG.resupply_verified_fleet_ids:
+            raise ContinuousResupplyError(
+                f"Fleet {fleet_id} has no verified supply visual gate; calibrated "
+                f"resupply fleets are {list(RUNTIME_CONFIG.resupply_verified_fleet_ids)}. "
+                "Refusing to click an unlocalizable supply control. This fleet can be "
+                "dispatched, but its closed-loop resupply needs real-client calibration."
             )
 
         with self.ui_arbiter.operation(f"continuous-resupply-fleet-{fleet_id}"):

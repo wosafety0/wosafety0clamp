@@ -133,6 +133,24 @@ class ResupplyControllerTests(unittest.TestCase):
         with self.assertRaisesRegex(ContinuousResupplyError, "not a configured"):
             controller.resupply_one_needed(1)
 
+    def test_fleet_4_can_be_dispatched_but_not_resupplied_without_a_visual_gate(self):
+        """Promoting Fleet 4 to dispatchable must not invent supply evidence."""
+        ui = FakeUi()
+        scheduler = ContinuousExpeditionScheduler(
+            dispatch_fleet_ids=(2, 3, 4),
+            read_only_fleet_ids=(1,),
+            deferred_fleet_ids=(),
+        )
+        controller, _, _ = build(
+            Provider([observation(filled=True)]), ui, scheduler=scheduler
+        )
+        self.assertIn(4, scheduler.dispatch_fleet_ids)
+        with self.assertRaisesRegex(
+            ContinuousResupplyError, "no verified supply visual gate"
+        ):
+            controller.resupply_one_needed(4)
+        self.assertEqual(ui.calls, [])
+
     def test_a_fleet_not_awaiting_resupply_is_refused(self):
         ui = FakeUi()
         controller, scheduler, _ = build(Provider([observation(filled=True)]), ui)

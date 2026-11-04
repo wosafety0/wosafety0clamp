@@ -57,6 +57,9 @@ from kancollebot.expeditions.fleet_state_store import (  # noqa: E402
 from kancollebot.expeditions.mission_eligibility import (  # noqa: E402
     MissionCompositionRequirement,
 )
+from kancollebot.expeditions.fleet_availability import (  # noqa: E402
+    resolve_fleet_availability,
+)
 from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
 
 
@@ -74,6 +77,11 @@ class MonitorRuntime:
     ui_refresh_enabled: bool = False
     ui_arbiter: UiOperationArbiter | None = None
     ui_refresh_driver: VisibleUiPortRefreshDriver | None = None
+    # None means the caller did not supply an observed account fleet set. The
+    # monitor's own per-tick observation check then remains the fail-closed
+    # backstop; this flag must never be reported as "verified" in that case.
+    unlocked_fleet_ids: tuple[int, ...] | None = None
+    fleet_availability_verified: bool = False
 
 
 def build_runtime(
@@ -87,6 +95,13 @@ def build_runtime(
     observer: PassivePortResponseObserver | None = None,
     dispatch_fleet_ids: tuple[int, ...] = RUNTIME_CONFIG.monitor_candidate_fleet_ids,
     mission_requirements: Mapping[int, MissionCompositionRequirement] | None = None,
+    # The observed set of fleets THIS account has unlocked. Fleet 4 (or 3) may
+    # not exist. None means "not observed": the monitor's own per-tick check is
+    # then the fail-closed backstop and the run is marked unverified.
+    unlocked_fleet_ids: tuple[int, ...] | None = None,
+    # True for an explicitly named --fleet-id: an un-unlocked target is a hard
+    # error instead of being dropped from a candidate set.
+    fleet_availability_strict: bool = False,
     enable_ui_refresh: bool = False,
     ui_input: Any | None = None,
     ui_state_verifier: Callable[[str], UiStateEvidence] | None = None,
@@ -105,9 +120,39 @@ def build_runtime(
     if not dispatchable.issuperset(dispatch_fleet_ids):
         raise ValueError(
             "dispatch_fleet_ids must be a subset of the configured dispatchable "
-            f"fleets {sorted(dispatchable)}; reserved/deferred fleets "
+            f"fleets {sorted(dispatchable)}; reserved or out-of-policy fleets "
             f"{sorted(set(dispatch_fleet_ids) - dispatchable)} are not dispatchable"
         )
+
+    # Policy says which fleets MAY be dispatched; the account says which ones
+    # EXIST. Resolve the effective set from the observed unlocked fleets so an
+    # account without Fleet 3/4 never has a phantom dispatch target.
+    if unlocked_fleet_ids is None:
+        effective_dispatch_fleet_ids = tuple(dispatch_fleet_ids)
+        observed_unlocked: tuple[int, ...] | None = None
+        account_fleet_ids = RUNTIME_CONFIG.all_fleet_ids
+        # Unverified path: never assert that a not-requested dispatchable
+        # fleet EXISTS. Mark those as deferred ("unconfirmed on this account")
+        # rather than read-only ("exists but must not be touched"). The
+        # monitor's per-tick observation check remains the fail-closed backstop.
+        deferred_fleet_ids = tuple(
+            fleet_id
+            for fleet_id in RUNTIME_CONFIG.dispatchable_fleet_ids
+            if fleet_id not in effective_dispatch_fleet_ids
+        )
+        availability_verified = False
+    else:
+        availability = resolve_fleet_availability(
+            unlocked_fleet_ids,
+            dispatch_fleet_ids,
+            strict=fleet_availability_strict,
+        )
+        effective_dispatch_fleet_ids = availability.effective_dispatch_fleet_ids
+        observed_unlocked = availability.unlocked_fleet_ids
+        account_fleet_ids = observed_unlocked
+        deferred_fleet_ids = availability.locked_fleet_ids
+        availability_verified = True
+
     if enable_ui_refresh:
         if ui_input is None or ui_state_verifier is None:
             raise ValueError("UI refresh requires an open game input session and state verifier")
@@ -120,16 +165,19 @@ def build_runtime(
     event_sink = SqliteDispatchEventLog(str(database))
     state_store = SqliteFleetStateStore(database)
     intent_store = SqliteDispatchIntentStore(database)
+    # The three scheduler roles must be disjoint. Fleets the account has not
+    # unlocked go to the deferred group for THIS run; read-only covers only
+    # fleets that really exist and are not dispatch targets.
     read_only_fleet_ids = tuple(
         fleet_id
-        for fleet_id in RUNTIME_CONFIG.all_fleet_ids
-        if fleet_id not in dispatch_fleet_ids
-        and fleet_id not in RUNTIME_CONFIG.deferred_fleet_ids
+        for fleet_id in account_fleet_ids
+        if fleet_id not in effective_dispatch_fleet_ids
+        and fleet_id not in deferred_fleet_ids
     )
     scheduler = ContinuousExpeditionScheduler(
-        dispatch_fleet_ids=dispatch_fleet_ids,
+        dispatch_fleet_ids=effective_dispatch_fleet_ids,
         read_only_fleet_ids=read_only_fleet_ids,
-        deferred_fleet_ids=RUNTIME_CONFIG.deferred_fleet_ids,
+        deferred_fleet_ids=deferred_fleet_ids,
         state_store=state_store,
     )
     recovery = DurableDispatchCoordinator(scheduler, intent_store)
@@ -156,18 +204,29 @@ def build_runtime(
             minimum_ships=3,
             minimum_flagship_level=3,
         ),
+        # Fleet 4 defaults to the same already live-verified mission-1
+        # composition as Fleet 2. This is a conservative default, NOT a claim
+        # that dispatching Fleet 4 has been verified on a real client; any
+        # other expedition must be supplied explicitly via mission_requirements.
+        4: MissionCompositionRequirement(
+            mission_id=1,
+            minimum_ships=2,
+            minimum_flagship_level=1,
+        ),
     }
     requirements = {
-        fleet_id: all_requirements[fleet_id] for fleet_id in dispatch_fleet_ids
+        fleet_id: all_requirements[fleet_id]
+        for fleet_id in effective_dispatch_fleet_ids
     }
     if mission_requirements is not None:
-        # A caller that dispatches a mission other than the two configured here
-        # has to say which one, because the composition gate is what stops a
-        # fleet being sent on an expedition it cannot satisfy. The catalogue
+        # A caller that dispatches a mission other than the ones configured
+        # here has to say which one, because the composition gate is what stops
+        # a fleet being sent on an expedition it cannot satisfy. The catalogue
         # carries names and areas only, so these numbers cannot be derived.
-        if set(mission_requirements) != set(dispatch_fleet_ids):
+        if set(mission_requirements) != set(effective_dispatch_fleet_ids):
             raise ValueError(
-                "mission_requirements must configure every and only dispatchable fleet"
+                "mission_requirements must configure every and only effective "
+                "dispatchable fleet"
             )
         requirements = dict(mission_requirements)
     ui_arbiter = UiOperationArbiter() if enable_ui_refresh else None
@@ -203,6 +262,8 @@ def build_runtime(
         ui_refresh_enabled=enable_ui_refresh,
         ui_arbiter=ui_arbiter,
         ui_refresh_driver=ui_refresh_driver,
+        unlocked_fleet_ids=observed_unlocked,
+        fleet_availability_verified=availability_verified,
     )
 
 
@@ -518,12 +579,18 @@ def _run_monitor_with_session(
             "unresolved_dispatch_fleets": list(
                 runtime.unresolved_dispatch_fleets
             ),
-            "dispatch_fleets": list(RUNTIME_CONFIG.monitor_candidate_fleet_ids),
-            "read_only_fleets": [
-                fleet_id for fleet_id in RUNTIME_CONFIG.all_fleet_ids
-                if fleet_id not in RUNTIME_CONFIG.monitor_candidate_fleet_ids
-            ],
-            "deferred_fleets": list(RUNTIME_CONFIG.deferred_fleet_ids),
+            "dispatch_fleets": list(runtime.scheduler.dispatch_fleet_ids),
+            "dispatch_candidate_ceiling": list(
+                RUNTIME_CONFIG.monitor_candidate_fleet_ids
+            ),
+            "read_only_fleets": list(runtime.scheduler.read_only_fleet_ids),
+            "deferred_fleets": list(runtime.scheduler.deferred_fleet_ids),
+            "unlocked_fleet_ids": (
+                list(runtime.unlocked_fleet_ids)
+                if runtime.unlocked_fleet_ids is not None
+                else None
+            ),
+            "fleet_availability_verified": runtime.fleet_availability_verified,
             "game_actions_enabled": False,
             "ui_navigation_enabled": runtime.ui_refresh_enabled,
         },

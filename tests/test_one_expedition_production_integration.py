@@ -196,6 +196,8 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
             monitor=monitor,
             provider=provider,
             ui_arbiter=None,
+            unlocked_fleet_ids=(1, 2, 3, 4),
+            fleet_availability_verified=True,
         )
         return runtime, reader, provider
 
@@ -279,6 +281,12 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
                 stack.enter_context(
                     patch("kancollebot.adapters.poi.visual_target.require_visual_dependencies")
                 )
+                stack.enter_context(
+                    patch.object(
+                        entry, "_probe_unlocked_fleet_ids",
+                        return_value=(1, 2, 3, 4),
+                    )
+                )
                 self.patch_evidence_sources(stack, marks=marks)
                 # HOME_REFERENCE_SETTLE_SECONDS is deliberately left real: it is
                 # the pause the production frame capture uses, and the click
@@ -351,6 +359,12 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
                     patch("kancollebot.adapters.poi.visual_target.require_visual_dependencies")
                 )
                 stack.enter_context(
+                    patch.object(
+                        entry, "_probe_unlocked_fleet_ids",
+                        return_value=(1, 2, 3, 4),
+                    )
+                )
+                stack.enter_context(
                     patch.object(monitor_runtime, "build_runtime", return_value=runtime)
                 )
                 self.patch_evidence_sources(stack, marks=marks)
@@ -362,8 +376,40 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
             self.assertTrue(provider.closed)
 
 
-    def test_a_fleet_the_runtime_treats_as_deferred_is_refused_before_composition(self):
-        """Fleet 4 is unlocked in the game but deferred in runtime_config."""
+    def test_an_ununlocked_fleet_4_is_refused_before_any_game_connection(self):
+        """An account with only fleets 1/2/3 must fail closed on --fleet-id 4."""
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "production" / "state.sqlite3"
+            database.parent.mkdir(parents=True)
+            args = self.make_args(database)
+            args.fleet_id = 4
+            game_session = MagicMock()
+            game_session.input = FakeGameInput()
+            game_session.__enter__.return_value = game_session
+            game_session.__exit__.return_value = False
+
+            with (
+                patch.object(entry, "connect_game_webview", return_value=game_session) as connect,
+                patch.object(entry, "_print_event"),
+                patch("kancollebot.adapters.poi.visual_target.require_visual_dependencies"),
+                patch.object(entry, "_probe_unlocked_fleet_ids", return_value=(1, 2, 3)),
+                patch.object(monitor_runtime, "build_runtime") as build,
+            ):
+                with self.assertRaisesRegex(entry.LoopError, "not unlocked on this account"):
+                    entry.run(args)
+
+            connect.assert_not_called()
+            build.assert_not_called()
+            self.assertEqual(game_session.input.clicks, [])
+
+    def test_fleet_4_is_no_longer_statically_deferred(self):
+        """On a four-fleet account, Fleet 4 reaches the composition gate.
+
+        It must still fail closed there: no Fleet-4 composition requirement
+        has been verified live, and inventing one would be a dispatch decision
+        made from a guess. What matters here is that the old static 'deferred'
+        rejection is gone and the account-fact gate admitted the fleet.
+        """
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "production" / "state.sqlite3"
             database.parent.mkdir(parents=True)
@@ -378,9 +424,10 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
                 patch.object(entry, "connect_game_webview", return_value=game_session),
                 patch.object(entry, "_print_event"),
                 patch("kancollebot.adapters.poi.visual_target.require_visual_dependencies"),
+                patch.object(entry, "_probe_unlocked_fleet_ids", return_value=(1, 2, 3, 4)),
                 patch.object(monitor_runtime, "build_runtime") as build,
             ):
-                with self.assertRaisesRegex(entry.LoopError, "deferred"):
+                with self.assertRaisesRegex(entry.LoopError, "no verified composition requirement"):
                     entry.run(args)
 
             build.assert_not_called()

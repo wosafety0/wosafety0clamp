@@ -3926,3 +3926,42 @@ The Hand plugin's read-only probe reported:
 - **需用户决策（未执行，不臆断）:** (1) 整合目标分支选 A/B/C 中哪一个、是否授权创建 PR/合并；(2) Fleet 4 是否从 deferred 提升为可派遣舰队；(3) P1-1/P1-2/P1-3 何时提供真实 Poi/游戏会话与一次性派遣授权。
 - **LIMITS:** P1-1 视觉门禁校准、P1-2 实机证据（返回/结算/领取/补给四项独立证据）、P1-3 无人干预完整循环均未完成；这三项的剩余前置是真实 Poi/游戏会话与一次性授权，不再是依赖或 CI 问题。
 - **ARTIFACTS:** `.github/workflows/feature-closed-loop-ci.yml`（新增）、`docs/PROJECT_kancollebot_Progress.md`。
+
+## 2026-11-04 - 整合可逆性评估（只读分析；未执行任何整合）
+
+- **用户问题：** "整合是否可逆"。以下为 `git` 只读核验结果（fetch 远端 ref、`merge-base`、`rev-list`、`diff --shortstat`、`merge-tree --write-tree` 冲突预演），**未创建 PR、未合并、未改写任何远端 ref、未碰 main**。
+- **IMPLEMENTED / VERIFIED (仓库拓扑事实):** `origin/main` = `a4f3777`，其顶层**只有 `.github/`**（整个 `src/`、`tools/`、`tests/`、`docs/` 从来不在 main 上）。保全分支 `a5187bf` 相对 main：merge-base `39f26db`、**ahead 745 / behind 4**、差异 `204 files / +61396 / -17`。因此"PR 到 main"会把六万余行源码灌进一个只放 CI/规则文件的分支，明显不是本项目的整合路径。
+- **VERIFIED (候选目标实测):**
+  - `dev/dispatch-observer-safety-current-mvp-20261103` = `86f294c`：`merge-base --is-ancestor` 为真，即它是 HEAD 的**直系祖先**（behind **0**、ahead 74）。向它整合 = **纯 fast-forward，零冲突、不产生 merge commit**。
+  - `dev/expedition-return-grace-guard-20261104`：behind 2（`d2ebc85` 延后归还确认、`59f7b1f` 归档）、ahead 50；`merge-tree --write-tree` 预演出现 **2 处内容冲突**：`docs/PROJECT_kancollebot_Progress.md`、`tools/run_continuous_expedition_monitor.py`。
+  - `dev/expedition-closed-loop-mvp`：behind 141 / ahead 50，分叉很大。
+  - `main`：`merge-tree` 预演出现 `.github/workflows/verify-global-rules.yml` add/add 与 `README.md` modify/delete 冲突。
+- **VERIFIED (可逆性分层结论):**
+  - **当前状态（仅推送独立保全分支）＝完全可逆、零风险**：远端只是一个额外分支 ref，不影响 main 或任何 dev 分支；删除该 ref 即撤销（本地 ref 与全部提交仍在）。
+  - **开 PR 但不合并＝可逆**：关闭 PR 即撤销，代码状态零变化；残留的只有 GitHub 上的 PR/通知记录。
+  - **fast-forward 到直系祖先 `86f294c`＝可逆性最高**：不产生 merge commit、不改写历史，只需把目标分支 ref 精确移回 `86f294c`（`push --force-with-lease` 指向旧 SHA）即可完全还原；源保全分支原封不动保留，可随时重新 ff。
+  - **产生 merge commit 的整合＝Git 层仍可逆**：用 `git revert -m 1 <merge-sha>` 生成反向提交即可回退，不改写历史；代价是之后若想再合并同一分支，需先 revert 掉那个 revert。
+  - **不可逆 / 有残留**：`reset --hard` + force push 到共享分支会改写已发布历史，破坏他人克隆/PR（本仓库同时有 75 个分支、多个当天活跃 dev 分支，风险尤其高）；CI run/Actions 日志、PR/Review 记录、通知、他人已 fetch 的引用，以及任何真实游戏点击，都无法从 Git 回退。
+- **IMPLEMENTED (可逆整合方案，作为方案保存、未执行):** 阶段 1（现状，零风险）保留独立保全分支不动；阶段 2（需授权）先做只读差异核对与冲突预演（本节点已完成主要部分），再开 PR——PR 可随时关闭；阶段 3（需授权）优先选 `dev/dispatch-observer-safety-current-mvp-20261103` 做 fast-forward，若必须走 merge 则用 `--no-ff` 保留单个 merge commit 并**保留源分支不删**；阶段 4 回退一律用 `git revert -m 1`，禁止 `reset --hard`/`--force` 到共享分支。若需要整合 `dev/expedition-return-grace-guard-20261104` 的 2 个独有提交，须先人工解决上述 2 处冲突（归档文档与 `run_continuous_expedition_monitor.py`），可逆性降为"merge + revert"一级。
+- **SAFETY:** 依 `AGENTS.md` v2.1.0-rc1 §10.2，建 PR/合并属需单独授权的远端写操作；本节点只做只读分析与方案归档。`git fetch` 仅更新本地 `refs/remotes/origin/*`，未改动任何远端分支。
+- **需用户决策:** 选定整合目标（推荐 `dev/dispatch-observer-safety-current-mvp-20261103` 的 fast-forward）、以及是否授权 PR/合并。
+- **LIMITS:** 未实际执行整合，故"回退操作"本身未验证；只验证了拓扑与冲突预演。
+- **ARTIFACTS:** `docs/PROJECT_kancollebot_Progress.md`。
+
+## 2026-11-04 - Fleet 4 提升为可派遣 + 兼容未解锁 3/4 的账号
+
+- **用户指令:** "Fleet 4 提升为可派遣舰队，但是有的账号 Fleet 3 或 Fleet 4 并没有解锁，要考虑到"。核心是把**政策上限**与**账号事实**分离，不能因为 Fleet 4 被提升就假设每个账号都有 3/4 舰队。
+- **IMPLEMENTED (概念分离):** 新增 `src/kancollebot/expeditions/fleet_availability.py` —— `normalize_unlocked_fleet_ids()` 严格校验观测到的舰队 id（非空/正整数/唯一/从 1 连续/在政策上限内），`resolve_fleet_availability()` 求「请求集 ∩ 已解锁集」，支持 `strict=True`（显式 `--fleet-id` 未解锁时**硬失败**，绝不改派别的舰队）与 `strict=False`（候选集自动裁剪未解锁舰队）。`RuntimeConfig.all_fleet_ids` / `dispatchable_fleet_ids` 明确重新定义为**政策上限**，docstring 写明"不代表某账号实际解锁"。
+- **IMPLEMENTED (Fleet 4 提升):** `deferred_fleet_ids` 由 `(4,)` 改为 `()`；`monitor_candidate_fleet_ids` 由 `(2,3)` 改为 `(2,3,4)`；`dispatchable_fleet_ids` 现为 `(2,3,4)`。`ContinuousExpeditionScheduler` 的第二套硬编码 `deferred_fleet_ids=(4,)` 改为从 `RUNTIME_CONFIG` 派生，消除"两套真相"。`build_runtime` 的 `all_requirements` 补上 Fleet 4（保守复用已 live 验证的 mission 1 最低编成）。启动期校验新增 deferred ⊆ all、三组角色互斥、resupply ⊆ dispatchable。
+- **IMPLEMENTED (账号兼容 / 零点击探测):** `one_expedition_ui_loop._probe_unlocked_fleet_ids()` 通过 `connect_poi_session` + `read_poi_fleet_states` 做**只读** CDP 探测（无点击、无导航），在打开游戏 webview 之前用 `strict=True` 校验 `--fleet-id`；账号未解锁该舰队 → `LoopError("... not unlocked on this account")`，零连接零点击。`build_runtime` 新增 `unlocked_fleet_ids` / `fleet_availability_strict` 参数，按账号事实裁剪 dispatch 集、把未解锁舰队放入**本次运行**的 deferred 组、`read_only` 只列真正存在且非派遣的舰队，保证 scheduler 三组角色 disjoint，并同步裁剪 `mission_requirements`（否则 `ContinuousExpeditionMonitor` 的"完全相等"校验会先崩）。启动事件新增 `unlocked_fleet_ids` / `fleet_availability_verified` / `dispatch_candidate_ceiling`；未提供观测集时**明确标记 `verified=False`**，且把未请求的舰队标为"未确认"而非 read-only，不冒称账号事实。
+- **IMPLEMENTED (补给侧兼容):** `full_supply_ui_action.py` 3 处 `expected_fleet_ids=RUNTIME_CONFIG.all_fleet_ids` 改为 `_observed_fleet_ids(fleets)`（从观测到的 `api_id` 推导并校验），解决"只有 1/2/3 舰队的账号被四舰队 preflight 拒绝"和文档早前记录的默认 `(1,2,3)` 与生产 `(1,2,3,4)` 不一致。`live_dispatch_expedition.py` 的 preflight 原本就用 `read_poi_fleet_states` 检查目标存在，天然兼容未解锁账号，仅更新过时 help 文本。
+- **SAFETY (补给视觉门，不臆造证据):** 新增 `resupply_verified_fleet_ids=(2,3)`。`ContinuousResupplyController.resupply_one_needed` 增加守卫：Fleet 4 **可以派遣**，但没有已校准的补给页签区域、复选框指纹与 `SUPPLY_FLEET_4_SELECTED` 状态，因此遇到 Fleet 4 的 `RESUPPLY_REQUIRED` 时**抛错暂停（fail-closed）**，既不静默跳过也不点击无法定位的控件。supervisor 已有的暂停语义会接管，不会派遣其他舰队。
+- **VERIFIED:** 全量 Python 套件 **`Ran 998 tests ... OK (skipped=2)`**（0 失败 0 错误；从 976 增至 998，新增 22 项）；Node `node --test` 三文件 19/19；`compileall -q src tools tests` 通过。新增/更新的边界用例包括：2/3/4 舰队账号、`--fleet-id 4` 在 3 舰队账号被零点击拒绝、4 舰队账号显式目标 4 通过、候选集 (2,3,4) 在 2 舰队账号裁剪为 (2)、Fleet 1/5 被政策拒绝、非法/非连续/超上限解锁集被拒绝、Fleet 4 补给 fail-closed、观测驱动的 `expected_fleet_ids` 同时接受 2/3/4 舰队账号。
+- **SAFETY (总体):** 未解锁 → fail-closed；无观测集 → 标记未验证而不是假设；显式目标绝不静默替换；补给无视觉证据 → 暂停。未执行任何真实游戏点击、未建 PR、未合并、未碰 `main`。
+- **LIMITS / 尚未验证（不臆断）:**
+  1. Fleet 4 的**编成门槛**仍 fail-closed：`KNOWN_COMPOSITION` 无 `(4, mission)` 的 live 验证对，`one_expedition_ui_loop` 派 Fleet 4 必须显式传 `--minimum-ships/--flagship-level`，否则以 "no verified composition requirement" 拒绝。测试已断言这一行为。
+  2. Fleet 4 的**闭环补给**仍被上述视觉门暂停；补齐需要真实客户端上的页签区域/复选框指纹/UI state 校准，本次按用户要求暂缓实机。
+  3. `_probe_unlocked_fleet_ids()` 的只读 CDP 探测未在真实 Poi 会话上验证（离线测试用 patch 的 fake 快照）；实机阶段需先确认它与 `source_freshness_verified` 链的配合。
+  4. monitor 给 Fleet 4 的默认 mission 1 编成是**策略默认值**，复用已验证的任务属性，不是"Fleet 4 实机派遣成功"的证据。
+  5. 整合（PR/合并）仍未执行，见上一节可逆性方案。
+- **ARTIFACTS:** `src/kancollebot/expeditions/fleet_availability.py`（新增）、`src/kancollebot/runtime_config.py`、`src/kancollebot/expeditions/continuous_scheduler.py`、`continuous_monitor.py`、`continuous_resupply_controller.py`、`tools/run_continuous_expedition_monitor.py`、`tools/one_expedition_ui_loop.py`、`tools/full_supply_ui_action.py`、`tools/live_dispatch_expedition.py`、`tests/test_fleet_availability.py`（新增）、`tests/test_continuous_monitor_runtime.py`、`tests/test_continuous_resupply_controller.py`、`tests/test_continuous_scheduler.py`、`tests/test_full_supply.py`、`tests/test_one_expedition_production_integration.py`、`tests/test_one_expedition_ui_loop.py`、`tests/test_runtime_config.py`、`README.md`、`docs/PROJECT_kancollebot_Progress.md`。

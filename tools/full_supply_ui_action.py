@@ -37,8 +37,24 @@ from kancollebot.adapters.poi.visible_ui_refresh import VisibleUiPortRefreshDriv
 from kancollebot.adapters.poi.visual_target import locate_fleet_supply_all_button, locate_supply_fleet_tab
 from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
 from kancollebot.expeditions.continuous_scheduler import UiOperationArbiter
-from kancollebot.runtime_config import RUNTIME_CONFIG
 from one_expedition_ui_loop import HOME_PORT, LoopError, _require_ui_state
+
+
+def _observed_fleet_ids(fleets: Any) -> tuple[int, ...]:
+    """The unlocked fleet set of THIS account, from the observed Poi payload.
+
+    ``RUNTIME_CONFIG.all_fleet_ids`` is only a policy ceiling. An account that
+    has not unlocked Fleet 3/4 must not be forced through a four-fleet
+    preflight, so the expected set is taken from what was actually observed and
+    then validated (contiguous from 1, within the policy ceiling).
+    """
+    from kancollebot.expeditions.fleet_availability import (
+        normalize_unlocked_fleet_ids,
+    )
+
+    return normalize_unlocked_fleet_ids(
+        tuple(fleet.get("api_id") for fleet in fleets)
+    )
 
 
 LOG_PATH = ROOT / "logs" / "full_supply_ui_action.jsonl"
@@ -482,7 +498,7 @@ def _prepare_full_supply_preflight(
         observed_at=observed_at,
         now=now,
         max_age=MAX_AGE,
-        expected_fleet_ids=RUNTIME_CONFIG.all_fleet_ids,
+        expected_fleet_ids=_observed_fleet_ids(fleets),
     )
     all_needed_fleets = select_full_supply_targets(plan, supported_fleet_ids=plan.fleet_ids)
     needed_fleets = select_full_supply_targets(
@@ -605,7 +621,7 @@ def run(*, dry_run: bool = False) -> int:
                     observed_at=cycle_observed_at,
                     now=cycle_now,
                     max_age=MAX_AGE,
-                    expected_fleet_ids=RUNTIME_CONFIG.all_fleet_ids,
+                    expected_fleet_ids=_observed_fleet_ids(cycle_fleets),
                 )
                 log(
                     "next_fleet_freshness_cycle_verified",
@@ -660,7 +676,7 @@ def run(*, dry_run: bool = False) -> int:
                 observed_at=cycle_observed_at,
                 now=before_now,
                 max_age=MAX_AGE,
-                expected_fleet_ids=RUNTIME_CONFIG.all_fleet_ids,
+                expected_fleet_ids=_observed_fleet_ids(before_fleets),
             )
             before_remaining = validate_full_supply_progress(
                 plan, before_plan, tuple(completed_fleet_ids),

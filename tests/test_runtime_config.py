@@ -12,15 +12,23 @@ class RuntimeConfigTests(unittest.TestCase):
         self.assertIn(RUNTIME_CONFIG.production_dispatch_fleet_id, RUNTIME_CONFIG.monitor_candidate_fleet_ids)
 
     def test_monitor_and_production_fleet_sets_are_distinct(self):
-        self.assertEqual(RUNTIME_CONFIG.monitor_candidate_fleet_ids, (2, 3))
+        # Fleet 4 is now a dispatch candidate in principle. Which of 3/4
+        # actually exist on an account is a runtime fact, not config.
+        self.assertEqual(RUNTIME_CONFIG.monitor_candidate_fleet_ids, (2, 3, 4))
         self.assertEqual(RUNTIME_CONFIG.all_fleet_ids, (1, 2, 3, 4))
-        self.assertEqual(RUNTIME_CONFIG.deferred_fleet_ids, (4,))
+        self.assertEqual(RUNTIME_CONFIG.deferred_fleet_ids, ())
 
     def test_fleet_1_is_reserved_and_not_dispatchable(self):
         self.assertEqual(RUNTIME_CONFIG.non_dispatchable_fleet_ids, (1,))
         self.assertIn(1, RUNTIME_CONFIG.all_fleet_ids)
         self.assertNotIn(1, RUNTIME_CONFIG.dispatchable_fleet_ids)
-        self.assertEqual(RUNTIME_CONFIG.dispatchable_fleet_ids, (2, 3))
+        self.assertEqual(RUNTIME_CONFIG.dispatchable_fleet_ids, (2, 3, 4))
+
+    def test_resupply_visual_gate_does_not_claim_fleet_4(self):
+        """Promoting Fleet 4 to dispatchable must not invent supply evidence."""
+        self.assertEqual(RUNTIME_CONFIG.resupply_verified_fleet_ids, (2, 3))
+        self.assertNotIn(4, RUNTIME_CONFIG.resupply_verified_fleet_ids)
+        self.assertIn(4, RUNTIME_CONFIG.dispatchable_fleet_ids)
 
     def test_monitor_candidates_are_a_subset_of_dispatchable_fleets(self):
         self.assertTrue(

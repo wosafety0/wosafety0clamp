@@ -38,8 +38,12 @@ class ContinuousSchedulerTests(unittest.TestCase):
         self.assertEqual([s.fleet_id for s in self.scheduler.states()], [2, 3])
         with self.assertRaisesRegex(SchedulerInvariantError, "read-only"):
             self.scheduler.fleet(1)
-        with self.assertRaisesRegex(SchedulerInvariantError, "deferred"):
+        # Fleet 4 is no longer statically deferred by the scheduler. Whether
+        # it exists is an account fact the caller resolves per run; with no
+        # such fact, it is simply outside this scheduler instance's scope.
+        with self.assertRaisesRegex(SchedulerInvariantError, "not configured"):
             self.scheduler.fleet(4)
+        self.assertEqual(self.scheduler.deferred_fleet_ids, ())
 
     def test_fleets_have_independent_lifecycles(self):
         self.dispatch(2, self.mission2)
