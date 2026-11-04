@@ -598,3 +598,11 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - **EXPIRY:** each authorization records monotonic issue and expiry timestamps. `assert_same_frame` rejects use after expiry as well as a changed frame ID/hash. The authorization remains non-executable; no click operation was added.
 - **TESTS:** GitHub Actions run [41773910790](https://github.com/wosafety0/wosafety0clamp/actions/runs/41773910790) passed 623 tests, zero skipped. Coverage includes stale target rejection, future timestamps, and authorization expiry.
 - **LIMITS:** the two-second TTL is a conservative freshness guard for a future action boundary, not proof of live screen continuity. A future executor must call `assert_same_frame` immediately before any authorized input and independently verify the post-action state. No executor exists or is enabled.
+
+
+## 2026-11-04 — Reward locator counts spatial candidates (fail-closed)
+
+- **IMPLEMENTED:** reward localization now performs non-maximum suppression over the complete template-match response and counts spatially distinct candidates meeting the authorization confidence threshold. It no longer hardcodes `candidate_count=1`.
+- **FAIL-CLOSED:** zero qualifying candidates or more than one spatially distinct high-confidence candidate blocks authorization. The locator also retains the confidence-margin requirement. The gate independently requires `candidate_count == 1`.
+- **TESTED:** GitHub Actions run [41774452317](https://github.com/wosafety0/wosafety0clamp/actions/runs/41774452317) passed 623 tests with zero skipped; the duplicate-placement regression test passed.
+- **LIMITS / DESIGN REVIEW:** this corrects the prior mismatch between the claimed candidate count and the actual image-match search. It does not make a Python authorization object unforgeable or provide one-time consumption. There is still no click executor. Any future executor must own replay/consumption state, re-capture and re-localize immediately before input, and independently verify the post-click state. The current same-frame assertion is a consistency check over supplied frame identifiers, not proof that the live display remained unchanged.
