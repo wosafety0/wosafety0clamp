@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+import secrets
+import threading
 import time
 from typing import Mapping
 
@@ -137,6 +139,7 @@ class RewardClaimAuthorization:
     target_center: tuple[int, int]
     target_bounds: tuple[int, int, int, int]
     template_sha256: str
+    authorization_id: str
     issued_monotonic_ns: int
     expires_monotonic_ns: int
 
@@ -172,6 +175,76 @@ class RewardClaimAuthorization:
             )
 
 
+class RewardClaimAuthorizationRegistry:
+    """Process-local, thread-safe, one-time consumption ledger.
+
+    Only the exact authorization object registered by its issuing gate can be
+    consumed. State is intentionally volatile: process restart clears it.
+    """
+
+    def __init__(self, *, maximum_pending: int = 1024) -> None:
+        if (
+            isinstance(maximum_pending, bool)
+            or not isinstance(maximum_pending, int)
+            or maximum_pending < 1
+        ):
+            raise ValueError("maximum_pending must be a positive integer")
+        self._maximum_pending = maximum_pending
+        self._pending: dict[str, RewardClaimAuthorization] = {}
+        self._lock = threading.Lock()
+
+    def _register(self, authorization: RewardClaimAuthorization) -> None:
+        with self._lock:
+            expired = [
+                token for token, item in self._pending.items()
+                if item.expires_monotonic_ns <= authorization.issued_monotonic_ns
+            ]
+            for token in expired:
+                del self._pending[token]
+            if authorization.authorization_id in self._pending:
+                raise RewardClaimAuthorizationError("duplicate authorization identifier")
+            if len(self._pending) >= self._maximum_pending:
+                raise RewardClaimAuthorizationError(
+                    "too many unconsumed reward authorizations; fail closed"
+                )
+            self._pending[authorization.authorization_id] = authorization
+
+    def consume(
+        self,
+        authorization: RewardClaimAuthorization,
+        *,
+        now_monotonic_ns: int | None = None,
+    ) -> None:
+        """Atomically consume one registered authorization; this sends no input."""
+        if not isinstance(authorization, RewardClaimAuthorization):
+            raise RewardClaimAuthorizationError("authorization object is invalid")
+        now = time.monotonic_ns() if now_monotonic_ns is None else now_monotonic_ns
+        if isinstance(now, bool) or not isinstance(now, int):
+            raise RewardClaimAuthorizationError("consumption clock must be monotonic nanoseconds")
+        token = authorization.authorization_id
+        with self._lock:
+            registered = self._pending.get(token)
+            if registered is not authorization:
+                raise RewardClaimAuthorizationError(
+                    "authorization is unknown, foreign, or already consumed"
+                )
+            if now < authorization.issued_monotonic_ns:
+                raise RewardClaimAuthorizationError(
+                    "consumption clock precedes authorization issuance"
+                )
+            if now > authorization.expires_monotonic_ns:
+                del self._pending[token]
+                raise RewardClaimAuthorizationError(
+                    "reward authorization expired before consumption"
+                )
+            del self._pending[token]
+
+    @property
+    def pending_count(self) -> int:
+        with self._lock:
+            return len(self._pending)
+
+
 class RewardClaimGate:
     """Issue non-executable, frame-bound claim authorization from approved calibration."""
 
@@ -198,6 +271,12 @@ class RewardClaimGate:
         ):
             raise ValueError("approved calibrations must map template SHA-256 to calibration IDs")
         self._approved = approved
+        self._authorization_registry = RewardClaimAuthorizationRegistry()
+
+    @property
+    def authorization_registry(self) -> RewardClaimAuthorizationRegistry:
+        """Return this gate's process-local one-time consumption ledger."""
+        return self._authorization_registry
 
     def authorize(
         self,
@@ -225,7 +304,7 @@ class RewardClaimGate:
             raise RewardClaimAuthorizationError(
                 "one or more verified state frames are stale; recapture before authorization"
             )
-        return RewardClaimAuthorization(
+        authorization = RewardClaimAuthorization(
             frame_id=target.frame_id,
             frame_sha256=target.frame_sha256,
             calibration_id=target.calibration_id,
@@ -236,5 +315,8 @@ class RewardClaimGate:
             target_bounds=(target.left, target.top, target.right, target.bottom),
             template_sha256=target.template_sha256,
             issued_monotonic_ns=now,
+            authorization_id=secrets.token_urlsafe(32),
             expires_monotonic_ns=now + self._authorization_ttl_ns,
         )
+        self._authorization_registry._register(authorization)
+        return authorization
