@@ -764,6 +764,25 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     "promoting it is a runtime-config change, not a dispatch decision."
                 )
             requirement = _mission_requirement(args, target_fleet_id, target_mission_id)
+            _capture_home_reference(game_session)
+
+            def verify_state(expected: str, *, visual_attempts: int = 3) -> UiStateEvidence:
+                state = UiState(expected)
+                evidence = _require_ui_state(
+                    game_session, state, visual_attempts=visual_attempts
+                )
+                return UiStateEvidence(
+                    state=state.value,
+                    consecutive_states=(state.value, state.value),
+                    evidence=evidence,
+                )
+
+            def refresh_verify_state(expected: str) -> UiStateEvidence:
+                # Six visual samples are the live-verified setting for the
+                # freshness navigation checkpoints (2026-11-03 archive). The
+                # dispatch checkpoints keep their stricter three-sample gate.
+                return verify_state(expected, visual_attempts=6)
+
             runtime = build_runtime(
                 database_path=args.database,
                 observer_script=args.observer_script,
@@ -771,18 +790,10 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 max_state_age_seconds=args.max_state_age_seconds,
                 dispatch_fleet_ids=(target_fleet_id,),
                 mission_requirements={target_fleet_id: requirement},
-                enable_ui_refresh=False,
+                enable_ui_refresh=args.enable_ui_refresh,
+                ui_input=game_session.input if args.enable_ui_refresh else None,
+                ui_state_verifier=refresh_verify_state if args.enable_ui_refresh else None,
             )
-            _capture_home_reference(game_session)
-
-            def verify_state(expected: str) -> UiStateEvidence:
-                state = UiState(expected)
-                evidence = _require_ui_state(game_session, state)
-                return UiStateEvidence(
-                    state=state.value,
-                    consecutive_states=(state.value, state.value),
-                    evidence=evidence,
-                )
 
             def capture_frame() -> str:
                 game_session.transport.send(
@@ -831,7 +842,11 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 dispatch_coordinator=dispatch_coordinator,
                 state_reader=runtime.monitor.state_reader,
                 ui_driver=ui_driver,
-                ui_arbiter=UiOperationArbiter(),
+                # The refresh driver and this controller must share one
+                # arbiter, or their visible clicks would not be mutually
+                # excluded. With refresh disabled there is no refresh driver,
+                # so a fresh arbiter is sufficient.
+                ui_arbiter=runtime.ui_arbiter or UiOperationArbiter(),
                 mission_requirements=runtime.monitor.mission_requirements,
                 event_sink=runtime.monitor.event_sink,
                 allow_ui_actions=True,
@@ -852,6 +867,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 ],
                 deferred_fleets=list(RUNTIME_CONFIG.deferred_fleet_ids),
                 game_api_requests=False,
+                ui_refresh_enabled=args.enable_ui_refresh,
             )
             result = supervisor.tick()
             if result.paused_reason is not None or not result.dispatches:
@@ -921,7 +937,7 @@ def _main_impl(argv: list[str] | None = None) -> int:
         "--authorize-ui-actions",
         action="store_true",
         required=True,
-        help="Explicitly authorize the fixed Fleet 3 -> mission 3 visible-UI dispatch",
+        help="Explicitly authorize the visible-UI dispatch named by --fleet-id/--mission-id",
     )
     parser.add_argument(
         "--database",
@@ -936,6 +952,14 @@ def _main_impl(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--observer-timeout-seconds", type=float, default=RUNTIME_CONFIG.observer_timeout_seconds)
     parser.add_argument("--max-state-age-seconds", type=float, default=RUNTIME_CONFIG.max_state_age_seconds)
+    parser.add_argument(
+        "--no-ui-refresh",
+        dest="enable_ui_refresh",
+        action="store_false",
+        default=True,
+        help="Disable the six-sample visible freshness navigation (diagnostic only; "
+             "without a fresh natural /api_port/port witness the supervisor fails closed)",
+    )
     parser.add_argument(
         "--fleet-id",
         type=int,

@@ -195,6 +195,7 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
             scheduler=scheduler,
             monitor=monitor,
             provider=provider,
+            ui_arbiter=None,
         )
         return runtime, reader, provider
 
@@ -208,6 +209,7 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
         args.observer_script = ROOT / "tools" / "observer.js"
         args.observer_timeout_seconds = 5.0
         args.max_state_age_seconds = 30.0
+        args.enable_ui_refresh = True
         # The dispatch target is now an argument rather than a constant, so the
         # stub has to carry a real master-data id: an unset MagicMock attribute
         # is deliberately refused rather than coerced.
@@ -259,29 +261,48 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
             game_session.__enter__.return_value = game_session
             game_session.__exit__.return_value = False
 
+            state_checks = []
+
+            def fake_require_state(_session, state, **kwargs):
+                state_checks.append((state.value, kwargs.get("visual_attempts", 3)))
+                return "two_consecutive_in_memory_ooi_fingerprints"
+
             with ExitStack() as stack:
                 stack.enter_context(
                     patch.object(entry, "connect_game_webview", return_value=game_session)
                 )
                 stack.enter_context(patch.object(entry, "_capture_home_reference"))
                 stack.enter_context(
-                    patch.object(
-                        entry, "_require_ui_state",
-                        return_value="two_consecutive_in_memory_ooi_fingerprints",
-                    )
+                    patch.object(entry, "_require_ui_state", side_effect=fake_require_state)
                 )
                 stack.enter_context(patch.object(entry, "_print_event"))
                 self.patch_evidence_sources(stack, marks=marks)
                 # HOME_REFERENCE_SETTLE_SECONDS is deliberately left real: it is
                 # the pause the production frame capture uses, and the click
                 # order below must not depend on it being zero.
+                built = {}
+
+                def fake_build(**kwargs):
+                    built.update(kwargs)
+                    return runtime
+
                 with patch.object(monitor_runtime, "build_runtime",
-                                  return_value=runtime) as build:
+                                  side_effect=fake_build) as build:
                     self.assertEqual(entry.run(args), 0)
+                    # Dispatch checkpoints keep the stricter three-sample gate,
+                    # while the freshness navigation gets the live-verified six.
+                    self.assertTrue(state_checks)
+                    self.assertEqual({attempts for _, attempts in state_checks}, {3})
+                    state_checks.clear()
+                    built["ui_state_verifier"]("HOME_PORT")
+                    self.assertEqual(state_checks, [("HOME_PORT", 6)])
 
             build.assert_called_once()
             self.assertEqual(build.call_args.kwargs["dispatch_fleet_ids"], (3,))
-            self.assertFalse(build.call_args.kwargs["enable_ui_refresh"])
+            self.assertTrue(build.call_args.kwargs["enable_ui_refresh"])
+            self.assertIs(build.call_args.kwargs["ui_input"], game_session.input)
+            refresh_verifier = build.call_args.kwargs["ui_state_verifier"]
+            self.assertIsNotNone(refresh_verifier)
             self.assertEqual(
                 game_session.input.clicks,
                 [
@@ -357,6 +378,28 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
 
             build.assert_not_called()
             self.assertEqual(game_session.input.clicks, [])
+
+
+    def test_cli_enables_ui_refresh_by_default_and_can_disable_it(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            log = Path(temporary) / "loop.jsonl"
+            common = [
+                "--authorize-ui-actions", "--fleet-id", "3", "--mission-id", "3",
+                "--log-path", str(log),
+            ]
+            with (
+                # _main_impl rebinds these module globals; restore them so a
+                # later test never writes to a temporary directory that is gone.
+                patch.object(entry, "LOG_PATH", entry.LOG_PATH),
+                patch.object(entry, "RUN_ID", entry.RUN_ID),
+                patch.object(entry, "HOME_REFERENCE_BASE64", entry.HOME_REFERENCE_BASE64),
+                patch.object(entry, "_print_event"),
+                patch.object(entry, "run", return_value=0) as run,
+            ):
+                self.assertEqual(entry._main_impl(common), 0)
+                self.assertTrue(run.call_args.args[0].enable_ui_refresh)
+                self.assertEqual(entry._main_impl([*common, "--no-ui-refresh"]), 0)
+                self.assertFalse(run.call_args.args[0].enable_ui_refresh)
 
 
 if __name__ == "__main__":
