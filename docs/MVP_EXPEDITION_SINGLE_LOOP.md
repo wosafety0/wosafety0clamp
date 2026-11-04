@@ -634,3 +634,11 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - **CRASH/RESTART:** protocol phase and registry are process-local. A restart loses both; old authorizations must be discarded. The new process must inspect the current visible state and create fresh evidence and authorization. It must never resume an input from a pre-crash authorization.
 - **TESTS ADDED:** `tests/test_reward_claim_protocol.py` covers the one-shot transition sequence, changed frame, expiry, replay/second attempt, post-input frame timestamps, and unknown outcome. GitHub Actions [41775989058](https://github.com/wosafety0/wosafety0clamp/actions/runs/41775989058) passed 636 Python tests with zero skips, plus all other workflow checks.
 - **LIMITS:** no production click executor, live template, calibration, post-click visual classifier, or supervisor integration was added. Reward collection remains disabled; this is not live-verified.
+
+
+## 2026-11-04 — Oldest reward-state frame freshness at consumption
+
+- **IMPLEMENTED:** `RewardClaimAuthorization` now carries the capture timestamp of the oldest frame in its two-frame BONUS_ITEMS evidence. `assert_same_frame()` rechecks that timestamp against the authorization TTL at the input boundary.
+- **FAIL-CLOSED:** a first frame that ages beyond the TTL is rejected even if the authorization object has not reached its own expiry time. No input attempt may follow that rejection.
+- **TESTS ADDED:** gate and protocol regressions cover the boundary where the first frame has expired but the authorization itself is still nominally valid. CI is pending for the latest code commit.
+- **LIMITS:** this is offline time-bound validation only; it does not provide live screen capture, input execution, or post-click acceptance.
