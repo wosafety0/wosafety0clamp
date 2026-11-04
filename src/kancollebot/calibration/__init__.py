@@ -46,6 +46,21 @@ from .expedition_list import (
     scan_page,
     signature_from_key,
 )
+from .expedition_catalog import (
+    AREA_KANTO,
+    AREA_NANSEI_ISLANDS,
+    AREA_NORTHERN,
+    AREA_SOUTHERN,
+    AREA_SOUTHWEST,
+    AREA_WESTERN,
+    DEFAULT_CATALOG,
+    RETRIEVED_ON as CATALOG_RETRIEVED_ON,
+    SOURCE as CATALOG_SOURCE,
+    CatalogEntry,
+    Coverage,
+    ExpeditionCatalog,
+    ExpeditionCatalogError,
+)
 from .expedition_rows import (
     DEFAULT_DARK_THRESHOLD,
     DEFAULT_MERGE_GAP,
@@ -64,6 +79,15 @@ from .expedition_rows import (
 from .png import PngError, RgbImage, decode_png, encode_png, stack_vertically
 
 __all__ = [
+    "AREA_KANTO",
+    "AREA_NANSEI_ISLANDS",
+    "AREA_NORTHERN",
+    "AREA_SOUTHERN",
+    "AREA_SOUTHWEST",
+    "AREA_WESTERN",
+    "CATALOG_RETRIEVED_ON",
+    "CATALOG_SOURCE",
+    "DEFAULT_CATALOG",
     "DEFAULT_CLICK_X",
     "DEFAULT_DARK_THRESHOLD",
     "DEFAULT_MERGE_GAP",
@@ -90,6 +114,10 @@ __all__ = [
     "AreaTabs",
     "BoundaryState",
     "ButtonCandidate",
+    "CatalogEntry",
+    "Coverage",
+    "ExpeditionCatalog",
+    "ExpeditionCatalogError",
     "ExpeditionListError",
     "ExpeditionListIndex",
     "ExpeditionRow",

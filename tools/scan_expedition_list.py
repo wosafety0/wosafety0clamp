@@ -34,6 +34,7 @@ if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
 from kancollebot.calibration import (  # noqa: E402
+    DEFAULT_CATALOG,
     DEFAULT_PANEL_BOX,
     BoundaryState,
     ExpeditionListError,
@@ -88,6 +89,22 @@ def _parse_label(text: str) -> tuple[int | None, int, str]:
     if row < 1:
         raise argparse.ArgumentTypeError("--label row is 1-based")
     return page, row, expedition_id
+
+
+def _infer_area(numbers: tuple[str, ...]) -> str | None:
+    """Pick the catalogue area when every recognised number belongs to one.
+
+    The tab index cannot be mapped to an area name without reading the label,
+    but the numbers themselves are unambiguous, so a homogeneous list identifies
+    its own area. A mixed or entirely unknown list returns ``None`` and the
+    caller must pass ``--area``.
+    """
+    areas = {
+        area
+        for area in (DEFAULT_CATALOG.area_of(number) for number in numbers)
+        if area is not None
+    }
+    return next(iter(areas)) if len(areas) == 1 else None
 
 
 def capture_screenshot(destination: Path) -> Path:
@@ -214,6 +231,18 @@ def main(argv: list[str] | None = None) -> int:
         help="resolve expedition names from the mission master data (read-only)",
     )
     parser.add_argument(
+        "--catalog",
+        action="store_true",
+        help=(
+            "compare the observed rows with the offline wiki catalogue and name them; "
+            "the catalogue is an account-independent ceiling, not this account's unlock state"
+        ),
+    )
+    parser.add_argument(
+        "--area",
+        help="catalogue area to compare against, e.g. 鎮守府海域 (inferred from the numbers when omitted)",
+    )
+    parser.add_argument(
         "--propose-scroll",
         choices=("up", "down"),
         help="print the next scroll step that would be structurally safe",
@@ -320,10 +349,23 @@ def main(argv: list[str] | None = None) -> int:
 
     latest = scans[-1]
     boundary = classify_boundary(latest)
-    entries = index.entries()
+    entries = index.entries(DEFAULT_CATALOG.name_of if args.catalog else None)
     unbound = index.unbound_rows
     order_check = "unverified"
     names: dict[str, str] = {}
+    coverage = None
+    if args.catalog:
+        observed_ids = tuple(entry.expedition_id for entry in entries)
+        area = args.area or _infer_area(observed_ids)
+        try:
+            coverage = DEFAULT_CATALOG.coverage(observed_ids, area=area)
+        except ValueError as exc:
+            print(f"CATALOG_QUERY_INVALID: {exc}", file=sys.stderr)
+            return 2
+        for entry in entries:
+            resolved = DEFAULT_CATALOG.name_of(entry.expedition_id)
+            if resolved:
+                names.setdefault(entry.expedition_id, resolved)
     if args.names:
         try:
             records = master_records()
@@ -345,6 +387,20 @@ def main(argv: list[str] | None = None) -> int:
     print(f"boundary         : {boundary.state.value} ({boundary.reason})")
     print(f"rows identified  : {sum(1 for entry in entries if entry.visible)}/{len(latest.rows)}")
     print(f"display order    : {order_check}")
+
+    if coverage is not None:
+        scope = coverage.area or "all areas (numbers mixed or unrecognised)"
+        print()
+        print("=== catalogue coverage (wiki ceiling, not this account) ===")
+        print(f"  area       : {scope}")
+        print(f"  observed   : {len(coverage.observed)}")
+        print(f"  missing    : {', '.join(coverage.missing) if coverage.missing else 'none'}")
+        print(f"  extra      : {', '.join(coverage.foreign) if coverage.foreign else 'none'}")
+        print(
+            "  note       : 'missing' means locked here OR never scanned; "
+            "pixels cannot tell the two apart"
+        )
+        print(f"  source     : {DEFAULT_CATALOG.source} ({DEFAULT_CATALOG.retrieved_on})")
 
     if entries:
         print()
@@ -409,6 +465,20 @@ def main(argv: list[str] | None = None) -> int:
         "capacity": latest.capacity,
         "boundary": {"state": boundary.state.value, "reason": boundary.reason},
         "display_order_check": order_check,
+        "catalog": (
+            None
+            if coverage is None
+            else {
+                "area": coverage.area,
+                "observed": list(coverage.observed),
+                "missing": list(coverage.missing),
+                "extra": list(coverage.foreign),
+                "complete": coverage.is_complete,
+                "size": len(DEFAULT_CATALOG),
+                "source": DEFAULT_CATALOG.source,
+                "retrieved_on": DEFAULT_CATALOG.retrieved_on,
+            }
+        ),
         "scroll_candidates": [
             {"center": list(candidate.center), "width": candidate.width, "height": candidate.height}
             for candidate in latest.scroll_candidates

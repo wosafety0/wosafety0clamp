@@ -18,9 +18,12 @@ is recovered by matching signatures across pages, so new expeditions (``A2``,
 ``B1``, ...) never require a code change: they simply arrive unbound and are
 labelled once.
 
-A ``2026-11-04`` walk of ``鎮守府海域`` showed how much that matters: the tab held
-twelve entries (``01`` .. ``08`` then ``A1`` .. ``A4``), so four of them existed
-only on pages the eight-row viewport never showed. One click of the gold
+A ``2026-11-04`` walk of ``鎮守府海域`` showed how much that matters: that account
+had unlocked twelve entries (``01`` .. ``08`` then ``A1`` .. ``A4``), so four of
+them existed only on pages the eight-row viewport never showed. Twelve is that
+account's unlock state, *not* the size of the area: ``expedition_catalog``
+records fourteen for the same area (adding ``A5``/``A6``), and the two numbers
+must not be conflated. One click of the gold
 chevron scrolls exactly one row, and the ``PREV``/``NEXT`` chevrons are drawn
 only while there is somewhere to go: ``PREV`` was absent on the first page and
 ``NEXT`` on the last, which is how a paging loop recognises both ends.
@@ -32,6 +35,7 @@ module only tells it what a structurally safe step would be.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -893,12 +897,19 @@ class ExpeditionListIndex:
             for row in record.unbound_rows
         )
 
-    def entries(self) -> tuple[ListEntry, ...]:
+    def entries(
+        self, name_resolver: Callable[[str], str | None] | None = None
+    ) -> tuple[ListEntry, ...]:
         """Merge the pages, de-duplicating by expedition number.
 
         A row that survives a scroll is seen more than once; the repeat must sit
         at the same list position, which is what proves the pages were aligned
         correctly. The latest page decides which entries are visible.
+
+        ``name_resolver`` optionally maps a number to its name (``ExpeditionCatalog
+        .name_of`` fits). It only decorates the result: identity still comes from
+        the pixel bindings, so a catalogue that lacks a number leaves ``name``
+        unset rather than invalidating the row.
         """
         latest = self.pages[-1] if self.pages else None
         merged: dict[str, ListEntry] = {}
@@ -923,6 +934,11 @@ class ExpeditionListIndex:
                     visible=visible,
                     scroll_page=record.page,
                     center=row.click_point if visible else None,
+                    name=(
+                        None
+                        if name_resolver is None
+                        else name_resolver(expedition_id)
+                    ),
                 )
         return tuple(sorted(merged.values(), key=lambda entry: positions[entry.expedition_id]))
 

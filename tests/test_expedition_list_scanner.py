@@ -15,6 +15,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from kancollebot.calibration import (
+    DEFAULT_CATALOG,
     DEFAULT_SCROLL_DOWN_BOX,
     DEFAULT_SCROLL_UP_BOX,
     BoundaryState,
@@ -470,6 +471,24 @@ class IndexTests(unittest.TestCase):
         self.assertTrue(by_id["A1"].visible)
         self.assertEqual(by_id["A1"].scroll_page, 1)
         self.assertEqual(round(by_id["A1"].center[1]), ROW_TOP + ROW_PITCH * 2 + ROW_HEIGHT // 2)
+
+    def test_entries_take_names_from_the_catalogue_without_changing_identity(self) -> None:
+        index = ExpeditionListIndex()
+        index.add_page(_scan([0, 1, 2]))
+        index.label_row(0, 1, "01")
+        index.label_row(0, 2, "A5")
+        index.label_row(0, 3, "ZZ")
+        by_id = {entry.expedition_id: entry for entry in index.entries(DEFAULT_CATALOG.name_of)}
+        self.assertEqual(by_id["01"].name, "練習航海")
+        self.assertEqual(by_id["A5"].name, "小笠原沖哨戒線")
+        # A number the catalogue does not know stays unnamed, not invalid.
+        self.assertIsNone(by_id["ZZ"].name)
+
+    def test_entries_without_a_resolver_leave_names_unset(self) -> None:
+        index = ExpeditionListIndex()
+        index.add_page(_scan([0, 1]))
+        index.label_row(0, 1, "01")
+        self.assertIsNone(index.entries()[0].name)
 
     def test_earlier_pages_are_resolved_when_a_row_is_labelled(self) -> None:
         index = ExpeditionListIndex()
