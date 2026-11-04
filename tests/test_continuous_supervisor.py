@@ -21,6 +21,16 @@ class FakeScheduler:
     def fleet(self, fleet_id):
         return self.states[fleet_id]
 
+    def confirm_return_result(self, fleet_id, *, ui_state):
+        if self.states[fleet_id].phase is not FleetPhase.RETURNED_PENDING_UI or ui_state != "RETURN_RESULT":
+            raise AssertionError("invalid RETURN_RESULT transition")
+        self.states[fleet_id].phase = FleetPhase.RETURN_RESULT
+
+    def confirm_bonus_items(self, fleet_id, *, ui_state):
+        if self.states[fleet_id].phase is not FleetPhase.RETURN_RESULT or ui_state != "BONUS_ITEMS":
+            raise AssertionError("invalid BONUS_ITEMS transition")
+        self.states[fleet_id].phase = FleetPhase.BONUS_ITEMS
+
 
 class FakeMonitor:
     def __init__(self, scheduler, state_reader, event_sink):
@@ -32,6 +42,24 @@ class FakeMonitor:
     def tick(self):
         self.calls += 1
         return SimpleNamespace(fleets=())
+
+
+class FakeSettlementObserver:
+    def __init__(self, states):
+        self.states = list(states)
+        self.calls = []
+
+    def observe(self, fleet_id, expected_state):
+        self.calls.append((fleet_id, expected_state))
+        observed = self.states.pop(0)
+        if observed != expected_state:
+            raise RuntimeError("settlement state mismatch")
+        return SimpleNamespace(
+            fleet_id=fleet_id,
+            state=observed,
+            consecutive_states=(observed, observed),
+            evidence="two-frame-test",
+        )
 
 
 class FakeController:
@@ -77,6 +105,7 @@ class ContinuousExpeditionSupervisorTests(unittest.TestCase):
         enabled=True,
         verify_home_port=True,
         returned_fleets=(),
+        settlement_observer=None,
     ):
         scheduler = FakeScheduler(phases, home_verified)
         reader = object()
@@ -93,6 +122,7 @@ class ContinuousExpeditionSupervisorTests(unittest.TestCase):
         return ContinuousExpeditionSupervisor(
             monitor=monitor,
             dispatch_controller=controller,
+            settlement_observer=settlement_observer,
         ), scheduler, monitor, controller
 
     def test_dispatches_ready_fleets_sequentially_in_configured_order(self):
@@ -143,6 +173,69 @@ class ContinuousExpeditionSupervisorTests(unittest.TestCase):
             report.paused_reason,
             "fleet_2_home_port_verification_required",
         )
+
+    def test_returned_pending_ui_advances_to_return_result_from_two_frame_evidence(self):
+        observer = FakeSettlementObserver(["RETURN_RESULT"])
+        supervisor, scheduler, _, controller = self.make_supervisor(
+            {2: FleetPhase.RETURNED_PENDING_UI, 3: FleetPhase.READY},
+            settlement_observer=observer,
+        )
+        report = supervisor.tick()
+        self.assertEqual(observer.calls, [(2, "RETURN_RESULT")])
+        self.assertEqual(scheduler.fleet(2).phase, FleetPhase.RETURN_RESULT)
+        self.assertEqual(controller.calls, [])
+        self.assertEqual(report.paused_reason, "fleet_2_settlement_pending")
+
+    def test_return_result_advances_to_bonus_items_from_two_frame_evidence(self):
+        observer = FakeSettlementObserver(["BONUS_ITEMS"])
+        supervisor, scheduler, _, controller = self.make_supervisor(
+            {2: FleetPhase.RETURN_RESULT, 3: FleetPhase.READY},
+            settlement_observer=observer,
+        )
+        report = supervisor.tick()
+        self.assertEqual(observer.calls, [(2, "BONUS_ITEMS")])
+        self.assertEqual(scheduler.fleet(2).phase, FleetPhase.BONUS_ITEMS)
+        self.assertEqual(controller.calls, [])
+        self.assertEqual(report.paused_reason, "fleet_2_settlement_pending")
+
+    def test_multiple_pending_settlements_are_not_attributed_to_one_screen(self):
+        observer = FakeSettlementObserver(["RETURN_RESULT"])
+        supervisor, scheduler, _, controller = self.make_supervisor(
+            {
+                2: FleetPhase.RETURNED_PENDING_UI,
+                3: FleetPhase.RETURN_RESULT,
+            },
+            settlement_observer=observer,
+        )
+        report = supervisor.tick()
+        self.assertEqual(observer.calls, [])
+        self.assertEqual(scheduler.fleet(2).phase, FleetPhase.RETURNED_PENDING_UI)
+        self.assertEqual(scheduler.fleet(3).phase, FleetPhase.RETURN_RESULT)
+        self.assertEqual(controller.calls, [])
+        self.assertEqual(report.paused_reason, "fleet_2_settlement_pending")
+
+    def test_settlement_observation_mismatch_stops_tick_without_dispatch(self):
+        observer = FakeSettlementObserver(["BONUS_ITEMS"])
+        supervisor, scheduler, _, controller = self.make_supervisor(
+            {2: FleetPhase.RETURNED_PENDING_UI, 3: FleetPhase.READY},
+            settlement_observer=observer,
+        )
+        with self.assertRaisesRegex(RuntimeError, "settlement state mismatch"):
+            supervisor.tick()
+        self.assertEqual(scheduler.fleet(2).phase, FleetPhase.RETURNED_PENDING_UI)
+        self.assertEqual(controller.calls, [])
+
+    def test_bonus_items_is_not_advanced_without_reward_claim_evidence(self):
+        observer = FakeSettlementObserver(["HOME_PORT"])
+        supervisor, scheduler, _, controller = self.make_supervisor(
+            {2: FleetPhase.BONUS_ITEMS, 3: FleetPhase.READY},
+            settlement_observer=observer,
+        )
+        report = supervisor.tick()
+        self.assertEqual(observer.calls, [])
+        self.assertEqual(scheduler.fleet(2).phase, FleetPhase.BONUS_ITEMS)
+        self.assertEqual(controller.calls, [])
+        self.assertEqual(report.paused_reason, "fleet_2_settlement_pending")
 
     def test_pending_settlement_pauses_all_dispatches(self):
         for phase in (
