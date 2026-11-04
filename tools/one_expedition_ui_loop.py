@@ -49,6 +49,7 @@ from kancollebot.adapters.poi.visual_fingerprint import (  # noqa: E402
     classify_screenshot_fingerprints,
     classify_supply_checkbox_state,
 )
+from kancollebot.expeditions.settlement_observer import SettlementStateObserver  # noqa: E402
 from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
 
 
@@ -682,9 +683,13 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 allow_ui_actions=True,
                 max_state_age=timedelta(seconds=args.max_state_age_seconds),
             )
+            settlement_observer = SettlementStateObserver(
+                verify_state=verify_state,
+            )
             supervisor = ContinuousExpeditionSupervisor(
                 monitor=runtime.monitor,
                 dispatch_controller=dispatch_controller,
+                settlement_observer=settlement_observer,
             )
 
             _print_event(
