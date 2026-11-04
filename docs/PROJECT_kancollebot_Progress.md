@@ -3764,3 +3764,12 @@ The Hand plugin's read-only probe reported:
 - Exact-head Push CI [run 41738598261](https://github.com/wosafety0/wosafety0clamp/actions/runs/41738598261) succeeded: Node static tests 17/17, observer node --check, package/unified CLI smoke checks, compileall, and 762 Python tests (20 skipped).
 - Remote readback: README blob 1a2226160c7f049f32d11a13401e90b91704caee; HANDOFF blob 6f86d551e6f9a99f66d50dccc92bf2f7d7c9b0fc; progress blob d24183ba205005342fb13717d1e29912a874a202.
 - This is documentation reconciliation only. No Poi connection, game input, runtime evaluation, page JavaScript, getter access, or system change occurred.
+
+
+## 2026-11-04 — Offline multi-page expedition scan session
+
+- **IMPLEMENTED:** Added `src/kancollebot/calibration/expedition_scan_session.py` and public calibration exports. A session is scoped to one positively identified area tab, appends only pages that align with the preceding capture, reuses the existing signature index for overlap alignment and expedition-ID de-duplication, and reports unchanged views as no progress without appending duplicates.
+- **SAFETY:** Unknown tabs, cross-tab captures, unalignable page transitions, and stale end-marker evidence are rejected. A session is not complete because a page is short, a row count is small, a view is unchanged, or a scroll affordance is merely suspected. Completion requires externally/independently verified end-marker evidence tied to the exact latest page and stable IDs for every visible row.
+- **TESTED:** Exact-head GitHub Actions CI [run 41749603217](https://github.com/wosafety0/wosafety0clamp/actions/runs/41749603217) passed on `cb79e90773b4d3daae57cc718f8b37c69eb7b81d`: **773 Python tests, 20 skipped, no failures**; Node static tests 17/17; passive observer syntax check; package/unified CLI smoke checks; Python compileall.
+- **LIMITS:** This is an offline coordinator over supplied `PageScan` values. No Poi connection, screenshot capture, live scrolling, clicking, game API request, dispatch, supply, reward collection, or system change occurred. The independent visual end-marker detector and a live scroll/capture workflow remain unimplemented; the dynamic expedition catalogue is therefore not yet verified complete.
+- **REMOTE:** Draft PR [#32](https://github.com/wosafety0/wosafety0clamp/pull/32), stacked on PR #31, branch `dev/expedition-scan-session-20261104`. No merge was performed.
