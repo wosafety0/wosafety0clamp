@@ -542,3 +542,9 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - **FAIL-CLOSED:** repeated frame IDs, repeated image hashes, out-of-order frame IDs, or a target localized on any frame other than the second verified frame are rejected before authorization.
 - **TESTS ADDED:** regression cases cover reused/out-of-order frame IDs, duplicate image fingerprints, and target-to-second-frame mismatch.
 - **LIMITS:** this validates caller-supplied provenance metadata; it does not itself capture screenshots or prove that a caller hashed the actual raw Poi frame. The production capture pipeline must supply IDs and hashes directly from the same in-memory frame objects. No click executor or live calibration was added.
+
+## 2026-11-04 — Exact-byte in-memory Poi frame capture primitive
+
+- **IMPLEMENTED:** `CdpInput.capture_frame()` returns an immutable `CapturedFrame` containing a process-monotonic frame ID, monotonic capture timestamp, exact PNG bytes, and SHA-256 computed internally from those bytes. It rejects invalid base64 and non-PNG payloads; the original screenshot string API remains available for existing callers.
+- **TESTS ADDED:** verify exact-byte digest, monotonically increasing IDs, base64 round-trip, non-PNG rejection, and fabricated-digest rejection.
+- **LIMITS:** this is a reusable capture primitive only. The settlement verifier and reward target locator are not yet wired to consume the same `CapturedFrame` instances, so it does not yet establish end-to-end provenance or enable reward authorization. No click path was added.
