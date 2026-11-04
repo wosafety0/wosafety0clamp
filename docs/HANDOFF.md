@@ -208,3 +208,11 @@ The purpose of this inventory is to prevent a new developer from mistaking an ol
 - **RUNTIME BEHAVIOR:** with valid configuration, the entry logs authorization frame ID/hash, calibration ID, target center/bounds and template hash. Without configuration it logs that authorization is unavailable. Neither branch sends UI input; no click executor is present.
 - **TESTS:** GitHub Actions run [41773389790](https://github.com/wosafety0/wosafety0clamp/actions/runs/41773389790) passed 620 tests with OpenCV/NumPy enabled and zero skips. The new end-to-end synthetic test verifies the production evidence → exact-frame localization → explicit-template allowlist → non-executable authorization path.
 - **LIMITS:** this is synthetic/offline validation only. No real reward template, live calibration region, or approved template digest has been obtained. Do not configure the environment values from guessed coordinates or synthetic assets. Reward clicking remains disabled; no live Poi behavior is claimed.
+
+
+## 2026-11-04 — Reward authorization freshness and expiry
+
+- **IMPLEMENTED:** reward authorization now rejects a target whose captured frame is older than the configured authorization TTL (default 2 seconds), or whose monotonic capture timestamp is later than authorization time.
+- **EXPIRY:** each authorization records monotonic issue and expiry timestamps. `assert_same_frame` rejects use after expiry as well as a changed frame ID/hash. The authorization remains non-executable; no click operation was added.
+- **TESTS:** GitHub Actions run [41773910790](https://github.com/wosafety0/wosafety0clamp/actions/runs/41773910790) passed 623 tests, zero skipped. Coverage includes stale target rejection, future timestamps, and authorization expiry.
+- **LIMITS:** the two-second TTL is a conservative freshness guard for a future action boundary, not proof of live screen continuity. A future executor must call `assert_same_frame` immediately before any authorized input and independently verify the post-action state. No executor exists or is enabled.
