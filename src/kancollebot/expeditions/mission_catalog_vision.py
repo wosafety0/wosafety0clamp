@@ -10,7 +10,6 @@ from __future__ import annotations
 import base64
 import math
 from dataclasses import dataclass
-from typing import Any
 
 from .mission_catalog_scan import (
     ExpeditionListPageObservation,

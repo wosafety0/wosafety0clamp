@@ -9,6 +9,7 @@ from kancollebot.expeditions.mission_catalog_vision import (
     MissionRowTemplate,
     ScrollbarThumbDetection,
     build_expedition_list_page,
+    recognize_expedition_list_screenshot,
 )
 
 
@@ -223,6 +224,131 @@ class BuildExpeditionListPageTests(unittest.TestCase):
     def test_rejects_thumb_width_exceeding_track(self):
         with self.assertRaisesRegex(ExpeditionListVisionError, "inside"):
             ScrollbarThumbDetection((620, 130, 20, 40), (620, 100, 12, 200), 0.99)
+
+
+class FakeArray:
+    def __init__(self, height, width, tag):
+        self.shape = (height, width)
+        self.size = height * width
+        self.tag = tag
+
+    def __getitem__(self, key):
+        y_slice, x_slice = key
+        y0 = y_slice.start or 0
+        y1 = y_slice.stop if y_slice.stop is not None else self.shape[0]
+        x0 = x_slice.start or 0
+        x1 = x_slice.stop if x_slice.stop is not None else self.shape[1]
+        return FakeArray(y1 - y0, x1 - x0, f"{self.tag}@{x0},{y0},{x1 - x0},{y1 - y0}")
+
+
+class FakeScoreMap:
+    def __init__(self, shape, matches):
+        self.shape = shape
+        self.matches = [list(item) for item in matches]
+
+    def copy(self):
+        return FakeScoreMap(self.shape, self.matches)
+
+    def __setitem__(self, key, value):
+        y_slice, x_slice = key
+        y0, y1 = y_slice.start or 0, y_slice.stop
+        x0, x1 = x_slice.start or 0, x_slice.stop
+        for item in self.matches:
+            _, x, y = item
+            if x0 <= x < x1 and y0 <= y < y1:
+                item[0] = float(value)
+
+
+class FakeNumpy:
+    uint8 = object()
+
+    @staticmethod
+    def frombuffer(raw, dtype):
+        return raw
+
+
+class FakeCv2:
+    IMREAD_GRAYSCALE = 0
+    TM_CCOEFF_NORMED = 5
+
+    def __init__(self, *, second_thumb_score=-1.0, frame_size=(1200, 720)):
+        self.second_thumb_score = second_thumb_score
+        self.frame_size = frame_size
+
+    def imdecode(self, raw, flags):
+        if raw == b"frame":
+            return FakeArray(self.frame_size[1], self.frame_size[0], "frame")
+        if raw == b"m1":
+            return FakeArray(18, 40, "m1")
+        if raw == b"m2":
+            return FakeArray(18, 40, "m2")
+        if raw == b"thumb":
+            return FakeArray(40, 12, "thumb")
+        return None
+
+    def matchTemplate(self, image, template_image, method):
+        if image.tag == "frame@100,100,500,450" and template_image.tag == "m1":
+            return FakeScoreMap((433, 461), [(0.99, 10, 20), (-0.5, 80, 200)])
+        if image.tag == "frame@100,100,500,450" and template_image.tag == "m2":
+            return FakeScoreMap((433, 461), [(0.99, 20, 100), (-0.5, 80, 200)])
+        if image.tag == "frame@620,100,12,200" and template_image.tag == "thumb":
+            return FakeScoreMap(
+                (161, 1),
+                [(0.99, 0, 30), (self.second_thumb_score, 0, 100)],
+            )
+        raise AssertionError(f"unexpected fake image/template pair: {image.tag}, {template_image.tag}")
+
+    @staticmethod
+    def minMaxLoc(score_map):
+        ranked = sorted(score_map.matches, key=lambda item: item[0])
+        minimum = ranked[0]
+        maximum = ranked[-1]
+        return minimum[0], maximum[0], (minimum[1], minimum[2]), (maximum[1], maximum[2])
+
+
+class ScreenshotRecognitionTests(unittest.TestCase):
+    def make_profile(self):
+        return ExpeditionListVisualProfile(
+            list_region=(100, 100, 500, 450),
+            scrollbar_track_region=(620, 100, 12, 200),
+            scrollbar_thumb_template_base64=encoded(b"thumb"),
+            mission_templates=(
+                MissionRowTemplate(1, "Mission One", encoded(b"m1")),
+                MissionRowTemplate(2, "Mission Two", encoded(b"m2")),
+            ),
+            scrollbar_scale_verified=True,
+        )
+
+    def test_recognizes_rows_and_scrollbar_from_mocked_png_frame(self):
+        result = recognize_expedition_list_screenshot(
+            encoded(b"frame"),
+            self.make_profile(),
+            cv2_module=FakeCv2(),
+            numpy_module=FakeNumpy(),
+        )
+        self.assertEqual([row.mission_id for row in result.page.rows], [1, 2])
+        self.assertEqual([row.bounds[:2] for row in result.row_matches], [(110, 120), (120, 200)])
+        self.assertEqual(result.page.scroll_top_px, 30.0)
+        self.assertFalse(result.page.bottom_confirmed)
+        self.assertEqual(result.scroll_progress, 30 / 160)
+
+    def test_rejects_wrong_viewport_before_matching(self):
+        with self.assertRaisesRegex(ExpeditionListVisionError, "viewport"):
+            recognize_expedition_list_screenshot(
+                encoded(b"frame"),
+                self.make_profile(),
+                cv2_module=FakeCv2(frame_size=(1280, 720)),
+                numpy_module=FakeNumpy(),
+            )
+
+    def test_rejects_ambiguous_scrollbar_thumb_matches(self):
+        with self.assertRaisesRegex(ExpeditionListVisionError, "multiple similarly strong"):
+            recognize_expedition_list_screenshot(
+                encoded(b"frame"),
+                self.make_profile(),
+                cv2_module=FakeCv2(second_thumb_score=0.98),
+                numpy_module=FakeNumpy(),
+            )
 
 
 if __name__ == "__main__":
