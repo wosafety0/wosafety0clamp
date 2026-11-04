@@ -147,6 +147,20 @@ class RewardClaimProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(RewardClaimProtocolError, "requires INPUT_ATTEMPTED"):
             protocol.mark_unknown_after_input()
 
+    def test_blocks_consumption_when_first_state_frame_is_stale_but_auth_is_unexpired(self):
+        gate, authorization = make_authorization()
+        protocol = RewardClaimExecutionProtocol(gate.authorization_registry)
+        consume_time = 2_000_001_001
+        self.assertLess(consume_time, authorization.expires_monotonic_ns)
+        with self.assertRaisesRegex(RewardClaimProtocolError, "authorization rejected"):
+            protocol.consume_before_input(
+                authorization,
+                current_frame_id=2,
+                current_frame_sha256=authorization.frame_sha256,
+                now_monotonic_ns=consume_time,
+            )
+        self.assertEqual(protocol.phase, RewardClaimExecutionPhase.BLOCKED_BEFORE_INPUT)
+
     def test_expired_authorization_is_blocked_before_input(self):
         gate, authorization = make_authorization()
         protocol = RewardClaimExecutionProtocol(gate.authorization_registry)
