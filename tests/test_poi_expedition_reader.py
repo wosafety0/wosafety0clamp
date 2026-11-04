@@ -23,12 +23,14 @@ def sample_payloads():
 
 
 class FakeClient:
-    def __init__(self, *, store_ready=True, payloads=None, tools=None, lookup=None, sequences=None):
+    def __init__(self, *, store_ready=True, payloads=None, tools=None, lookup=None,
+                 sequences=None, projected_ships=None):
         self.store_ready = store_ready
         self.payloads = payloads or sample_payloads()
         self.tools = tools or ("poi_describe", "poi_get", "poi_lookup")
         self.lookup = lookup
         self.sequences = sequences or {}
+        self.projected_ships = projected_ships
         self.sequence_counts = {}
         self.calls = []
         self.initialize_calls = 0
@@ -53,7 +55,9 @@ class FakeClient:
             payload = self.lookup if self.lookup is not None else self.payloads["lookup"]
         else:
             path = arguments["path"]
-            if path.startswith("info.ships."):
+            if path == "info.ships" and "select" in arguments and self.projected_ships is not None:
+                payload = self.projected_ships
+            elif path.startswith("info.ships."):
                 if path in self.sequences:
                     index = self.sequence_counts.get(path, 0)
                     sequence = self.sequences[path]
@@ -284,11 +288,77 @@ class PoiExpeditionReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(PoiMcpError, "missing required"):
             reader.read_fleets()
 
+    def _whole_roster_with_unreferenced_ship(self, truncated_payloads):
+        """A 3-ship roster where ship 999 is in no fleet, as a port witness is."""
+        items = dict(truncated_payloads["info.ships"]["items"])
+        items["999"] = {
+            "api_id": 999, "api_ship_id": 11, "api_nowhp": 10, "api_maxhp": 10,
+            "api_lv": 1, "api_fuel": 10, "api_bull": 10,
+        }
+        return {"kind": "object-map", "total": 3, "returned": 3,
+                "truncated": False, "items": items}
+
+    def _witness_for_whole_roster(self, roster):
+        payloads = sample_payloads()
+        payloads["info.ships"] = roster
+        return self.make_port_snapshot(payloads)
+
+    def test_truncated_roster_uses_projected_full_read_and_restores_freshness(self):
+        payloads = sample_payloads()
+        # The plain read is capped by response size (239 instances, 2 returned).
+        payloads["info.ships"]["truncated"] = True
+        payloads["info.ships"]["total"] = 3
+        payloads["info.ships"]["returned"] = 2
+        roster = self._whole_roster_with_unreferenced_ship(payloads)
+        snapshot = self._witness_for_whole_roster(roster)
+        client = FakeClient(payloads=payloads, projected_ships=roster)
+        reader = PoiExpeditionReader(
+            client=client, clock=lambda: NOW,
+            port_snapshot_provider=lambda: snapshot,
+        )
+        observed = reader.read_fleets()
+        # A whole roster is what lets the witness be compared field by field.
+        self.assertTrue(observed.source_freshness_verified)
+        projected_calls = [
+            args for name, args in client.calls
+            if name == "poi_get" and args["path"] == "info.ships" and "select" in args
+        ]
+        # One projection for the initial read, one for the consistency re-read.
+        self.assertEqual(len(projected_calls), 2)
+        self.assertIn("api_lv", projected_calls[0]["select"])
+        self.assertIn("api_cond", projected_calls[0]["select"])
+        self.assertGreaterEqual(projected_calls[0]["limit"], 239)
+        per_id_calls = [
+            args["path"] for name, args in client.calls
+            if name == "poi_get" and args["path"].startswith("info.ships.")
+        ]
+        self.assertEqual(per_id_calls, [])
+        # The projection must not silently drop composition metadata.
+        self.assertEqual(observed.payload[0].ship_levels, (1, 1))
+
+    def test_per_id_subset_fallback_never_claims_source_freshness(self):
+        payloads = sample_payloads()
+        payloads["info.ships"]["truncated"] = True
+        payloads["info.ships"]["total"] = 3
+        payloads["info.ships"]["returned"] = 2
+        roster = self._whole_roster_with_unreferenced_ship(payloads)
+        snapshot = self._witness_for_whole_roster(roster)
+        # No projected_ships: even the projected read is truncated, so the
+        # reader falls back to the two referenced instances only.
+        client = FakeClient(payloads=payloads)
+        reader = PoiExpeditionReader(
+            client=client, clock=lambda: NOW,
+            port_snapshot_provider=lambda: snapshot,
+        )
+        observed = reader.read_fleets()
+        self.assertEqual(observed.payload[0].fleet_id, 1)
+        self.assertFalse(observed.source_freshness_verified)
+
     def test_truncated_ship_payload_falls_back_to_per_id_fetch(self):
         payloads = sample_payloads()
-        # Simulate a large account: the whole map is truncated, but the two
-        # instances the fleet references are present in the (partial) items the
-        # bridge happened to return.
+        # Simulate a bridge that cannot honour the projection either: the whole
+        # map is truncated, but the two instances the fleet references are
+        # present in the (partial) items the bridge happened to return.
         payloads["info.ships"]["truncated"] = True
         payloads["info.ships"]["total"] = 239
         payloads["info.ships"]["returned"] = 2
@@ -303,7 +373,8 @@ class PoiExpeditionReaderTests(unittest.TestCase):
             if name == "poi_get" and args["path"].startswith("info.ships.")
         ]
         # The initial read and the consistency re-read each fetch the two
-        # referenced instances by id (4 calls); no full-ships read is used.
+        # referenced instances by id (4 calls); neither whole-roster read
+        # could be completed, so neither is used as the snapshot.
         self.assertEqual(per_id_calls, ["info.ships.101", "info.ships.102"] * 2)
 
     def test_complete_ship_payload_uses_full_read_without_per_id(self):

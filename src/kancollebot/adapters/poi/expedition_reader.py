@@ -16,6 +16,27 @@ from kancollebot.core.observed_state import ObservedState
 from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
 
 
+# The bridge caps collection responses by serialized size, not by item count:
+# this account's 239-instance roster comes back as 111 entries with
+# truncated:true, and limit/offset pagination is ignored (offset never
+# advances). Projecting only the fields the reader and the port-witness
+# validator consume makes the whole roster fit in one untruncated response.
+# api_lv is included because normalize_poi_fleets uses it for composition
+# completeness; omitting it would silently downgrade every fleet to an
+# incomplete composition.
+_INFO_SHIPS_FIELDS = (
+    "api_id",
+    "api_ship_id",
+    "api_nowhp",
+    "api_maxhp",
+    "api_fuel",
+    "api_bull",
+    "api_cond",
+    "api_lv",
+)
+_INFO_SHIPS_READ_LIMIT = 1000
+
+
 def _tool_value(result: dict[str, Any], tool_name: str) -> Any:
     """Decode a tool result; refuse missing or ambiguous content."""
     if result.get("isError") is True:
@@ -135,20 +156,43 @@ class PoiExpeditionReader:
         return items
 
     def _read_info_ships(self, referenced_ids: list[int]) -> dict[str, Any]:
-        """Return an info.ships object-map covering the referenced instances.
+        """Return the complete info.ships object-map.
 
-        The Poi MCP truncates large accounts' info.ships (this account holds
-        239 instances) and ignores limit/offset pagination, so the whole map
-        can never be read off the bridge. The supervisor only needs the
-        instances actually referenced by fleets, so when the full read is
-        truncated we fetch those instances one id at a time instead.
+        A whole, untruncated roster is needed for two independent reasons: the
+        collection gate requires total == returned, and the port-witness
+        validator compares the witness against the *complete* ship set. A
+        subset of only the instances a fleet references can describe a fleet,
+        but it cannot prove that the Poi state matches the port response.
+
+        So, when the plain read is truncated, ask the bridge for a projected
+        full read before falling back to per-instance reads. If even that is
+        truncated, the per-id subset is still usable for describing fleets,
+        but the observation deliberately stays source-freshness *unverified*
+        and any supervisor that requires fresh evidence fails closed.
         """
-        full_result = _tool_value(
-            self._client.call_read_tool("poi_get", {"path": "info.ships"}), "poi_get(info.ships)"
+        plain_result = _tool_value(
+            self._client.call_read_tool("poi_get", {"path": "info.ships"}),
+            "poi_get(info.ships)",
         )
-        complete = self._info_ships_complete(full_result)
+        complete = self._info_ships_complete(plain_result)
         if complete is not None:
             return complete
+
+        projected_result = _tool_value(
+            self._client.call_read_tool(
+                "poi_get",
+                {
+                    "path": "info.ships",
+                    "limit": _INFO_SHIPS_READ_LIMIT,
+                    "select": list(_INFO_SHIPS_FIELDS),
+                },
+            ),
+            "poi_get(info.ships projected)",
+        )
+        complete = self._info_ships_complete(projected_result)
+        if complete is not None:
+            return complete
+
         return self._read_info_ships_by_id(referenced_ids)
 
     def _read_info_ships_by_id(self, referenced_ids: list[int]) -> dict[str, Any]:
