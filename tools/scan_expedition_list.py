@@ -9,9 +9,10 @@ to expedition numbers by pixel signature, and reports what it can prove:
 * whether the list provably ends on this page (a full page proves nothing),
 * which rows still need a one-time label before they can be named.
 
-It never clicks, never scrolls, and never dispatches input. Paging through a
-longer list needs an authorised scroll elsewhere; this tool only proposes the
-step (``--propose-scroll``) so a human can confirm the coordinate once.
+It never clicks, never scrolls, and never dispatches input. The scroll controls
+are reported from their measured geometry (gold chevron boxes), so
+``--propose-scroll`` can name a real point; actually pressing it is left to an
+authorised caller.
 
 Exit codes
     0  scanned, list boundary proven, every visible row identified
@@ -162,6 +163,14 @@ def _print_page(page: int, scan: PageScan) -> None:
     print(f"  rows visible   : {len(scan.rows)} of capacity {scan.capacity}")
     print(f"  tab scores     : {', '.join(str(value) for value in scan.tabs.scores)}")
     print(f"  scroll hints   : {len(scan.scroll_candidates)} candidate(s)")
+    for name, control in (("up", scan.scroll_up), ("down", scan.scroll_down)):
+        if control is None:
+            print(f"  scroll {name:<7}: not measured on this capture")
+        else:
+            print(
+                f"  scroll {name:<7}: box {control.box} center {control.center} "
+                f"gold {control.gold_pixels}px"
+            )
     for row in scan.rows:
         print(
             f"    row {row.index}: y {row.top:>3}..{row.bottom:<3} "
@@ -404,6 +413,18 @@ def main(argv: list[str] | None = None) -> int:
             {"center": list(candidate.center), "width": candidate.width, "height": candidate.height}
             for candidate in latest.scroll_candidates
         ],
+        "scroll_controls": {
+            name: (
+                None
+                if control is None
+                else {
+                    "box": list(control.box),
+                    "center": list(control.center),
+                    "gold_pixels": control.gold_pixels,
+                }
+            )
+            for name, control in (("up", latest.scroll_up), ("down", latest.scroll_down))
+        },
         "probe_band": (
             None
             if not args.probe_band

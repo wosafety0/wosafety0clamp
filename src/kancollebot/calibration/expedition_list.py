@@ -18,6 +18,13 @@ is recovered by matching signatures across pages, so new expeditions (``A2``,
 ``B1``, ...) never require a code change: they simply arrive unbound and are
 labelled once.
 
+A ``2026-11-04`` walk of ``鎮守府海域`` showed how much that matters: the tab held
+twelve entries (``01`` .. ``08`` then ``A1`` .. ``A4``), so four of them existed
+only on pages the eight-row viewport never showed. One click of the gold
+chevron scrolls exactly one row, and the ``PREV``/``NEXT`` chevrons are drawn
+only while there is somewhere to go: ``PREV`` was absent on the first page and
+``NEXT`` on the last, which is how a paging loop recognises both ends.
+
 Everything in this module is pure: it reads pixels and returns proposals. It
 never clicks, never scrolls, and never mutates game state. A caller that wants
 to page through the list must obtain its own authorisation for the input; this
@@ -83,6 +90,24 @@ DEFAULT_ORANGE_PIXEL_RATIO = 10
 DEFAULT_PANEL_BOX = (163, 234, 790, 617)
 DEFAULT_CLICK_X = 350
 
+# Measured on the 2026-11-04 live capture (1200x720) of 鎮守府海域 while the list
+# was showing rows 2..N of a nine-entry area: the list is paged by a gold double
+# chevron carrying a PREV (top) or NEXT (bottom) label, drawn over the list and
+# centred horizontally, above the first row and below the last one.
+#
+# The gold response is unambiguous: counting pixels with r>=195, g>=165, b<=130
+# and r-b>=90 gave 393 inside the up box and 380 inside the down box, against 0
+# anywhere else in the list panel. Both boxes below are the *bounding box of the
+# glyph plus its label*, so the centre falls in the middle of the control.
+DEFAULT_SCROLL_UP_BOX = (431, 183, 467, 219)
+DEFAULT_SCROLL_DOWN_BOX = (433, 607, 468, 645)
+GOLD_MIN_RED = 195
+GOLD_MIN_GREEN = 165
+GOLD_MAX_BLUE = 130
+GOLD_MIN_RED_MINUS_BLUE = 90
+# Well under the measured 380-393 and well over the 0 seen on gold-free surfaces.
+DEFAULT_SCROLL_GOLD_FLOOR = 120
+
 
 class ExpeditionListError(RuntimeError):
     """The page cannot be scanned or the pages cannot be aligned safely."""
@@ -93,6 +118,13 @@ class BoundaryState(str, Enum):
 
     END_CONFIRMED = "end_confirmed"
     MORE_BELOW = "more_below"
+    # A measured scroll control proves the list is *paged*, which is weaker than
+    # "there are rows below this page": the control is drawn as soon as the area
+    # holds more entries than one page, and the live capture still showed NEXT
+    # while displaying what may well be the last page. Establishing that rows
+    # continue needs a scroll plus a content shift, so this state deliberately
+    # stays distinct from MORE_BELOW.
+    PAGED = "paged"
     UNKNOWN = "unknown"
 
 
@@ -182,6 +214,42 @@ class ButtonCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class ScrollAffordance:
+    """A scroll control that was *measured*, not guessed.
+
+    Unlike :class:`ButtonCandidate` this carries the exact box that was checked
+    and the gold-pixel count that justified calling it a control, so a caller
+    can audit the verdict instead of trusting a coordinate.
+    """
+
+    direction: str
+    box: tuple[int, int, int, int]
+    gold_pixels: int
+
+    def __post_init__(self) -> None:
+        if self.direction not in {"up", "down"}:
+            raise ValueError("direction must be 'up' or 'down'")
+        left, top, right, bottom = self.box
+        if not (left < right and top < bottom):
+            raise ValueError("a scroll control box must be increasing")
+        if self.gold_pixels < 0:
+            raise ValueError("gold_pixels must be non-negative")
+
+    @property
+    def width(self) -> int:
+        return self.box[2] - self.box[0] + 1
+
+    @property
+    def height(self) -> int:
+        return self.box[3] - self.box[1] + 1
+
+    @property
+    def center(self) -> tuple[int, int]:
+        left, top, right, bottom = self.box
+        return ((left + right) // 2, (top + bottom) // 2)
+
+
+@dataclass(frozen=True, slots=True)
 class AreaTabs:
     """The area tab strip plus which tab is currently selected."""
 
@@ -204,6 +272,11 @@ class PageScan:
     scroll_candidates: tuple[ButtonCandidate, ...]
     image_size: tuple[int, int]
     capacity: int = DEFAULT_ROW_CAPACITY
+    scroll_up: ScrollAffordance | None = None
+    scroll_down: ScrollAffordance | None = None
+    # True when both control boxes fitted inside the capture, so "no control
+    # found" is a real observation rather than an unanswerable question.
+    scroll_probed: bool = False
 
     def __post_init__(self) -> None:
         if self.capacity < 1:
@@ -396,6 +469,76 @@ def find_button_candidates(
     return tuple(clusters)
 
 
+def _box_inside(image: RgbImage, box: tuple[int, int, int, int]) -> bool:
+    left, top, right, bottom = box
+    return 0 <= left < right <= image.width and 0 <= top < bottom <= image.height
+
+
+def count_gold_pixels(
+    image: RgbImage,
+    box: tuple[int, int, int, int],
+    *,
+    min_red: int = GOLD_MIN_RED,
+    min_green: int = GOLD_MIN_GREEN,
+    max_blue: int = GOLD_MAX_BLUE,
+    min_red_minus_blue: int = GOLD_MIN_RED_MINUS_BLUE,
+) -> int:
+    """Count gold pixels inside ``box`` (``left, top, right, bottom``).
+
+    The threshold triple was fitted to the live scroll control and is narrow on
+    purpose: on that capture nothing else inside the list panel came close.
+    """
+    left, top, right, bottom = box
+    if not (0 <= left < right <= image.width and 0 <= top < bottom <= image.height):
+        raise ValueError("gold probe box is outside the image")
+    if image.channels < 3:
+        return 0
+    pixels = image.pixels
+    channels = image.channels
+    count = 0
+    for y in range(top, bottom):
+        base = (y * image.width + left) * channels
+        for _ in range(left, right):
+            red, green, blue = pixels[base], pixels[base + 1], pixels[base + 2]
+            if (
+                red >= min_red
+                and green >= min_green
+                and blue <= max_blue
+                and red - blue >= min_red_minus_blue
+            ):
+                count += 1
+            base += channels
+    return count
+
+
+def detect_scroll_affordance(
+    image: RgbImage,
+    *,
+    direction: str,
+    box: tuple[int, int, int, int] | None = None,
+    gold_floor: int = DEFAULT_SCROLL_GOLD_FLOOR,
+) -> ScrollAffordance | None:
+    """Return the measured scroll control for ``direction``, or ``None``.
+
+    ``None`` means "this capture does not prove the control is there" — either
+    the calibrated box falls outside the image (a smaller capture) or the gold
+    response is under the floor. It never means "the list cannot scroll": a
+    control may still be present with different geometry, which is why the
+    caller keeps the generic candidate probe as a fallback.
+    """
+    if direction not in {"up", "down"}:
+        raise ValueError("direction must be 'up' or 'down'")
+    if box is None:
+        box = DEFAULT_SCROLL_UP_BOX if direction == "up" else DEFAULT_SCROLL_DOWN_BOX
+    left, top, right, bottom = box
+    if not (0 <= left < right <= image.width and 0 <= top < bottom <= image.height):
+        return None
+    gold = count_gold_pixels(image, box)
+    if gold < gold_floor:
+        return None
+    return ScrollAffordance(direction, box, gold)
+
+
 def scan_page(
     image: RgbImage,
     *,
@@ -408,6 +551,8 @@ def scan_page(
     merge_gap: int = DEFAULT_MERGE_GAP,
     panel_box: tuple[int, int, int, int] = DEFAULT_PANEL_BOX,
     capacity: int = DEFAULT_ROW_CAPACITY,
+    scroll_up_box: tuple[int, int, int, int] = DEFAULT_SCROLL_UP_BOX,
+    scroll_down_box: tuple[int, int, int, int] = DEFAULT_SCROLL_DOWN_BOX,
 ) -> PageScan:
     """Scan the visible page: rows, selected area tab, and scroll candidates."""
     projection = dark_row_projection(image, x_range=x_range, dark_threshold=dark_threshold)
@@ -443,11 +588,10 @@ def scan_page(
     # column read as 10x7 clusters at every row), so probing it would report six
     # false controls.
     #
-    # The affordance itself is deliberately left unmeasured: the account used to
-    # calibrate this screen has exactly as many unlocked expeditions as slots,
-    # so nothing scrolls yet. Until a capture of an overfull list is measured, a
-    # full page is reported as an unknown boundary and every scroll step stays
-    # blocked, which is the safe direction to be wrong in.
+    # The scroll controls themselves no longer rely on this probe: their boxes
+    # were measured on a live overfull page (see DEFAULT_SCROLL_UP_BOX), so the
+    # generic glyph search is kept only as a fallback for a capture whose chrome
+    # differs from the calibrated screen.
     candidates: tuple[ButtonCandidate, ...] = ()
     if rows_bottom + 2 < panel_bottom:
         candidates = find_button_candidates(
@@ -459,22 +603,44 @@ def scan_page(
         scroll_candidates=candidates,
         image_size=(image.width, image.height),
         capacity=capacity,
+        scroll_up=detect_scroll_affordance(image, direction="up", box=scroll_up_box),
+        scroll_down=detect_scroll_affordance(
+            image, direction="down", box=scroll_down_box
+        ),
+        scroll_probed=_box_inside(image, scroll_up_box)
+        and _box_inside(image, scroll_down_box),
     )
 
 
 def classify_boundary(scan: PageScan, *, capacity: int | None = None) -> ListBoundary:
     """Decide whether the list provably ends on this page.
 
-    Only two things count as proof: the page is not full (rows are painted from
-    the top, so a short page has nothing below it), or a detected scroll control
-    reports the bottom. A completely full page proves nothing, so it is reported
-    as unknown rather than as the end of the list.
+    Only two things count as proof of the end: the page is not full (rows are
+    painted from the top, so a short page has nothing below it), or a scroll
+    step that provably moved nothing. A completely full page proves nothing, so
+    it is reported as unknown rather than as the end of the list.
+
+    A measured scroll control makes the page ``PAGED``: the area holds more
+    entries than one page, but which direction still has content is not settled
+    by the control alone, so ``PAGED`` never collapses into ``MORE_BELOW``.
+
+    Once the control boxes have actually been probed, the measured answer
+    outranks the legacy glyph probe. A live capture of the *last* page settled
+    why that matters: NEXT is drawn while more rows follow and disappears on the
+    final page, and there the old generic probe still found a dark cluster and
+    would have claimed ``MORE_BELOW`` on a page that provably had nothing below.
     """
     limit = scan.capacity if capacity is None else capacity
     if not scan.rows:
         return ListBoundary(BoundaryState.UNKNOWN, "no_rows_detected")
     if len(scan.rows) < limit:
         return ListBoundary(BoundaryState.END_CONFIRMED, "rows_below_capacity")
+    if scan.scroll_down is not None:
+        return ListBoundary(BoundaryState.PAGED, "measured_scroll_control_present")
+    if scan.scroll_probed:
+        # The boxes were read and held no control. That is not proof of the end
+        # either (the control could be dimmed or restyled), so stay unknown.
+        return ListBoundary(BoundaryState.UNKNOWN, "full_page_without_measured_control")
     if scan.scroll_candidates:
         return ListBoundary(BoundaryState.MORE_BELOW, "scroll_affordance_present")
     return ListBoundary(BoundaryState.UNKNOWN, "full_page_without_scroll_affordance")
@@ -488,18 +654,43 @@ def plan_scroll_step(
 ) -> ScrollProposal:
     """Propose the next scroll step without performing it.
 
-    A confirmed point always wins because it was verified by a human against a
-    live screenshot. Otherwise the step is blocked, since guessing a coordinate
-    in the expedition screen risks pressing a real control.
+    A measured control wins because its box and gold count were read off a live
+    capture; a human-confirmed point is the fallback for a screen with different
+    chrome. Without either the step is blocked, since guessing a coordinate in
+    the expedition screen risks pressing a real control.
     """
     if direction not in {"up", "down"}:
         raise ValueError("direction must be 'up' or 'down'")
     boundary = classify_boundary(scan)
+    control = scan.scroll_up if direction == "up" else scan.scroll_down
     if direction == "down" and boundary.state is BoundaryState.END_CONFIRMED:
         return ScrollProposal("blocked_at_end", None, boundary.reason)
+    if control is not None:
+        return ScrollProposal(
+            "click_measured_control",
+            control.center,
+            f"measured scroll-{control.direction} control {control.box} "
+            f"with {control.gold_pixels} gold pixels",
+        )
     if confirmed_point is not None:
         return ScrollProposal(
             "click_confirmed_point", confirmed_point, "human-confirmed scroll control"
+        )
+    if direction == "up":
+        return ScrollProposal(
+            "blocked_at_top",
+            None,
+            "no measured scroll-up control on this page, so the top is assumed",
+        )
+    if scan.scroll_probed:
+        # The calibrated boxes were read and held nothing. Falling back to a
+        # generic dark cluster here would offer a point that was never verified:
+        # on the live last page that fallback pointed at (782, 593), the star
+        # icons at the right edge of the rows, which is not a scroll control.
+        return ScrollProposal(
+            "blocked_no_measured_control",
+            None,
+            "the calibrated scroll boxes hold no control on this page",
         )
     if scan.scroll_candidates:
         candidate = scan.scroll_candidates[0]
@@ -518,30 +709,45 @@ def align_pages(previous: PageScan, current: PageScan, *,
     ``shift`` is how many rows scrolled off the top, recovered by matching the
     rows that survived. Measuring the shift from content is what makes the scan
     independent of how far a single scroll step happens to move the list.
+
+    The rows at the two ends of the overlap are exempt from the match: the list
+    viewport clips them, so their detected band is shorter than a full row's and
+    the fingerprint shifts with it. On the 2026-11-04 live scroll the first
+    visible band measured 32px before the click and 24px after, while every
+    interior row matched exactly (distance 0). An interior mismatch still
+    invalidates the shift, which is what keeps two unrelated pages from being
+    stitched together.
     """
     if not previous.rows or not current.rows:
         raise ExpeditionListError("both pages need at least one row to align")
     if previous.tab is not None and current.tab is not None and previous.tab != current.tab:
         raise ExpeditionListError("pages belong to different area tabs")
     best: tuple[int, int] | None = None
+    saw_single = False
     for shift in range(1, len(previous.rows)):
         overlap = min(len(current.rows), len(previous.rows) - shift)
         if overlap < 1:
             continue
-        matched = sum(
-            1
+        mismatched = [
+            index
             for index in range(overlap)
-            if previous.rows[index + shift].signature.matches(
+            if not previous.rows[index + shift].signature.matches(
                 current.rows[index].signature, tolerance=tolerance
             )
-        )
-        if matched == overlap:
-            best = (shift, overlap)
-            break
+        ]
+        clipped_edges = {0, overlap - 1}
+        if any(index not in clipped_edges for index in mismatched):
+            continue
+        support = overlap - len(mismatched)
+        if support < 2:
+            saw_single = True
+            continue
+        best = (shift, support)
+        break
     if best is None:
+        if saw_single:
+            raise ExpeditionListError("a single shared row cannot prove the shift")
         raise ExpeditionListError("consecutive pages share no rows; the shift is unknown")
-    if best[1] < 2:
-        raise ExpeditionListError("a single shared row cannot prove the shift")
     return best
 
 

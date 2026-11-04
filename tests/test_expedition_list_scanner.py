@@ -11,19 +11,26 @@ import json
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import replace
 from pathlib import Path
 
 from kancollebot.calibration import (
+    DEFAULT_SCROLL_DOWN_BOX,
+    DEFAULT_SCROLL_UP_BOX,
     BoundaryState,
+    ButtonCandidate,
     ExpeditionListError,
     ExpeditionListIndex,
     PageScan,
     RowSignature,
+    ScrollAffordance,
     align_pages,
     check_display_order,
     classify_boundary,
+    count_gold_pixels,
     decode_png,
     detect_area_tabs,
+    detect_scroll_affordance,
     disp_no_sort_key,
     encode_png,
     find_button_candidates,
@@ -40,6 +47,7 @@ WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 PLATE = (128, 150, 139)
 ORANGE = (200, 90, 40)
+GOLD = (245, 205, 90)
 
 WIDTH = 1200
 HEIGHT = 720
@@ -95,6 +103,22 @@ def _page(slots: list[int], *, active_tab: int | None = 0, cells: int = 7) -> Rg
 
 def _scan(markers: list[int], *, active_tab: int | None = 0) -> PageScan:
     return scan_page(_page(markers, active_tab=active_tab))
+
+
+def _with_controls(
+    slots: list[int], *, up: bool = True, down: bool = True
+) -> RgbImage:
+    """A page whose measured scroll-control boxes are painted gold."""
+    image = _page(slots)
+    if up:
+        image = _fill(image, *DEFAULT_SCROLL_UP_BOX, GOLD)
+    if down:
+        image = _fill(image, *DEFAULT_SCROLL_DOWN_BOX, GOLD)
+    return image
+
+
+def _scan_controls(slots: list[int], *, up: bool = True, down: bool = True) -> PageScan:
+    return scan_page(_with_controls(slots, up=up, down=down))
 
 
 class SignatureTests(unittest.TestCase):
@@ -190,19 +214,34 @@ class ScanPageTests(unittest.TestCase):
         self.assertTrue(scan.is_full)
         boundary = classify_boundary(scan)
         self.assertIs(boundary.state, BoundaryState.UNKNOWN)
-        self.assertEqual(boundary.reason, "full_page_without_scroll_affordance")
+        self.assertEqual(boundary.reason, "full_page_without_measured_control")
 
     def test_short_page_confirms_the_end(self) -> None:
         boundary = classify_boundary(_scan([0, 1, 2]))
         self.assertIs(boundary.state, BoundaryState.END_CONFIRMED)
         self.assertEqual(boundary.reason, "rows_below_capacity")
 
-    def test_scroll_affordance_means_more_below(self) -> None:
+    def test_dark_glyph_no_longer_means_more_below_once_measured(self) -> None:
+        # The 2026-11-04 last page: NEXT was gone, yet the generic probe still
+        # found a dark cluster in the strip. Measurement has to outrank it.
         image = _page(list(range(8)))
         image = _fill(image, 760, 604, 772, 614, BLACK)
         scan = scan_page(image)
         self.assertTrue(scan.scroll_candidates)
-        self.assertIs(classify_boundary(scan).state, BoundaryState.MORE_BELOW)
+        self.assertTrue(scan.scroll_probed)
+        boundary = classify_boundary(scan)
+        self.assertIs(boundary.state, BoundaryState.UNKNOWN)
+        self.assertEqual(boundary.reason, "full_page_without_measured_control")
+
+    def test_legacy_glyph_probe_still_applies_when_the_boxes_were_not_read(self) -> None:
+        legacy = replace(
+            _scan(list(range(8))),
+            scroll_probed=False,
+            scroll_candidates=(ButtonCandidate(760, 604, 772, 614, 100),),
+        )
+        boundary = classify_boundary(legacy)
+        self.assertIs(boundary.state, BoundaryState.MORE_BELOW)
+        self.assertEqual(boundary.reason, "scroll_affordance_present")
 
     def test_empty_page_reports_unknown(self) -> None:
         scan = scan_page(_page([]))
@@ -237,15 +276,26 @@ class ButtonCandidateTests(unittest.TestCase):
 
     def test_scroll_proposal_never_invents_a_point(self) -> None:
         proposal = plan_scroll_step(_scan(list(range(8))))
-        self.assertEqual(proposal.action, "blocked_no_scroll_affordance")
+        self.assertEqual(proposal.action, "blocked_no_measured_control")
         self.assertIsNone(proposal.point)
 
     def test_scroll_proposal_needs_confirmation_for_a_candidate(self) -> None:
-        image = _fill(_page(list(range(8))), 760, 604, 772, 614, BLACK)
-        scan = scan_page(image)
-        proposal = plan_scroll_step(scan)
+        legacy = replace(
+            _scan(list(range(8))),
+            scroll_probed=False,
+            scroll_candidates=(ButtonCandidate(760, 604, 772, 614, 100),),
+        )
+        proposal = plan_scroll_step(legacy)
         self.assertEqual(proposal.action, "confirm_candidate")
         self.assertIsNotNone(proposal.point)
+
+    def test_last_page_proposes_no_point_at_all(self) -> None:
+        # The live last page: NEXT is gone, and the only dark cluster left in the
+        # strip is a row icon at the panel edge. Offering it would be a hazard.
+        scan = _scan_controls(list(range(8)), down=False)
+        proposal = plan_scroll_step(scan)
+        self.assertEqual(proposal.action, "blocked_no_measured_control")
+        self.assertIsNone(proposal.point)
 
     def test_confirmed_point_is_used_verbatim(self) -> None:
         proposal = plan_scroll_step(_scan(list(range(8))), confirmed_point=(1030, 612))
@@ -261,7 +311,110 @@ class ButtonCandidateTests(unittest.TestCase):
             plan_scroll_step(_scan([0]), direction="sideways")
 
 
+class ScrollControlTests(unittest.TestCase):
+    """The measured scroll chevrons: detection, boundary, and the proposal."""
+
+    def test_gold_counter_separates_gold_from_other_surfaces(self) -> None:
+        box = (600, 300, 640, 340)
+        blank = _blank()
+        self.assertEqual(count_gold_pixels(blank, box), 0)
+        for color in (BLACK, PLATE, ORANGE):
+            image = _fill(blank, 600, 300, 640, 340, color)
+            self.assertEqual(
+                count_gold_pixels(image, box), 0,
+                f"{color} must not read as the gold control colour",
+            )
+        gold = _fill(blank, 600, 300, 640, 340, GOLD)
+        self.assertEqual(count_gold_pixels(gold, box), 40 * 40)
+
+    def test_gold_counter_rejects_a_box_outside_the_image(self) -> None:
+        with self.assertRaises(ValueError):
+            count_gold_pixels(_blank(), (1100, 700, 1300, 760))
+
+    def test_control_needs_more_gold_than_the_floor(self) -> None:
+        blank = _blank()
+        speck = _fill(blank, 431, 183, 441, 193, GOLD)  # 100 px, under 120
+        self.assertIsNone(detect_scroll_affordance(speck, direction="up"))
+        painted = _fill(blank, *DEFAULT_SCROLL_UP_BOX, GOLD)
+        self.assertIsNotNone(detect_scroll_affordance(painted, direction="up"))
+
+    def test_control_is_not_claimed_for_a_capture_that_cannot_hold_it(self) -> None:
+        small = RgbImage(200, 150, 3, bytes(WHITE) * (200 * 150))
+        self.assertIsNone(detect_scroll_affordance(small, direction="up"))
+        self.assertIsNone(detect_scroll_affordance(small, direction="down"))
+
+    def test_scan_page_records_both_measured_controls(self) -> None:
+        scan = _scan_controls(list(range(8)))
+        self.assertIsNotNone(scan.scroll_up)
+        self.assertIsNotNone(scan.scroll_down)
+        self.assertEqual(scan.scroll_up.center, (449, 201))
+        self.assertEqual(scan.scroll_down.center, (450, 626))
+        self.assertEqual(scan.scroll_up.box, DEFAULT_SCROLL_UP_BOX)
+        self.assertEqual(scan.scroll_down.box, DEFAULT_SCROLL_DOWN_BOX)
+
+    def test_page_without_the_control_reports_none(self) -> None:
+        scan = _scan(list(range(8)))
+        self.assertIsNone(scan.scroll_up)
+        self.assertIsNone(scan.scroll_down)
+
+    def test_paged_full_page_is_neither_an_end_nor_more_below(self) -> None:
+        boundary = classify_boundary(_scan_controls(list(range(8))))
+        self.assertIs(boundary.state, BoundaryState.PAGED)
+        self.assertEqual(boundary.reason, "measured_scroll_control_present")
+
+    def test_paged_page_proposes_the_measured_down_point(self) -> None:
+        scan = _scan_controls(list(range(8)))
+        proposal = plan_scroll_step(scan)
+        self.assertEqual(proposal.action, "click_measured_control")
+        self.assertEqual(proposal.point, (450, 626))
+        # The audit trail must quote the same gold count the scan measured.
+        self.assertIn(
+            f"{scan.scroll_down.gold_pixels} gold pixels", proposal.detail
+        )
+
+    def test_scroll_up_uses_the_measured_up_control(self) -> None:
+        proposal = plan_scroll_step(_scan_controls(list(range(8))), direction="up")
+        self.assertEqual(proposal.action, "click_measured_control")
+        self.assertEqual(proposal.point, (449, 201))
+
+    def test_scroll_up_without_a_control_is_blocked_at_the_top(self) -> None:
+        proposal = plan_scroll_step(
+            _scan_controls(list(range(8)), up=False), direction="up"
+        )
+        self.assertEqual(proposal.action, "blocked_at_top")
+        self.assertIsNone(proposal.point)
+
+    def test_short_page_still_wins_over_a_painted_control(self) -> None:
+        # Three rows cannot hide anything below them, whatever the chrome says.
+        proposal = plan_scroll_step(_scan_controls([0, 1, 2]))
+        self.assertEqual(proposal.action, "blocked_at_end")
+
+    def test_affordance_validates_its_own_fields(self) -> None:
+        with self.assertRaises(ValueError):
+            ScrollAffordance("sideways", (1, 2, 3, 4), 200)
+        with self.assertRaises(ValueError):
+            ScrollAffordance("up", (10, 4, 3, 99), 200)
+        with self.assertRaises(ValueError):
+            ScrollAffordance("up", (1, 2, 3, 4), -1)
+
+
 class AlignmentTests(unittest.TestCase):
+    def test_clipped_edge_rows_do_not_break_alignment(self) -> None:
+        # The 2026-11-04 live scroll: content moved one row, the viewport clipped
+        # the band at both ends, so those two rows fingerprint differently while
+        # every interior row still matches exactly.
+        before = _scan([0, 1, 2, 3, 4, 5, 6, 7])
+        after = _scan([11, 2, 3, 4, 5, 6, 12, 13])
+        shift, support = align_pages(before, after)
+        self.assertEqual(shift, 1)
+        self.assertEqual(support, 5, "only the comparable interior rows count")
+
+    def test_interior_mismatch_still_refuses_the_shift(self) -> None:
+        before = _scan([0, 1, 2, 3, 4, 5, 6, 7])
+        after = _scan([11, 2, 3, 99, 5, 6, 12, 13])
+        with self.assertRaises(ExpeditionListError):
+            align_pages(before, after)
+
     def test_shift_is_recovered_from_the_overlap(self) -> None:
         first = _scan([0, 1, 2, 3, 4, 5, 6, 7])
         second = _scan([2, 3, 4, 5, 6, 7, 8, 9])
@@ -421,7 +574,7 @@ class ToolTests(unittest.TestCase):
             with redirect_stdout(buffer), redirect_stderr(io.StringIO()):
                 code = main(["--image", str(shot)])
             self.assertEqual(code, 2)
-            self.assertIn("full_page_without_scroll_affordance", buffer.getvalue())
+            self.assertIn("full_page_without_measured_control", buffer.getvalue())
             self.assertIn("need a one-time label", buffer.getvalue())
 
     def test_labelled_short_page_exits_clean(self) -> None:
