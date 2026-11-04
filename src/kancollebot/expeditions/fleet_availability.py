@@ -4,8 +4,8 @@
 (``dispatchable_fleet_ids`` via ``task_scope.fleet_policy_for``) says which
 fleets THAT task may dispatch. Neither is a statement about a particular game
 account, and neither is a global law about a fleet for other tasks. KanColle
-unlocks fleets 2, 3 and 4
-progressively, so a real account may expose only ``(1, 2)``, ``(1, 2, 3)`` or
+unlocks fleets 2, 3 and 4 progressively, so a real account may expose only
+``(1, 2)``, ``(1, 2, 3)`` or
 ``(1, 2, 3, 4)`` in ``info.fleets`` / the live Poi CDP fleet snapshot.
 
 Treating the policy ceiling as an account fact is what makes a promoted Fleet 4

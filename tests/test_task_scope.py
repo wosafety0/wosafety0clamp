@@ -1,6 +1,8 @@
 """Multi-task scoping: expedition policy must not become a global game law."""
 from __future__ import annotations
 
+import importlib.util
+import inspect
 import io
 import tempfile
 import unittest
@@ -19,6 +21,9 @@ from kancollebot.expeditions.fleet_availability import (
 )
 from kancollebot.runtime_config import RUNTIME_CONFIG
 from kancollebot.task_scope import (
+    SHARED_CAPABILITIES,
+    CapabilityBoundary,
+    SharedCapability,
     TaskKind,
     TaskScopeError,
     coerce_task_kind,
@@ -27,6 +32,8 @@ from kancollebot.task_scope import (
     fleet_policy_for,
     implemented_task_kinds,
     require_task_enabled,
+    require_task_neutral_capability,
+    shared_capabilities,
     task_event_fields,
 )
 
@@ -183,13 +190,171 @@ class AttributionTests(unittest.TestCase):
         self.assertIn("ui_operation_lock", output)
 
 
-class SharedCapabilityTests(unittest.TestCase):
-    def test_shared_infrastructure_is_declared_and_task_neutral(self):
+class SharedCapabilityBoundaryTests(unittest.TestCase):
+    """The inventory is per SYMBOL and classified, not a flat 'shared' list."""
+
+    def test_every_declared_module_path_resolves(self):
+        for item in SHARED_CAPABILITIES:
+            with self.subTest(name=item.name):
+                self.assertIsNotNone(
+                    importlib.util.find_spec(item.module),
+                    f"{item.name} points at a module that does not exist",
+                )
+                self.assertIsInstance(item, SharedCapability)
+                self.assertTrue(item.symbols)
+                self.assertTrue(item.rationale)
+
+    def test_only_three_symbols_are_task_neutral_today(self):
+        neutral = {item.name for item in shared_capabilities(boundary=CapabilityBoundary.TASK_NEUTRAL)}
+        self.assertEqual(
+            neutral,
+            {"poi_ui_mutex", "visual_dependency_gate", "append_only_event_sink"},
+        )
+
+    def test_expedition_specific_items_are_not_advertised_as_shared(self):
+        """Regression: the old list called these whole modules 'task-neutral'."""
+        specific = {item.name for item in shared_capabilities(boundary="task_specific")}
+        self.assertEqual(
+            specific,
+            {"expedition_composition_checks", "expedition_dispatch_transaction"},
+        )
+        decouple = {item.name for item in shared_capabilities(boundary="needs_decoupling")}
+        self.assertEqual(
+            decouple,
+            {"fleet_snapshot", "resupply_preflight", "supply_tab_coordinates"},
+        )
+        self.assertEqual(len(SHARED_CAPABILITIES), 8)
+
+    def test_boundary_is_symbol_level_within_one_module(self):
+        """One module can contain both a shared primitive and expedition logic."""
+        same_module = [
+            item
+            for item in SHARED_CAPABILITIES
+            if item.module == "kancollebot.expeditions.continuous_dispatch_controller"
+        ]
+        self.assertEqual(len(same_module), 2)
+        boundaries = {item.boundary for item in same_module}
+        self.assertEqual(
+            boundaries,
+            {CapabilityBoundary.TASK_NEUTRAL, CapabilityBoundary.TASK_SPECIFIC},
+        )
+
+    def test_task_neutral_capability_gate_is_executable(self):
+        item = require_task_neutral_capability("poi_ui_mutex")
+        self.assertIs(item.boundary, CapabilityBoundary.TASK_NEUTRAL)
+
+    def test_polluted_or_specific_capabilities_fail_closed(self):
+        for name in ("fleet_snapshot", "resupply_preflight", "supply_tab_coordinates",
+                     "expedition_composition_checks", "expedition_dispatch_transaction"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(TaskScopeError, "nothing was clicked"):
+                    require_task_neutral_capability(name)
+
+    def test_unknown_capability_and_boundary_are_rejected(self):
+        with self.assertRaisesRegex(TaskScopeError, "unknown capability"):
+            require_task_neutral_capability("does_not_exist")
+        with self.assertRaisesRegex(TaskScopeError, "unknown capability boundary"):
+            shared_capabilities(boundary="not_a_boundary")
+        with self.assertRaisesRegex(TaskScopeError, "must be a CapabilityBoundary"):
+            shared_capabilities(boundary=7)
+
+
+class PolicyIsolationTests(unittest.TestCase):
+    """A policy decided for one task must be unreachable from another."""
+
+    def test_each_roadmap_policy_is_empty_and_independent(self):
+        expedition = fleet_policy_for(TaskKind.EXPEDITION)
+        policies = [fleet_policy_for(kind) for kind in ROADMAP_KINDS]
+        self.assertEqual(len({id(p) for p in policies}), len(policies))
+        for policy in policies:
+            self.assertEqual(policy.dispatchable_fleet_ids, ())
+            self.assertEqual(policy.reserved_fleet_ids, ())
+            self.assertNotEqual(policy.note, expedition.note)
+            self.assertFalse(policy.implemented)
+
+    def test_changing_expedition_config_does_not_leak_into_other_tasks(self):
+        altered = replace(
+            RUNTIME_CONFIG,
+            all_fleet_ids=(1, 2, 3, 4, 5),
+            non_dispatchable_fleet_ids=(1, 5),
+            resupply_verified_fleet_ids=(2, 3, 4),
+            monitor_candidate_fleet_ids=(2, 3, 4),
+        )
+        changed = fleet_policy_for(TaskKind.EXPEDITION, config=altered)
+        self.assertEqual(changed.reserved_fleet_ids, (1, 5))
+        self.assertEqual(changed.dispatchable_fleet_ids, (2, 3, 4))
+        self.assertEqual(
+            changed.resupply_verified_fleet_ids,
+            altered.resupply_verified_fleet_ids,
+        )
+        for kind in ROADMAP_KINDS:
+            with self.subTest(kind=kind):
+                untouched = fleet_policy_for(kind, config=altered)
+                self.assertEqual(fleet_policy_for(kind), untouched)
+                self.assertEqual(untouched.dispatchable_fleet_ids, ())
+
+    def test_a_forged_mismatched_policy_is_detectable(self):
+        """`frozen=True` does not stop `replace` from forging another kind's policy.
+
+        That is exactly why TaskRegistration validates the (kind, policy)
+        pairing itself; see tests/test_multi_task_runtime.py.
+        """
+        expedition = fleet_policy_for(TaskKind.EXPEDITION)
+        self.assertIs(expedition.task_kind, TaskKind.EXPEDITION)
+        forged = replace(expedition, task_kind=TaskKind.COMBAT)
+        self.assertIsNot(forged, expedition)
+        self.assertIs(forged.task_kind, TaskKind.COMBAT)
+        self.assertEqual(forged.dispatchable_fleet_ids, expedition.dispatchable_fleet_ids)
+
+
+class DefaultCompatibilityTests(unittest.TestCase):
+    """New scoping must not silently change any existing default behaviour."""
+
+    def test_describe_shared_capabilities_keeps_its_legacy_string_shape(self):
         lines = describe_shared_capabilities()
-        self.assertEqual(len(lines), 6)
+        self.assertEqual(len(lines), len(SHARED_CAPABILITIES))
+        self.assertTrue(all(isinstance(line, str) and ":" in line for line in lines))
         self.assertTrue(any("ui_operation_lock" in line for line in lines))
         self.assertTrue(any("full_supply" in line for line in lines))
-        self.assertTrue(all(":" in line for line in lines))
+
+    def test_default_fleet_resolution_is_expedition_with_and_without_the_argument(self):
+        implicit = resolve_fleet_availability((1, 2, 3, 4), (2, 3))
+        explicit = resolve_fleet_availability(
+            (1, 2, 3, 4), (2, 3), task_kind=TaskKind.EXPEDITION
+        )
+        self.assertEqual(implicit, explicit)
+        self.assertEqual(implicit.task_kind, TaskKind.EXPEDITION.value)
+
+    def test_build_runtime_and_monitor_runtime_default_to_expedition(self):
+        from run_continuous_expedition_monitor import MonitorRuntime, build_runtime
+
+        self.assertIs(
+            inspect.signature(build_runtime).parameters["task_kind"].default,
+            TaskKind.EXPEDITION,
+        )
+        self.assertEqual(MonitorRuntime.__dataclass_fields__["task_kind"].default,
+                         TaskKind.EXPEDITION.value)
+
+    def test_legacy_event_payload_is_byte_identical_without_task_kind(self):
+        # Complementary to the disk-backed test above: the in-memory payload
+        # contract is that no task_kind is injected unless explicitly requested.
+        with tempfile.TemporaryDirectory() as temporary:
+            sink = SqliteDispatchEventLog(str(Path(temporary) / "compat.sqlite3"))
+            sink("legacy", {"fleet_id": 2})
+            self.assertEqual(sink.load_all()[0]["fields"], {"fleet_id": 2})
+
+    def test_tasks_command_still_lists_the_legacy_keywords(self):
+        buffer = io.StringIO()
+        with patch.object(cli.importlib, "import_module") as importer:
+            with redirect_stdout(buffer):
+                self.assertEqual(cli.main(["tasks"]), 0)
+        importer.assert_not_called()
+        output = buffer.getvalue()
+        for keyword in ("expedition", "combat", "sparkle", "composition", "quests",
+                        "IMPLEMENTED", "NOT IMPLEMENTED (fail-closed)",
+                        "ui_operation_lock", "full_supply", "task_neutral",
+                        "needs_decoupling", "task_specific"):
+            self.assertIn(keyword, output)
 
 
 if __name__ == "__main__":

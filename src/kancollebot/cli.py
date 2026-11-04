@@ -23,9 +23,10 @@ _COMMAND_MODULES = {
 def _list_tasks() -> int:
     """Read-only view of declared automation tasks and their calibration state."""
     from kancollebot.task_scope import (
+        CapabilityBoundary,
         declared_task_kinds,
-        describe_shared_capabilities,
         fleet_policy_for,
+        shared_capabilities,
     )
 
     for kind in declared_task_kinds():
@@ -37,9 +38,12 @@ def _list_tasks() -> int:
             status = "DECLARED / NOT IMPLEMENTED (fail-closed)"
             fleets = "uncalibrated - expedition policy is NOT reused"
         print(f"{kind.value:<12} {status:<42} fleets={fleets}")
-    print("\nShared infrastructure (must stay task-neutral):")
-    for line in describe_shared_capabilities():
-        print(f"  - {line}")
+    print("\nCapability boundary (per symbol, not per module):")
+    for boundary in CapabilityBoundary:
+        items = shared_capabilities(boundary=boundary)
+        print(f"  [{boundary.value}] {len(items)} item(s)")
+        for item in items:
+            print(f"    - {item.name} ({item.module})")
     return 0
 
 
