@@ -27,7 +27,7 @@ from kancollebot.adapters.poi.cdp_fleet_state import (  # noqa: E402
     PoiFleetMissionState,
     read_poi_fleet_states,
 )
-from kancollebot.adapters.poi.cdp_input import CdpInputError, RecordedPoint  # noqa: E402
+from kancollebot.adapters.poi.cdp_input import CapturedFrame, CdpInputError, RecordedPoint  # noqa: E402
 from kancollebot.adapters.poi.cdp_websocket import (  # noqa: E402
     connect_game_webview,
     connect_poi_session,
