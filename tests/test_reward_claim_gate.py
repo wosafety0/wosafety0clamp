@@ -141,7 +141,7 @@ class RewardClaimGateTests(unittest.TestCase):
 
     def test_rejects_stale_target_frame_before_authorization(self):
         gate = RewardClaimGate({TEMPLATE_HASH: CALIBRATION_ID}, authorization_ttl_ns=500)
-        with self.assertRaisesRegex(RewardClaimAuthorizationError, "target frame is stale"):
+        with self.assertRaisesRegex(RewardClaimAuthorizationError, "one or more verified state frames are stale"):
             gate.authorize(
                 target(),
                 now_monotonic_ns=SECOND_FRAME.captured_monotonic_ns + 501,
