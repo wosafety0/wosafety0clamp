@@ -10,6 +10,8 @@ from dataclasses import dataclass
 import re
 from typing import Mapping
 
+from kancollebot.adapters.poi.cdp_input import CapturedFrame
+
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _APPROVED_TARGET = "bonus_claim_button.png"
@@ -40,6 +42,8 @@ class RewardClaimTarget:
     consecutive_states: tuple[str, str]
     state_frame_ids: tuple[int, int]
     state_frame_sha256s: tuple[str, str]
+    frame: CapturedFrame
+    state_frames: tuple[CapturedFrame, CapturedFrame]
 
     def __post_init__(self) -> None:
         if self.template_name != _APPROVED_TARGET:
@@ -98,6 +102,29 @@ class RewardClaimTarget:
             raise ValueError("target localization must use the second verified state frame")
         if self.frame_sha256 != self.state_frame_sha256s[1]:
             raise ValueError("target frame fingerprint must match the second verified state frame")
+        if (
+            not isinstance(self.state_frames, tuple)
+            or len(self.state_frames) != 2
+            or any(not isinstance(item, CapturedFrame) for item in self.state_frames)
+            or not isinstance(self.frame, CapturedFrame)
+        ):
+            raise ValueError("reward target must retain the exact captured state frame objects")
+        first_frame, second_frame = self.state_frames
+        if (
+            first_frame.frame_id != self.state_frame_ids[0]
+            or second_frame.frame_id != self.state_frame_ids[1]
+            or first_frame.sha256 != self.state_frame_sha256s[0]
+            or second_frame.sha256 != self.state_frame_sha256s[1]
+        ):
+            raise ValueError("state frame metadata must match the retained CapturedFrame objects")
+        if (
+            first_frame.frame_id >= second_frame.frame_id
+            or first_frame.captured_monotonic_ns >= second_frame.captured_monotonic_ns
+            or first_frame.sha256 == second_frame.sha256
+        ):
+            raise ValueError("retained state frames must be distinct and strictly increasing")
+        if self.frame is not second_frame:
+            raise ValueError("target must retain the identical second verified CapturedFrame object")
 
 
 @dataclass(frozen=True, slots=True)
