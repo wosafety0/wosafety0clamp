@@ -3,7 +3,7 @@
 **Updated:** 2026-11-04  
 **Repository:** wosafety0/wosafety0clamp  
 **Working branch:** dev/expedition-closed-loop-mvp  
-**Current code baseline:** 46c76b3e20a83302edc7cdee82789dfc2e497492
+**Current code baseline:** 50c9397068e6af0637a3805f89604b0416f6c97a — reward authorization lifecycle protocol and tests; CI pending
 
 This document is the concise handoff entry point. The long design and progress records remain useful for implementation history, but older entries are point-in-time records and may be superseded by later entries.
 
@@ -241,3 +241,13 @@ The purpose of this inventory is to prevent a new developer from mistaking an ol
 - **SAFETY:** consumption only marks an authorization as used. It performs no CDP call, click, or game request. A future executor must consume immediately at its input boundary, re-capture and re-localize the current UI immediately beforehand, re-check consecutive BONUS_ITEMS evidence and TTL, and independently verify the post-click state. The registry is an in-process replay guard, not an unforgeable capability or protection against malicious code in the same process.
 - **TESTS:** regression coverage verifies exactly-once consumption, replay rejection, fabricated/foreign object rejection, expiry, and two concurrent consumers racing for the same authorization.
 - **LIMITS:** no live Poi calibration, reward-click executor, or post-click verification is enabled. Reward claiming remains disabled.
+
+
+## 2026-11-04 — Reward claim input lifecycle protocol (offline, no executor)
+
+- **IMPLEMENTED:** added `src/kancollebot/expeditions/reward_claim_protocol.py`. It defines a one-shot protocol with explicit `CONSUMED_BEFORE_INPUT`, `INPUT_ATTEMPTED`, `POSTCONDITION_VERIFIED`, `UNKNOWN_AFTER_INPUT`, and `BLOCKED_BEFORE_INPUT` phases.
+- **SAFETY ORDER:** the protocol revalidates the authorization's exact frame ID/hash and TTL, atomically consumes it through the issuing registry, and only then permits the caller to mark one external input attempt. The caller must mark the attempt immediately before invoking its ordinary visible-UI input function. An ambiguous input outcome must become `UNKNOWN_AFTER_INPUT`; no retry is permitted.
+- **POSTCONDITION:** success requires explicit reward-claimed evidence and two distinct, increasing captured frames taken after the input-attempt boundary; the observed state must no longer be `BONUS_ITEMS`. Invalid or stale postcondition evidence fails closed.
+- **TESTS ADDED:** `tests/test_reward_claim_protocol.py` covers frame mismatch, expiry, one-shot ordering, no second attempt, post-input frame freshness, explicit claimed-state requirement, and unknown outcome.
+- **LIMITS:** the protocol is only a state ledger. It does not capture or classify real Poi screens, execute input, implement a CDP click, or prove that a caller's classifier is honest. It is not wired into the production supervisor. No live reward template/calibration exists; reward claiming remains disabled. The in-memory phase is lost on process restart; after restart the caller must discard old authorization and re-observe/re-authorize from the current UI.
+- **VALIDATION:** GitHub Actions validation is pending for this change; do not treat the tests as passed until the workflow result is checked.
