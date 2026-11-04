@@ -3737,3 +3737,15 @@ The Hand plugin's read-only probe reported:
 - **COMMITS:** initial scroll-precedence implementation/test `168549b83e2ad8ada30448841cff941da85e62b3`; no-row-count-end implementation `6d3fd416a5ad5cd48e3efdaaf2a46705101acbf9`; final regression-test correction `6dde75de2d59d7fe02e00d565776e91de16295e1`.
 - **SCOPE / SAFETY:** Offline CI only. No Poi connection, live screenshot capture, game input, scrolling, dispatch, supply, reward collection, game API request, Runtime.evaluate, page JavaScript execution, getter access, or system change.
 - **PR:** [Draft PR #30](https://github.com/wosafety0/wosafety0clamp/pull/30) is stacked on [Draft PR #29](https://github.com/wosafety0/wosafety0clamp/pull/29), itself stacked on PR #28. All remain open/unmerged.
+
+
+## 2026-11-05 - Require immutable, exact-integer expedition row signatures
+
+- **FINDING:** `RowSignature` is a frozen dataclass, but the constructor previously accepted a mutable list for `bins`; it also accepted bool/float values through Python's numeric comparison rules. That undermined the stable, persisted identity contract used by page alignment and row binding.
+- **IMPLEMENTED:** Require `bins` to be an exact tuple, each bin to be an exact built-in integer in the existing quantisation range, and `dark_total` to be an exact built-in integer before its non-negative check. Existing variable bin-count support is preserved.
+- **TESTS ADDED:** Regressions reject list-backed bins, boolean/float/string bin values, and boolean/float/string dark totals. Existing slot-independent fingerprint, distance, key round-trip, and out-of-range tests remain unchanged.
+- **COMMITS:** implementation `1f5f8de847265f309c04dec1e78167e5551a4e3a`; tests and current branch head `5efaa60ee8b860bb25c9a1473201cea4db159eae`.
+- **BRANCH / PR:** `dev/row-signature-exact-integer-20261105`, [Draft PR #33](https://github.com/wosafety0/wosafety0clamp/pull/33), stacked on PR #30 at base `a42495a9040e1b4de1a28cb501948e6b179d357a`.
+- **EXPECTED CI COMMANDS:** from the current `.github/workflows/ci.yml`: `node --test tests/static_decoder_extract.test.cjs tests/verify_cdp_snapshot.test.cjs`; `node --check tools/hand_sandbox/poi_port_response_observer_20261029.js`; `python -m pip install -e .`; unified CLI help smoke checks; `python -m compileall -q src tests tools`; `PYTHONPATH=src python -m unittest discover -s tests -v`.
+- **VALIDATION STATUS:** IMPLEMENTED; tests have been added and pushed, but this session could not retrieve the dev-branch push-run ID/result through the available workflow-run query (it exposes PR-triggered runs only), and no local checkout was available. Do not mark this candidate TESTED/VERIFIED until the exact-head push CI result is read back.
+- **SCOPE / SAFETY:** Pure repository/offline calibration-model work. No Poi connection, screenshot capture, scrolling, game input, dispatch, supply, reward collection, game API request, Runtime.evaluate, page JavaScript, getter access, or system change.
