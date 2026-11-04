@@ -121,7 +121,7 @@ class ScanSessionTests(unittest.TestCase):
             )
 
     def test_end_marker_must_be_bound_to_non_empty_page(self) -> None:
-        with self.assertRaisesRegex(ExpeditionListError, "non-empty page"):
+        with self.assertRaisesRegex(ExpeditionListError, "no rows"):
             VerifiedEndMarker.for_page(
                 _scan([]), marker_id="bottom", evidence_source="test"
             )
