@@ -150,6 +150,14 @@ class RewardClaimAuthorization:
         """Reject stale authorization or any frame change before a future action."""
         now = time.monotonic_ns() if now_monotonic_ns is None else now_monotonic_ns
         if (
+            isinstance(frame_id, bool)
+            or not isinstance(frame_id, int)
+            or frame_id < 1
+            or not isinstance(frame_sha256, str)
+            or not _SHA256.fullmatch(frame_sha256)
+        ):
+            raise RewardClaimAuthorizationError("current frame identity is invalid")
+        if (
             isinstance(now, bool)
             or not isinstance(now, int)
             or now < self.issued_monotonic_ns
@@ -209,8 +217,14 @@ class RewardClaimGate:
             raise RewardClaimAuthorizationError("authorization clock must be monotonic nanoseconds")
         if now < target.frame.captured_monotonic_ns:
             raise RewardClaimAuthorizationError("target frame timestamp is later than authorization time")
-        if now - target.frame.captured_monotonic_ns > self._authorization_ttl_ns:
-            raise RewardClaimAuthorizationError("target frame is stale; recapture before authorization")
+        first_frame, second_frame = target.state_frames
+        if (
+            now - first_frame.captured_monotonic_ns > self._authorization_ttl_ns
+            or now - second_frame.captured_monotonic_ns > self._authorization_ttl_ns
+        ):
+            raise RewardClaimAuthorizationError(
+                "one or more verified state frames are stale; recapture before authorization"
+            )
         return RewardClaimAuthorization(
             frame_id=target.frame_id,
             frame_sha256=target.frame_sha256,
