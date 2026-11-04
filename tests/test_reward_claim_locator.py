@@ -16,6 +16,7 @@ except ImportError:
 from kancollebot.adapters.poi.cdp_input import CapturedFrame
 from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
 from kancollebot.expeditions.settlement_observer import SettlementObservation
+from kancollebot.expeditions.reward_claim_gate import RewardClaimGate
 from kancollebot.expeditions.reward_claim_locator import (
     RewardClaimLocalizationError,
     locate_reward_claim_target,
@@ -149,6 +150,21 @@ class RewardClaimLocatorVisionTests(unittest.TestCase):
         self.assertEqual(target.frame_id, self.frames[1].frame_id)
         self.assertEqual(target.frame_sha256, self.frames[1].sha256)
         self.assertEqual(target.template_name, "bonus_claim_button.png")
+
+
+    def test_localized_target_can_be_authorized_only_with_explicit_template_allowlist(self):
+        target = locate_reward_claim_target(
+            self.evidence,
+            self.template_path,
+            calibration_id="synthetic-test-calibration",
+            region=(850, 580, 1120, 690),
+        )
+        gate = RewardClaimGate({target.template_sha256: "synthetic-test-calibration"})
+        authorization = gate.authorize(target)
+        self.assertEqual(authorization.frame_id, self.frames[1].frame_id)
+        self.assertEqual(authorization.frame_sha256, self.frames[1].sha256)
+        self.assertFalse(hasattr(authorization, "click"))
+        self.assertFalse(hasattr(authorization, "execute"))
 
     def test_duplicate_template_matches_fail_closed(self):
         image = cv2.imdecode(
