@@ -161,6 +161,44 @@ class RewardClaimGateTests(unittest.TestCase):
                 now_monotonic_ns=authorization.expires_monotonic_ns + 1,
             )
 
+    def test_rejects_stale_first_state_frame_even_when_target_frame_is_fresh(self):
+        old_first = CapturedFrame(
+            FIRST_FRAME.frame_id,
+            1,
+            FIRST_FRAME.png_bytes,
+            FIRST_FRAME.sha256,
+        )
+        stale_evidence_target = target(state_frames=(old_first, SECOND_FRAME))
+        gate = RewardClaimGate(
+            {TEMPLATE_HASH: CALIBRATION_ID},
+            authorization_ttl_ns=500,
+        )
+        with self.assertRaisesRegex(RewardClaimAuthorizationError, "one or more verified state frames are stale"):
+            gate.authorize(
+                stale_evidence_target,
+                now_monotonic_ns=SECOND_FRAME.captured_monotonic_ns + 100,
+            )
+
+    def test_rejects_non_integer_current_frame_id(self):
+        authorization = RewardClaimGate(
+            {TEMPLATE_HASH: CALIBRATION_ID}
+        ).authorize(
+            target(),
+            now_monotonic_ns=SECOND_FRAME.captured_monotonic_ns + 100,
+        )
+        with self.assertRaisesRegex(RewardClaimAuthorizationError, "current frame identity is invalid"):
+            authorization.assert_same_frame(
+                frame_id=12.0,
+                frame_sha256=FRAME_HASH,
+                now_monotonic_ns=authorization.issued_monotonic_ns + 1,
+            )
+        with self.assertRaisesRegex(RewardClaimAuthorizationError, "current frame identity is invalid"):
+            authorization.assert_same_frame(
+                frame_id=True,
+                frame_sha256=FRAME_HASH,
+                now_monotonic_ns=authorization.issued_monotonic_ns + 1,
+            )
+
     def test_rejects_future_frame_timestamp(self):
         gate = RewardClaimGate({TEMPLATE_HASH: CALIBRATION_ID})
         with self.assertRaisesRegex(RewardClaimAuthorizationError, "later than authorization"):
