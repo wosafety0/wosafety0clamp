@@ -952,6 +952,15 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
 def run(args: argparse.Namespace) -> int:
     if not args.authorize_ui_actions:
         raise LoopError("Missing explicit --authorize-ui-actions flag")
+    from kancollebot.adapters.poi.visual_target import (
+        VisualTargetError,
+        require_visual_dependencies,
+    )
+
+    try:
+        require_visual_dependencies()
+    except VisualTargetError as exc:
+        raise LoopError(f"Visual expedition UI unavailable: {exc}") from exc
     return _run_production_supervisor_once(args)
 
 

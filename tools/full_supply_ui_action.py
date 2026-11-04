@@ -566,6 +566,9 @@ def run(*, dry_run: bool = False) -> int:
         )
         return 0
 
+    from kancollebot.adapters.poi.visual_target import require_visual_dependencies
+    require_visual_dependencies()
+
     ui_arbiter = UiOperationArbiter()
     with ui_arbiter.operation("full-supply-batch"), connect_game_webview(timeout=3.0) as session:
         witness = _acquire_fresh_witness(session, ui_arbiter)

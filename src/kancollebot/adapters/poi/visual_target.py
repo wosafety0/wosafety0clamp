@@ -18,6 +18,33 @@ class VisualTargetError(RuntimeError):
     """A visual target could not be localized unambiguously."""
 
 
+def require_visual_dependencies() -> None:
+    """Fail closed with an actionable message if OpenCV/NumPy are unavailable.
+
+    Real expedition UI clicks (supply, settlement) locate small reversible
+    controls through template-free contour matching, which needs cv2 and numpy.
+    Call this before opening the game/webview so a missing dependency surfaces
+    as a clear startup error instead of a cryptic mid-click failure.
+    """
+    missing: list[str] = []
+    try:
+        import cv2  # noqa: F401
+    except ImportError:
+        missing.append("opencv-python-headless")
+    try:
+        import numpy  # noqa: F401
+    except ImportError:
+        missing.append("numpy")
+    if missing:
+        plural = "dependency" if len(missing) == 1 else "dependencies"
+        raise VisualTargetError(
+            "Visual expedition UI requires the missing "
+            f"{plural} {missing}; install with 'pip install "
+            + " ".join(missing)
+            + "' (headless OpenCV is sufficient)"
+        )
+
+
 FLEET_2_FIRST_CHECKBOX_REGION: Final[tuple[int, int, int, int]] = (150, 225, 55, 50)
 
 

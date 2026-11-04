@@ -16,6 +16,7 @@ from kancollebot.adapters.poi.visual_target import (
     locate_square_checkbox,
     locate_supply_fleet_tab,
     locate_fleet_supply_all_button,
+    require_visual_dependencies,
 )
 
 
@@ -144,6 +145,21 @@ class VisualTargetTests(unittest.TestCase):
         payload = self._frame(())
         with self.assertRaisesRegex(VisualTargetError, "outside"):
             locate_square_checkbox(payload, region=(1190, 710, 20, 20))
+
+
+@unittest.skipIf(cv2 is not None and np is not None, "vision dependencies are present")
+class RequireVisualDependenciesMissingTests(unittest.TestCase):
+    def test_fails_closed_with_actionable_message_when_dependencies_missing(self):
+        with self.assertRaisesRegex(VisualTargetError, "opencv-python-headless"):
+            require_visual_dependencies()
+        with self.assertRaisesRegex(VisualTargetError, "numpy"):
+            require_visual_dependencies()
+
+
+@unittest.skipIf(cv2 is None or np is None, "optional vision dependencies are unavailable")
+class RequireVisualDependenciesPresentTests(unittest.TestCase):
+    def test_passes_when_dependencies_present(self):
+        self.assertIsNone(require_visual_dependencies())
 
 
 if __name__ == "__main__":

@@ -66,11 +66,39 @@ class ProductionStartupSafetyGateTests(unittest.TestCase):
 
     def test_authorized_run_enters_production_supervisor_composition(self):
         args = self.make_args(authorized=True)
-        with patch.object(
+        with patch(
+            "kancollebot.adapters.poi.visual_target.require_visual_dependencies"
+        ), patch.object(
             controller, "_run_production_supervisor_once", return_value=0
         ) as compose:
             self.assertEqual(controller.run(args), 0)
         compose.assert_called_once_with(args)
+
+
+try:
+    import cv2  # noqa: F401
+    import numpy  # noqa: F401
+    _VISION_DEPS_PRESENT = True
+except ImportError:
+    _VISION_DEPS_PRESENT = False
+
+
+@unittest.skipIf(_VISION_DEPS_PRESENT, "vision dependencies are present")
+class ProductionStartupVisualDependencyTests(unittest.TestCase):
+    def make_args(self, *, authorized=True):
+        args = MagicMock()
+        args.authorize_ui_actions = authorized
+        args.poll_seconds = 5.0
+        args.timeout_seconds = 1800.0
+        args.grace_delay_seconds = 10.0
+        return args
+
+    def test_authorized_run_fails_closed_without_visual_dependencies(self):
+        args = self.make_args(authorized=True)
+        with self.assertRaisesRegex(
+            controller.LoopError, "Visual expedition UI unavailable"
+        ):
+            controller.run(args)
 
 
 class DispatchTargetGateTests(unittest.TestCase):

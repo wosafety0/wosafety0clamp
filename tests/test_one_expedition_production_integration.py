@@ -276,6 +276,9 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
                     patch.object(entry, "_require_ui_state", side_effect=fake_require_state)
                 )
                 stack.enter_context(patch.object(entry, "_print_event"))
+                stack.enter_context(
+                    patch("kancollebot.adapters.poi.visual_target.require_visual_dependencies")
+                )
                 self.patch_evidence_sources(stack, marks=marks)
                 # HOME_REFERENCE_SETTLE_SECONDS is deliberately left real: it is
                 # the pause the production frame capture uses, and the click
@@ -345,6 +348,9 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
                 )
                 stack.enter_context(patch.object(entry, "_print_event"))
                 stack.enter_context(
+                    patch("kancollebot.adapters.poi.visual_target.require_visual_dependencies")
+                )
+                stack.enter_context(
                     patch.object(monitor_runtime, "build_runtime", return_value=runtime)
                 )
                 self.patch_evidence_sources(stack, marks=marks)
@@ -371,6 +377,7 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
             with (
                 patch.object(entry, "connect_game_webview", return_value=game_session),
                 patch.object(entry, "_print_event"),
+                patch("kancollebot.adapters.poi.visual_target.require_visual_dependencies"),
                 patch.object(monitor_runtime, "build_runtime") as build,
             ):
                 with self.assertRaisesRegex(entry.LoopError, "deferred"):
