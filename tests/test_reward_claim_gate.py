@@ -11,7 +11,7 @@ from kancollebot.expeditions.reward_claim_gate import (
 
 
 TEMPLATE_HASH = "a" * 64
-FRAME_HASH = "b" * 64
+FRAME_HASH = "pending"
 CALIBRATION_ID = "live-poi-reward-button-v1"
 
 
@@ -24,8 +24,9 @@ def make_frame(frame_id: int, payload: bytes) -> CapturedFrame:
     )
 
 
-FIRST_FRAME = make_frame(10, b"\\x89PNG\\r\\n\\x1a\\nstate-one")
-SECOND_FRAME = make_frame(12, b"\\x89PNG\\r\\n\\x1a\\nstate-two")
+FIRST_FRAME = make_frame(10, b"\x89PNG\r\n\x1a\nstate-one")
+SECOND_FRAME = make_frame(12, b"\x89PNG\r\n\x1a\nstate-two")
+FRAME_HASH = SECOND_FRAME.sha256
 
 
 def target(**changes):
@@ -121,14 +122,15 @@ class RewardClaimGateTests(unittest.TestCase):
             target(frame_sha256="d" * 64)
 
 
-    def test_rejects_metadata_not_bound_to_retained_captured_frames(self):
+    def test_rejects_state_frame_objects_that_do_not_match_metadata(self):
+        wrong_second = make_frame(12, b"\x89PNG\r\n\x1a\nother-frame")
         with self.assertRaisesRegex(ValueError, "metadata must match"):
-            target(frame_id=11)
-        with self.assertRaisesRegex(ValueError, "metadata must match"):
-            target(frame_sha256="d" * 64)
+            target(state_frames=(FIRST_FRAME, wrong_second))
 
     def test_target_must_retain_the_identical_second_frame_object(self):
-        duplicate = make_frame(12, b"\\x89PNG\\r\\n\\x1a\\nstate-two")
+        duplicate = make_frame(12, SECOND_FRAME.png_bytes)
+        self.assertEqual(duplicate, SECOND_FRAME)
+        self.assertIsNot(duplicate, SECOND_FRAME)
         with self.assertRaisesRegex(ValueError, "identical second"):
             target(frame=duplicate)
 
