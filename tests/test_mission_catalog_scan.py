@@ -119,6 +119,7 @@ class ExpeditionListScanAccumulatorTests(unittest.TestCase):
 
     def test_reaching_geometry_bottom_without_visual_confirmation_is_rejected(self):
         scan = ExpeditionListScanAccumulator()
+        scan.add_page(page(0, [row(1)]))
         with self.assertRaisesRegex(ExpeditionListScanError, "conflicts"):
             scan.add_page(page(600, [row(4)], bottom=False))
 
@@ -134,9 +135,9 @@ class ExpeditionListScanAccumulatorTests(unittest.TestCase):
 
     def test_no_pages_can_be_added_after_completion(self):
         scan = ExpeditionListScanAccumulator()
-        scan.add_page(page(600, [row(1)], bottom=True))
+        scan.add_page(page(0, [row(1)], bottom=True, content=300))
         with self.assertRaisesRegex(ExpeditionListScanError, "already complete"):
-            scan.add_page(page(600, [row(2)], bottom=True))
+            scan.add_page(page(0, [row(2)], bottom=True, content=300))
 
 
 if __name__ == "__main__":
