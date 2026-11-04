@@ -20,7 +20,7 @@ class CdpInputError(RuntimeError):
     """Raised when a CDP command cannot be completed safely."""
 
 
-_PNG_SIGNATURE = b"\\x89PNG\\r\\n\\x1a\\n"
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _FRAME_IDS = itertools.count(1)
 
 
