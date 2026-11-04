@@ -194,7 +194,7 @@ class RewardClaimLocatorVisionTests(unittest.TestCase):
             evidence="two consecutive in-memory fingerprint matches",
             frames=(self.frames[0], duplicate_frame),
         )
-        with self.assertRaisesRegex(RewardClaimLocalizationError, "uniqueness margin"):
+        with self.assertRaisesRegex(RewardClaimLocalizationError, "multiple spatially distinct"):
             locate_reward_claim_target(
                 self.evidence,
                 self.template_path,
