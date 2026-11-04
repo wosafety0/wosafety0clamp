@@ -10,6 +10,15 @@ from kancollebot.expeditions.settlement_observer import (
 )
 
 
+def captured_frame(frame_id):
+    png_bytes = bytes.fromhex('89504e470d0a1a0a') + b'frame-' + str(frame_id).encode('ascii')
+    return CapturedFrame(frame_id, frame_id * 100, png_bytes, hashlib.sha256(png_bytes).hexdigest())
+
+
+def frame_pair():
+    return (captured_frame(1), captured_frame(2))
+
+
 class SettlementStateObserverTests(unittest.TestCase):
     def test_accepts_two_consecutive_expected_frames(self):
         calls = []
