@@ -224,3 +224,11 @@ The purpose of this inventory is to prevent a new developer from mistaking an ol
 - **FAIL-CLOSED:** zero qualifying candidates or more than one spatially distinct high-confidence candidate blocks authorization. The locator also retains the confidence-margin requirement. The gate independently requires `candidate_count == 1`.
 - **TESTED:** GitHub Actions run [41774452317](https://github.com/wosafety0/wosafety0clamp/actions/runs/41774452317) passed 623 tests with zero skipped; the duplicate-placement regression test passed.
 - **LIMITS / DESIGN REVIEW:** this corrects the prior mismatch between the claimed candidate count and the actual image-match search. It does not make a Python authorization object unforgeable or provide one-time consumption. There is still no click executor. Any future executor must own replay/consumption state, re-capture and re-localize immediately before input, and independently verify the post-click state. The current same-frame assertion is a consistency check over supplied frame identifiers, not proof that the live display remained unchanged.
+
+
+## 2026-11-04 — Reward authorization validates both evidence-frame ages
+
+- **IMPLEMENTED:** authorization now checks the age of both consecutive `BONUS_ITEMS` evidence frames against the configured TTL, not only the localization frame. A fresh second frame can no longer mask an excessively old first state check.
+- **INPUT VALIDATION:** `assert_same_frame` now rejects non-integer frame IDs (including booleans and floats), non-positive IDs, and malformed SHA-256 values before comparing frame identity.
+- **TESTED:** GitHub Actions run [41774962958](https://github.com/wosafety0/wosafety0clamp/actions/runs/41774962958) passed 625 Python tests. The regression cases cover a stale first frame with a fresh target frame and malformed frame identifiers.
+- **LIMITS:** this remains an in-process, non-executable authorization record. It is not a one-time capability, does not authenticate a caller, and does not prove live display continuity. No reward click executor or live calibration is enabled.
