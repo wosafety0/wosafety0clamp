@@ -1,8 +1,18 @@
 # Continuous Dual-Fleet Expedition Scheduler — Design Contract
 
-Current status (2026-11-03): see [HANDOFF.md](HANDOFF.md) for the authoritative handover summary, verified evidence, current limitations, and next steps. This file is the detailed design contract and chronological implementation record; dated sections below describe the state at the time they were written and may be superseded by later entries.
+Current status (2026-11-04): see [HANDOFF.md](HANDOFF.md) for the authoritative handover summary, verified evidence, current limitations, and next steps. This file is the detailed design contract and chronological implementation record; dated sections below describe the state at the time they were written and may be superseded by later entries.
 
 Branch: dev/expedition-closed-loop-mvp
+
+## 2026-11-04 - Fail-closed expedition return observation (offline)
+
+- **IMPLEMENTED:** Added `ContinuousDispatchController.wait_for_return(fleet_id)`. It is callable only for a fleet whose dispatch tuple is confirmed and whose two-frame HOME_PORT gate is already verified. It refuses to observe before the exact `final_time_ms` deadline.
+- **FRESHNESS / IDENTITY GATES:** After the deadline, it waits on the already-armed passive observer for a natural port witness newer than the deadline, reads Poi Redux only after that witness, requires the observation to be source-fresh and newer than the deadline, and compares mission status 2, mission ID, return timestamp, reserved slot, and ordered ship roster with the originally dispatched tuple.
+- **STATE / RECOVERY:** Only an exact match advances the durable scheduler from `EXPEDITION_ACTIVE` to `RETURNED_PENDING_UI`. Early calls do not read or wait. Missing witnesses, stale state, wrong status, or tuple mismatch fail closed and block the fleet; no UI input, game request, or retry is performed.
+- **TESTED:** Added six offline tests for successful return confirmation, early-call rejection, missing-witness blocking, roster mismatch, unverified Poi state, and incorrect mission status. GitHub Actions run [41766747004](https://github.com/wosafety0/wosafety0clamp/actions/runs/41766747004) passed the full suite: **567 tests, 20 skipped, all remaining passed**, plus Node static tests, observer syntax, CLI smoke checks, and Python compile.
+- **LIMITS / NOT VERIFIED:** This is an offline-tested controller capability, not a live return observation. No expedition was dispatched or awaited. RETURN_RESULT / BONUS_ITEMS progression, reward-claim control and confirmation, resupply integration, and the complete expedition loop remain unimplemented or unverified.
+- **NEXT:** When Poi access is available, separately authorize one live dispatch, then verify this return observer after the actual mission deadline. Continue only with independently calibrated result/reward UI targets; the existing bonus-title marker alone is not click authorization.
+
 
 ## 2026-11-02 - SORTIE_MENU visual checkpoint
 
