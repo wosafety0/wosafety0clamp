@@ -173,7 +173,7 @@ class RewardClaimLocatorVisionTests(unittest.TestCase):
             region=(850, 580, 1120, 690),
         )
         gate = RewardClaimGate({target.template_sha256: "synthetic-test-calibration"})
-        authorization = gate.authorize(target)
+        authorization = gate.authorize(target, now_monotonic_ns=target.frame.captured_monotonic_ns + 100)
         self.assertEqual(authorization.frame_id, self.frames[1].frame_id)
         self.assertEqual(authorization.frame_sha256, self.frames[1].sha256)
         self.assertFalse(hasattr(authorization, "click"))
