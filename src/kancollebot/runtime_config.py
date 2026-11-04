@@ -18,6 +18,7 @@ class RuntimeConfig:
     poi_endpoint: str = "http://127.0.0.1:12450/mcp"
     observer_timeout_seconds: float = 130.0
     max_state_age_seconds: float = 30.0
+    return_grace_delay_seconds: float = 10.0
     monitor_poll_seconds: float = 5.0
     refresh_wait_seconds: float = 45.0
     refresh_poll_seconds: float = 0.5

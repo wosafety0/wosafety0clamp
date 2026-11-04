@@ -68,6 +68,7 @@ class ContinuousExpeditionMonitor:
         mission_requirements: Mapping[int, MissionCompositionRequirement],
         event_sink: Callable[[str, Mapping[str, object]], None],
         max_state_age: timedelta = timedelta(seconds=30),
+        return_grace_delay: timedelta = timedelta(seconds=10),
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         if set(mission_requirements) != set(scheduler.dispatch_fleet_ids):
@@ -78,11 +79,14 @@ class ContinuousExpeditionMonitor:
             raise ValueError("a durable event_sink is required")
         if max_state_age < timedelta(0):
             raise ValueError("max_state_age must not be negative")
+        if return_grace_delay < timedelta(0):
+            raise ValueError("return_grace_delay must not be negative")
         self.scheduler = scheduler
         self.state_reader = state_reader
         self.mission_requirements = dict(mission_requirements)
         self.event_sink = event_sink
         self.max_state_age = max_state_age
+        self.return_grace_delay = return_grace_delay
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def tick(self) -> ContinuousMonitorReport:
@@ -143,6 +147,14 @@ class ContinuousExpeditionMonitor:
                     return self._block(
                         fleet_id, current,
                         "returned mission observed before post-dispatch Home Port verification",
+                    )
+                return_eligible_at_ms = current.mission.final_time_ms + int(
+                    self.return_grace_delay.total_seconds() * 1000
+                )
+                if int(now.timestamp() * 1000) < return_eligible_at_ms:
+                    return self._result(
+                        fleet_id, previous, current, "return_confirmation_deferred",
+                        "Poi mission status 2 arrived before expected return plus grace delay",
                     )
                 updated = self.scheduler.confirm_returned(fleet_id, observed)
                 return self._result(

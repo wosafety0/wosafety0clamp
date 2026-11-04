@@ -76,6 +76,7 @@ class ContinuousMonitorRuntimeTests(unittest.TestCase):
                 self.assertEqual(runtime.scheduler.dispatch_fleet_ids, (2, 3))
                 self.assertEqual(runtime.scheduler.read_only_fleet_ids, (1,))
                 self.assertEqual(runtime.scheduler.deferred_fleet_ids, (4,))
+                self.assertEqual(runtime.monitor.return_grace_delay.total_seconds(), 10.0)
                 self.assertEqual(
                     runtime.monitor.mission_requirements[2].mission_id, 1
                 )
@@ -90,6 +91,16 @@ class ContinuousMonitorRuntimeTests(unittest.TestCase):
                 self.assertIsNone(runtime.ui_refresh_driver)
             finally:
                 runtime.provider.close(join_timeout_seconds=1)
+
+    def test_build_runtime_rejects_negative_return_grace_delay(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(ValueError, "return_grace_delay_seconds"):
+                build_runtime(
+                    database_path=Path(temporary) / "monitor.sqlite3",
+                    client=object(),
+                    observer=FakeObserver(),
+                    return_grace_delay_seconds=-0.1,
+                )
 
     def test_build_runtime_can_scope_the_production_tick_to_one_verified_fleet(self):
         with tempfile.TemporaryDirectory() as temporary:

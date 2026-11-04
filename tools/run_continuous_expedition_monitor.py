@@ -82,6 +82,7 @@ def build_runtime(
     observer_script: str | Path = DEFAULT_OBSERVER_SCRIPT,
     observer_timeout_seconds: float = 130.0,
     max_state_age_seconds: float = 30.0,
+    return_grace_delay_seconds: float = RUNTIME_CONFIG.return_grace_delay_seconds,
     client: PoiMcpClient | None = None,
     observer: PassivePortResponseObserver | None = None,
     dispatch_fleet_ids: tuple[int, ...] = RUNTIME_CONFIG.monitor_candidate_fleet_ids,
@@ -97,6 +98,8 @@ def build_runtime(
         raise ValueError("observer_timeout_seconds must be finite and positive")
     if not math.isfinite(max_state_age_seconds) or max_state_age_seconds < 0:
         raise ValueError("max_state_age_seconds must be finite and non-negative")
+    if not math.isfinite(return_grace_delay_seconds) or return_grace_delay_seconds < 0:
+        raise ValueError("return_grace_delay_seconds must be finite and non-negative")
     if (
         not dispatch_fleet_ids
         or len(set(dispatch_fleet_ids)) != len(dispatch_fleet_ids)
@@ -176,6 +179,7 @@ def build_runtime(
         mission_requirements=requirements,
         event_sink=event_sink,
         max_state_age=timedelta(seconds=max_state_age_seconds),
+        return_grace_delay=timedelta(seconds=return_grace_delay_seconds),
     )
     return MonitorRuntime(
         monitor=monitor,

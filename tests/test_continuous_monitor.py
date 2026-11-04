@@ -127,12 +127,46 @@ class ContinuousExpeditionMonitorTests(unittest.TestCase):
                 observed([
                     make_snapshot(2, status=2, mission_id=1, return_at=BASE + timedelta(minutes=20)),
                     make_snapshot(3),
-                ]),
+                ], at=BASE + timedelta(minutes=20, seconds=10)),
+                clock=lambda: BASE + timedelta(minutes=20, seconds=10),
             )
             self.set_active(scheduler)
             report = monitor.tick()
             self.assertEqual(report.fleets[0].action, "return_detected")
             self.assertEqual(scheduler.fleet(2).phase, FleetPhase.RETURNED_PENDING_UI)
+
+    def test_status_two_before_expected_return_is_deferred(self):
+        with tempfile.TemporaryDirectory() as directory:
+            now = BASE + timedelta(minutes=10)
+            monitor, scheduler, _, _ = self.make_monitor(
+                directory,
+                observed([
+                    make_snapshot(2, status=2, mission_id=1, return_at=BASE + timedelta(minutes=20)),
+                    make_snapshot(3),
+                ], at=now),
+                clock=lambda: now,
+            )
+            self.set_active(scheduler)
+            report = monitor.tick()
+            self.assertEqual(report.fleets[0].action, "return_confirmation_deferred")
+            self.assertEqual(report.fleets[0].current_phase, FleetPhase.EXPEDITION_ACTIVE)
+            self.assertEqual(scheduler.fleet(2).phase, FleetPhase.EXPEDITION_ACTIVE)
+
+    def test_status_two_inside_grace_window_is_deferred(self):
+        with tempfile.TemporaryDirectory() as directory:
+            now = BASE + timedelta(minutes=20, seconds=9)
+            monitor, scheduler, _, _ = self.make_monitor(
+                directory,
+                observed([
+                    make_snapshot(2, status=2, mission_id=1, return_at=BASE + timedelta(minutes=20)),
+                    make_snapshot(3),
+                ], at=now),
+                clock=lambda: now,
+            )
+            self.set_active(scheduler)
+            report = monitor.tick()
+            self.assertEqual(report.fleets[0].action, "return_confirmation_deferred")
+            self.assertEqual(scheduler.fleet(2).phase, FleetPhase.EXPEDITION_ACTIVE)
 
     def test_status_two_before_home_port_verification_blocks(self):
         with tempfile.TemporaryDirectory() as directory:
