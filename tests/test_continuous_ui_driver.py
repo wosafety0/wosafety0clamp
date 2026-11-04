@@ -21,6 +21,12 @@ from kancollebot.adapters.poi.cdp_ui_driver import (
     SettlementStep,
 )
 from kancollebot.adapters.poi.ui_state_gate import UiState, UiStateGateError
+from kancollebot.calibration import (
+    ExpeditionListIndex,
+    ExpeditionListSession,
+    ExpeditionRowError,
+    RowLocation,
+)
 
 
 def make_fleet(fleet_id=2, mission=(0, 0, 0, 0), ship_ids=(5, 6, 7, 8), supply=None):
@@ -90,11 +96,12 @@ class FakeClock:
 
 
 def build_driver(
-    states, gate, game_input=None, clock=None, settlement_plan=None, resupply_plan=None
+    states, gate, game_input=None, clock=None, settlement_plan=None, resupply_plan=None,
+    plan=None, list_session=None,
 ):
     clock = clock or FakeClock()
     return PoiCdpContinuousUiDriver(
-        plan=DEFAULT_FLEET2_MISSION3_PLAN,
+        plan=plan or DEFAULT_FLEET2_MISSION3_PLAN,
         fleet_states_fn=states,
         game_input=game_input or FakeInput(),
         gate=gate,
@@ -103,6 +110,7 @@ def build_driver(
         time_ms_fn=lambda: 1_000_000,
         settlement_plan=settlement_plan,
         resupply_plan=resupply_plan,
+        list_session=list_session,
     )
 
 
@@ -171,6 +179,120 @@ class DispatchPlanValidationTests(unittest.TestCase):
     def test_plan_rejects_negative_settle(self):
         with self.assertRaises(ValueError):
             DispatchStep(RecordedPoint(1, 1, "a"), -0.5, "HOME_PORT", "SORTIE_MENU")
+
+
+ROW_PLAN = DispatchPlan(
+    fleet_id=2,
+    mission_id=3,
+    steps=(
+        DispatchStep(RecordedPoint(280, 425, "sortie"), 1.0, "HOME_PORT", "SORTIE_MENU"),
+        DispatchStep(RecordedPoint(1000, 360, "expedition-mode"), 1.0, "SORTIE_MENU", "EXPEDITION_LIST"),
+        DispatchStep(
+            row="03", row_tab=0, settle_seconds=0.5,
+            state_before="EXPEDITION_LIST", state_after="MISSION_SELECTED",
+        ),
+        DispatchStep(RecordedPoint(1030, 670, "mission-confirm"), 0.7, "MISSION_SELECTED", "FLEET_2_SELECTED"),
+        DispatchStep(RecordedPoint(920, 670, "expedition-start"), 1.5, "FLEET_2_SELECTED", "EXPEDITION_ACTIVE"),
+    ),
+)
+
+
+def stub_session(location=None, error=None):
+    """A real session whose locate() is replaced: the driver only calls that."""
+    session = ExpeditionListSession(
+        scan=lambda: None,
+        click=lambda point, label: None,
+        index=ExpeditionListIndex(),
+    )
+
+    def locate(expedition_id, *, tab=None):
+        if error is not None:
+            raise error
+        return location
+
+    session.locate = locate  # type: ignore[method-assign]
+    return session
+
+
+class RowStepValidationTests(unittest.TestCase):
+    def test_a_step_needs_exactly_one_of_point_and_row(self):
+        with self.assertRaisesRegex(ValueError, "either a point or a row"):
+            DispatchStep(settle_seconds=0.5, state_before="A", state_after="B")
+        with self.assertRaisesRegex(ValueError, "not both"):
+            DispatchStep(
+                RecordedPoint(1, 1, "a"), 0.5, "A", "B", row="03",
+            )
+
+    def test_row_tab_only_means_something_with_a_row(self):
+        with self.assertRaisesRegex(ValueError, "together with row"):
+            DispatchStep(RecordedPoint(1, 1, "a"), 0.5, "A", "B", row_tab=0)
+
+    def test_a_row_must_be_a_number(self):
+        with self.assertRaisesRegex(ValueError, "non-empty expedition number"):
+            DispatchStep(row="", settle_seconds=0.5, state_before="A", state_after="B")
+
+
+class RowStepDispatchTests(unittest.TestCase):
+    def _driver(self, session, game_input=None, gate=None):
+        idle = make_fleet(supply=supplied_supply())
+        active = make_fleet(mission=(1, 3, 1_600_000, 0), supply=supplied_supply())
+        states = ScriptedFleetStates((idle,), (idle,), (active,))
+        return build_driver(
+            states, gate or ScriptedGate(), game_input or FakeInput(),
+            plan=ROW_PLAN, list_session=session,
+        )
+
+    def test_the_measured_point_is_clicked_instead_of_a_constant(self):
+        location = RowLocation(
+            expedition_id="03", tab=0, position=2, offset=0, row_index=3,
+            point=(350, 405.0), scroll_clicks=0, tab_clicks=0, detail="list position 2",
+        )
+        game_input = FakeInput()
+        gate = ScriptedGate()
+        driver = self._driver(stub_session(location), game_input, gate)
+        driver.dispatch_expedition(fleet_id=2, mission_id=3)
+        self.assertEqual(
+            game_input.clicks,
+            ["sortie", "expedition-mode", "expedition-row-03",
+             "mission-confirm", "expedition-start"],
+        )
+        located = [payload for name, payload in driver.events if name == "expedition_row_located"]
+        self.assertEqual(len(located), 1)
+        self.assertEqual(located[0]["position"], 2)
+        self.assertEqual(located[0]["offset"], 0)
+
+    def test_the_list_checkpoint_is_re_established_after_locating(self):
+        location = RowLocation(
+            expedition_id="03", tab=0, position=2, offset=0, row_index=3,
+            point=(350, 405.0), scroll_clicks=3, tab_clicks=1, detail="needed a scroll",
+        )
+        gate = ScriptedGate()
+        driver = self._driver(stub_session(location), gate=gate)
+        driver.dispatch_expedition(fleet_id=2, mission_id=3)
+        # before step 3, again after scrolling, and the after-checkpoint.
+        self.assertEqual(
+            gate.calls.count(UiState.EXPEDITION_LIST), 3,
+            "a click that follows a scroll must be checked on the new frame",
+        )
+
+    def test_a_row_step_without_a_session_fails_closed(self):
+        idle = make_fleet(supply=supplied_supply())
+        states = ScriptedFleetStates((idle,))
+        game_input = FakeInput()
+        driver = build_driver(states, ScriptedGate(), game_input, plan=ROW_PLAN)
+        with self.assertRaisesRegex(ContinuousUiDriverError, "no list session is configured"):
+            driver.dispatch_expedition(fleet_id=2, mission_id=3)
+        self.assertEqual(game_input.clicks, ["sortie", "expedition-mode"])
+
+    def test_an_unplaceable_row_fails_closed_before_the_click(self):
+        game_input = FakeInput()
+        driver = self._driver(
+            stub_session(error=ExpeditionRowError("the list never reached its top")),
+            game_input,
+        )
+        with self.assertRaisesRegex(ContinuousUiDriverError, "cannot place row 03"):
+            driver.dispatch_expedition(fleet_id=2, mission_id=3)
+        self.assertEqual(game_input.clicks, ["sortie", "expedition-mode"])
 
 
 class DispatchExpeditionTests(unittest.TestCase):

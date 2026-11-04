@@ -4,6 +4,15 @@ This adapter owns only CDP mouse input and visual checkpoint verification.
 It never invokes game APIs, mutates page state, or retries an ambiguous click.
 The mission/fleet mapping is deliberately narrow until additional mission
 selection fingerprints have been calibrated and independently verified.
+
+The mission row is the one click whose target is not a constant. It used to be
+``RecordedPoint(350, 350)``, which is the third row only while the list happens
+to be scrolled to its top and showing tab 1 - and the game reopens the list on
+whichever area tab was last used. ``locate_row`` replaces that with the measured
+position from the position index: the session climbs to the proven top, selects
+the tab, scrolls until the row is on screen and returns its centre. When no
+locator is supplied the old constant is used and the driver says so in an event,
+so a run that still depends on the guess is auditable.
 """
 from __future__ import annotations
 
@@ -12,6 +21,7 @@ from collections.abc import Callable, Mapping
 from typing import Protocol
 
 from kancollebot.adapters.poi.cdp_input import RecordedPoint
+from kancollebot.calibration import RowLocation
 from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
 
 
@@ -51,6 +61,7 @@ class CdpContinuousExpeditionUiDriver:
         neutralize_pointer: Callable[[], None] | None = None,
         sleep: Callable[[float], None] = time.sleep,
         settle_seconds: float = 1.0,
+        locate_row: Callable[[str, int | None], RowLocation] | None = None,
     ) -> None:
         if not callable(getattr(game_input, "click", None)):
             raise ValueError("game_input must provide click(point)")
@@ -58,12 +69,15 @@ class CdpContinuousExpeditionUiDriver:
             raise ValueError("verify_state, event_sink, and sleep must be callable")
         if settle_seconds < 0:
             raise ValueError("settle_seconds must be non-negative")
+        if locate_row is not None and not callable(locate_row):
+            raise ValueError("locate_row must be callable or None")
         self._input = game_input
         self._verify_state = verify_state
         self._event_sink = event_sink
         self._neutralize_pointer = neutralize_pointer or (lambda: None)
         self._sleep = sleep
         self._settle_seconds = settle_seconds
+        self._locate_row = locate_row
 
     def _confirm(self, expected: str, *, phase: str) -> UiStateEvidence:
         self._neutralize_pointer()
@@ -125,6 +139,42 @@ class CdpContinuousExpeditionUiDriver:
         if self._settle_seconds:
             self._sleep(self._settle_seconds)
 
+    def _mission_row_point(self) -> RecordedPoint:
+        """Where mission 3's row is *now*.
+
+        Without a locator this falls back to the recorded constant and records
+        that it did, because the constant is only right while the list is at its
+        top on tab 1. With a locator the position must be proven, and any
+        failure propagates: clicking a guessed row is the one outcome to avoid.
+        """
+        if self._locate_row is None:
+            self._event_sink("continuous_ui_row_located_unverified", {
+                "mission_id": 3,
+                "reason": "no list session configured; using the recorded constant",
+                "target": MISSION_3_ROW.label,
+            })
+            return MISSION_3_ROW
+        try:
+            location = self._locate_row("03", 0)
+        except Exception as exc:
+            raise ContinuousUiDriverError(
+                f"cannot place mission 3's row: {type(exc).__name__}: {exc}"
+            ) from exc
+        if not isinstance(location, RowLocation):
+            raise ContinuousUiDriverError("the list session returned no structured row location")
+        self._event_sink("continuous_ui_row_located", {
+            "mission_id": 3,
+            "expedition_id": location.expedition_id,
+            "tab": location.tab,
+            "position": location.position,
+            "offset": location.offset,
+            "row_index": location.row_index,
+            "scroll_clicks": location.scroll_clicks,
+            "tab_clicks": location.tab_clicks,
+            "detail": location.detail,
+        })
+        return RecordedPoint(location.point[0], location.point[1], f"mission-3-row-pos{location.position}")
+
     def prepare_dispatch(self, *, fleet_id: int, mission_id: int) -> UiStateEvidence:
         """Navigate to the verified fleet-selection state without starting an expedition."""
         if (fleet_id, mission_id) != (3, 3):
@@ -147,7 +197,14 @@ class CdpContinuousExpeditionUiDriver:
             self._click(EXPEDITION_MODE, action="open_expedition_list", step=2)
             self._confirm("EXPEDITION_LIST", phase="after open_expedition_list")
 
-            self._click(MISSION_3_ROW, action="select_mission_3", step=3)
+            row_point = self._mission_row_point()
+            if self._locate_row is not None:
+                # Locating the row scrolls the list and may switch the area tab,
+                # so the checkpoint is re-established on the frame the click
+                # lands on. Without a locator nothing moved and nothing is
+                # re-checked - the recorded constant is used unchanged.
+                self._confirm("EXPEDITION_LIST", phase="dispatch row precondition")
+            self._click(row_point, action="select_mission_3", step=3)
             self._confirm("MISSION_SELECTED", phase="after select_mission_3")
 
             self._click(MISSION_CONFIRM, action="confirm_mission", step=4)

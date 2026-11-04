@@ -46,7 +46,9 @@ from kancollebot.calibration import (  # noqa: E402
     decode_png,
     encode_png,
     find_button_candidates,
+    load_position_index,
     plan_scroll_step,
+    save_position_index,
     scan_page,
     stack_vertically,
 )
@@ -55,9 +57,6 @@ from kancollebot.calibration import (  # noqa: E402
 # signature, which cannot separate rows that render identically (29 and 30 in
 # 西方海域 hash to the same key), so a v1 file is refused rather than silently
 # reinterpreted. Re-labelling a tab costs one walk; guessing would cost trust.
-INDEX_VERSION = 2
-
-
 def _parse_box(text: str) -> tuple[int, int, int, int]:
     parts = text.split(",")
     if len(parts) != 4:
@@ -120,39 +119,10 @@ def capture_screenshot(destination: Path) -> Path:
     return destination
 
 
-def load_index(path: Path) -> ExpeditionListIndex:
-    index = ExpeditionListIndex()
-    if not path.exists():
-        return index
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict) or payload.get("version") != INDEX_VERSION:
-        raise ExpeditionListError(
-            f"{path} is not a version {INDEX_VERSION} index; a version 1 file keyed "
-            "bindings by pixel signature and must be rebuilt by walking the tab again"
-        )
-    bindings = payload.get("bindings", {})
-    if not isinstance(bindings, dict):
-        raise ExpeditionListError("index bindings must be an object")
-    for key, expedition_id in bindings.items():
-        if not isinstance(key, str) or not isinstance(expedition_id, str):
-            raise ExpeditionListError("index entries must be strings")
-        tab_text, _, position_text = key.partition("|")
-        tab = None if tab_text == "none" else int(tab_text)
-        index.bindings[(tab, int(position_text))] = expedition_id
-    return index
-
-
-def save_index(path: Path, index: ExpeditionListIndex) -> None:
-    payload = {
-        "version": INDEX_VERSION,
-        "bindings": {
-            f"{'none' if tab is None else tab}|{position}": expedition_id
-            for (tab, position), expedition_id in sorted(
-                index.bindings.items(), key=lambda item: (str(item[0][0]), item[0][1])
-            )
-        },
-    }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+# The position index format lives in the calibration package so the walker, the
+# scanner and the dispatch path cannot disagree about it.
+load_index = load_position_index
+save_index = save_position_index
 
 
 def master_records() -> dict[str, dict[str, object]]:

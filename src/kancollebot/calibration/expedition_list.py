@@ -35,9 +35,11 @@ module only tells it what a structurally safe step would be.
 """
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 
 from .expedition_rows import (
     DEFAULT_DARK_THRESHOLD,
@@ -1138,6 +1140,80 @@ class ExpeditionListIndex:
                 key=lambda item: item[0],
             )
         )
+
+
+# Position bindings are per-account state, not a property of the game: they
+# record which expeditions *this* account has unlocked and where each one sits
+# in its tab. They are therefore a file, and that file is only valid for the
+# account it was walked on. Version 1 keyed bindings by pixel signature and
+# cannot be reinterpreted as positions (two rows can share one signature), so it
+# is refused rather than upgraded.
+POSITION_INDEX_VERSION = 2
+
+
+def load_position_index(path: str | Path) -> ExpeditionListIndex:
+    """Read a position index written by ``save_position_index``.
+
+    A missing file is an empty index, which is the honest answer: nothing has
+    been labelled yet. A file of the wrong version is an error - the caller is
+    about to trust these positions to aim a click, and silently reading a v1
+    signature index as positions would aim it wrong.
+    """
+    location = Path(path)
+    index = ExpeditionListIndex()
+    if not location.exists():
+        return index
+    payload = json.loads(location.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or payload.get("version") != POSITION_INDEX_VERSION:
+        raise ExpeditionListError(
+            f"{location} is not a version {POSITION_INDEX_VERSION} position index; "
+            "a version 1 file keyed bindings by pixel signature and must be rebuilt "
+            "by walking the tab again"
+        )
+    bindings = payload.get("bindings", {})
+    if not isinstance(bindings, dict):
+        raise ExpeditionListError("position index bindings must be an object")
+    for key, expedition_id in bindings.items():
+        if not isinstance(key, str) or not isinstance(expedition_id, str):
+            raise ExpeditionListError("position index entries must be strings")
+        tab_text, _, position_text = key.partition("|")
+        try:
+            tab = None if tab_text == "none" else int(tab_text)
+            position = int(position_text)
+        except ValueError as error:
+            raise ExpeditionListError(f"position index key {key!r} is malformed") from error
+        index.bindings[(tab, position)] = expedition_id
+    return index
+
+
+def save_position_index(
+    path: str | Path,
+    index: ExpeditionListIndex,
+    *,
+    label: str | None = None,
+) -> None:
+    """Write a position index, with the account label it was walked on.
+
+    ``label`` is documentation, not a check: it records whose list this is so a
+    later reader can notice it is looking at someone else's account. Nothing
+    verifies it, because nothing in the client exposes an account identifier.
+    """
+    if not isinstance(index, ExpeditionListIndex):
+        raise ValueError("index must be an ExpeditionListIndex")
+    location = Path(path)
+    payload: dict[str, object] = {
+        "version": POSITION_INDEX_VERSION,
+        "bindings": {
+            f"{'none' if tab is None else tab}|{position}": expedition_id
+            for (tab, position), expedition_id in sorted(
+                index.bindings.items(), key=lambda item: (str(item[0][0]), item[0][1])
+            )
+        },
+    }
+    if label is not None:
+        payload["label"] = label
+    location.parent.mkdir(parents=True, exist_ok=True)
+    location.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _validate_expedition_id(expedition_id: str) -> None:

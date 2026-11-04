@@ -30,6 +30,7 @@ from typing import Any, Callable, Mapping, Protocol
 from kancollebot.adapters.poi.cdp_fleet_state import PoiFleetMissionState
 from kancollebot.adapters.poi.cdp_input import RecordedPoint, home_port_candidates, home_port_point
 from kancollebot.adapters.poi.ui_state_gate import UiState, UiStateGateError, require_state
+from kancollebot.calibration import ExpeditionListSession, ExpeditionRowError
 from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
 
 PACKAGE_DIR = Path(__file__).resolve().parent
@@ -72,16 +73,44 @@ class ClickInput(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class DispatchStep:
-    """One reviewed click with its mandatory pre/post UI checkpoint states."""
+    """One reviewed click with its mandatory pre/post UI checkpoint states.
 
-    point: RecordedPoint
-    settle_seconds: float
-    state_before: str
-    state_after: str
+    A step carries either a recorded ``point`` or a ``row`` naming an expedition
+    whose position in the list is known. The row form exists because a fixed
+    coordinate silently points at whatever happens to be on that pixel: the
+    mission-3 click was ``(350, 350)``, which is the third row only while the
+    list is scrolled to its top. ``row`` replaces that guess with the measured
+    position from ``ExpeditionListIndex``, and the driver refuses the step when
+    it cannot place the row rather than clicking anyway.
+    """
+
+    point: RecordedPoint | None = None
+    settle_seconds: float = 0.0
+    state_before: str = ""
+    state_after: str = ""
+    row: str | None = None
+    row_tab: int | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.point, RecordedPoint):
+        has_point = self.point is not None
+        has_row = self.row is not None
+        if has_point and has_row:
+            raise ValueError("a dispatch step must carry a point or a row, not both")
+        if not has_point and not has_row:
+            raise ValueError("a dispatch step needs either a point or a row")
+        if has_point and not isinstance(self.point, RecordedPoint):
             raise ValueError("point must be a RecordedPoint")
+        if has_row:
+            if not isinstance(self.row, str) or not self.row.strip():
+                raise ValueError("row must be a non-empty expedition number")
+            if self.row_tab is not None and (
+                isinstance(self.row_tab, bool)
+                or not isinstance(self.row_tab, int)
+                or self.row_tab < 0
+            ):
+                raise ValueError("row_tab must be a non-negative tab index or None")
+        elif self.row_tab is not None:
+            raise ValueError("row_tab only means something together with row")
         if (
             isinstance(self.settle_seconds, bool)
             or not isinstance(self.settle_seconds, (int, float))
@@ -418,6 +447,7 @@ class PoiCdpContinuousUiDriver:
         recovery_attempts: int = 3,
         dispatch_verify_timeout_seconds: float = 12.0,
         home_port_recovery_settle_seconds: float = 2.0,
+        list_session: ExpeditionListSession | None = None,
     ) -> None:
         if not isinstance(plan, DispatchPlan):
             raise ValueError("plan must be a DispatchPlan")
@@ -443,9 +473,12 @@ class PoiCdpContinuousUiDriver:
             raise ValueError("settlement_plan must be a SettlementPlan or None")
         if resupply_plan is not None and not isinstance(resupply_plan, ResupplyPlan):
             raise ValueError("resupply_plan must be a ResupplyPlan or None")
+        if list_session is not None and not isinstance(list_session, ExpeditionListSession):
+            raise ValueError("list_session must be an ExpeditionListSession or None")
         self._plan = plan
         self._settlement_plan = settlement_plan
         self._resupply_plan = resupply_plan
+        self._list_session = list_session
         self._fleet_states_fn = fleet_states_fn
         self._game_input = game_input
         self._gate = gate
@@ -478,6 +511,12 @@ class PoiCdpContinuousUiDriver:
         )
         for step_number, step in enumerate(self._plan.steps, start=1):
             self._verify_checkpoint(step_number, "before", step.state_before)
+            point = self._resolve_step_point(step_number, step)
+            if step.row is not None:
+                # Locating a row scrolls the list and may switch the area tab,
+                # so the checkpoint is re-established on the frame the click
+                # will land on rather than on the one from before the scroll.
+                self._verify_checkpoint(step_number, "before", step.state_before)
             if step.state_after == "EXPEDITION_ACTIVE":
                 # Recheck composition and supply immediately before the
                 # irreversible start click. This Redux read is not freshness
@@ -487,15 +526,15 @@ class PoiCdpContinuousUiDriver:
                 "ui_action_precondition",
                 action="dispatch_menu_click",
                 step=step_number,
-                point=step.point.label,
+                point=point.label,
                 expected_ui_state=step.state_before,
             )
-            self._game_input.click(step.point)
-            self._emit("ui_click_sent", point=step.point.label, step=step_number)
+            self._game_input.click(point)
+            self._emit("ui_click_sent", point=point.label, step=step_number)
             self._sleep(step.settle_seconds)
             self._emit(
                 "ui_action_wait_completed",
-                point=step.point.label,
+                point=point.label,
                 step=step_number,
                 wait_seconds=step.settle_seconds,
             )
@@ -725,6 +764,32 @@ class PoiCdpContinuousUiDriver:
             state=final_state,
             consecutive_states=(final_state, final_state),
             evidence=final_evidence,
+        )
+
+    def _resolve_step_point(self, step_number: int, step: DispatchStep) -> RecordedPoint:
+        """The point this step must click, measured on the current frame.
+
+        A step with a ``row`` has no reviewed coordinate on purpose: the row is
+        wherever the list currently puts it. Placing it can fail, and a step that
+        cannot be placed raises instead of falling back to a stale number.
+        """
+        if step.row is None:
+            assert step.point is not None  # guaranteed by DispatchStep
+            return step.point
+        if self._list_session is None:
+            raise ContinuousUiDriverError(
+                f"step {step_number} targets row {step.row} but no list session is configured; "
+                "refusing to click a coordinate that was never measured"
+            )
+        try:
+            location = self._list_session.locate(step.row, tab=step.row_tab)
+        except ExpeditionRowError as error:
+            raise ContinuousUiDriverError(
+                f"step {step_number} cannot place row {step.row}: {error}"
+            ) from error
+        self._emit("expedition_row_located", step=step_number, **location.to_dict())
+        return RecordedPoint(
+            location.point[0], location.point[1], f"expedition-row-{step.row}"
         )
 
     def _require_fleet(self, fleet_id: int) -> PoiFleetMissionState:
