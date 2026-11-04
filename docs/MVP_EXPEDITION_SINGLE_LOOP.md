@@ -563,3 +563,9 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - **FAIL-CLOSED:** accessibility-only evidence cannot satisfy the production two-check verifier. Missing frame objects, repeated image fingerprints, non-increasing frame IDs, or non-increasing monotonic capture timestamps are rejected.
 - **TEST COVERAGE:** the classifier input is asserted to be the exact base64 encoding of each captured PNG frame; existing accessibility-only and visual fallback unit coverage remains separate.
 - **LIMITS:** this establishes frame provenance for production state-check evidence, not cryptographic authenticity against a malicious in-process caller. Reward target localization still does not consume the retained second frame, and no reward click path or live Poi calibration is enabled.
+
+## 2026-11-04 — Reward target retains captured frame object identity
+
+- **IMPLEMENTED:** `RewardClaimTarget` now retains the exact two `CapturedFrame` objects used for the consecutive BONUS_ITEMS checks and a direct reference to the second object used for localization. Existing frame ID/hash metadata must match those objects, and the localization frame must be the identical second object, not a separately reconstructed equivalent.
+- **TEST COVERAGE:** tests use valid PNG-backed `CapturedFrame` instances and reject metadata/object mismatches and equivalent-but-distinct target frame objects.
+- **LIMITS:** this is an in-process object-identity consistency check, not cryptographic caller authentication. The production reward locator is not yet wired to construct targets directly from the `UiStateEvidence.frames` objects; no live calibration or click executor exists, so reward claiming remains disabled.
