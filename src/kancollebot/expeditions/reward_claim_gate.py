@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+import time
 from typing import Mapping
 
 from kancollebot.adapters.poi.cdp_input import CapturedFrame
@@ -17,6 +18,7 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _APPROVED_TARGET = "bonus_claim_button.png"
 _MIN_SCORE = 0.96
 _MIN_MARGIN = 0.10
+_DEFAULT_AUTHORIZATION_TTL_NS = 2_000_000_000
 
 
 class RewardClaimAuthorizationError(RuntimeError):
@@ -135,9 +137,27 @@ class RewardClaimAuthorization:
     target_center: tuple[int, int]
     target_bounds: tuple[int, int, int, int]
     template_sha256: str
+    issued_monotonic_ns: int
+    expires_monotonic_ns: int
 
-    def assert_same_frame(self, *, frame_id: int, frame_sha256: str) -> None:
-        """Reject authorization if the visible frame changed before a future click."""
+    def assert_same_frame(
+        self,
+        *,
+        frame_id: int,
+        frame_sha256: str,
+        now_monotonic_ns: int | None = None,
+    ) -> None:
+        """Reject stale authorization or any frame change before a future action."""
+        now = time.monotonic_ns() if now_monotonic_ns is None else now_monotonic_ns
+        if (
+            isinstance(now, bool)
+            or not isinstance(now, int)
+            or now < self.issued_monotonic_ns
+            or now > self.expires_monotonic_ns
+        ):
+            raise RewardClaimAuthorizationError(
+                "reward authorization expired; recapture and reauthorize"
+            )
         if frame_id != self.frame_id or frame_sha256 != self.frame_sha256:
             raise RewardClaimAuthorizationError(
                 "visible frame changed after reward target localization; recapture and reauthorize"
@@ -147,7 +167,19 @@ class RewardClaimAuthorization:
 class RewardClaimGate:
     """Issue non-executable, frame-bound claim authorization from approved calibration."""
 
-    def __init__(self, approved_calibrations: Mapping[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        approved_calibrations: Mapping[str, str] | None = None,
+        *,
+        authorization_ttl_ns: int = _DEFAULT_AUTHORIZATION_TTL_NS,
+    ) -> None:
+        if (
+            isinstance(authorization_ttl_ns, bool)
+            or not isinstance(authorization_ttl_ns, int)
+            or authorization_ttl_ns <= 0
+        ):
+            raise ValueError("authorization TTL must be a positive integer number of nanoseconds")
+        self._authorization_ttl_ns = authorization_ttl_ns
         approved = dict(approved_calibrations or {})
         if any(
             not isinstance(template_hash, str)
@@ -159,9 +191,21 @@ class RewardClaimGate:
             raise ValueError("approved calibrations must map template SHA-256 to calibration IDs")
         self._approved = approved
 
-    def authorize(self, target: RewardClaimTarget) -> RewardClaimAuthorization:
+    def authorize(
+        self,
+        target: RewardClaimTarget,
+        *,
+        now_monotonic_ns: int | None = None,
+    ) -> RewardClaimAuthorization:
         if not isinstance(target, RewardClaimTarget):
             raise TypeError("target must be a RewardClaimTarget")
+        now = time.monotonic_ns() if now_monotonic_ns is None else now_monotonic_ns
+        if isinstance(now, bool) or not isinstance(now, int):
+            raise RewardClaimAuthorizationError("authorization clock must be monotonic nanoseconds")
+        if now < target.frame.captured_monotonic_ns:
+            raise RewardClaimAuthorizationError("target frame timestamp is later than authorization time")
+        if now - target.frame.captured_monotonic_ns > self._authorization_ttl_ns:
+            raise RewardClaimAuthorizationError("target frame is stale; recapture before authorization")
         approved_id = self._approved.get(target.template_sha256)
         if approved_id is None or approved_id != target.calibration_id:
             raise RewardClaimAuthorizationError(
@@ -177,4 +221,6 @@ class RewardClaimGate:
             ),
             target_bounds=(target.left, target.top, target.right, target.bottom),
             template_sha256=target.template_sha256,
+            issued_monotonic_ns=now,
+            expires_monotonic_ns=now + self._authorization_ttl_ns,
         )
