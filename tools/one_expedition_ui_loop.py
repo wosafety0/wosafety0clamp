@@ -169,9 +169,7 @@ def _require_ui_state(
         )
         template_dir = os.environ.get("KANCOLLEBOT_TEMPLATE_DIR")
         try:
-            document = None
-            if fingerprint_path.is_file():
-                document = _read_visual_document(fingerprint_path)
+            document = _read_visual_document(fingerprint_path) if fingerprint_path.is_file() else None
             fingerprint_states = document.get("states", {}) if isinstance(document, dict) else {}
             checkbox_states = {
                 state for state in UiState
@@ -200,7 +198,6 @@ def _require_ui_state(
                 state_parts = expected.value.split("_")
                 fleet_index = int(state_parts[2])
                 ship_index = int(state_parts[4])
-
                 consecutive_matches = 0
                 for attempt in range(visual_attempts):
                     game_session.transport.send(
@@ -212,7 +209,7 @@ def _require_ui_state(
                     payload = frame.screenshot_base64
                     observed, scores = classify_supply_checkbox_state(
                         payload, document, checkbox_document,
-                        fleet_index=fleet_index, ship_index=ship_index
+                        fleet_index=fleet_index, ship_index=ship_index,
                     )
                     _print_event(
                         "ui_supply_checkbox_state_check",
@@ -221,20 +218,16 @@ def _require_ui_state(
                         observed=observed,
                         scores={key: round(value, 4) for key, value in scores.items()},
                         screenshot_written_to_disk=False,
+                        frame_id=frame.frame_id,
+                        frame_sha256=frame.sha256,
                     )
                     if observed == expected.value:
                         if captured_frames is not None:
                             captured_frames.append(frame)
-                            if captured_frames is not None:
-                        captured_frames.append(frame)
-                    consecutive_matches += 1
+                        consecutive_matches += 1
                         if consecutive_matches >= 2:
                             evidence = "two_consecutive_in_memory_parent_and_checkbox_fingerprints"
-                            _print_event(
-                                "ui_state_confirmed",
-                                ui_state=expected.value,
-                                evidence=evidence,
-                            )
+                            _print_event("ui_state_confirmed", ui_state=expected.value, evidence=evidence)
                             return evidence
                     elif observed != "UNKNOWN":
                         raise LoopError(
@@ -257,7 +250,7 @@ def _require_ui_state(
                     )
                     time.sleep(0.15)
                     frame = game_session.input.capture_frame()
-                payload = frame.screenshot_base64
+                    payload = frame.screenshot_base64
                     observed, scores = classify_screenshot_fingerprints(payload, document)
                     _print_event(
                         "ui_fingerprint_state_check",
@@ -266,20 +259,16 @@ def _require_ui_state(
                         observed=observed,
                         scores={key: round(value, 4) for key, value in scores.items()},
                         screenshot_written_to_disk=False,
+                        frame_id=frame.frame_id,
+                        frame_sha256=frame.sha256,
                     )
                     if observed == expected.value:
                         if captured_frames is not None:
                             captured_frames.append(frame)
-                            if captured_frames is not None:
-                        captured_frames.append(frame)
-                    consecutive_matches += 1
+                        consecutive_matches += 1
                         if consecutive_matches >= 2:
                             evidence = "two_consecutive_in_memory_ooi_fingerprints"
-                            _print_event(
-                                "ui_state_confirmed",
-                                ui_state=expected.value,
-                                evidence=evidence,
-                            )
+                            _print_event("ui_state_confirmed", ui_state=expected.value, evidence=evidence)
                             return evidence
                     elif observed != "UNKNOWN":
                         raise LoopError(
@@ -301,7 +290,6 @@ def _require_ui_state(
             template_path = Path(template_dir)
             if not template_path.is_dir():
                 raise LoopError(f"Visual template directory does not exist: {template_path}") from accessible_error
-
             consecutive_matches = 0
             for attempt in range(visual_attempts):
                 game_session.transport.send(
@@ -309,7 +297,8 @@ def _require_ui_state(
                     {"type": "mouseMoved", "x": 1195, "y": 715},
                 )
                 time.sleep(0.15)
-                payload = game_session.input.capture_screenshot()
+                frame = game_session.input.capture_frame()
+                payload = frame.screenshot_base64
                 visual_state, scores = classify_screenshot_png(payload, template_path)
                 if HOME_REFERENCE_BASE64:
                     scores["home_reference_similarity"] = home_reference_similarity(
@@ -323,18 +312,16 @@ def _require_ui_state(
                     observed=visual_state,
                     scores={key: round(value, 4) for key, value in scores.items()},
                     screenshot_written_to_disk=False,
+                    frame_id=frame.frame_id,
+                    frame_sha256=frame.sha256,
                 )
                 if visual_state == expected.value:
-                        if captured_frames is not None:
+                    if captured_frames is not None:
                         captured_frames.append(frame)
                     consecutive_matches += 1
                     if consecutive_matches >= 2:
                         evidence = "two_consecutive_in_memory_template_matches"
-                        _print_event(
-                            "ui_state_confirmed",
-                            ui_state=expected.value,
-                            evidence=evidence,
-                        )
+                        _print_event("ui_state_confirmed", ui_state=expected.value, evidence=evidence)
                         return evidence
                 elif visual_state != "UNKNOWN":
                     raise LoopError(
