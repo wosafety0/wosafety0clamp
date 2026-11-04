@@ -71,12 +71,22 @@ class UiStateEvidence:
             raise ValueError("consecutive_states must contain exactly two state labels")
         if not isinstance(self.evidence, str) or not self.evidence.strip():
             raise ValueError("evidence must be a non-empty string")
-        if self.frames is not None and (
-            not isinstance(self.frames, tuple)
-            or len(self.frames) != 2
-            or any(not isinstance(frame, CapturedFrame) for frame in self.frames)
-        ):
-            raise ValueError("frames must contain exactly two CapturedFrame instances")
+        if self.frames is not None:
+            if (
+                not isinstance(self.frames, tuple)
+                or len(self.frames) != 2
+                or any(not isinstance(frame, CapturedFrame) for frame in self.frames)
+            ):
+                raise ValueError("frames must contain exactly two CapturedFrame instances")
+            first, second = self.frames
+            if (
+                first.frame_id >= second.frame_id
+                or first.captured_monotonic_ns >= second.captured_monotonic_ns
+                or first.sha256 == second.sha256
+            ):
+                raise ValueError(
+                    "frames must have distinct hashes and strictly increasing IDs/timestamps"
+                )
 
 
 class ContinuousUiDriver(Protocol):
