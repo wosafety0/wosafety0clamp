@@ -252,8 +252,7 @@ def _require_ui_state(
                         {"type": "mouseMoved", "x": 1195, "y": 715},
                     )
                     time.sleep(0.15)
-                    frame = game_session.input.capture_frame()
-                    payload = frame.screenshot_base64
+                    payload, frame = capture_visual_payload()
                     observed, scores = classify_screenshot_fingerprints(payload, document)
                     _print_event(
                         "ui_fingerprint_state_check",
@@ -262,8 +261,6 @@ def _require_ui_state(
                         observed=observed,
                         scores={key: round(value, 4) for key, value in scores.items()},
                         screenshot_written_to_disk=False,
-                        frame_id=frame.frame_id,
-                        frame_sha256=frame.sha256,
                     )
                     if observed == expected.value:
                         if captured_frames is not None:
@@ -314,8 +311,6 @@ def _require_ui_state(
                     observed=visual_state,
                     scores={key: round(value, 4) for key, value in scores.items()},
                     screenshot_written_to_disk=False,
-                    frame_id=frame.frame_id,
-                    frame_sha256=frame.sha256,
                 )
                 if visual_state == expected.value:
                     if captured_frames is not None:
