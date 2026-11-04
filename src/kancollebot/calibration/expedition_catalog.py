@@ -103,8 +103,51 @@ _TABLE: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
 )
 
 
+# The master-data id of every expedition, keyed by display number. Read from the
+# live client's ``const.$missions`` (``api_id`` next to ``api_disp_no``) on
+# 2026-11-04: 63 records, exactly the catalogue's 63 numbers. This is a table on
+# purpose - the alternate series start at 100, 110, 131 and 141, so deriving an
+# id from a display number would be a guess dressed up as a rule.
+#
+# Poi reports the *id* (``api_mission[1]``), while the expedition list and the
+# position index speak display numbers. Without this table a dispatch request
+# naming a mission id cannot be turned into a row, which is why "any expedition"
+# was impossible: only mission 3's id happened to equal its number.
+MISSION_ID_BY_NUMBER: dict[str, int] = {
+    "01": 1, "02": 2, "03": 3, "04": 4, "05": 5, "06": 6, "07": 7, "08": 8,
+    "09": 9, "10": 10, "11": 11, "12": 12, "13": 13, "14": 14, "15": 15, "16": 16,
+    "17": 17, "18": 18, "19": 19, "20": 20, "21": 21, "22": 22, "23": 23, "24": 24,
+    "25": 25, "26": 26, "27": 27, "28": 28, "29": 29, "30": 30, "31": 31, "32": 32,
+    "33": 33, "34": 34, "35": 35, "36": 36, "37": 37, "38": 38, "39": 39, "40": 40,
+    "41": 41, "42": 42, "43": 43, "44": 44, "45": 45, "46": 46,
+    "A1": 100, "A2": 101, "A3": 102, "A4": 103, "A5": 104, "A6": 105,
+    "B1": 110, "B2": 111, "B3": 112, "B4": 113, "B5": 114, "B6": 115,
+    "D1": 131, "D2": 132, "D3": 133,
+    "E1": 141, "E2": 142,
+}
+
+#: Inverse of :data:`MISSION_ID_BY_NUMBER`; ids are unique in the master data.
+NUMBER_BY_MISSION_ID: dict[int, str] = {
+    mission_id: number for number, mission_id in MISSION_ID_BY_NUMBER.items()
+}
+
+
 class ExpeditionCatalogError(ValueError):
     """The catalogue data or a query against it is malformed."""
+
+
+def mission_id_of(number: str) -> int | None:
+    """The master-data id of a display number, or ``None`` if unrecorded."""
+    if not isinstance(number, str):
+        return None
+    return MISSION_ID_BY_NUMBER.get(number.strip().upper())
+
+
+def number_of_mission_id(mission_id: int) -> str | None:
+    """The display number of a master-data id, or ``None`` if unrecorded."""
+    if isinstance(mission_id, bool) or not isinstance(mission_id, int):
+        return None
+    return NUMBER_BY_MISSION_ID.get(mission_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +255,19 @@ class ExpeditionCatalog:
         entry = self.entry_of(number)
         return None if entry is None else entry.area
 
+    def mission_id_of(self, number: str) -> int | None:
+        """The master-data id for a catalogue number this table also knows."""
+        if self.entry_of(number) is None:
+            return None
+        return mission_id_of(number)
+
+    def number_of_mission_id(self, mission_id: int) -> str | None:
+        """The catalogue number for a master-data id, if both are known."""
+        number = number_of_mission_id(mission_id)
+        if number is None or self.entry_of(number) is None:
+            return None
+        return number
+
     def area_of_numbers(
         self, numbers: tuple[str, ...] | list[str]
     ) -> str | None:
@@ -272,7 +328,20 @@ def _build_default() -> ExpeditionCatalog:
             CatalogEntry(number=number, name=name, area=area)
             for number, name in zip(numbers, names)
         )
-    return ExpeditionCatalog(tuple(entries))
+    catalogue = ExpeditionCatalog(tuple(entries))
+    # The id table is data too, so a typo in either direction must not survive
+    # import: a missing id makes that expedition undispatchable, and an extra id
+    # would name a number the catalogue does not define.
+    known = {entry.number for entry in catalogue.entries}
+    if set(MISSION_ID_BY_NUMBER) != known:
+        missing = sorted(known - set(MISSION_ID_BY_NUMBER), key=disp_no_sort_key)
+        extra = sorted(set(MISSION_ID_BY_NUMBER) - known, key=disp_no_sort_key)
+        raise ExpeditionCatalogError(
+            f"mission id table does not match the catalogue (missing {missing}, extra {extra})"
+        )
+    if len(set(MISSION_ID_BY_NUMBER.values())) != len(MISSION_ID_BY_NUMBER):
+        raise ExpeditionCatalogError("mission ids must be unique")
+    return catalogue
 
 
 #: The reference ceiling. Never a snapshot of any account's unlocks.
@@ -286,10 +355,14 @@ __all__ = [
     "AREA_SOUTHWEST",
     "AREA_WESTERN",
     "DEFAULT_CATALOG",
+    "MISSION_ID_BY_NUMBER",
+    "NUMBER_BY_MISSION_ID",
     "RETRIEVED_ON",
     "SOURCE",
     "CatalogEntry",
     "Coverage",
     "ExpeditionCatalog",
     "ExpeditionCatalogError",
+    "mission_id_of",
+    "number_of_mission_id",
 ]
