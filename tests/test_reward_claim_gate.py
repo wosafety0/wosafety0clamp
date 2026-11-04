@@ -77,11 +77,11 @@ class RewardClaimGateTests(unittest.TestCase):
         self.assertEqual(authorization.target_bounds, (900, 620, 1040, 680))
 
     def test_changed_frame_invalidates_authorization(self):
-        authorization = RewardClaimGate({TEMPLATE_HASH: CALIBRATION_ID}).authorize(target())
+        authorization = RewardClaimGate({TEMPLATE_HASH: CALIBRATION_ID}).authorize(target(), now_monotonic_ns=SECOND_FRAME.captured_monotonic_ns + 100)
         with self.assertRaisesRegex(RewardClaimAuthorizationError, "frame changed"):
-            authorization.assert_same_frame(frame_id=13, frame_sha256=FRAME_HASH)
+            authorization.assert_same_frame(frame_id=13, frame_sha256=FRAME_HASH, now_monotonic_ns=authorization.issued_monotonic_ns + 1)
         with self.assertRaisesRegex(RewardClaimAuthorizationError, "frame changed"):
-            authorization.assert_same_frame(frame_id=12, frame_sha256="c" * 64)
+            authorization.assert_same_frame(frame_id=12, frame_sha256="c" * 64, now_monotonic_ns=authorization.issued_monotonic_ns + 1)
 
     def test_rejects_wrong_target_asset(self):
         with self.assertRaisesRegex(ValueError, "only bonus_claim_button"):
@@ -138,6 +138,36 @@ class RewardClaimGateTests(unittest.TestCase):
         gate = RewardClaimGate({TEMPLATE_HASH: "another-calibration"})
         with self.assertRaisesRegex(RewardClaimAuthorizationError, "no matching approved"):
             gate.authorize(target())
+
+    def test_rejects_stale_target_frame_before_authorization(self):
+        gate = RewardClaimGate({TEMPLATE_HASH: CALIBRATION_ID}, authorization_ttl_ns=500)
+        with self.assertRaisesRegex(RewardClaimAuthorizationError, "target frame is stale"):
+            gate.authorize(
+                target(),
+                now_monotonic_ns=SECOND_FRAME.captured_monotonic_ns + 501,
+            )
+
+    def test_authorization_expires_after_two_second_default_window(self):
+        authorization = RewardClaimGate(
+            {TEMPLATE_HASH: CALIBRATION_ID}
+        ).authorize(
+            target(),
+            now_monotonic_ns=SECOND_FRAME.captured_monotonic_ns + 100,
+        )
+        with self.assertRaisesRegex(RewardClaimAuthorizationError, "expired"):
+            authorization.assert_same_frame(
+                frame_id=12,
+                frame_sha256=FRAME_HASH,
+                now_monotonic_ns=authorization.expires_monotonic_ns + 1,
+            )
+
+    def test_rejects_future_frame_timestamp(self):
+        gate = RewardClaimGate({TEMPLATE_HASH: CALIBRATION_ID})
+        with self.assertRaisesRegex(RewardClaimAuthorizationError, "later than authorization"):
+            gate.authorize(
+                target(),
+                now_monotonic_ns=SECOND_FRAME.captured_monotonic_ns - 1,
+            )
 
     def test_authorization_does_not_expose_a_click_operation(self):
         authorization = RewardClaimGate({TEMPLATE_HASH: CALIBRATION_ID}).authorize(target())
