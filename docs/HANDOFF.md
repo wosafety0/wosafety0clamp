@@ -199,3 +199,12 @@ The purpose of this inventory is to prevent a new developer from mistaking an ol
 - **HARDENING:** template matching now decodes the exact byte buffer whose SHA-256 is recorded in the target (no second file read or cache race); boolean/non-numeric thresholds are rejected. Regression coverage verifies the exact template digest.
 
 - **FINAL HARDENING CI:** after exact-template-byte binding and boolean-threshold rejection, GitHub Actions run [41772835706](https://github.com/wosafety0/wosafety0clamp/actions/runs/41772835706) passed 613 tests with OpenCV/NumPy enabled and zero skips.
+
+
+## 2026-11-04 — Production reward authorization preparation wired (read-only)
+
+- **IMPLEMENTED:** added `RewardClaimPreparer` and wired it into the production settlement-state verification callback. When two consecutive visual checks confirm `BONUS_ITEMS`, the callback can prepare a frame-bound authorization from the exact retained second `CapturedFrame`; the supervisor still receives the same state evidence.
+- **EXPLICIT CONFIGURATION:** opt-in requires all four environment settings: `KANCOLLEBOT_BONUS_CLAIM_TEMPLATE_PATH`, `KANCOLLEBOT_BONUS_CLAIM_CALIBRATION_ID`, `KANCOLLEBOT_BONUS_CLAIM_APPROVED_TEMPLATE_SHA256`, and `KANCOLLEBOT_BONUS_CLAIM_REGION` (`left,top,right,bottom`). No settings means preparation stays disabled; partial settings fail closed. The template bytes must match the separately supplied approved SHA-256, and the region must fit the 1200x720 viewport.
+- **RUNTIME BEHAVIOR:** with valid configuration, the entry logs authorization frame ID/hash, calibration ID, target center/bounds and template hash. Without configuration it logs that authorization is unavailable. Neither branch sends UI input; no click executor is present.
+- **TESTS:** GitHub Actions run [41773389790](https://github.com/wosafety0/wosafety0clamp/actions/runs/41773389790) passed 620 tests with OpenCV/NumPy enabled and zero skips. The new end-to-end synthetic test verifies the production evidence → exact-frame localization → explicit-template allowlist → non-executable authorization path.
+- **LIMITS:** this is synthetic/offline validation only. No real reward template, live calibration region, or approved template digest has been obtained. Do not configure the environment values from guessed coordinates or synthetic assets. Reward clicking remains disabled; no live Poi behavior is claimed.
