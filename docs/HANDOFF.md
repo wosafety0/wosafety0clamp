@@ -3,7 +3,7 @@
 **Updated:** 2026-11-04  
 **Repository:** wosafety0/wosafety0clamp  
 **Working branch:** dev/expedition-closed-loop-mvp  
-**Current code baseline:** d2d50326f631acfb3c4c274a357afc592761a130
+**Current code baseline:** a93784d8e93d36aaaa50dc31977d1d073f8e717b
 
 This document is the concise handoff entry point. The long design and progress records remain useful for implementation history, but older entries are point-in-time records and may be superseded by later entries.
 
@@ -19,7 +19,7 @@ This document is the concise handoff entry point. The long design and progress r
 
 - Repository visibility: **public**.
 - Active code branch: **dev/expedition-closed-loop-mvp**.
-- Current code baseline: **d2d50326f631acfb3c4c274a357afc592761a130** — read-only settlement observer and supervisor integration.
+- Current code baseline: **a93784d8e93d36aaaa50dc31977d1d073f8e717b** — fail-closed reward claim authorization gate.
 - Latest verified CI for the archived branch head: [run 41767679742](https://github.com/wosafety0/wosafety0clamp/actions/runs/41767679742), conclusion **success**. The test job passed JavaScript static tests, passive observer syntax check, package/CLI smoke checks, Python compile, and the complete Python unit suite (**571 tests; 20 skipped; all remaining passed**).
 - The default branch has not been changed, no PR has been created or merged as part of this handoff, and no collaborator permissions have been changed. Public read access does not grant push access; a new developer needs repository write permission to push.
 
@@ -72,6 +72,7 @@ Do not describe the project as a completed automatic expedition loop.
 - **No end-to-end live dispatch acceptance:** the expedition-start action has not been verified in the current production acceptance record. Fresh post-dispatch readback, return/result progression, reward collection, idle confirmation, and the complete repeat cycle are not accepted.
 - **Return and settlement observation are offline-tested only:** the controller waits for a natural post-deadline port witness and confirms the exact returned mission tuple before `RETURNED_PENDING_UI`. A new read-only `SettlementStateObserver` validates structured two-frame evidence for `RETURN_RESULT` and `BONUS_ITEMS`; the supervisor advances only `RETURNED_PENDING_UI → RETURN_RESULT → BONUS_ITEMS`, and refuses to attribute a shared Poi screen when multiple fleets are pending. The production one-shot entry wires the observer to the existing two-frame visual verifier. GitHub Actions run 41768376887 passed **582 Python tests, 20 skipped**, plus all other workflow checks. No live return or settlement screen was observed; this integration is not live-verified and performs no settlement clicks. Reward collection remains blocked.
 - **Settlement observer:** `src/kancollebot/expeditions/settlement_observer.py` validates the verifier's structured two-frame evidence and does not send input. `ContinuousExpeditionSupervisor` performs at most one phase transition per tick and pauses the shared UI queue throughout settlement. `BONUS_ITEMS` remains pending until a separately verified reward-claim action exists.
+- **Reward claim authorization gate:** added `src/kancollebot/expeditions/reward_claim_gate.py`. It issues a non-executable authorization only for the exact `bonus_claim_button.png` asset with an explicitly approved live-calibration hash/ID, unique current-frame localization, confidence ≥0.96, score margin ≥0.10, in-viewport bounds, and two consecutive `BONUS_ITEMS` checks. Authorization is bound to frame ID and SHA-256 and becomes invalid if the frame changes. The default calibration allowlist is empty, so it refuses all reward targets until real Poi calibration is supplied. It exposes no click/execute operation. CI run 41768901495 passed **592 Python tests; 20 skipped**, plus all other workflow checks.
 - **Taiha gate is offline-tested only:** no live Taiha snapshot or live dispatch-block attempt has been recorded. Healthy-ship replacement is deliberately deferred and is not implemented.
 - **Unattended scheduler is not accepted:** the read-only monitor is separate from the one-shot UI runner. Do not infer that the continuous supervisor is a ready-to-run unattended game process.
 - **Mission list discovery remains incomplete:** the offline page aggregator and OpenCV adapter are implemented, but no local mission-marker templates, calibrated visual profile, live Canvas row-recognition sequence, or verified scrollbar proportionality evidence is available in GitHub. `scrollbar_scale_verified` defaults to false, so screenshot scanning cannot produce complete-scan evidence until Poi calibration. The previously observed eight rows (01 through A1) are not the complete mission catalogue.
