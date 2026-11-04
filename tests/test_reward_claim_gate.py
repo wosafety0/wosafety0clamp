@@ -35,6 +35,14 @@ def target(**changes):
 
 
 class RewardClaimGateTests(unittest.TestCase):
+    def test_rejects_non_string_fingerprints_and_calibration_map_keys(self):
+        with self.assertRaisesRegex(ValueError, "fingerprints"):
+            target(template_sha256=None)
+        with self.assertRaisesRegex(ValueError, "fingerprints"):
+            target(frame_sha256=None)
+        with self.assertRaisesRegex(ValueError, "approved calibrations"):
+            RewardClaimGate({None: CALIBRATION_ID})
+
     def test_default_gate_refuses_without_approved_live_calibration(self):
         with self.assertRaisesRegex(RewardClaimAuthorizationError, "no matching approved"):
             RewardClaimGate().authorize(target())
