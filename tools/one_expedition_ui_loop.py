@@ -652,6 +652,17 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
 
             def verify_state(expected: str) -> UiStateEvidence:
                 state = UiState(expected)
+                first_evidence = _require_ui_state(game_session, state)
+                time.sleep(0.15)
+                second_evidence = _require_ui_state(game_session, state)
+                return UiStateEvidence(
+                    state=state.value,
+                    consecutive_states=(state.value, state.value),
+                    evidence=f"{first_evidence}+{second_evidence}",
+                )
+
+            def verify_settlement_state(expected: str) -> UiStateEvidence:
+                state = UiState(expected)
                 frames: list[CapturedFrame] = []
                 evidence = _require_ui_state(
                     game_session, state, captured_frames=frames,
@@ -693,7 +704,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 max_state_age=timedelta(seconds=args.max_state_age_seconds),
             )
             settlement_observer = SettlementStateObserver(
-                verify_state=verify_state,
+                verify_state=verify_settlement_state,
             )
             supervisor = ContinuousExpeditionSupervisor(
                 monitor=runtime.monitor,
