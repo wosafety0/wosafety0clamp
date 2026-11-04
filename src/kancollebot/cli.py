@@ -44,6 +44,18 @@ def _list_tasks() -> int:
         print(f"  [{boundary.value}] {len(items)} item(s)")
         for item in items:
             print(f"    - {item.name} ({item.module})")
+
+    from kancollebot.task_runtime import build_task_runtime_context
+
+    # Read-only view of the assembled registry. This does not grant UI
+    # admission: every task stays DECLARED until real-client visual-gate
+    # evidence exists, and no production click path consumes this context.
+    context = build_task_runtime_context()
+    print("\nTask runtime registration (read-only; no UI admission granted):")
+    for line in context.describe():
+        print(f"  {line}")
+    print("  All tasks are DECLARED by default; ENABLED requires real-client visual-gate evidence.")
+    print("  Production expedition gates are unchanged; this registry does not authorize clicks.")
     return 0
 
 

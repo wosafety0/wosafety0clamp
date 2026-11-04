@@ -1,9 +1,12 @@
-"""Offline design reference for the future multi-task runtime.
+"""Offline design reference and assembly layer for the future multi-task runtime.
 
-NOT wired into any production entry point. Importing this package does not
-connect to Poi, does not perform clicks and does not change existing defaults.
-See docs/DESIGN_multi_task_runtime.md.
+``context.py`` assembles the registry, fleet leases and UI arbiter around one
+shared truth source and is exposed through the read-only ``kancollebot tasks``
+command. NO production UI/click entry point consumes it yet: existing expedition
+paths keep their own gates, and importing this package does not connect to Poi,
+perform clicks or change existing defaults. See docs/DESIGN_multi_task_runtime.md.
 """
+from .context import TaskRuntimeContext, build_task_runtime_context
 from .fleet_lease import (
     FleetLease,
     FleetLeaseError,
@@ -28,6 +31,8 @@ from .ui_arbitration import (
 )
 
 __all__ = [
+    "TaskRuntimeContext",
+    "build_task_runtime_context",
     "FleetLease",
     "FleetLeaseError",
     "FleetLeaseTable",

@@ -1,9 +1,13 @@
-# 多任务运行时设计（DESIGN ONLY — 未接入生产）
+# 多任务运行时设计（组装层已接只读 CLI；生产点击链未接线）
 
-> **状态：设计与离线验证阶段。** 本文件描述的三套接口已有纯内存参考实现
-> （`src/kancollebot/task_runtime/`）与离线测试（`tests/test_multi_task_runtime.py`），
-> **没有任何生产入口调用它们**。它们不执行点击、不连接 Poi/CDP、不读写游戏状态
-> 数据库，也不改动任何既有 CLI 行为。声明一个任务 ≠ 实现它。
+> **状态：阶段 A+（组装层接线）+ 离线验证。** 三套接口已有纯内存参考实现
+> （`src/kancollebot/task_runtime/`）与离线测试（`tests/test_multi_task_runtime.py`）。
+> 2026-11-04 新增 `context.py`：把注册表、舰队租约与 UI 仲裁组装到**同一个
+> `TaskRegistry`**，并通过只读 `kancollebot tasks` 暴露注册状态。这是 D-0 步，
+> **仍没有任何生产 UI/点击入口消费它**；既有远征路径继续走 `task_scope` 门禁与
+> 现有视觉门。全部任务默认 `DECLARED`（`ENABLED` 需实机视觉校准证据）。
+> 组装层不执行点击、不连接 Poi/CDP、不读写游戏状态数据库，也不改动
+> `monitor` / `dispatch-once` 行为。声明一个任务 ≠ 实现它。
 
 ## 1. 目标与边界
 
@@ -118,17 +122,24 @@
 - **本轮直接改 SQLite 主键 / 接线生产入口**：属破坏性迁移，需实机窗口与独立评审；
   用户要求「先做设计与离线测试」。
 
-## 5. 迁移路径（均未执行）
+## 5. 迁移路径（A、A+ 已执行；B–E 未执行）
 
-1. **A（本轮）**：边界修正、三套接口、离线测试、归档。
-2. **B**：解耦 3 项 `needs_decoupling`（舰队快照拆出 `api_mission`、补给
-   「忙」谓词泛化、坐标移入 ScreenRegistry），每项带实机校准证据后才降级为
+1. **A（已执行，2026-11-04 早）**：边界修正、三套接口、离线测试、归档。
+2. **A+ / D-0（已执行，2026-11-04 晚）**：`context.py` 把注册表 / 舰队租约 /
+   UI 仲裁组装到**同一个 `TaskRegistry`**，经只读 `kancollebot tasks` 暴露注册
+   状态；全部任务保持 `DECLARED`，生产点击链与 `monitor` / `dispatch-once`
+   零改动。离线测试见 `tests/test_task_runtime_context.py`（10 项）。
+3. **B（未执行）**：解耦 3 项 `needs_decoupling`（舰队快照拆出 `api_mission`、
+   补给「忙」谓词泛化、坐标移入 ScreenRegistry），每项带实机校准证据后才降级为
    `task_neutral`。
-3. **C**：持久化 lease 表 + `fleet_runtime` / `dispatch_intents` 复合主键迁移，
-   含旧库兼容与回滚演练。
-4. **D**：composition root 接线（注册 → 租约 → 仲裁 → 现有互斥锁 → 点击），
-   一次只启用一个任务，远征行为逐字节不变。
-5. **E**：加入第二个任务（战斗/编成等），需独立授权与实机窗口。
+4. **C（未执行）**：持久化 lease 表 + `fleet_runtime` / `dispatch_intents`
+   复合主键迁移，含旧库兼容与回滚演练。
+5. **D 剩余（未执行）**：把 context 接进 `build_runtime` 的任务门禁、
+   `UiOperationArbiter.operation` 与 `ContinuousExpeditionSupervisor.tick()`
+   的点击链（注册 → 租约 → 仲裁 → 现有互斥锁 → 点击），一次只启用一个任务，
+   远征行为逐字节不变。**前置**：B 的实机校准证据、C 的迁移评审、独立评审与
+   实机窗口。
+6. **E（未执行）**：加入第二个任务（战斗/编成等），需独立授权与实机窗口。
 
 ## 6. 离线测试覆盖
 
@@ -137,12 +148,53 @@
 owner 校验、未解锁舰队拒绝）、仲裁（未启用/无视觉门拒绝、优先级、不中断点击）、
 以及「三套接口全程零 Poi / 零点击 / 零生产数据库」的隔离断言。
 
+`tests/test_task_runtime_context.py`（A+ 新增，10 项）：全部声明任务按各自派生
+策略注册为 `DECLARED`、三套接口共享同一注册表、错配注册表被拒、无实机证据时
+`require_enabled` 一律拒绝、生产门禁仍委托 `task_scope`、租约与 UI 准入对
+`DECLARED` 任务 fail-closed、只读 CLI 暴露注册状态、离线构造的 ENABLED 远征能
+贯通准入链且互斥键为 `fleet_id`、以及全流程零 SQLite / 零 UI 锁副作用。
+
 ## 7. LIMITS / 未决
 
-- 三套接口**没有**接入 `cli.py` 的 `monitor` / `dispatch-once`，也不改变任何
-  现有默认值；`kancollebot tasks` 只展示边界，不展示注册表状态。
+- 组装层**只**接入只读 `kancollebot tasks`（展示注册状态）；三套接口**没有**
+  接入 `cli.py` 的 `monitor` / `dispatch-once`，也不改变任何现有默认值。
+  注册表的 `ENABLED` 不授权任何生产点击，`context.describe()` 明确标注
+  `click_path_wired=False`。
 - 没有实现 ScreenRegistry、`api_cond`/HP 读取、编成规则、任务队列或持久化 lease。
 - `FleetPhase` 与 `DispatchIntent` 仍是远征语义；多任务并发前必须抽任务无关
   Intent。
 - 优先级策略与安全交接时机需在真实 Poi 会话上复核；离线测试只能证明决策逻辑，
   不能证明 UI 时序安全。
+
+## 8. 实机验收前置清单（未执行）
+
+本节是 D/E 阶段的验收准备。**本轮未执行任何真实点击、派遣或实机操作**；离线
+测试只证明决策逻辑，不能证明 UI 时序安全或真实客户端可用性。
+
+### 必需前置（缺一不可，均需用户单独授权 / 提供）
+
+1. 真实 Poi 会话与游戏窗口；一次性可见 UI 操作授权；操作者全程旁看。
+2. P1-1 奖励领取视觉门禁校准证据（双帧 / 视觉证据）。
+3. Fleet 4 补给页签与复选框指纹校准证据（当前遇到 `RESUPPLY_REQUIRED` 一律暂停）。
+4. 远征完整循环实机证据：派遣 → 返回 → 结算 → 补给（P1-2、P1-3）。
+5. 阶段 B 的 3 项 `needs_decoupling` 实机校准证据，才可把能力降级为 `task_neutral`。
+
+### 验收项与停止条件
+
+- 把远征注册为 `ENABLED` 时，`screen_ids` 与 `visual_gates_verified` 必须逐项
+  对应上面的真实证据；证据缺失即停止，不得用构造器开关代替。
+- 在真实 UI 时序下复核 `FleetLeaseTable` 与 `poi_ui_operation` 跨进程互斥锁的
+  关系：租约只是准入层，不得替换互斥锁；任何点击仍须持有该锁。
+- 复核 `PREEMPT_REQUESTED` 的让出时机；`may_interrupt_in_flight_click` 恒 False，
+  绝不中断半个点击序列。
+- 一次只启用一个任务，并记录远征路径的事件 payload 对照，证明「行为逐字节不变」。
+- 出现歧义、证据冲突或意外 UI 状态一律 fail-closed 并停止，不重试。
+
+### 可复现的离线基线（本轮已执行，作为对照）
+
+```
+python -m compileall -q src tests tools
+PYTHONPATH=src python -m unittest discover -s tests
+node --test tests/static_decoder_extract.test.cjs tests/verify_cdp_snapshot.test.cjs tests/poi_port_response_observer.test.cjs
+PYTHONPATH=src python -m kancollebot.cli tasks
+```
