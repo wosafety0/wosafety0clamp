@@ -260,3 +260,12 @@ The purpose of this inventory is to prevent a new developer from mistaking an ol
 - **TESTS ADDED:** regression tests prove the oldest frame is rejected at consumption even while the authorization's own expiry timestamp has not yet elapsed; the protocol test confirms this blocks before input.
 - **VALIDATION:** GitHub Actions [41776371723](https://github.com/wosafety0/wosafety0clamp/actions/runs/41776371723) passed **638 Python tests with zero skips**, plus all other workflow checks. This verifies offline time-bound validation only.
 - **LIMITS:** this remains offline timestamp validation. It does not capture the live screen, authenticate an in-process caller, or enable reward input.
+
+
+## 2026-11-04 — Remote repository hygiene
+
+- **REMOVED:** `scripts/dc_clamp_batch_check.ps1` (obsolete local worktree paths and no active references); `docs/READ_ONLY_DIAGNOSTIC_ROUTE_CORRECTION_20261027.md` (one-off superseded diagnostic note); and `docs/diagnostics/Personal-Windows-MCP-incident-20261029.md` (historical machine-specific incident log).
+- **PREVENTION:** `.gitignore` now excludes `scripts/poi-ui-snapshots.jsonl`, the local snapshot output produced by the read-only PowerShell collector.
+- **RETAINED INTENTIONALLY:** `docs/PROJECT_PATH_INDEX_STATUS.md` is an explicit compatibility placeholder retained to avoid breaking existing links. `docs/PROJECT_kancollebot_Progress.md` remains historical progress evidence; its size alone is not a reason to delete it. Current handoff and design documents remain authoritative for present status.
+- **BRANCH/PR AUDIT:** the repository currently has 74 branches and 24 open PRs. Open PR head/base refs and stacked development chains were protected. Branch comparisons show remaining non-PR branches are not all ancestors of the active MVP branch; no branch refs were deleted. Branch deletion was not available through the connected GitHub action set, so no branch was rewritten or force-moved.
+- **VALIDATION:** cleanup commit CI is pending; verify workflow and remotely re-read all changed paths before treating repository cleanup as complete.
