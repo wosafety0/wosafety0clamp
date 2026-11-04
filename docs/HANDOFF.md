@@ -3,7 +3,7 @@
 **Updated:** 2026-11-04  
 **Repository:** wosafety0/wosafety0clamp  
 **Working branch:** dev/expedition-closed-loop-mvp  
-**Current code baseline:** 50c9397068e6af0637a3805f89604b0416f6c97a — reward authorization lifecycle protocol and tests; CI pending
+**Current code baseline:** 50c9397068e6af0637a3805f89604b0416f6c97a — reward authorization lifecycle protocol and tests; offline CI verified by run 41775989058
 
 This document is the concise handoff entry point. The long design and progress records remain useful for implementation history, but older entries are point-in-time records and may be superseded by later entries.
 
@@ -19,8 +19,8 @@ This document is the concise handoff entry point. The long design and progress r
 
 - Repository visibility: **public**.
 - Active code branch: **dev/expedition-closed-loop-mvp**.
-- Current code baseline: **46c76b3e20a83302edc7cdee82789dfc2e497492** — fail-closed reward claim authorization gate and current handoff/design documentation.
-- Latest verified CI for this exact code baseline: [run 41769006678](https://github.com/wosafety0/wosafety0clamp/actions/runs/41769006678), conclusion **success**. The test job passed JavaScript static tests, passive observer syntax check, package/CLI smoke checks, Python compile, and the complete Python unit suite (**593 tests; 20 skipped; all remaining passed**).
+- Current code baseline: **50c9397068e6af0637a3805f89604b0416f6c97a** — process-local reward authorization registry, one-shot lifecycle protocol, and offline regression tests.
+- Latest verified code CI: [run 41775989058](https://github.com/wosafety0/wosafety0clamp/actions/runs/41775989058), conclusion **success**. The workflow passed **636 Python tests with zero skips**, Node static tests, passive observer syntax, package/CLI smoke checks, and Python compilation. This run covers the code commit; subsequent documentation-only commits have their own CI runs.
 - The default branch has not been changed, no PR has been created or merged as part of this handoff, and no collaborator permissions have been changed. Public read access does not grant push access; a new developer needs repository write permission to push.
 
 ## 3. Architecture map
@@ -250,4 +250,4 @@ The purpose of this inventory is to prevent a new developer from mistaking an ol
 - **POSTCONDITION:** success requires explicit reward-claimed evidence and two distinct, increasing captured frames taken after the input-attempt boundary; the observed state must no longer be `BONUS_ITEMS`. Invalid or stale postcondition evidence fails closed.
 - **TESTS ADDED:** `tests/test_reward_claim_protocol.py` covers frame mismatch, expiry, one-shot ordering, no second attempt, post-input frame freshness, explicit claimed-state requirement, and unknown outcome.
 - **LIMITS:** the protocol is only a state ledger. It does not capture or classify real Poi screens, execute input, implement a CDP click, or prove that a caller's classifier is honest. It is not wired into the production supervisor. No live reward template/calibration exists; reward claiming remains disabled. The in-memory phase is lost on process restart; after restart the caller must discard old authorization and re-observe/re-authorize from the current UI.
-- **VALIDATION:** GitHub Actions validation is pending for this change; do not treat the tests as passed until the workflow result is checked.
+- **VALIDATION:** GitHub Actions [41775989058](https://github.com/wosafety0/wosafety0clamp/actions/runs/41775989058) passed **636 Python tests with zero skips**, plus Node static tests, passive observer syntax, CLI smoke checks, and Python compilation. This verifies the offline protocol only; no live Poi interaction was performed.
