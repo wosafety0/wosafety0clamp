@@ -151,3 +151,10 @@ The purpose of this inventory is to prevent a new developer from mistaking an ol
 
 - [Expedition list scan and aggregation contract](EXPEDITION_LIST_SCAN.md)
 - [Expedition list visual recognition contract](EXPEDITION_LIST_VISUAL_RECOGNITION.md)
+
+## 2026-11-04 — Reward authorization dual-frame provenance hardening
+
+- **IMPLEMENTED:** `RewardClaimTarget` now requires two distinct, strictly increasing state-frame IDs and two distinct SHA-256 image fingerprints. The target's own frame ID and fingerprint must exactly match the second verified `BONUS_ITEMS` frame.
+- **FAIL-CLOSED:** repeated frame IDs, repeated image hashes, out-of-order frame IDs, or a target localized on any frame other than the second verified frame are rejected before authorization.
+- **TESTS ADDED:** regression cases cover reused/out-of-order frame IDs, duplicate image fingerprints, and target-to-second-frame mismatch.
+- **LIMITS:** this validates caller-supplied provenance metadata; it does not itself capture screenshots or prove that a caller hashed the actual raw Poi frame. The production capture pipeline must supply IDs and hashes directly from the same in-memory frame objects. No click executor or live calibration was added.
