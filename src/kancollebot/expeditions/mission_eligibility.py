@@ -3,6 +3,11 @@
 from dataclasses import dataclass
 from enum import Enum
 
+# P0 R1: an observed fleet composition is a task-neutral DATA SHAPE, not an
+# expedition rule. Canonical definition moved to core; this alias keeps the
+# exact same class object for all legacy imports.
+from kancollebot.core.observation_contracts import FleetCompositionSnapshot
+
 
 class MissionEligibilityDecision(str, Enum):
     ELIGIBLE = "eligible"
@@ -12,28 +17,9 @@ class MissionEligibilityDecision(str, Enum):
     BLOCKED_SHIP_TYPE = "blocked_ship_type"
 
 
-@dataclass(frozen=True, slots=True)
-class FleetCompositionSnapshot:
-    """Observed ship levels and master ship types in current fleet order."""
-
-    ship_ids: tuple[int, ...]
-    ship_levels: tuple[int, ...]
-    ship_types: tuple[int, ...]
-
-    def __post_init__(self) -> None:
-        fields = (self.ship_ids, self.ship_levels, self.ship_types)
-        if any(not isinstance(values, tuple) for values in fields):
-            raise ValueError("ship IDs, levels, and types must be tuples")
-        count = len(self.ship_ids)
-        if count > 6:
-            raise ValueError("a fleet cannot contain more than six ships")
-        if len(self.ship_levels) != count or len(self.ship_types) != count:
-            raise ValueError("ship IDs, levels, and types must have matching lengths")
-        for label, values in (("ship IDs", self.ship_ids), ("ship levels", self.ship_levels), ("ship types", self.ship_types)):
-            if any(isinstance(value, bool) or not isinstance(value, int) or value < 1 for value in values):
-                raise ValueError(f"{label} must contain positive integers")
-        if len(set(self.ship_ids)) != count:
-            raise ValueError("ship IDs must be unique")
+# ``FleetCompositionSnapshot`` is now an alias of the task-neutral core shape
+# (imported above). Composition *policy* (MissionCompositionRequirement and the
+# eligibility decision below) stays expedition-specific on purpose.
 
 
 @dataclass(frozen=True, slots=True)

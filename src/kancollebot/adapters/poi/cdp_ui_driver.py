@@ -31,7 +31,7 @@ from kancollebot.adapters.poi.cdp_fleet_state import PoiFleetMissionState
 from kancollebot.adapters.poi.cdp_input import RecordedPoint, home_port_candidates, home_port_point
 from kancollebot.adapters.poi.ui_state_gate import UiState, UiStateGateError, require_state
 from kancollebot.calibration import ExpeditionListSession, ExpeditionRowError
-from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
+from kancollebot.core.observation_contracts import UiStateEvidence
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 DEFAULT_FINGERPRINTS_PATH = PACKAGE_DIR / "ooi_1200x720_fingerprints.json"

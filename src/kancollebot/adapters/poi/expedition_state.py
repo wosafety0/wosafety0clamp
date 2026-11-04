@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from kancollebot.core.observed_state import ObservedState
-from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
+from kancollebot.core.observation_contracts import ObservedFleetSnapshot
 
 
 class PoiStateError(ValueError):
@@ -39,7 +39,7 @@ def normalize_poi_fleets(
     ships_payload: Any,
     *,
     observed_at: datetime,
-) -> ObservedState[tuple[ExpeditionFleetSnapshot, ...]]:
+) -> ObservedState[tuple[ObservedFleetSnapshot, ...]]:
     """Normalize Poi's info.fleets and info.ships into planner snapshots.
 
     Poi stores fleets as an array with zero-based array positions and one-based
@@ -54,7 +54,7 @@ def normalize_poi_fleets(
     if not isinstance(fleets_payload, list):
         raise PoiStateError("info.fleets must be an array")
     ships = _mapping(ships_payload, "info.ships")
-    snapshots: list[ExpeditionFleetSnapshot] = []
+    snapshots: list[ObservedFleetSnapshot] = []
 
     for index, fleet in enumerate(fleets_payload):
         if not isinstance(fleet, dict):
@@ -121,7 +121,7 @@ def normalize_poi_fleets(
             elif ammo < ammo_max:
                 all_ammo_ready = False
 
-        snapshots.append(ExpeditionFleetSnapshot(
+        snapshots.append(ObservedFleetSnapshot(
             fleet_id=fleet_id,
             ship_ids=ship_ids,
             mission_id=mission_id,

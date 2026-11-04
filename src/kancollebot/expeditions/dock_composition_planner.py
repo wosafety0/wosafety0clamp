@@ -10,6 +10,15 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 
+# P0 R1: dock inventory entries and their read-only Poi decoder are DATA
+# SHAPES, not an expedition decision. Canonical definitions live in core; the
+# aliases below keep one single class/function object for every legacy caller.
+from kancollebot.core.observation_contracts import (
+    DockInventoryError,
+    DockShip,
+    dock_ships_from_poi_payloads,
+)
+
 from .mission_eligibility import (
     FleetCompositionSnapshot,
     MissionCompositionRequirement,
@@ -18,10 +27,6 @@ from .mission_eligibility import (
 )
 
 MAX_FLEET_SIZE = 6
-
-
-class DockInventoryError(ValueError):
-    """Dock inventory does not meet the planner's contract."""
 
 
 class DockCompositionDecision(str, Enum):
@@ -39,24 +44,9 @@ class CompositionActionKind(str, Enum):
     SET_FLAGSHIP = "set_flagship"
 
 
-@dataclass(frozen=True, slots=True)
-class DockShip:
-    """One unassigned ship available in the dock."""
-
-    ship_id: int
-    master_id: int
-    ship_type: int
-    level: int
-
-    def __post_init__(self) -> None:
-        for label, value in (
-            ("ship_id", self.ship_id),
-            ("master_id", self.master_id),
-            ("ship_type", self.ship_type),
-            ("level", self.level),
-        ):
-            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-                raise DockInventoryError(f"{label} must be a positive integer")
+# ``DockShip`` / ``DockInventoryError`` / ``dock_ships_from_poi_payloads`` are
+# re-exported from core (see import above); only the composition PLANNING below
+# is expedition-specific.
 
 
 @dataclass(frozen=True, slots=True)
@@ -353,71 +343,7 @@ def plan_dock_composition(
     )
 
 
-def dock_ships_from_poi_payloads(
-    fleets_payload: Sequence[object],
-    ships_payload: object,
-    master_ships_payload: object,
-) -> tuple[DockShip, ...]:
-    """Build dock entries from already-fetched read-only Poi payloads.
-
-    Accepts the same shapes as ``normalize_poi_fleets``: an ``info.fleets``
-    array, an ``info.ships`` numeric-key object map, and ``poi_lookup`` master
-    records that include ``api_stype``. This performs no I/O and returns only
-    ships that no fleet currently references.
-    """
-    if not isinstance(fleets_payload, list):
-        raise DockInventoryError("info.fleets must be an array")
-    if not isinstance(ships_payload, dict) or any(
-        not str(key).isdigit() for key in ships_payload
-    ):
-        raise DockInventoryError("info.ships must be an object keyed by numeric IDs")
-    if not isinstance(master_ships_payload, dict) or any(
-        not str(key).isdigit() for key in master_ships_payload
-    ):
-        raise DockInventoryError("master ship records must be keyed by numeric IDs")
-
-    assigned: set[int] = set()
-    for index, fleet in enumerate(fleets_payload):
-        if not isinstance(fleet, dict):
-            raise DockInventoryError(f"fleet entry {index} is not an object")
-        raw_slots = fleet.get("api_ship")
-        if not isinstance(raw_slots, list) or len(raw_slots) > MAX_FLEET_SIZE:
-            raise DockInventoryError(f"fleet entry {index} has an invalid api_ship array")
-        for raw_id in raw_slots:
-            if isinstance(raw_id, bool) or not isinstance(raw_id, int):
-                raise DockInventoryError(f"fleet entry {index} has a non-integer ship slot")
-            if raw_id == -1:
-                continue
-            if raw_id < 1:
-                raise DockInventoryError(f"fleet entry {index} has an invalid empty-slot marker")
-            assigned.add(raw_id)
-
-    dock: list[DockShip] = []
-    for key, ship in sorted(ships_payload.items(), key=lambda item: int(item[0])):
-        if not isinstance(ship, dict):
-            raise DockInventoryError(f"ship instance {key} is not an object")
-        ship_id = ship.get("api_id")
-        if isinstance(ship_id, bool) or not isinstance(ship_id, int) or ship_id < 1:
-            raise DockInventoryError(f"ship instance {key} has an invalid api_id")
-        if str(ship_id) != str(key):
-            raise DockInventoryError(f"ship instance {key} does not match its api_id {ship_id}")
-        if ship_id in assigned:
-            continue
-        master_id = ship.get("api_ship_id")
-        level = ship.get("api_lv")
-        if isinstance(master_id, bool) or not isinstance(master_id, int) or master_id < 1:
-            raise DockInventoryError(f"ship instance {ship_id} has an invalid api_ship_id")
-        if isinstance(level, bool) or not isinstance(level, int) or level < 1:
-            raise DockInventoryError(f"ship instance {ship_id} has an invalid api_lv")
-        master = master_ships_payload.get(str(master_id))
-        if not isinstance(master, dict):
-            raise DockInventoryError(
-                f"master ship record {master_id} is missing for dock ship {ship_id}"
-            )
-        ship_type = master.get("api_stype")
-        if isinstance(ship_type, bool) or not isinstance(ship_type, int) or ship_type < 1:
-            raise DockInventoryError(
-                f"master ship record {master_id} has an invalid api_stype"
-            )
-        dock.append(DockShip(ship_id, master_id, ship_type, level))
-    return tuple(dock)
+# ``dock_ships_from_poi_payloads`` is re-exported from
+# ``core.observation_contracts`` (see import at the top of this module). The
+# read-only Poi decoder has no expedition rule in it, so it must not be owned by
+# the expedition planner: adapters now import it from core instead.

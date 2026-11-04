@@ -15,8 +15,8 @@ from collections.abc import Callable, Mapping
 from typing import Any, Protocol
 
 from kancollebot.adapters.poi.cdp_input import RecordedPoint, home_port_point
-from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
-from kancollebot.expeditions.continuous_scheduler import UiOperationArbiter
+from kancollebot.adapters.poi.ui_operation_lock import UiOperationArbiter
+from kancollebot.core.observation_contracts import UiStateEvidence
 
 
 HOME_PORT = home_port_point()

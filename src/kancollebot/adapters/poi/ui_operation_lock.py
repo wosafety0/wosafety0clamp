@@ -131,3 +131,25 @@ def poi_ui_operation(
                 _THREAD_STATE.depth = depth
     finally:
         _THREAD_LOCK.release()
+
+
+class UiOperationArbiter:
+    """Task-neutral admission wrapper around the shared Poi UI mutex.
+
+    P0 R1: this class used to live in
+    ``kancollebot.expeditions.continuous_scheduler``, which forced the adapters
+    layer to import an expedition module just to type-check a mutex. The mutex
+    itself (``poi_ui_operation``) is already declared TASK_NEUTRAL in
+    ``task_scope.SHARED_CAPABILITIES``; the wrapper has no task rule either, so
+    its canonical home is here. The scheduler re-exports the SAME class object
+    so every existing import and ``isinstance`` check keeps working.
+
+    This is the cross-process lock, NOT a task priority arbiter. Task ownership
+    and priority remain the separate design in
+    ``kancollebot.task_runtime.ui_arbitration``.
+    """
+
+    @contextmanager
+    def operation(self, label: str) -> Iterator[None]:
+        with poi_ui_operation(label):
+            yield

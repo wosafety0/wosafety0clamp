@@ -22,52 +22,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Sequence
 
+# P0 R1/R4: "which fleets EXIST on this account" is a task-neutral observed
+# FACT. Its normalizer now has exactly one definition in core, shared by the
+# expedition composition roots, the CLI parser and task_runtime's lease layer.
+# Re-exporting the same names keeps every legacy import working, including the
+# exception type caught by the production entry points.
+from kancollebot.core.fleet_availability import (
+    FleetAvailabilityError,
+    normalize_unlocked_fleet_ids,
+)
 from kancollebot.runtime_config import RUNTIME_CONFIG, RuntimeConfig
 from kancollebot.task_scope import TaskKind, TaskScopeError, require_task_enabled
-
-
-class FleetAvailabilityError(ValueError):
-    """The account's unlocked fleet set cannot support the requested dispatch."""
-
-
-def normalize_unlocked_fleet_ids(
-    values: Iterable[int], *, config: RuntimeConfig = RUNTIME_CONFIG
-) -> tuple[int, ...]:
-    """Validate an observed fleet id set and return it in canonical order.
-
-    Poi exposes fleet ids as a contiguous sequence starting at 1. Rejecting a
-    non-contiguous or out-of-policy set is deliberate: guessing what a partial
-    observation means would turn a read error into a dispatch decision.
-    """
-    if isinstance(values, (str, bytes)):
-        raise FleetAvailabilityError("unlocked fleet ids must be a sequence of integers")
-    try:
-        ids = tuple(values)
-    except TypeError as exc:
-        raise FleetAvailabilityError(
-            "unlocked fleet ids must be a sequence of integers"
-        ) from exc
-    if not ids:
-        raise FleetAvailabilityError("unlocked fleet ids must not be empty")
-    for item in ids:
-        if isinstance(item, bool) or not isinstance(item, int) or item < 1:
-            raise FleetAvailabilityError(
-                f"unlocked fleet id {item!r} must be a positive integer"
-            )
-    if len(set(ids)) != len(ids):
-        raise FleetAvailabilityError("unlocked fleet ids must be unique")
-    canonical = tuple(sorted(ids))
-    if canonical != tuple(range(1, len(canonical) + 1)):
-        raise FleetAvailabilityError(
-            f"unlocked fleet ids {list(canonical)} must be contiguous starting at 1"
-        )
-    unknown = tuple(fleet_id for fleet_id in canonical if fleet_id not in config.all_fleet_ids)
-    if unknown:
-        raise FleetAvailabilityError(
-            f"observed fleets {list(unknown)} are outside the configured policy ceiling "
-            f"{list(config.all_fleet_ids)}"
-        )
-    return canonical
 
 
 @dataclass(frozen=True, slots=True)

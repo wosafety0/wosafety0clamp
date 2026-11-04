@@ -18,7 +18,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Iterable
 
-from kancollebot.expeditions.fleet_availability import (
+# P0 R1: account fleet facts are task-neutral. Import them from core, not from
+# the expedition package, so the future lease layer never depends on one task's
+# implementation. Same exception type and normalizer as the expedition roots.
+from kancollebot.core.fleet_availability import (
     FleetAvailabilityError,
     normalize_unlocked_fleet_ids,
 )

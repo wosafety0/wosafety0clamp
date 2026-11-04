@@ -5,12 +5,15 @@ integration. It performs no Poi I/O, screen recognition, game input, or waiting.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from enum import Enum
-from typing import Iterator, Protocol
+from typing import Protocol
 
-from kancollebot.adapters.poi.ui_operation_lock import poi_ui_operation
+# P0 R1: ``UiOperationArbiter`` is a task-neutral mutex wrapper. Its canonical
+# definition now lives in the adapters layer (where the mutex itself lives);
+# the re-export below keeps the same class object for every legacy import and
+# isinstance check. No expedition rule is embedded in it.
+from kancollebot.adapters.poi.ui_operation_lock import UiOperationArbiter
 from kancollebot.runtime_config import RUNTIME_CONFIG
 
 
@@ -253,10 +256,4 @@ class ContinuousExpeditionScheduler:
         return state
 
 
-class UiOperationArbiter:
-    """Cross-process mutex for all operations against the shared Poi window."""
-
-    @contextmanager
-    def operation(self, label: str) -> Iterator[None]:
-        with poi_ui_operation(label):
-            yield
+# ``UiOperationArbiter`` is re-exported from the adapters layer (import above).

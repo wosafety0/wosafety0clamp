@@ -4,6 +4,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 
+# P0 R1: the observed fleet snapshot is a task-neutral DATA SHAPE. Its
+# canonical definition now lives in ``core.observation_contracts``; the legacy
+# name is an alias of the very same class, so existing imports, isinstance
+# checks and dataclass equality keep working byte-for-byte.
+from kancollebot.core.observation_contracts import (
+    ObservedFleetSnapshot as ExpeditionFleetSnapshot,
+)
+
 
 class ExpeditionDecision(str, Enum):
     """A recommendation for a fleet, not an instruction to execute an action."""
@@ -19,72 +27,9 @@ class ExpeditionDecision(str, Enum):
     READY_TO_DISPATCH = "ready_to_dispatch"
 
 
-@dataclass(frozen=True, slots=True)
-class ExpeditionFleetSnapshot:
-    """Minimal observed facts needed for an offline expedition readiness check."""
-
-    fleet_id: int
-    ship_ids: tuple[int, ...]
-    mission_id: int | None = None
-    return_at: datetime | None = None
-    fuel_ready: bool = False
-    ammo_ready: bool = False
-    damaged_ship_ids: tuple[int, ...] = ()
-    # Ships at or below 25% HP (大破 / heavy damage / Taiha). Only these block
-    # dispatch; 小破/中破 (damaged but above 25%) are allowed by operator policy.
-    heavy_damage_ship_ids: tuple[int, ...] = ()
-    mission_status: int | None = None
-    reserved: int = 0
-    ship_levels: tuple[int, ...] = ()
-    ship_types: tuple[int, ...] = ()
-
-    def __post_init__(self) -> None:
-        if self.fleet_id < 1:
-            raise ValueError("fleet_id must be positive")
-        if len(self.ship_ids) > 6:
-            raise ValueError("a fleet cannot contain more than six ships")
-        if any(ship_id < 1 for ship_id in self.ship_ids):
-            raise ValueError("ship_ids must be positive")
-        if len(set(self.ship_ids)) != len(self.ship_ids):
-            raise ValueError("ship_ids must be unique")
-        if len(set(self.damaged_ship_ids)) != len(self.damaged_ship_ids):
-            raise ValueError("damaged_ship_ids must be unique")
-        if not set(self.damaged_ship_ids).issubset(self.ship_ids):
-            raise ValueError("damaged_ship_ids must belong to this fleet")
-        if len(set(self.heavy_damage_ship_ids)) != len(self.heavy_damage_ship_ids):
-            raise ValueError("heavy_damage_ship_ids must be unique")
-        if not set(self.heavy_damage_ship_ids).issubset(self.ship_ids):
-            raise ValueError("heavy_damage_ship_ids must belong to this fleet")
-        if not set(self.heavy_damage_ship_ids).issubset(self.damaged_ship_ids):
-            raise ValueError(
-                "heavy_damage_ship_ids must also be listed in damaged_ship_ids"
-            )
-        if self.mission_status not in (None, 0, 1, 2):
-            raise ValueError("mission_status must be 0, 1, 2, or unknown")
-        if isinstance(self.reserved, bool) or not isinstance(self.reserved, int) or self.reserved < 0:
-            raise ValueError("reserved must be a non-negative integer")
-        if not isinstance(self.ship_levels, tuple) or not isinstance(self.ship_types, tuple):
-            raise ValueError("ship_levels and ship_types must be tuples")
-        if bool(self.ship_levels) != bool(self.ship_types):
-            raise ValueError("ship_levels and ship_types must both be present or both be empty")
-        if self.ship_levels or self.ship_types:
-            if len(self.ship_levels) != len(self.ship_ids) or len(self.ship_types) != len(self.ship_ids):
-                raise ValueError("composition metadata must match ordered ship membership")
-            for label, values in (("ship levels", self.ship_levels), ("ship types", self.ship_types)):
-                if any(isinstance(value, bool) or not isinstance(value, int) or value < 1 for value in values):
-                    raise ValueError(f"{label} must contain positive integers")
-        if self.mission_status == 0 and self.mission_id is not None:
-            raise ValueError("idle mission_status cannot have an active mission")
-        if self.mission_status in (1, 2) and self.mission_id is None:
-            raise ValueError("active mission_status requires a mission ID")
-        if self.mission_id is not None and self.mission_id < 1:
-            raise ValueError("mission_id must be positive")
-        if self.return_at is not None and (
-            self.return_at.tzinfo is None or self.return_at.utcoffset() is None
-        ):
-            raise ValueError("return_at must be timezone-aware")
-        if self.mission_id is None and self.return_at is not None:
-            raise ValueError("return_at requires an active mission")
+# ``ExpeditionFleetSnapshot`` is now an alias of
+# ``core.observation_contracts.ObservedFleetSnapshot`` (imported above). The
+# validation contract is unchanged; it lives with the neutral data shape.
 
 
 @dataclass(frozen=True, slots=True)

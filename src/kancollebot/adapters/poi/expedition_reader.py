@@ -13,7 +13,7 @@ from kancollebot.adapters.poi.expedition_state_v2 import PoiStateError, normaliz
 from kancollebot.adapters.poi.mcp_client import PoiMcpClient, PoiMcpError
 from kancollebot.adapters.poi.port_freshness import port_snapshot_matches_current_state
 from kancollebot.core.observed_state import ObservedState
-from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
+from kancollebot.core.observation_contracts import ObservedFleetSnapshot
 
 
 # The bridge caps collection responses by serialized size, not by item count:
@@ -255,7 +255,7 @@ class PoiExpeditionReader:
                     raise PoiMcpError(f"Master ship record {master_id} has invalid {field}")
         return items
 
-    def read_fleets(self) -> ObservedState[tuple[ExpeditionFleetSnapshot, ...]]:
+    def read_fleets(self) -> ObservedState[tuple[ObservedFleetSnapshot, ...]]:
         """Read fleet and ship instances, then lookup only referenced master records."""
         self._ensure_ready()
         # Only inject an in-memory witness from a trusted live observer. A

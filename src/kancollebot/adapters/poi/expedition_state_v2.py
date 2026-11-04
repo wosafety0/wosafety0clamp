@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from kancollebot.core.observed_state import ObservedState
-from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
+from kancollebot.core.observation_contracts import ObservedFleetSnapshot
 
 
 class PoiStateError(ValueError):
@@ -30,7 +30,7 @@ def normalize_poi_fleets(
     *,
     observed_at: datetime,
     source_freshness_verified: bool = False,
-) -> ObservedState[tuple[ExpeditionFleetSnapshot, ...]]:
+) -> ObservedState[tuple[ObservedFleetSnapshot, ...]]:
     """Normalize fleet, roster, and master ship records.
 
     The API mission timestamp is intentionally not interpreted until its slot
@@ -159,7 +159,7 @@ def normalize_poi_fleets(
             ):
                 ammo_ready = False
 
-        snapshots.append(ExpeditionFleetSnapshot(
+        snapshots.append(ObservedFleetSnapshot(
             fleet_id=fleet_id,
             ship_ids=ship_ids,
             mission_id=mission_id,

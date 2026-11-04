@@ -10,12 +10,12 @@ from typing import Any
 
 from kancollebot.adapters.poi.expedition_reader import _tool_value
 from kancollebot.adapters.poi.mcp_client import PoiMcpClient, PoiMcpError
-from kancollebot.expeditions.dock_composition_planner import (
+from kancollebot.core.observation_contracts import (
     DockInventoryError,
     DockShip,
+    FleetCompositionSnapshot,
     dock_ships_from_poi_payloads,
 )
-from kancollebot.expeditions.mission_eligibility import FleetCompositionSnapshot
 
 
 class PoiDockReadError(RuntimeError):

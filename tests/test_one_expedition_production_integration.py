@@ -31,6 +31,8 @@ from kancollebot.expeditions.continuous_scheduler import (
 )
 from kancollebot.expeditions.mission_eligibility import MissionCompositionRequirement
 from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
+from kancollebot.task_scope import TaskKind
+import kancollebot.expeditions.continuous_supervisor as supervisor_module
 
 
 class FakeReader:
@@ -330,6 +332,137 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
             self.assertIs(runtime.scheduler.fleet(3).phase, FleetPhase.EXPEDITION_ACTIVE)
             self.assertTrue(runtime.scheduler.fleet(3).home_port_verified)
             self.assertTrue(provider.closed)
+
+    def test_production_entry_passes_verified_account_fleet_kwargs(self):
+        """R4: the REAL dispatch-once entry must hand the runtime the observed
+        account fact plus an explicit strictness/task decision (not just a
+        class-level helper being called correctly).
+        """
+        return_at = datetime.now(timezone.utc) + timedelta(minutes=20)
+        idle = make_snapshot()
+        active = make_snapshot(status=1, mission_id=3, return_at=return_at)
+        runtime, _, _ = self.make_runtime([idle, idle, active, active])
+        marks = FakeMarks(selected=2)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "production" / "state.sqlite3"
+            database.parent.mkdir(parents=True)
+            args = self.make_args(database)
+            game_session = MagicMock()
+            game_session.input = FakeGameInput(marks=marks, fleet_after_confirm=2)
+            game_session.__enter__.return_value = game_session
+            game_session.__exit__.return_value = False
+
+            with ExitStack() as stack:
+                stack.enter_context(
+                    patch.object(entry, "connect_game_webview", return_value=game_session)
+                )
+                stack.enter_context(patch.object(entry, "_capture_home_reference"))
+                stack.enter_context(
+                    patch.object(
+                        entry, "_require_ui_state",
+                        return_value="two_consecutive_in_memory_ooi_fingerprints",
+                    )
+                )
+                stack.enter_context(patch.object(entry, "_print_event"))
+                stack.enter_context(
+                    patch("kancollebot.adapters.poi.visual_target.require_visual_dependencies")
+                )
+                stack.enter_context(
+                    patch.object(
+                        entry, "_probe_unlocked_fleet_ids",
+                        return_value=(1, 2, 3, 4),
+                    )
+                )
+                self.patch_evidence_sources(stack, marks=marks)
+                with patch.object(monitor_runtime, "build_runtime",
+                                  return_value=runtime) as build:
+                    self.assertEqual(entry.run(args), 0)
+
+            build.assert_called_once()
+            kwargs = build.call_args.kwargs
+            self.assertEqual(kwargs["unlocked_fleet_ids"], (1, 2, 3, 4))
+            self.assertIs(kwargs["fleet_availability_strict"], True)
+            self.assertIs(kwargs["task_kind"], TaskKind.EXPEDITION)
+            self.assertEqual(kwargs["dispatch_fleet_ids"], (3,))
+            self.assertEqual(set(kwargs["mission_requirements"]), {3})
+            self.assertIsNotNone(kwargs["ui_input"])
+
+    def test_production_supervisor_has_no_settlement_or_resupply_controller(self):
+        """R3: lock the current production assembly as EVIDENCE, not as a fix.
+
+        Class-level tests prove the branches work when controllers are injected;
+        this one proves the real composition root never injects them, so the
+        settlement/resupply branches of tick() are unreachable in production.
+        No production click chain is modified by this test.
+        """
+        return_at = datetime.now(timezone.utc) + timedelta(minutes=20)
+        idle = make_snapshot()
+        active = make_snapshot(status=1, mission_id=3, return_at=return_at)
+        runtime, _, _ = self.make_runtime([idle, idle, active, active])
+        marks = FakeMarks(selected=2)
+        real_supervisor = supervisor_module.ContinuousExpeditionSupervisor
+        built_supervisors: list[object] = []
+
+        def capture_real_supervisor(*pos, **kw):
+            instance = real_supervisor(*pos, **kw)
+            built_supervisors.append(instance)
+            return instance
+
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "production" / "state.sqlite3"
+            database.parent.mkdir(parents=True)
+            args = self.make_args(database)
+            game_session = MagicMock()
+            game_session.input = FakeGameInput(marks=marks, fleet_after_confirm=2)
+            game_session.__enter__.return_value = game_session
+            game_session.__exit__.return_value = False
+
+            with ExitStack() as stack:
+                stack.enter_context(
+                    patch.object(entry, "connect_game_webview", return_value=game_session)
+                )
+                stack.enter_context(patch.object(entry, "_capture_home_reference"))
+                stack.enter_context(
+                    patch.object(
+                        entry, "_require_ui_state",
+                        return_value="two_consecutive_in_memory_ooi_fingerprints",
+                    )
+                )
+                stack.enter_context(patch.object(entry, "_print_event"))
+                stack.enter_context(
+                    patch("kancollebot.adapters.poi.visual_target.require_visual_dependencies")
+                )
+                stack.enter_context(
+                    patch.object(
+                        entry, "_probe_unlocked_fleet_ids",
+                        return_value=(1, 2, 3, 4),
+                    )
+                )
+                self.patch_evidence_sources(stack, marks=marks)
+                stack.enter_context(
+                    patch.object(monitor_runtime, "build_runtime", return_value=runtime)
+                )
+                supervisor_cls = stack.enter_context(
+                    patch.object(
+                        supervisor_module, "ContinuousExpeditionSupervisor",
+                        side_effect=capture_real_supervisor,
+                    )
+                )
+                self.assertEqual(entry.run(args), 0)
+
+            supervisor_cls.assert_called_once()
+            assembly = supervisor_cls.call_args.kwargs
+            self.assertEqual(set(assembly), {"monitor", "dispatch_controller"})
+            self.assertNotIn("settlement_controller", assembly)
+            self.assertNotIn("resupply_controller", assembly)
+            self.assertIs(assembly["monitor"], runtime.monitor)
+            # With both controllers None, tick() can never call
+            # settle_one_returned() / resupply_one_needed().
+            self.assertEqual(len(built_supervisors), 1)
+            instance = built_supervisors[0]
+            self.assertIsNone(instance.settlement_controller)
+            self.assertIsNone(instance.resupply_controller)
 
     def test_unfresh_monitor_observation_stops_before_any_ui_click(self):
         runtime, reader, provider = self.make_runtime([make_snapshot()], fresh=False)

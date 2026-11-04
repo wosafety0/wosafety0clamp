@@ -16,6 +16,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
 from kancollebot.core.observed_state import ObservedState
+from kancollebot.core.observation_contracts import UiStateEvidence
+from kancollebot.core.task_attribution import apply_trusted_task_attribution
 from kancollebot.expeditions.continuous_scheduler import (
     ContinuousExpeditionScheduler,
     FleetPhase,
@@ -49,25 +51,11 @@ class PoiFleetStateReader(Protocol):
         ...
 
 
-@dataclass(frozen=True, slots=True)
-class UiStateEvidence:
-    """Evidence returned by a UI driver after its two-frame state gate passes."""
-
-    state: str
-    consecutive_states: tuple[str, str]
-    evidence: str
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.state, str) or not self.state.strip():
-            raise ValueError("state must be a non-empty string")
-        if (
-            not isinstance(self.consecutive_states, tuple)
-            or len(self.consecutive_states) != 2
-            or any(not isinstance(item, str) or not item.strip() for item in self.consecutive_states)
-        ):
-            raise ValueError("consecutive_states must contain exactly two state labels")
-        if not isinstance(self.evidence, str) or not self.evidence.strip():
-            raise ValueError("evidence must be a non-empty string")
+# ``UiStateEvidence`` is a task-neutral two-frame UI checkpoint. The canonical
+# definition moved to ``core.observation_contracts``; this module re-exports the
+# SAME class object so old ``from ...continuous_dispatch_controller import
+# UiStateEvidence`` callers keep identical isinstance/equality behaviour. See
+# docs/DESIGN_task_event_attribution.md for the attribution contract.
 
 
 class ContinuousUiDriver(Protocol):
@@ -99,11 +87,16 @@ class DispatchExecution:
 class SqliteDispatchEventLog:
     """Append-only event sink suitable for sharing the scheduler SQLite database.
 
-    ``task_kind`` is opt-in attribution. When supplied, every event payload
-    carries it so a log shared by several automation tasks can be split by
-    task. When omitted the payload is byte-for-byte unchanged, which keeps the
-    existing offline tests and on-disk databases valid; composition roots for
-    real runs should always pass it.
+    ``task_kind`` is opt-in TRUSTED attribution. When supplied, every event
+    payload carries it and caller-supplied attribution keys are discarded, so a
+    log shared by several automation tasks can be split by task without any
+    emitter being able to forge its identity. When omitted the payload stays
+    byte-for-byte unchanged, which keeps existing offline tests and on-disk
+    databases valid; composition roots for real runs should always pass it.
+
+    No schema migration: the legacy 4-column ``dispatch_events`` table is kept
+    as-is and attribution lives in ``payload_json``. See
+    docs/DESIGN_task_event_attribution.md for the compatibility evaluation.
     """
 
     def __init__(self, path: str, *, task_kind: str | None = None) -> None:
@@ -137,9 +130,13 @@ class SqliteDispatchEventLog:
             raise ValueError("event name must be a non-empty string")
         if not isinstance(fields, Mapping):
             raise TypeError("event fields must be a mapping")
-        payload_fields = dict(fields)
-        if self.task_kind is not None:
-            payload_fields.setdefault("task_kind", self.task_kind)
+        # Trusted attribution wins unconditionally: ``fields`` may carry any
+        # diagnostic value but can never claim, replace or forge the task
+        # identity of a row in this shared append-only log. With task_kind=None
+        # the mapping is returned unchanged for byte-for-byte legacy payloads.
+        payload_fields = apply_trusted_task_attribution(
+            fields, task_kind=self.task_kind
+        )
         payload = json.dumps(
             payload_fields, ensure_ascii=False, sort_keys=True,
             separators=(",", ":"), allow_nan=False,

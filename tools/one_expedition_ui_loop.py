@@ -68,6 +68,7 @@ from kancollebot.calibration import (  # noqa: E402
     load_position_index,
     scan_page,
 )
+from kancollebot.core.task_attribution import merge_trusted_event_fields  # noqa: E402
 from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
 
 # Long enough for the Home Port scene to finish settling before a frame is
@@ -191,15 +192,24 @@ def _read_visual_document(path: Path) -> object:
 
 
 def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra: object) -> None:
-    payload: dict[str, object] = {
+    # P0 R2: the envelope is TRUSTED. Previously ``**extra`` came last, so any
+    # caller could overwrite ``event`` / ``run_id`` / ``timestamp_utc`` /
+    # ``task_kind`` and forge a row's identity in a shared automation log. The
+    # merge contract drops every reserved key from ``extra`` before writing the
+    # envelope, so attribution can only come from the composition root.
+    trusted: dict[str, object] = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "run_id": RUN_ID,
         # Structured attribution: this jsonl is one of several automation logs,
         # and future tasks must be distinguishable without parsing event names.
         "task_kind": RUNTIME_CONFIG.dispatch_policy_task_kind,
         "event": event,
-        **extra,
     }
+    merged = merge_trusted_event_fields(extra, trusted=trusted)
+    # Keep the historical key order (envelope first, diagnostics after) so the
+    # jsonl stays byte-compatible for readers that compare raw lines.
+    payload: dict[str, object] = dict(trusted)
+    payload.update({key: value for key, value in merged.items() if key not in trusted})
     if state is not None:
         payload["fleet_id"] = state.fleet_id
         payload["mission"] = list(state.mission)
@@ -753,9 +763,9 @@ def _probe_unlocked_fleet_ids() -> tuple[int, ...]:
     whether Fleet 3 or Fleet 4 can be sent at all. This opens a read session
     only: it sends no clicks and performs no navigation.
     """
-    from kancollebot.expeditions.fleet_availability import (
-        normalize_unlocked_fleet_ids,
-    )
+    # P0 R4: the SAME task-neutral normalizer the monitor CLI parses with.
+    # An ambiguous observation fails closed rather than being widened.
+    from kancollebot.core.fleet_availability import normalize_unlocked_fleet_ids
 
     with connect_poi_session(timeout=5.0) as poi_session:
         states = tuple(read_poi_fleet_states(poi_session.transport))
@@ -790,6 +800,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
         FleetAvailabilityError,
         resolve_fleet_availability,
     )
+    from kancollebot.task_scope import TaskKind
     from run_continuous_expedition_monitor import build_runtime
 
     runtime = None
@@ -852,6 +863,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 mission_requirements={target_fleet_id: requirement},
                 unlocked_fleet_ids=unlocked_fleet_ids,
                 fleet_availability_strict=True,
+                task_kind=TaskKind.EXPEDITION,
                 enable_ui_refresh=args.enable_ui_refresh,
                 ui_input=game_session.input if args.enable_ui_refresh else None,
                 ui_state_verifier=refresh_verify_state if args.enable_ui_refresh else None,

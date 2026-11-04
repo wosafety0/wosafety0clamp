@@ -60,6 +60,14 @@ from kancollebot.expeditions.mission_eligibility import (  # noqa: E402
 from kancollebot.expeditions.fleet_availability import (  # noqa: E402
     resolve_fleet_availability,
 )
+# P0 R4: the SAME task-neutral normalizer that dispatch-once probes with. The
+# monitor cannot open a CDP game session in its default read-only mode, so the
+# operator may supply the observed account fact explicitly; ambiguity fails
+# closed instead of being interpreted as "all fleets exist".
+from kancollebot.core.fleet_availability import (  # noqa: E402
+    FleetAvailabilityError,
+    parse_unlocked_fleet_ids,
+)
 from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
 from kancollebot.task_scope import (  # noqa: E402
     TaskKind,
@@ -580,6 +588,15 @@ def _run_monitor_with_session(
             refresh_wait_seconds=args.refresh_wait_seconds,
             refresh_poll_seconds=args.refresh_poll_seconds,
             refresh_cooldown_seconds=args.refresh_cooldown_seconds,
+            # P0 R4: both production entries now pass the observed account
+            # fleet set and an explicit strictness decision. dispatch-once
+            # probes it (strict=True for a named target); the monitor takes an
+            # operator-supplied set (None = unverified, backstop stays active).
+            unlocked_fleet_ids=getattr(args, "unlocked_fleet_ids", None),
+            fleet_availability_strict=bool(
+                getattr(args, "fleet_availability_strict", False)
+            ),
+            task_kind=TaskKind.EXPEDITION,
         )
     except (OSError, ValueError) as exc:
         _emit(
@@ -651,6 +668,37 @@ def _main_impl(argv: list[str] | None = None) -> int:
     parser.add_argument("--poll-seconds", type=float, default=RUNTIME_CONFIG.monitor_poll_seconds)
     parser.add_argument("--max-ticks", type=int)
     parser.add_argument(
+        "--unlocked-fleet-ids",
+        default=None,
+        metavar="IDS",
+        help=(
+            "Observed account fleet ids as a comma-separated contiguous list "
+            "starting at 1 (for example 1,2,3). This is an ACCOUNT FACT, not a "
+            "dispatch policy: fleets not in the list are dropped from the "
+            "candidate set. Omitting it keeps the read-only unverified path, "
+            "where the per-tick observation check stays the fail-closed "
+            "backstop and the run reports fleet_availability_verified=false."
+        ),
+    )
+    parser.add_argument(
+        "--fleet-availability-strict",
+        action="store_true",
+        help=(
+            "With --unlocked-fleet-ids, refuse to start if any requested "
+            "candidate fleet is not unlocked instead of trimming the set. "
+            "dispatch-once always uses this strict mode for its named target."
+        ),
+    )
+    parser.add_argument(
+        "--require-verified-fleet-availability",
+        action="store_true",
+        help=(
+            "Fail closed unless an observed --unlocked-fleet-ids set was "
+            "supplied. Use this to demand the same verified account fact that "
+            "dispatch-once obtains from its zero-click CDP probe."
+        ),
+    )
+    parser.add_argument(
         "--enable-ui-refresh",
         action="store_true",
         help=(
@@ -709,6 +757,25 @@ def _main_impl(argv: list[str] | None = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
+    # P0 R4: normalize the account fact ONCE, before any session is opened.
+    # Empty, non-integer, duplicate, non-contiguous or out-of-policy sets all
+    # fail closed here rather than being silently widened.
+    try:
+        args.unlocked_fleet_ids = (
+            parse_unlocked_fleet_ids(args.unlocked_fleet_ids)
+            if args.unlocked_fleet_ids is not None
+            else None
+        )
+    except FleetAvailabilityError as exc:
+        parser.error(f"--unlocked-fleet-ids rejected: {exc}")
+    if args.fleet_availability_strict and args.unlocked_fleet_ids is None:
+        parser.error("--fleet-availability-strict requires --unlocked-fleet-ids")
+    if args.require_verified_fleet_availability and args.unlocked_fleet_ids is None:
+        parser.error(
+            "--require-verified-fleet-availability requires an observed "
+            "--unlocked-fleet-ids set; the monitor will not claim a verified "
+            "account fact it does not have"
+        )
     # None means the flag was not mentioned at all, which now means "on".
     if args.auto_dismiss_modal is None:
         args.auto_dismiss_modal = True

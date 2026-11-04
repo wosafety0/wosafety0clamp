@@ -37,7 +37,7 @@ from kancollebot.calibration import (
     MarkMatch,
     RowLocation,
 )
-from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
+from kancollebot.core.observation_contracts import UiStateEvidence
 
 
 class ContinuousUiDriverError(RuntimeError):
