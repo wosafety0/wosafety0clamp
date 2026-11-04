@@ -3,7 +3,7 @@
 **Updated:** 2026-11-04  
 **Repository:** wosafety0/wosafety0clamp  
 **Working branch:** dev/expedition-closed-loop-mvp  
-**Code baseline before this documentation update:** 45ed11d96fb937449a8697df4014a7067c19a33d
+**Code baseline before this documentation update:** 19cd081973c4cf315b3e4aa961c024b24b61133c
 
 This document is the concise handoff entry point. The long design and progress records remain useful for implementation history, but older entries are point-in-time records and may be superseded by later entries.
 
@@ -19,8 +19,8 @@ This document is the concise handoff entry point. The long design and progress r
 
 - Repository visibility: **public**.
 - Active code branch: **dev/expedition-closed-loop-mvp**.
-- Current code baseline: **45ed11d96fb937449a8697df4014a7067c19a33d** — “Test the screenshot matcher with synthetic frames”.
-- Latest verified CI: [run 41763823190](https://github.com/wosafety0/wosafety0clamp/actions/runs/41763823190), conclusion **success**. The test job passed JavaScript static tests, passive observer syntax check, package/CLI smoke checks, Python compile, and the complete Python unit suite (**555 tests; 20 skipped; all remaining passed**).
+- Current code baseline: **19cd081973c4cf315b3e4aa961c024b24b61133c** — “Import monotonic clock for passive witness wait”.
+- Latest verified CI: [run 41764320977](https://github.com/wosafety0/wosafety0clamp/actions/runs/41764320977), conclusion **success**. The test job passed JavaScript static tests, passive observer syntax check, package/CLI smoke checks, Python compile, and the complete Python unit suite (**561 tests; 20 skipped; all remaining passed**).
 - The default branch has not been changed, no PR has been created or merged as part of this handoff, and no collaborator permissions have been changed. Public read access does not grant push access; a new developer needs repository write permission to push.
 
 ## 3. Architecture map
@@ -29,11 +29,11 @@ This document is the concise handoff entry point. The long design and progress r
 |---|---|---|
 | CDP transport and allowlist | src/kancollebot/adapters/poi/cdp_websocket.py | Loopback WebSocket, command allowlist, fixed read-only snapshot expression, input and passive events |
 | Fleet snapshot | src/kancollebot/adapters/poi/cdp_fleet_state.py | Parse the fixed Poi Redux fleet snapshot |
-| Poi freshness | src/kancollebot/adapters/poi/port_freshness.py, port_response_observer.py, background_port_snapshot_provider.py | Passive natural-response witness and freshness comparison |
+| Poi freshness | src/kancollebot/adapters/poi/port_freshness.py, port_response_observer.py, background_port_snapshot_provider.py | Passive natural-response witness, exact state comparison, and condition-based waiting for a witness newer than a UI action boundary |
 | UI state and visual gates | src/kancollebot/adapters/poi/visual_state_gate.py, visual_fingerprint.py, visual_target.py | In-memory screenshot classification and bounded visual target localization |
 | Semantic DOM targets | src/kancollebot/adapters/poi/cdp_semantic_targets.py | AX/DOM targeting for actual DOM nodes; not suitable for Canvas-only game controls |
 | Fleet state and safety policy | src/kancollebot/adapters/poi/expedition_state.py, expedition_state_v2.py | Normalize ship/fleet state, supply and damage attributes |
-| Scheduling and dispatch gates | src/kancollebot/expeditions/ | Fleet lifecycle, planner, durable intent/recovery, controller and supervisor |
+| Scheduling and dispatch gates | src/kancollebot/expeditions/ | Fleet lifecycle, planner, durable intent/recovery, controller and supervisor; controller waits for passive freshness after dispatch and Home Port navigation before readback |
 | Mission catalogue scan aggregation | src/kancollebot/expeditions/mission_catalog_scan.py | Offline page aggregation, overlap deduplication, scroll-coverage and verified-bottom gates; no UI input |
 | Mission catalogue visual adapter | src/kancollebot/expeditions/mission_catalog_vision.py | Bounded OpenCV matching of locally supplied mission-marker and scrollbar templates; requires explicit scrollbar-scale calibration; no screenshots written or UI input |
 | Unified runtime configuration | src/kancollebot/runtime_config.py | Single source for production Fleet 3 / mission 3, monitor fleet set, endpoints, timeouts, and runtime paths |
@@ -61,6 +61,7 @@ This document is the concise handoff entry point. The long design and progress r
 - Pre-dispatch Taiha (大破) detection is implemented: HP at or below 25% is classified with integer arithmetic (api_nowhp * 4 <= api_maxhp). The dispatch controller blocks before durable intent creation and before UI input.
 - The offline mission-catalogue scan accumulator is implemented. It deduplicates overlapping visible pages, rejects conflicting row identities and unsafe scroll progression, and only marks a scan complete when measured bottom geometry agrees with an independent visual bottom confirmation. Its output is not connected to dispatch.
 - A read-only OpenCV visual adapter is implemented for bounded mission-marker and scrollbar-thumb template matching. Mocked-frame integration tests exercise screenshot decoding, row matching, scrollbar location, and ambiguity rejection. The adapter requires a manually verified proportional scrollbar model and remains disconnected from dispatch.
+- The dispatch controller now waits for the background passive observer to capture a port witness whose response-received and body-captured timestamps are both later than the dispatch-completion boundary, and repeats this wait after Home Port navigation. It then reads Poi and verifies the exact active mission tuple. The wait uses an in-process condition variable, not repeated MCP reads; timeout fails closed and does not retry UI input.
 
 ## 5. Explicitly not verified / blocked
 
@@ -70,6 +71,7 @@ Do not describe the project as a completed automatic expedition loop.
 - **Taiha gate is offline-tested only:** no live Taiha snapshot or live dispatch-block attempt has been recorded. Healthy-ship replacement is deliberately deferred and is not implemented.
 - **Unattended scheduler is not accepted:** the read-only monitor is separate from the one-shot UI runner. Do not infer that the continuous supervisor is a ready-to-run unattended game process.
 - **Mission list discovery remains incomplete:** the offline page aggregator and OpenCV adapter are implemented, but no local mission-marker templates, calibrated visual profile, live Canvas row-recognition sequence, or verified scrollbar proportionality evidence is available in GitHub. `scrollbar_scale_verified` defaults to false, so screenshot scanning cannot produce complete-scan evidence until Poi calibration. The previously observed eight rows (01 through A1) are not the complete mission catalogue.
+- **Post-action freshness waiting has offline test coverage only:** natural-response waiting is wired through the production reader/controller interfaces, but no live dispatch or post-navigation response-wait sequence has been performed. A timeout leaves the transaction blocked for manual reconciliation; it does not resend a click.
 - **Canvas controls are not AX targets:** a read-only inspection on both Home Port and Expedition Selection reported an unchanged AX tree (146 nodes / 117 valid). The game area appeared as an application leaf with no children; visible game buttons and expedition rows had no AX matches. This is operator-observed evidence from 2026-11-03, not a new independent run by this handoff author.
 - **The DOM geometry chain is incomplete:** the current CDP allowlist contains Accessibility.getFullAXTree, DOM.pushNodesByBackendIdsToFrontend, and DOM.getBoxModel, but not DOM.enable or DOM.getDocument. Therefore the DOM node/BoxModel path is not end-to-end usable as currently configured. Even after fixing that for real DOM nodes, it will not create DOM targets for Canvas-rendered game controls.
 - **Keep arbitrary JavaScript forbidden:** Runtime.evaluate must remain restricted to the exact fixed fleet-snapshot expression. Do not broaden it to solve DOM or Canvas targeting.
@@ -81,6 +83,7 @@ Do not describe the project as a completed automatic expedition loop.
 1. Keep the unified CLI and runtime defaults as the only production entry/configuration source; add tests whenever the target or defaults change.
 2. When Poi is available, calibrate the visual adapter using operator-local mission number crops and a scrollbar-thumb crop. Verify the 1200×720 list/track regions, marker thresholds, scrollbar proportionality, and the bottom tolerance with real top/middle/bottom captures. Keep those assets local unless separately approved for sharing.
 3. Validate row identity and localization against each current screenshot. Recompute every row target after every scroll; never reuse pre-scroll coordinates. Feed page observations into the offline accumulator and do not treat A1 or the current eight rows as the end.
+4. After visual calibration, perform a separately authorized live dispatch acceptance: confirm a new natural port witness after dispatch, verify the exact fleet/mission/ship/reservation tuple, return to Home Port, then wait for a second post-navigation witness and verify the tuple remains unchanged. No retry is allowed on ambiguous clicks or missing freshness evidence.
 4. Keep AX/DOM targeting for genuine DOM nodes only. Decide separately whether the incomplete DOM protocol chain is worth enabling for shell controls; do not use it as a substitute for Canvas recognition.
 5. Add live read-only verification for the Taiha gate before considering any dispatch attempt. Healthy-ship replacement remains a separate, later feature requiring explicit fleet-composition and safety tests.
 6. Only after all state gates and the post-dispatch / return / reward / idle path are independently verified should the full expedition loop be considered for live acceptance.
