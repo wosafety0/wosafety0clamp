@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from kancollebot.adapters.poi.cdp_input import CapturedFrame
+
 
 class SettlementObservationError(RuntimeError):
     """Settlement UI state cannot be proven from the current visible screen."""
@@ -19,6 +21,7 @@ class SettlementObservation:
     state: str
     consecutive_states: tuple[str, ...]
     evidence: str
+    frames: tuple[CapturedFrame, CapturedFrame]
 
     def __post_init__(self) -> None:
         if isinstance(self.fleet_id, bool) or not isinstance(self.fleet_id, int) or self.fleet_id < 1:
@@ -33,6 +36,14 @@ class SettlementObservation:
             raise ValueError("settlement evidence must contain two consecutive matching frames")
         if not isinstance(self.evidence, str) or not self.evidence.strip():
             raise ValueError("evidence must be a non-empty string")
+        if (
+            not isinstance(self.frames, tuple)
+            or len(self.frames) != 2
+            or any(not isinstance(frame, CapturedFrame) for frame in self.frames)
+            or self.frames[0].frame_id >= self.frames[1].frame_id
+            or self.frames[0].sha256 == self.frames[1].sha256
+        ):
+            raise ValueError("settlement requires two distinct, increasing captured frames")
 
 
 class SettlementStateObserver:
@@ -56,6 +67,7 @@ class SettlementStateObserver:
         state = getattr(evidence, "state", None)
         frames = getattr(evidence, "consecutive_states", None)
         source = getattr(evidence, "evidence", None)
+        frames_evidence = getattr(evidence, "frames", None)
         if state != expected_state:
             raise SettlementObservationError("verifier returned evidence for a different UI state")
         if (
@@ -66,9 +78,18 @@ class SettlementStateObserver:
             raise SettlementObservationError("two consecutive matching settlement frames are required")
         if not isinstance(source, str) or not source.strip():
             raise SettlementObservationError("settlement evidence source is missing")
+        if (
+            not isinstance(frames_evidence, tuple)
+            or len(frames_evidence) != 2
+            or any(not isinstance(frame, CapturedFrame) for frame in frames_evidence)
+            or frames_evidence[0].frame_id >= frames_evidence[1].frame_id
+            or frames_evidence[0].sha256 == frames_evidence[1].sha256
+        ):
+            raise SettlementObservationError("two distinct captured frame objects are required")
         return SettlementObservation(
             fleet_id=fleet_id,
             state=expected_state,
             consecutive_states=frames,
             evidence=source,
+            frames=frames_evidence,
         )
