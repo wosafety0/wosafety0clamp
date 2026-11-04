@@ -9,6 +9,7 @@ from kancollebot.calibration import (
     AREA_SOUTHWEST,
     AREA_WESTERN,
     DEFAULT_CATALOG,
+    DEFAULT_TAB_AREAS,
     CatalogEntry,
     ExpeditionCatalog,
     ExpeditionCatalogError,
@@ -69,6 +70,44 @@ class DefaultCatalogTests(unittest.TestCase):
     def test_source_is_recorded_so_the_data_can_age_visibly(self) -> None:
         self.assertIn("wiki", DEFAULT_CATALOG.source)
         self.assertEqual(DEFAULT_CATALOG.retrieved_on, "2026-11-04")
+
+
+class TabAreaTests(unittest.TestCase):
+    """The screen's tab order was read off a live capture, not inferred."""
+
+    def test_all_seven_tabs_are_named(self) -> None:
+        self.assertEqual(len(DEFAULT_TAB_AREAS), 7)
+        self.assertTrue(all(DEFAULT_TAB_AREAS))
+
+    def test_the_six_listed_areas_match_the_catalogue(self) -> None:
+        self.assertEqual(set(DEFAULT_TAB_AREAS[:6]), set(DEFAULT_CATALOG.areas()))
+
+    def test_the_seventh_tab_is_not_in_the_catalogue(self) -> None:
+        self.assertNotIn(DEFAULT_TAB_AREAS[6], DEFAULT_CATALOG.areas())
+
+    def test_the_game_tab_order_differs_from_the_wiki_table_order(self) -> None:
+        # 南西海域 is the fourth tab on screen; the wiki table lists it last.
+        self.assertEqual(DEFAULT_TAB_AREAS[3], AREA_SOUTHWEST)
+        self.assertEqual(list(DEFAULT_CATALOG.areas())[-1], AREA_SOUTHWEST)
+        self.assertNotEqual(
+            list(DEFAULT_CATALOG.areas()), list(DEFAULT_TAB_AREAS[:6])
+        )
+
+
+class AreaOfNumbersTests(unittest.TestCase):
+    def test_homogeneous_numbers_identify_their_area(self) -> None:
+        self.assertEqual(
+            DEFAULT_CATALOG.area_of_numbers(("09", "16", "B1")), AREA_NANSEI_ISLANDS
+        )
+
+    def test_mixed_numbers_are_not_guessed(self) -> None:
+        self.assertIsNone(DEFAULT_CATALOG.area_of_numbers(("01", "09")))
+
+    def test_unrecognised_numbers_are_ignored(self) -> None:
+        self.assertEqual(DEFAULT_CATALOG.area_of_numbers(("01", "ZZ")), AREA_KANTO)
+
+    def test_nothing_recognised_returns_none(self) -> None:
+        self.assertIsNone(DEFAULT_CATALOG.area_of_numbers(("ZZ", "YY")))
 
 
 class CoverageTests(unittest.TestCase):

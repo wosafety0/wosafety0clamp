@@ -448,6 +448,70 @@ class AlignmentTests(unittest.TestCase):
         self.assertFalse(same_view(first, _scan([0, 1, 2, 3])))
 
 
+class ResolveTests(unittest.TestCase):
+    """A row's readings drift a few dark-pixel counts between frames."""
+
+    def test_an_exact_binding_resolves(self) -> None:
+        index = ExpeditionListIndex()
+        index.bind(0, RowSignature((1, 2, 3), 100), "01")
+        self.assertEqual(index.resolve(0, RowSignature((1, 2, 3), 100)), "01")
+
+    def test_a_drifted_reading_still_resolves(self) -> None:
+        index = ExpeditionListIndex()
+        index.bind(0, RowSignature((1, 2, 3), 100), "01")
+        # Same bins, count moved by three: exactly what the live pages did.
+        self.assertEqual(index.resolve(0, RowSignature((1, 2, 3), 97)), "01")
+
+    def test_a_different_rendering_does_not_resolve(self) -> None:
+        index = ExpeditionListIndex()
+        index.bind(0, RowSignature((1, 2, 3), 100), "01")
+        self.assertIsNone(index.resolve(0, RowSignature((5, 5, 5), 100)))
+
+    def test_two_numbers_matching_one_rendering_is_ambiguous(self) -> None:
+        index = ExpeditionListIndex()
+        index.bind(0, RowSignature((1, 2, 3), 100), "01")
+        index.bind(0, RowSignature((1, 2, 4), 100), "02")
+        # Close to both, identical to neither: the frame cannot say which.
+        self.assertIsNone(index.resolve(0, RowSignature((2, 1, 3), 100)))
+
+    def test_bindings_do_not_leak_across_tabs(self) -> None:
+        index = ExpeditionListIndex()
+        index.bind(0, RowSignature((1, 2, 3), 100), "01")
+        self.assertIsNone(index.resolve(1, RowSignature((1, 2, 3), 100)))
+
+
+class PositionLabelTests(unittest.TestCase):
+    def _walked_index(self) -> ExpeditionListIndex:
+        index = ExpeditionListIndex()
+        index.add_page(_scan([0, 1, 2, 3]))
+        index.add_page(_scan([2, 3, 4, 5]))
+        index.label_row(0, 1, "01")
+        index.label_row(0, 2, "02")
+        return index
+
+    def test_unbound_positions_are_reported_in_list_order(self) -> None:
+        self.assertEqual(self._walked_index().unbound_positions(), (2, 3, 4, 5))
+
+    def test_labelling_positions_completes_the_list(self) -> None:
+        index = self._walked_index()
+        index.label_positions(("03", "04", "A1", "A2"))
+        self.assertEqual(index.unbound_positions(), ())
+        self.assertEqual(
+            [entry.expedition_id for entry in index.entries()],
+            ["01", "02", "03", "04", "A1", "A2"],
+        )
+
+    def test_the_count_must_match_exactly(self) -> None:
+        with self.assertRaisesRegex(ExpeditionListError, "for 4 unbound positions"):
+            self._walked_index().label_positions(("03", "04"))
+
+    def test_a_position_already_bound_is_not_relabelled(self) -> None:
+        index = self._walked_index()
+        index.label_positions(("03", "04", "A1", "A2"))
+        with self.assertRaisesRegex(ExpeditionListError, "for 0 unbound positions"):
+            index.label_positions(("05",))
+
+
 class IndexTests(unittest.TestCase):
     def test_labelling_merges_pages_and_deduplicates(self) -> None:
         index = ExpeditionListIndex()

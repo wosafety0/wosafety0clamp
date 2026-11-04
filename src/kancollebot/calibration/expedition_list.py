@@ -87,6 +87,25 @@ DEFAULT_TAB_STRIP_PITCH = 60
 DEFAULT_TAB_STRIP_WIDTH = 52
 DEFAULT_TAB_STRIP_Y = (666, 692)
 DEFAULT_TAB_COUNT = 7
+
+# The seven labels, read off a live capture on 2026-11-04 (human-read, not OCR:
+# this project decodes pixels, and the labels are Japanese text). Measured order
+# is 鎮守府, 南西諸島, 北方, 南西, 西方, 南方, 中部 - which is *not* the order the
+# wiki's requirement table lists (it puts 西方 before 南西), so mapping a tab
+# index by the wiki's row order would silently mislabel two whole areas.
+#
+# The last tab, 中部海域, showed an empty list on that capture: the account had
+# unlocked nothing there. An empty area is a legitimate state, not a scan
+# failure, and the wiki table this project ships does not list it at all.
+DEFAULT_TAB_AREAS = (
+    "鎮守府海域",
+    "南西諸島海域",
+    "北方海域",
+    "南西海域",
+    "西方海域",
+    "南方海域",
+    "中部海域",
+)
 DEFAULT_ORANGE_PIXEL_FLOOR = 60
 DEFAULT_ORANGE_PIXEL_RATIO = 10
 
@@ -826,6 +845,37 @@ class ExpeditionListIndex:
     bindings: dict[tuple[int | None, str], str] = field(default_factory=dict)
     pages: list[PageRecord] = field(default_factory=list)
 
+    def resolve(
+        self,
+        tab: int | None,
+        signature: RowSignature,
+        *,
+        tolerance: int = DEFAULT_SIGNATURE_TOLERANCE,
+    ) -> str | None:
+        """Return the number bound to this rendering, exactly or within tolerance.
+
+        Two readings of an unchanged row are not bit-identical: the dark-pixel
+        total drifted by a few counts between consecutive frames of the same
+        live page (``01281`` vs ``01279``), so an exact key lookup silently
+        misses rows that were already labelled. A tolerant lookup is therefore
+        the normal path, not a fallback.
+
+        It refuses when two *different* numbers match, because then the frame
+        alone cannot say which row it is. Live bindings were at least 14 apart
+        in bin distance against a tolerance of 6, so that case has not been
+        observed - but guessing there would defeat the point of binding.
+        """
+        exact = self.bindings.get((tab, signature.key))
+        if exact is not None:
+            return exact
+        candidates = {
+            bound
+            for (other_tab, key), bound in self.bindings.items()
+            if other_tab == tab
+            and signature_from_key(key).matches(signature, tolerance=tolerance)
+        }
+        return candidates.pop() if len(candidates) == 1 else None
+
     def bind(self, tab: int | None, signature: RowSignature, expedition_id: str) -> None:
         _validate_expedition_id(expedition_id)
         key = (tab, signature.key)
@@ -852,9 +902,7 @@ class ExpeditionListIndex:
             offset = previous.offset + shift
         else:
             offset = 0
-        ids = tuple(
-            self.bindings.get((tab, row.signature.key)) for row in scan.rows
-        )
+        ids = tuple(self.resolve(tab, row.signature) for row in scan.rows)
         record = PageRecord(page=len(self.pages), scan=scan, offset=offset, ids=ids)
         self.pages.append(record)
         return record
@@ -880,7 +928,7 @@ class ExpeditionListIndex:
             resolved = tuple(
                 row_value
                 if row_value is not None
-                else self.bindings.get((other.scan.tab, other_row.signature.key))
+                else self.resolve(other.scan.tab, other_row.signature)
                 for row_value, other_row in zip(other.ids, other.scan.rows)
             )
             if resolved != other.ids:
@@ -896,6 +944,88 @@ class ExpeditionListIndex:
             for record in self.pages
             for row in record.unbound_rows
         )
+
+    def _resolved_positions(self) -> set[int]:
+        resolved: set[int] = set()
+        for record in self.pages:
+            for row, expedition_id in zip(record.scan.rows, record.ids):
+                if expedition_id is not None:
+                    resolved.add(record.offset + row.index - 1)
+        return resolved
+
+    def _positions(self) -> dict[int, list[tuple[int | None, RowSignature, bool]]]:
+        """Every reading of every list position, flagged when it was an edge row.
+
+        The viewport clips the first and last visible band, so the same row
+        fingerprints differently at the page edge than mid-page - the client
+        height changed from 32px to 24px for one unchanged row in a live scroll.
+        A caller that compares readings must therefore know which ones were cut.
+        """
+        readings: dict[int, list[tuple[int | None, RowSignature, bool]]] = {}
+        for record in self.pages:
+            last = len(record.scan.rows)
+            for row in record.scan.rows:
+                clipped = row.index == 1 or row.index == last
+                readings.setdefault(record.offset + row.index - 1, []).append(
+                    (record.scan.tab, row.signature, clipped)
+                )
+        return readings
+
+    def unbound_positions(self) -> tuple[int, ...]:
+        """List positions (0-based, page-independent) with no number yet.
+
+        Positions rather than ``(page, row)`` pairs: a row visible on two pages
+        is one position, so labelling it once resolves both pages.
+        """
+        if not self.pages:
+            return ()
+        return tuple(sorted(set(self._positions()) - self._resolved_positions()))
+
+    def label_positions(self, numbers: tuple[str, ...]) -> None:
+        """Bind every unbound list position, in list order.
+
+        This is the one-time labelling step for a freshly walked tab: the caller
+        supplies the numbers of the rows that have no binding yet, in the order
+        they appear on screen. The count must match exactly - a mismatch means
+        the walk and the labels disagree about what is on the list, and guessing
+        a mapping there would silently mislabel every later lookup.
+
+        Readings of one position across pages must agree within tolerance; if
+        they do not, the pages were aligned wrongly and nothing is bound.
+        """
+        positions = self.unbound_positions()
+        listing = list(numbers)
+        if len(listing) != len(positions):
+            raise ExpeditionListError(
+                f"{len(listing)} numbers for {len(positions)} unbound positions "
+                f"({', '.join(str(p) for p in positions)})"
+            )
+        readings = self._positions()
+        for position, number in zip(positions, listing):
+            _validate_expedition_id(number)
+            observed = readings[position]
+            usable = [(tab, sig) for tab, sig, clipped in observed if not clipped]
+            if not usable:
+                # The row only ever appeared at a page edge (first or last row of
+                # a short list); its own clipped fingerprint is all there is.
+                usable = [(tab, sig) for tab, sig, _ in observed]
+            tab, reference = usable[0]
+            for other_tab, other in usable[1:]:
+                if other_tab != tab or not reference.matches(other):
+                    raise ExpeditionListError(
+                        f"position {position} was read inconsistently across pages"
+                    )
+            self.bind(tab, reference, number)
+        for index, record in enumerate(self.pages):
+            self.pages[index] = PageRecord(
+                page=record.page,
+                scan=record.scan,
+                offset=record.offset,
+                ids=tuple(
+                    self.resolve(record.scan.tab, row.signature)
+                    for row in record.scan.rows
+                ),
+            )
 
     def entries(
         self, name_resolver: Callable[[str], str | None] | None = None

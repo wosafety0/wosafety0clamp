@@ -212,6 +212,23 @@ class ExpeditionCatalog:
         entry = self.entry_of(number)
         return None if entry is None else entry.area
 
+    def area_of_numbers(
+        self, numbers: tuple[str, ...] | list[str]
+    ) -> str | None:
+        """The one area every recognised number belongs to, else ``None``.
+
+        Useful because the tab index cannot be resolved to an area name without
+        reading the label: a homogeneous list identifies its own area from the
+        numbers alone. Mixed or wholly unrecognised input returns ``None`` rather
+        than picking the majority.
+        """
+        areas = {
+            entry.area
+            for entry in (self.entry_of(value) for value in numbers)
+            if entry is not None
+        }
+        return next(iter(areas)) if len(areas) == 1 else None
+
     def coverage(
         self, observed: tuple[str, ...] | list[str], *, area: str | None = None
     ) -> Coverage:

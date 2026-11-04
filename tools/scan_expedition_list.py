@@ -36,6 +36,7 @@ if str(ROOT / "src") not in sys.path:
 from kancollebot.calibration import (  # noqa: E402
     DEFAULT_CATALOG,
     DEFAULT_PANEL_BOX,
+    DEFAULT_TAB_AREAS,
     BoundaryState,
     ExpeditionListError,
     ExpeditionListIndex,
@@ -99,12 +100,7 @@ def _infer_area(numbers: tuple[str, ...]) -> str | None:
     its own area. A mixed or entirely unknown list returns ``None`` and the
     caller must pass ``--area``.
     """
-    areas = {
-        area
-        for area in (DEFAULT_CATALOG.area_of(number) for number in numbers)
-        if area is not None
-    }
-    return next(iter(areas)) if len(areas) == 1 else None
+    return DEFAULT_CATALOG.area_of_numbers(numbers)
 
 
 def capture_screenshot(destination: Path) -> Path:
@@ -356,7 +352,20 @@ def main(argv: list[str] | None = None) -> int:
     coverage = None
     if args.catalog:
         observed_ids = tuple(entry.expedition_id for entry in entries)
-        area = args.area or _infer_area(observed_ids)
+        from_tab = (
+            DEFAULT_TAB_AREAS[latest.tab]
+            if latest.tab is not None and latest.tab < len(DEFAULT_TAB_AREAS)
+            else None
+        )
+        from_numbers = _infer_area(observed_ids)
+        if from_tab and from_numbers and from_tab != from_numbers:
+            print(
+                f"AREA_DISAGREEMENT: the tab index says {from_tab} but the numbers say "
+                f"{from_numbers}; coverage is not reported",
+                file=sys.stderr,
+            )
+            from_numbers = None
+        area = args.area or from_tab or from_numbers
         try:
             coverage = DEFAULT_CATALOG.coverage(observed_ids, area=area)
         except ValueError as exc:
