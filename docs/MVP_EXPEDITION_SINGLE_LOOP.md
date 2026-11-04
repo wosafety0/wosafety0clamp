@@ -623,3 +623,14 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - **SAFETY:** consumption only marks an authorization as used. It performs no CDP call, click, or game request. A future executor must consume immediately at its input boundary, re-capture and re-localize the current UI immediately beforehand, re-check consecutive BONUS_ITEMS evidence and TTL, and independently verify the post-click state. The registry is an in-process replay guard, not an unforgeable capability or protection against malicious code in the same process.
 - **TESTS:** regression coverage verifies exactly-once consumption, replay rejection, fabricated/foreign object rejection, expiry, and two concurrent consumers racing for the same authorization.
 - **LIMITS:** no live Poi calibration, reward-click executor, or post-click verification is enabled. Reward claiming remains disabled.
+
+
+## 2026-11-04 — Reward claim input lifecycle protocol (offline, no executor)
+
+- **IMPLEMENTED:** added `RewardClaimExecutionProtocol` in `src/kancollebot/expeditions/reward_claim_protocol.py`. It models the irreversible boundary without providing a production input adapter.
+- **ORDERED PHASES:** `READY → CONSUMED_BEFORE_INPUT → INPUT_ATTEMPTED → POSTCONDITION_VERIFIED`. Authorization/frame/TTL rejection becomes `BLOCKED_BEFORE_INPUT`; any ambiguous input or failed/missing postcondition becomes `UNKNOWN_AFTER_INPUT`.
+- **INPUT CONTRACT:** caller revalidates exact authorization frame identity and expiry, consumes the exact one-time authorization, then calls `begin_input_attempt()` immediately before exactly one ordinary visible-UI input attempt. The protocol itself never invokes CDP or any input callback. If the input call raises or its result is ambiguous, no retry is allowed.
+- **POSTCONDITION CONTRACT:** two distinct, increasing `CapturedFrame` objects must be captured after the input-attempt timestamp. An independent classifier must explicitly assert `reward_claimed=True` and a state other than `BONUS_ITEMS`. The protocol validates evidence shape and time ordering; it does not authenticate the classifier or inspect pixels itself.
+- **CRASH/RESTART:** protocol phase and registry are process-local. A restart loses both; old authorizations must be discarded. The new process must inspect the current visible state and create fresh evidence and authorization. It must never resume an input from a pre-crash authorization.
+- **TESTS ADDED:** `tests/test_reward_claim_protocol.py` covers the one-shot transition sequence, changed frame, expiry, replay/second attempt, post-input frame timestamps, and unknown outcome. CI validation is pending.
+- **LIMITS:** no production click executor, live template, calibration, post-click visual classifier, or supervisor integration was added. Reward collection remains disabled; this is not live-verified.
