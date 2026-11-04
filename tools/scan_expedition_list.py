@@ -51,7 +51,11 @@ from kancollebot.calibration import (  # noqa: E402
     stack_vertically,
 )
 
-INDEX_VERSION = 1
+# Version 2 keys bindings by list position. Version 1 keyed them by pixel
+# signature, which cannot separate rows that render identically (29 and 30 in
+# 西方海域 hash to the same key), so a v1 file is refused rather than silently
+# reinterpreted. Re-labelling a tab costs one walk; guessing would cost trust.
+INDEX_VERSION = 2
 
 
 def _parse_box(text: str) -> tuple[int, int, int, int]:
@@ -122,16 +126,19 @@ def load_index(path: Path) -> ExpeditionListIndex:
         return index
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict) or payload.get("version") != INDEX_VERSION:
-        raise ExpeditionListError(f"{path} is not a version {INDEX_VERSION} index")
+        raise ExpeditionListError(
+            f"{path} is not a version {INDEX_VERSION} index; a version 1 file keyed "
+            "bindings by pixel signature and must be rebuilt by walking the tab again"
+        )
     bindings = payload.get("bindings", {})
     if not isinstance(bindings, dict):
         raise ExpeditionListError("index bindings must be an object")
     for key, expedition_id in bindings.items():
         if not isinstance(key, str) or not isinstance(expedition_id, str):
             raise ExpeditionListError("index entries must be strings")
-        tab_text, _, signature_key = key.partition("|")
+        tab_text, _, position_text = key.partition("|")
         tab = None if tab_text == "none" else int(tab_text)
-        index.bindings[(tab, signature_key)] = expedition_id
+        index.bindings[(tab, int(position_text))] = expedition_id
     return index
 
 
@@ -139,9 +146,9 @@ def save_index(path: Path, index: ExpeditionListIndex) -> None:
     payload = {
         "version": INDEX_VERSION,
         "bindings": {
-            f"{'none' if tab is None else tab}|{signature_key}": expedition_id
-            for (tab, signature_key), expedition_id in sorted(
-                index.bindings.items(), key=lambda item: (str(item[0][0]), item[1])
+            f"{'none' if tab is None else tab}|{position}": expedition_id
+            for (tab, position), expedition_id in sorted(
+                index.bindings.items(), key=lambda item: (str(item[0][0]), item[0][1])
             )
         },
     }
@@ -271,9 +278,14 @@ def main(argv: list[str] | None = None) -> int:
         paths.extend(args.image or [])
 
     index = load_index(args.index) if args.index else ExpeditionListIndex()
+    # Positions are only meaningful from the top of the list: position 0 is the
+    # first row of the area tab. A capture taken part-way down cannot say what
+    # its first visible row's position is, so anything that binds or reuses a
+    # binding refuses to run on it rather than filing rows one slot off.
+    wants_positions = bool(args.label_all.strip() or args.label or args.index)
     scans: list[PageScan] = []
     try:
-        for path in paths:
+        for path_index, path in enumerate(paths):
             image = decode_png(path)
             scan = scan_page(image, panel_box=args.panel_box)
             if not scan.rows:
@@ -282,6 +294,23 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 1
+            if path_index == 0 and wants_positions:
+                if not scan.scroll_probed:
+                    print(
+                        "TOP_UNVERIFIED: the capture is too small for both scroll-control "
+                        "boxes, so 'this is the top of the list' cannot be checked; "
+                        "list positions would be a guess",
+                        file=sys.stderr,
+                    )
+                    return 2
+                if scan.scroll_up is not None:
+                    print(
+                        "OFFSET_UNKNOWN: the first capture still shows a PREV chevron, so the "
+                        "list is scrolled down and row 1's position is unknown; scroll the "
+                        "list to its top before labelling or using position bindings",
+                        file=sys.stderr,
+                    )
+                    return 2
             scans.append(scan)
             if scan.tab is None:
                 print(
@@ -472,6 +501,9 @@ def main(argv: list[str] | None = None) -> int:
         "tab_count": latest.tabs.count,
         "tab_scores": list(latest.tabs.scores),
         "capacity": latest.capacity,
+        "position_basis": (
+            "top_of_list" if wants_positions else "not_checked"
+        ),
         "boundary": {"state": boundary.state.value, "reason": boundary.reason},
         "display_order_check": order_check,
         "catalog": (
@@ -528,6 +560,7 @@ def main(argv: list[str] | None = None) -> int:
             {
                 "page": page,
                 "row": row,
+                "position": index.pages[page].offset + row - 1,
                 "center": {
                     "x": scans[page].rows[row - 1].click_point[0],
                     "y": round(scans[page].rows[row - 1].center, 1),

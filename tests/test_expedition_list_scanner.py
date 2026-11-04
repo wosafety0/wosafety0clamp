@@ -450,35 +450,46 @@ class AlignmentTests(unittest.TestCase):
 
 
 class ResolveTests(unittest.TestCase):
-    """A row's readings drift a few dark-pixel counts between frames."""
+    """A position either has a number or it does not - no pixel involved."""
 
-    def test_an_exact_binding_resolves(self) -> None:
+    def test_a_bound_position_resolves(self) -> None:
         index = ExpeditionListIndex()
-        index.bind(0, RowSignature((1, 2, 3), 100), "01")
-        self.assertEqual(index.resolve(0, RowSignature((1, 2, 3), 100)), "01")
+        index.bind(0, 3, "04")
+        self.assertEqual(index.resolve(0, 3), "04")
 
-    def test_a_drifted_reading_still_resolves(self) -> None:
+    def test_an_unbound_position_does_not_resolve(self) -> None:
         index = ExpeditionListIndex()
-        index.bind(0, RowSignature((1, 2, 3), 100), "01")
-        # Same bins, count moved by three: exactly what the live pages did.
-        self.assertEqual(index.resolve(0, RowSignature((1, 2, 3), 97)), "01")
-
-    def test_a_different_rendering_does_not_resolve(self) -> None:
-        index = ExpeditionListIndex()
-        index.bind(0, RowSignature((1, 2, 3), 100), "01")
-        self.assertIsNone(index.resolve(0, RowSignature((5, 5, 5), 100)))
-
-    def test_two_numbers_matching_one_rendering_is_ambiguous(self) -> None:
-        index = ExpeditionListIndex()
-        index.bind(0, RowSignature((1, 2, 3), 100), "01")
-        index.bind(0, RowSignature((1, 2, 4), 100), "02")
-        # Close to both, identical to neither: the frame cannot say which.
-        self.assertIsNone(index.resolve(0, RowSignature((2, 1, 3), 100)))
+        index.bind(0, 3, "04")
+        self.assertIsNone(index.resolve(0, 4))
 
     def test_bindings_do_not_leak_across_tabs(self) -> None:
         index = ExpeditionListIndex()
-        index.bind(0, RowSignature((1, 2, 3), 100), "01")
-        self.assertIsNone(index.resolve(1, RowSignature((1, 2, 3), 100)))
+        index.bind(0, 3, "04")
+        self.assertIsNone(index.resolve(1, 3))
+
+    def test_two_numbers_cannot_share_one_position(self) -> None:
+        index = ExpeditionListIndex()
+        index.bind(0, 3, "04")
+        with self.assertRaisesRegex(ExpeditionListError, "position 3 is already bound to 04"):
+            index.bind(0, 3, "05")
+
+    def test_one_number_cannot_occupy_two_positions(self) -> None:
+        index = ExpeditionListIndex()
+        index.bind(0, 3, "04")
+        with self.assertRaisesRegex(ExpeditionListError, "already bound to position 3"):
+            index.bind(0, 4, "04")
+
+    def test_a_negative_position_is_refused(self) -> None:
+        with self.assertRaisesRegex(ExpeditionListError, "cannot be negative"):
+            ExpeditionListIndex().bind(0, -1, "04")
+
+    def test_two_positions_resolve_independently_when_they_look_alike(self) -> None:
+        # No signature is passed at all: this is the case that used to be
+        # unresolvable, and it now simply does not arise.
+        index = ExpeditionListIndex()
+        index.bind(0, 6, "29")
+        index.bind(0, 7, "30")
+        self.assertEqual((index.resolve(0, 6), index.resolve(0, 7)), ("29", "30"))
 
 
 class PositionLabelTests(unittest.TestCase):
@@ -491,7 +502,10 @@ class PositionLabelTests(unittest.TestCase):
         return index
 
     def test_unbound_positions_are_reported_in_list_order(self) -> None:
-        self.assertEqual(self._walked_index().unbound_positions(), (2, 3, 4, 5))
+        self.assertEqual(
+            self._walked_index().unbound_positions(),
+            ((0, 2), (0, 3), (0, 4), (0, 5)),
+        )
 
     def test_labelling_positions_completes_the_list(self) -> None:
         index = self._walked_index()
@@ -563,7 +577,7 @@ class IndexTests(unittest.TestCase):
         self.assertEqual(index.pages[0].ids[2], "03")
         self.assertEqual(index.unbound_rows[0], (0, 1))
 
-    def test_rebinding_a_signature_to_another_number_is_refused(self) -> None:
+    def test_rebinding_a_position_to_another_number_is_refused(self) -> None:
         index = ExpeditionListIndex()
         index.add_page(_scan([0, 1, 2]))
         index.label_row(0, 1, "01")
@@ -598,7 +612,7 @@ class IndexTests(unittest.TestCase):
         index.add_page(_scan([0, 1, 2, 3]))
         index.label_row(0, 3, "03")
         fresh = _scan([1, 2, 3, 4])
-        relocation = index.locate("03", fresh)
+        relocation = index.locate("03", fresh, offset=1)
         self.assertEqual(relocation.state, "located")
         self.assertEqual(relocation.row_index, 2)
         self.assertEqual(round(relocation.point[1]), ROW_TOP + ROW_PITCH + ROW_HEIGHT // 2)
@@ -607,14 +621,14 @@ class IndexTests(unittest.TestCase):
         index = ExpeditionListIndex()
         index.add_page(_scan([0, 1, 2, 3]))
         index.label_row(0, 1, "01")
-        relocation = index.locate("01", _scan([4, 5, 6, 7]))
+        relocation = index.locate("01", _scan([4, 5, 6, 7]), offset=4)
         self.assertEqual(relocation.state, "not_visible")
         self.assertIsNone(relocation.point)
 
     def test_locate_reports_an_unbound_number(self) -> None:
         index = ExpeditionListIndex()
         index.add_page(_scan([0, 1]))
-        self.assertEqual(index.locate("99", _scan([0, 1])).state, "unbound")
+        self.assertEqual(index.locate("99", _scan([0, 1]), offset=0).state, "unbound")
 
     def test_tab_order_follows_list_position(self) -> None:
         index = ExpeditionListIndex()
@@ -626,15 +640,14 @@ class IndexTests(unittest.TestCase):
         self.assertEqual(index.tab_order(0), ("01", "02", "A1"))
 
 
-class LocateAmbiguityTests(unittest.TestCase):
-    """A tolerant lookup must not guess which expedition a row is.
+class LocateByPositionTests(unittest.TestCase):
+    """Locating a row is arithmetic on its list position, not a pixel search.
 
-    Live measurement forced this class into existence: in 西方海域, 29 and 30
-    fingerprint *identically*, 28 sits exactly on the tolerance from both, and an
-    edge-clipped row drifts by up to 4 between frames. So "nearest match wins"
-    would sometimes return a neighbouring expedition's click point, and the caller
-    would dispatch the wrong fleet. Anything but a unique match is reported as
-    ambiguous here.
+    Live measurement forced the model change: in 西方海域, 29 潜水艦派遣演習 and
+    30 潜水艦派遣作戦 fingerprint *identically* (same bins, same dark total), so a
+    signature lookup has two answers and no tie-break. Positions differ by one,
+    so they do - which is why ``bindings`` is keyed by position and ``locate``
+    needs the page's offset instead of a tolerance.
     """
 
     @staticmethod
@@ -663,58 +676,55 @@ class LocateAmbiguityTests(unittest.TestCase):
             image_size=(WIDTH, HEIGHT),
         )
 
-    def _index(self, bindings: dict[str, RowSignature]) -> ExpeditionListIndex:
+    def test_position_is_located_whatever_the_row_looks_like(self) -> None:
         index = ExpeditionListIndex()
-        for number, signature in bindings.items():
-            index.bindings[(0, signature.key)] = number
-        return index
-
-    def test_exact_match_is_preferred(self) -> None:
-        stored = self._signature()
-        index = self._index({"29": stored})
-        relocation = index.locate("29", self._page([stored]))
+        index.bind(0, 2, "29")
+        relocation = index.locate("29", self._page([self._signature(8, 30)] * 4), offset=0)
         self.assertEqual(relocation.state, "located")
-        self.assertEqual(relocation.detail, "exact signature match")
+        self.assertEqual(relocation.row_index, 3)
+        self.assertEqual(relocation.detail, "list position 2 on a page starting at 0")
 
-    def test_single_unambiguous_near_row_is_located(self) -> None:
-        stored = self._signature()
-        near = self._signature(3, 2)
-        index = self._index({"29": stored})
-        relocation = index.locate("29", self._page([near]))
-        self.assertEqual(relocation.state, "located")
-        self.assertEqual(relocation.detail, "tolerant signature match")
-
-    def test_two_live_rows_inside_the_tolerance_are_ambiguous(self) -> None:
-        stored = self._signature()
-        index = self._index({"29": stored})
-        page = self._page([self._signature(3, 2), self._signature(4, 3)])
-        relocation = index.locate("29", page)
-        self.assertEqual(relocation.state, "ambiguous")
-        self.assertIsNone(relocation.point)
-
-    def test_a_neighbour_that_also_fits_makes_it_ambiguous(self) -> None:
-        stored = self._signature()
-        neighbour = self._signature(3, 4)
-        index = self._index({"29": stored, "30": neighbour})
-        relocation = index.locate("29", self._page([self._signature(3, 2)]))
-        self.assertEqual(relocation.state, "ambiguous")
-        self.assertIsNone(relocation.point)
-        self.assertIn("30", relocation.detail)
-
-    def test_no_row_close_enough_is_not_visible(self) -> None:
-        index = self._index({"29": self._signature()})
-        page = self._page([self._signature(8, 30)])
-        self.assertEqual(index.locate("29", page).state, "not_visible")
-
-    def test_identical_rows_bound_to_two_numbers_stay_ambiguous(self) -> None:
-        # The measured 西方 case: one rendering, two expeditions.
+    def test_identical_renderings_are_located_separately(self) -> None:
+        # The measured 西方 case, now resolvable: same pixels, different slots.
         twin = self._signature()
         index = ExpeditionListIndex()
-        index.bindings[(0, twin.key)] = "29"
-        rival = self._signature(0, 0, total=101)
-        index.bindings[(0, rival.key)] = "30"
-        relocation = index.locate("29", self._page([self._signature(1, 1)]))
-        self.assertEqual(relocation.state, "ambiguous")
+        index.bind(0, 6, "29")
+        index.bind(0, 7, "30")
+        page = self._page([twin] * 8)
+        first = index.locate("29", page, offset=0)
+        second = index.locate("30", page, offset=0)
+        self.assertEqual(first.state, "located")
+        self.assertEqual(second.state, "located")
+        self.assertEqual(first.row_index, 7)
+        self.assertEqual(second.row_index, 8)
+        self.assertNotEqual(
+            first.point[1], second.point[1], "positions 6 and 7 must not collapse"
+        )
+
+    def test_the_offset_comes_from_the_page_not_from_the_index(self) -> None:
+        # A position below the visible window is only locatable once the caller
+        # supplies the offset of the page it actually captured.
+        index = ExpeditionListIndex()
+        index.bind(0, 9, "30")
+        page = self._page([self._signature()] * 8)
+        self.assertEqual(index.locate("30", page, offset=0).state, "not_visible")
+        located = index.locate("30", page, offset=2)
+        self.assertEqual(located.state, "located")
+        self.assertEqual(located.row_index, 8)
+        self.assertEqual(located.detail, "list position 9 on a page starting at 2")
+
+    def test_a_row_above_the_page_is_not_visible(self) -> None:
+        index = ExpeditionListIndex()
+        index.bind(0, 1, "25")
+        relocation = index.locate("25", self._page([self._signature()] * 8), offset=4)
+        self.assertEqual(relocation.state, "not_visible")
+        self.assertIsNone(relocation.point)
+
+    def test_a_bound_number_on_another_tab_is_not_found(self) -> None:
+        index = ExpeditionListIndex()
+        index.bind(0, 0, "25")
+        relocation = index.locate("25", self._page([self._signature()], active_tab=1), offset=0)
+        self.assertEqual(relocation.state, "unbound")
 
 
 class DisplayOrderTests(unittest.TestCase):
@@ -766,25 +776,48 @@ class ToolTests(unittest.TestCase):
             self.assertEqual(payload["rows"][0]["center"]["x"], 350)
             self.assertTrue(payload["rows"][0]["visible"])
 
-    def test_index_persists_bindings_between_runs(self) -> None:
+    def test_index_persists_bindings_for_a_top_page(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             directory = Path(raw)
-            first = self._write(directory, "page0.png", _page([0, 1, 2]))
+            top = self._write(directory, "page0.png", _page([0, 1, 2]))
             index_path = directory / "index.json"
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                self.assertEqual(main(["--image", str(first), "--label-all", "01,02,03",
+                self.assertEqual(main(["--image", str(top), "--label-all", "01,02,03",
                                        "--index", str(index_path)]), 0)
             self.assertTrue(index_path.exists())
-            second = self._write(directory, "page1.png", _page([1, 2, 9]))
+            payload = json.loads(index_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["version"], 2)
+            self.assertEqual(payload["bindings"], {"0|0": "01", "0|1": "02", "0|2": "03"})
+
             out = directory / "scan.json"
             with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                code = main(["--image", str(second), "--index", str(index_path),
+                code = main(["--image", str(top), "--index", str(index_path),
                              "--json-out", str(out)])
-            payload = json.loads(out.read_text(encoding="utf-8"))
+            again = json.loads(out.read_text(encoding="utf-8"))
+            self.assertEqual(code, 0)
+            self.assertEqual(
+                [row["expedition_id"] for row in again["rows"]], ["01", "02", "03"]
+            )
+            self.assertEqual(again["unbound_rows"], [])
+
+    def test_index_is_refused_when_the_page_is_not_at_the_top(self) -> None:
+        # Bindings are keyed by position, so a capture taken part-way down would
+        # name every row one slot off. That is refused, not guessed.
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            top = self._write(directory, "page0.png", _page([0, 1, 2]))
+            index_path = directory / "index.json"
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(main(["--image", str(top), "--label-all", "01,02,03",
+                                       "--index", str(index_path)]), 0)
+            scrolled = self._write(
+                directory, "page1.png", _with_controls([1, 2, 9], up=True, down=True)
+            )
+            error = io.StringIO()
+            with redirect_stdout(io.StringIO()), redirect_stderr(error):
+                code = main(["--image", str(scrolled), "--index", str(index_path)])
             self.assertEqual(code, 2)
-            self.assertEqual([row["expedition_id"] for row in payload["rows"]], ["02", "03"])
-            self.assertEqual(len(payload["unbound_rows"]), 1)
-            self.assertEqual(payload["unbound_rows"][0]["row"], 3)
+            self.assertIn("OFFSET_UNKNOWN", error.getvalue())
 
     def test_label_count_mismatch_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

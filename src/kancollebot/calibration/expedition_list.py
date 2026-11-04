@@ -77,11 +77,13 @@ SIGNATURE_HEIGHT = 24
 # edge-clipped row drifted by up to 4 across scrolls.
 #
 # The two ranges therefore overlap, and no value of this constant separates them:
-# a gate wide enough for a clipped row is wide enough for its neighbour. What the
-# constant is still good for is *alignment*, where many rows vote on one shift,
-# and for recognising the same rendering twice. It is not evidence that a row is
-# expedition N - which is why ``locate`` refuses an ambiguous match instead of
-# returning the nearest row.
+# a gate wide enough for a clipped row is wide enough for its neighbour.
+#
+# The constant is therefore only used for *alignment* (``align_pages``, where
+# many rows vote on one shift) and for asking "is this still the same view"
+# (``same_view``). It is never used to decide which number a row is: identity
+# comes from the row's list position, which does not care what the row looks
+# like. Two expeditions that render identically are still two positions.
 DEFAULT_SIGNATURE_TOLERANCE = 6
 
 # Measured on a live capture: seven area tabs of ~52px starting at x=176 with a
@@ -846,59 +848,47 @@ class Relocation:
 
 @dataclass
 class ExpeditionListIndex:
-    """Signature-to-number bindings plus the merged, de-duplicated pages.
+    """Position-to-number bindings plus the merged, de-duplicated pages.
 
-    The binding map is the durable part: it is what lets a later scan recognise
-    ``A2`` without reading any glyph, and it is meant to be persisted between
-    runs so that labelling is a one-time cost per expedition.
+    Identity is the row's **list position** - how many rows are above it in the
+    area tab - not its appearance. That choice is forced by measurement: in
+    ``西方海域`` the rows ``29 潜水艦派遣演習`` and ``30 潜水艦派遣作戦`` render to
+    the same 16-bin fingerprint and the same dark-pixel total, so no pixel
+    comparison can tell them apart, while their positions differ by exactly one.
+    A position survives a re-render, a font change, and the "NEW" badge being
+    consumed; a fingerprint does not.
+
+    The binding map is the durable part: it is what lets a later scan name a row
+    without reading any glyph, and it is meant to be persisted between runs so
+    that labelling is a one-time cost per expedition.
     """
 
-    bindings: dict[tuple[int | None, str], str] = field(default_factory=dict)
+    bindings: dict[tuple[int | None, int], str] = field(default_factory=dict)
     pages: list[PageRecord] = field(default_factory=list)
 
-    def resolve(
-        self,
-        tab: int | None,
-        signature: RowSignature,
-        *,
-        tolerance: int = DEFAULT_SIGNATURE_TOLERANCE,
-    ) -> str | None:
-        """Return the number bound to this rendering, exactly or within tolerance.
+    def resolve(self, tab: int | None, position: int) -> str | None:
+        """Return the number bound to a list position, if that position is known.
 
-        Two readings of an unchanged row are not bit-identical: the dark-pixel
-        total drifted by a few counts between consecutive frames of the same
-        live page (``01281`` vs ``01279``), so an exact key lookup silently
-        misses rows that were already labelled. A tolerant lookup is therefore
-        the normal path, not a fallback.
-
-        It refuses when two *different* numbers match, because then the frame
-        alone cannot say which row it is. Live bindings were at least 14 apart
-        in bin distance against a tolerance of 6, so that case has not been
-        observed - but guessing there would defeat the point of binding.
+        No tolerance and no similarity search: a position either has a number or
+        it does not. That is the whole point of moving identity off the pixels.
         """
-        exact = self.bindings.get((tab, signature.key))
-        if exact is not None:
-            return exact
-        candidates = {
-            bound
-            for (other_tab, key), bound in self.bindings.items()
-            if other_tab == tab
-            and signature_from_key(key).matches(signature, tolerance=tolerance)
-        }
-        return candidates.pop() if len(candidates) == 1 else None
+        return self.bindings.get((tab, position))
 
-    def bind(self, tab: int | None, signature: RowSignature, expedition_id: str) -> None:
+    def bind(self, tab: int | None, position: int, expedition_id: str) -> None:
         _validate_expedition_id(expedition_id)
-        key = (tab, signature.key)
+        if position < 0:
+            raise ExpeditionListError("a list position cannot be negative")
+        key = (tab, position)
         existing = self.bindings.get(key)
         if existing is not None and existing != expedition_id:
             raise ExpeditionListError(
-                f"signature already bound to {existing}, refusing to rebind to {expedition_id}"
+                f"position {position} is already bound to {existing}, "
+                f"refusing to rebind to {expedition_id}"
             )
-        for (other_tab, _), other_id in self.bindings.items():
-            if other_tab == tab and other_id == expedition_id and _ != signature.key:
+        for (other_tab, other_position), other_id in self.bindings.items():
+            if other_tab == tab and other_id == expedition_id and other_position != position:
                 raise ExpeditionListError(
-                    f"{expedition_id} is already bound to a different rendering"
+                    f"{expedition_id} is already bound to position {other_position}"
                 )
         self.bindings[key] = expedition_id
 
@@ -913,7 +903,9 @@ class ExpeditionListIndex:
             offset = previous.offset + shift
         else:
             offset = 0
-        ids = tuple(self.resolve(tab, row.signature) for row in scan.rows)
+        ids = tuple(
+            self.resolve(tab, offset + row.index - 1) for row in scan.rows
+        )
         record = PageRecord(page=len(self.pages), scan=scan, offset=offset, ids=ids)
         self.pages.append(record)
         return record
@@ -924,8 +916,7 @@ class ExpeditionListIndex:
         record = self.pages[page]
         if not 1 <= row_index <= len(record.scan.rows):
             raise ExpeditionListError("row index is out of range for that page")
-        row = record.scan.rows[row_index - 1]
-        self.bind(record.scan.tab, row.signature, expedition_id)
+        self.bind(record.scan.tab, record.offset + row_index - 1, expedition_id)
         ids = list(record.ids)
         ids[row_index - 1] = expedition_id
         self.pages[page] = PageRecord(
@@ -939,7 +930,7 @@ class ExpeditionListIndex:
             resolved = tuple(
                 row_value
                 if row_value is not None
-                else self.resolve(other.scan.tab, other_row.signature)
+                else self.resolve(other.scan.tab, other.offset + other_row.index - 1)
                 for row_value, other_row in zip(other.ids, other.scan.rows)
             )
             if resolved != other.ids:
@@ -956,15 +947,10 @@ class ExpeditionListIndex:
             for row in record.unbound_rows
         )
 
-    def _resolved_positions(self) -> set[int]:
-        resolved: set[int] = set()
-        for record in self.pages:
-            for row, expedition_id in zip(record.scan.rows, record.ids):
-                if expedition_id is not None:
-                    resolved.add(record.offset + row.index - 1)
-        return resolved
+    def _resolved_positions(self) -> set[tuple[int | None, int]]:
+        return set(self.bindings)
 
-    def _positions(self) -> dict[int, list[tuple[int | None, RowSignature, bool]]]:
+    def _positions(self) -> dict[tuple[int | None, int], list[tuple[RowSignature, bool]]]:
         """Every reading of every list position, flagged when it was an edge row.
 
         The viewport clips the first and last visible band, so the same row
@@ -972,25 +958,25 @@ class ExpeditionListIndex:
         height changed from 32px to 24px for one unchanged row in a live scroll.
         A caller that compares readings must therefore know which ones were cut.
         """
-        readings: dict[int, list[tuple[int | None, RowSignature, bool]]] = {}
+        readings: dict[tuple[int | None, int], list[tuple[RowSignature, bool]]] = {}
         for record in self.pages:
             last = len(record.scan.rows)
             for row in record.scan.rows:
                 clipped = row.index == 1 or row.index == last
-                readings.setdefault(record.offset + row.index - 1, []).append(
-                    (record.scan.tab, row.signature, clipped)
-                )
+                key = (record.scan.tab, record.offset + row.index - 1)
+                readings.setdefault(key, []).append((row.signature, clipped))
         return readings
 
-    def unbound_positions(self) -> tuple[int, ...]:
-        """List positions (0-based, page-independent) with no number yet.
+    def unbound_positions(self) -> tuple[tuple[int | None, int], ...]:
+        """``(tab, position)`` pairs with no number yet, in list order.
 
         Positions rather than ``(page, row)`` pairs: a row visible on two pages
         is one position, so labelling it once resolves both pages.
         """
         if not self.pages:
             return ()
-        return tuple(sorted(set(self._positions()) - self._resolved_positions()))
+        pending = set(self._positions()) - self._resolved_positions()
+        return tuple(sorted(pending, key=lambda key: (key[0] is None, key[0] or 0, key[1])))
 
     def label_positions(self, numbers: tuple[str, ...]) -> None:
         """Bind every unbound list position, in list order.
@@ -1002,38 +988,42 @@ class ExpeditionListIndex:
         a mapping there would silently mislabel every later lookup.
 
         Readings of one position across pages must agree within tolerance; if
-        they do not, the pages were aligned wrongly and nothing is bound.
+        they do not, the pages were aligned wrongly and nothing is bound. That
+        check is about *alignment*, which is what the pixel evidence can still
+        prove. Two neighbouring positions that happen to render identically are
+        not a contradiction and are bound separately, because identity here is
+        positional.
         """
         positions = self.unbound_positions()
         listing = list(numbers)
         if len(listing) != len(positions):
             raise ExpeditionListError(
                 f"{len(listing)} numbers for {len(positions)} unbound positions "
-                f"({', '.join(str(p) for p in positions)})"
+                f"({', '.join(str(p[1]) for p in positions)})"
             )
         readings = self._positions()
-        for position, number in zip(positions, listing):
+        for key, number in zip(positions, listing):
             _validate_expedition_id(number)
-            observed = readings[position]
-            usable = [(tab, sig) for tab, sig, clipped in observed if not clipped]
+            observed = readings[key]
+            usable = [signature for signature, clipped in observed if not clipped]
             if not usable:
                 # The row only ever appeared at a page edge (first or last row of
                 # a short list); its own clipped fingerprint is all there is.
-                usable = [(tab, sig) for tab, sig, _ in observed]
-            tab, reference = usable[0]
-            for other_tab, other in usable[1:]:
-                if other_tab != tab or not reference.matches(other):
+                usable = [signature for signature, _ in observed]
+            reference = usable[0]
+            for other in usable[1:]:
+                if not reference.matches(other):
                     raise ExpeditionListError(
-                        f"position {position} was read inconsistently across pages"
+                        f"position {key[1]} was read inconsistently across pages"
                     )
-            self.bind(tab, reference, number)
+            self.bind(key[0], key[1], number)
         for index, record in enumerate(self.pages):
             self.pages[index] = PageRecord(
                 page=record.page,
                 scan=record.scan,
                 offset=record.offset,
                 ids=tuple(
-                    self.resolve(record.scan.tab, row.signature)
+                    self.resolve(record.scan.tab, record.offset + row.index - 1)
                     for row in record.scan.rows
                 ),
             )
@@ -1049,23 +1039,23 @@ class ExpeditionListIndex:
 
         ``name_resolver`` optionally maps a number to its name (``ExpeditionCatalog
         .name_of`` fits). It only decorates the result: identity still comes from
-        the pixel bindings, so a catalogue that lacks a number leaves ``name``
+        the list positions, so a catalogue that lacks a number leaves ``name``
         unset rather than invalidating the row.
         """
         latest = self.pages[-1] if self.pages else None
         merged: dict[str, ListEntry] = {}
-        positions: dict[str, int] = {}
+        positions: dict[str, tuple[int | None, int]] = {}
         for record in self.pages:
             for row, expedition_id in zip(record.scan.rows, record.ids):
                 if expedition_id is None:
                     continue
-                position = record.offset + row.index - 1
+                key = (record.scan.tab, record.offset + row.index - 1)
                 known = positions.get(expedition_id)
-                if known is not None and known != position:
+                if known is not None and known != key:
                     raise ExpeditionListError(
                         f"{expedition_id} appeared at two different list positions"
                     )
-                positions[expedition_id] = position
+                positions[expedition_id] = key
                 visible = record is latest
                 if expedition_id in merged and not visible:
                     continue
@@ -1081,85 +1071,73 @@ class ExpeditionListIndex:
                         else name_resolver(expedition_id)
                     ),
                 )
-        return tuple(sorted(merged.values(), key=lambda entry: positions[entry.expedition_id]))
+        return tuple(
+            sorted(merged.values(), key=lambda entry: positions[entry.expedition_id][1])
+        )
 
     def locate(
-        self, expedition_id: str, scan: PageScan, *, tolerance: int = DEFAULT_SIGNATURE_TOLERANCE
+        self, expedition_id: str, scan: PageScan, *, offset: int
     ) -> Relocation:
         """Re-locate a target on a *fresh* scan; never reuse an old coordinate.
 
+        ``offset`` is how many rows sit above the first row of ``scan`` on the
+        full list - the number ``add_page`` derives from the alignment chain.
+        It must come from that chain, not from a guess: with position-based
+        identity the offset *is* the evidence, so a wrong offset would silently
+        click the wrong expedition rather than fail.
+
         The point returned is measured on the page that was just captured, so a
         scroll between planning and clicking cannot leave a stale coordinate.
-
-        A tolerant match is only returned when it is the *only* one: the same
-        live row must not also fit another number, and no second live row may fit
-        this number. The tolerance cannot be trusted to separate neighbours - two
-        live rows in 西方海域 sit 1 apart and an edge row drifts by 4 - so a
-        nearest-match answer here would be a coin flip on which expedition gets
-        clicked. When the evidence is one row short, the answer is ``ambiguous``
-        and the caller must not click.
+        When the bound position is not on the captured page the answer is
+        ``not_visible``; when the position is on the page the row is the target
+        by construction, with no pixel comparison involved.
         """
-        keys = [
-            (tab, signature_key)
-            for (tab, signature_key), bound in self.bindings.items()
-            if bound == expedition_id
-            and (tab is None or scan.tab is None or tab == scan.tab)
+        matches = [
+            position
+            for (tab, position), bound in self.bindings.items()
+            if bound == expedition_id and (scan.tab is None or tab == scan.tab)
         ]
-        if not keys:
-            return Relocation("unbound", None, None, "no signature is bound to that number")
-        for row in scan.rows:
-            if any(row.signature.key == signature_key for _, signature_key in keys):
-                return Relocation(
-                    "located", row.click_point, row.index, "exact signature match"
-                )
-        stored = [signature_from_key(signature_key) for _, signature_key in keys]
-        near_rows = [
-            row
-            for row in scan.rows
-            if any(row.signature.matches(value, tolerance=tolerance) for value in stored)
-        ]
-        if not near_rows:
+        if not matches:
             return Relocation(
-                "not_visible", None, None, "the target is not on the current page"
+                "unbound", None, None, "no list position is bound to that number"
             )
-        if len(near_rows) > 1:
+        if len(matches) > 1:  # pragma: no cover - bind() forbids this
             return Relocation(
                 "ambiguous",
                 None,
                 None,
-                f"{len(near_rows)} live rows fit within tolerance {tolerance}",
+                f"{len(matches)} list positions are bound to that number",
             )
-        # One live row fits; it is only the target if no *other* number fits it.
-        rivals = [
-            bound
-            for (tab, signature_key), bound in self.bindings.items()
-            if bound != expedition_id
-            and (tab is None or scan.tab is None or tab == scan.tab)
-            and near_rows[0].signature.matches(
-                signature_from_key(signature_key), tolerance=tolerance
-            )
-        ]
-        if rivals:
+        position = matches[0]
+        row_index = position - offset
+        if not 0 <= row_index < len(scan.rows):
             return Relocation(
-                "ambiguous",
+                "not_visible",
                 None,
                 None,
-                "that row also fits " + ", ".join(sorted(set(rivals))),
+                f"list position {position} is not on a page starting at {offset}",
             )
+        row = scan.rows[row_index]
         return Relocation(
-            "located", near_rows[0].click_point, near_rows[0].index, "tolerant signature match"
+            "located",
+            row.click_point,
+            row.index,
+            f"list position {position} on a page starting at {offset}",
         )
 
     def tab_order(self, tab: int | None) -> tuple[str, ...]:
         """Known numbers of one tab, in list order."""
-        seen: dict[str, int] = {}
-        for record in self.pages:
-            if record.scan.tab != tab:
-                continue
-            for row, expedition_id in zip(record.scan.rows, record.ids):
-                if expedition_id is not None:
-                    seen.setdefault(expedition_id, record.offset + row.index - 1)
-        return tuple(sorted(seen, key=lambda item: seen[item]))
+        return tuple(
+            expedition_id
+            for _, expedition_id in sorted(
+                (
+                    (position, bound)
+                    for (other_tab, position), bound in self.bindings.items()
+                    if other_tab == tab
+                ),
+                key=lambda item: item[0],
+            )
+        )
 
 
 def _validate_expedition_id(expedition_id: str) -> None:

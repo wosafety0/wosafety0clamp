@@ -26,9 +26,11 @@ started on: up to the top, then down the same number of steps it had climbed,
 verified by pixel signature rather than assumed.
 
 Names come from the offline catalogue, so no OCR is involved, but identity still
-has to be bound once. ``--label-first 01,02,...`` does that for the first page
-and every later page resolves through the stored signatures; ``--index`` keeps
-those bindings so the next walk needs no labelling at all.
+has to be bound once. Identity is the row's **list position**, not its pixels:
+``西方海域`` rows 29 and 30 render identically, so a fingerprint cannot tell them
+apart while their positions differ by one. ``--label-first 01,02,...`` binds the
+top page's positions; every later page then resolves through its offset, and
+``--index`` keeps those bindings so the next walk needs no labelling at all.
 
 Exit codes
     0  walked both ends, every row named, starting page restored
@@ -482,8 +484,9 @@ def main(argv: list[str] | None = None) -> int:
     if unbound_positions:
         print()
         print("=== positions that still need a label ===")
-        for position in unbound_positions:
-            print(f"  position {position}")
+        for tab_index, position in unbound_positions:
+            where = "unknown tab" if tab_index is None else f"tab {tab_index + 1}"
+            print(f"  {where} position {position} (0-based, {position + 1} on screen)")
         print("  supply them with --label-unbound, bottom-most last")
     elif clipped:
         print()
