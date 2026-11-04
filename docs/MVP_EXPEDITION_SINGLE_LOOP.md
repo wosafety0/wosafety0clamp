@@ -535,3 +535,10 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - **SAFETY LIMIT:** the default approved calibration allowlist is empty. No live Poi reward-button calibration currently exists, so the gate refuses reward authorization by default. The authorization object is deliberately non-executable and has no click method; no UI input was added or sent.
 - **TESTED:** GitHub Actions [41768901495](https://github.com/wosafety0/wosafety0clamp/actions/runs/41768901495) passed **593 Python tests, 20 skipped**, plus all other workflow checks. Tests cover missing calibration, unique target, frame invalidation, wrong asset, duplicate candidates, weak confidence, out-of-bounds coordinates, wrong state sequence, and malformed calibration fingerprints.
 - **NEXT:** acquire real Poi bonus-screen captures, identify and independently validate the actual claim button crop, then provision an approved calibration record. Only after that should a separate executor be designed to revalidate the exact frame immediately before input and verify the post-click result independently.
+
+## 2026-11-04 — Reward authorization dual-frame provenance hardening
+
+- **IMPLEMENTED:** `RewardClaimTarget` now requires two distinct, strictly increasing state-frame IDs and two distinct SHA-256 image fingerprints. The target's own frame ID and fingerprint must exactly match the second verified `BONUS_ITEMS` frame.
+- **FAIL-CLOSED:** repeated frame IDs, repeated image hashes, out-of-order frame IDs, or a target localized on any frame other than the second verified frame are rejected before authorization.
+- **TESTS ADDED:** regression cases cover reused/out-of-order frame IDs, duplicate image fingerprints, and target-to-second-frame mismatch.
+- **LIMITS:** this validates caller-supplied provenance metadata; it does not itself capture screenshots or prove that a caller hashed the actual raw Poi frame. The production capture pipeline must supply IDs and hashes directly from the same in-memory frame objects. No click executor or live calibration was added.
