@@ -721,6 +721,28 @@ def _return_home_port_after_dispatch(
     return observed
 
 
+def _validate_dispatch_fleet_id(target_fleet_id: int) -> None:
+    """Refuse fleet ids the bot is not allowed to send on an expedition.
+
+    Runs before any game/webview connection so an invalid target fails closed
+    with zero clicks. Fleet 1 is reserved (``non_dispatchable``) by design;
+    fleets outside ``all_fleet_ids`` are treated as deferred (not yet promoted).
+    """
+    if target_fleet_id in RUNTIME_CONFIG.non_dispatchable_fleet_ids:
+        raise LoopError(
+            f"Fleet {target_fleet_id} is reserved and must not be dispatched on an "
+            "expedition. It is marked non_dispatchable in runtime_config; promoting "
+            "it to a dispatch target is a game-policy change, not a dispatch decision."
+        )
+    if target_fleet_id not in RUNTIME_CONFIG.all_fleet_ids:
+        raise LoopError(
+            f"Fleet {target_fleet_id} is outside the configured fleets "
+            f"{list(RUNTIME_CONFIG.all_fleet_ids)}: this runtime treats it as "
+            "deferred, so nothing was clicked. The game may have it unlocked; "
+            "promoting it is a runtime-config change, not a dispatch decision."
+        )
+
+
 def _run_production_supervisor_once(args: argparse.Namespace) -> int:
     """Compose the durable monitor/controller/supervisor with the visible CDP driver."""
     from datetime import timedelta
@@ -747,23 +769,18 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
 
     runtime = None
     try:
+        target_fleet_id = args.fleet_id
+        target_mission_id = args.mission_id
+        expedition_id = DEFAULT_CATALOG.number_of_mission_id(target_mission_id)
+        if expedition_id is None:
+            raise LoopError(
+                f"Mission id {target_mission_id} is not in the master-data table; "
+                "refusing to guess which row it is"
+            )
+        _validate_dispatch_fleet_id(target_fleet_id)
         with connect_game_webview(timeout=3.0) as game_session:
-            target_fleet_id = args.fleet_id
-            target_mission_id = args.mission_id
-            expedition_id = DEFAULT_CATALOG.number_of_mission_id(target_mission_id)
-            if expedition_id is None:
-                raise LoopError(
-                    f"Mission id {target_mission_id} is not in the master-data table; "
-                    "refusing to guess which row it is"
-                )
-            if target_fleet_id not in RUNTIME_CONFIG.all_fleet_ids:
-                raise LoopError(
-                    f"Fleet {target_fleet_id} is outside the configured fleets "
-                    f"{list(RUNTIME_CONFIG.all_fleet_ids)}: this runtime treats it as "
-                    "deferred, so nothing was clicked. The game may have it unlocked; "
-                    "promoting it is a runtime-config change, not a dispatch decision."
-                )
             requirement = _mission_requirement(args, target_fleet_id, target_mission_id)
+            _recover_home_port(game_session)
             _capture_home_reference(game_session)
 
             def verify_state(expected: str, *, visual_attempts: int = 3) -> UiStateEvidence:

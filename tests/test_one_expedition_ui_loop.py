@@ -123,6 +123,23 @@ class DispatchTargetGateTests(unittest.TestCase):
                     )
 
 
+class DispatchFleetValidationTests(unittest.TestCase):
+    """Fleet 1 must be rejected as a dispatch target before any game connection."""
+
+    def test_fleet_1_is_rejected_as_reserved(self):
+        with self.assertRaisesRegex(controller.LoopError, "reserved"):
+            controller._validate_dispatch_fleet_id(1)
+
+    def test_unconfigured_fleet_is_rejected_as_deferred(self):
+        with self.assertRaisesRegex(controller.LoopError, "outside the configured"):
+            controller._validate_dispatch_fleet_id(5)
+
+    def test_dispatchable_fleets_are_accepted(self):
+        # Must not raise; these are the only fleets the bot may dispatch.
+        controller._validate_dispatch_fleet_id(2)
+        controller._validate_dispatch_fleet_id(3)
+
+
 class LiveCheckpointVerifierTests(unittest.TestCase):
     def setUp(self):
         self.reader = MagicMock()

@@ -99,12 +99,15 @@ def build_runtime(
         raise ValueError("observer_timeout_seconds must be finite and positive")
     if not math.isfinite(max_state_age_seconds) or max_state_age_seconds < 0:
         raise ValueError("max_state_age_seconds must be finite and non-negative")
-    if (
-        not dispatch_fleet_ids
-        or len(set(dispatch_fleet_ids)) != len(dispatch_fleet_ids)
-        or any(fleet_id not in (2, 3) for fleet_id in dispatch_fleet_ids)
-    ):
-        raise ValueError("dispatch_fleet_ids must be a non-empty unique subset of (2, 3)")
+    if not dispatch_fleet_ids or len(set(dispatch_fleet_ids)) != len(dispatch_fleet_ids):
+        raise ValueError("dispatch_fleet_ids must be a non-empty unique sequence")
+    dispatchable = set(RUNTIME_CONFIG.dispatchable_fleet_ids)
+    if not dispatchable.issuperset(dispatch_fleet_ids):
+        raise ValueError(
+            "dispatch_fleet_ids must be a subset of the configured dispatchable "
+            f"fleets {sorted(dispatchable)}; reserved/deferred fleets "
+            f"{sorted(set(dispatch_fleet_ids) - dispatchable)} are not dispatchable"
+        )
     if enable_ui_refresh:
         if ui_input is None or ui_state_verifier is None:
             raise ValueError("UI refresh requires an open game input session and state verifier")

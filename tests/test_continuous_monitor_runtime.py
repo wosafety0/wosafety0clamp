@@ -126,6 +126,16 @@ class ContinuousMonitorRuntimeTests(unittest.TestCase):
             finally:
                 runtime.provider.close(join_timeout_seconds=1)
 
+    def test_build_runtime_rejects_a_non_dispatchable_fleet(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(ValueError, "not dispatchable"):
+                build_runtime(
+                    database_path=Path(temporary) / "monitor.sqlite3",
+                    client=object(),
+                    observer=FakeObserver(),
+                    dispatch_fleet_ids=(1,),
+                )
+
     def test_ui_state_verifier_wraps_the_live_two_frame_checkpoint(self):
         from tools import one_expedition_ui_loop
         from kancollebot.adapters.poi.ui_state_gate import UiState
