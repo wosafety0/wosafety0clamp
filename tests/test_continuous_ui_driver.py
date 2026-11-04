@@ -16,6 +16,7 @@ from kancollebot.adapters.poi.cdp_ui_driver import (
     DispatchStep,
     PoiCdpContinuousUiDriver,
     ProductionStateGate,
+    ResupplyPlan,
     SettlementPlan,
     SettlementStep,
 )
@@ -88,7 +89,9 @@ class FakeClock:
         return value
 
 
-def build_driver(states, gate, game_input=None, clock=None, settlement_plan=None):
+def build_driver(
+    states, gate, game_input=None, clock=None, settlement_plan=None, resupply_plan=None
+):
     clock = clock or FakeClock()
     return PoiCdpContinuousUiDriver(
         plan=DEFAULT_FLEET2_MISSION3_PLAN,
@@ -99,6 +102,7 @@ def build_driver(states, gate, game_input=None, clock=None, settlement_plan=None
         monotonic_fn=clock.monotonic,
         time_ms_fn=lambda: 1_000_000,
         settlement_plan=settlement_plan,
+        resupply_plan=resupply_plan,
     )
 
 
@@ -590,6 +594,119 @@ class SettlementExecutionTests(unittest.TestCase):
                 gate=ScriptedGate(),
                 sleep_fn=lambda seconds: None,
                 settlement_plan=("not", "a", "plan"),
+            )
+
+
+def unsupplied_supply(ship_ids=(5, 6, 7, 8)):
+    return tuple(
+        PoiShipSupplyState(ship_id=ship_id, fuel=2, ammo=3, max_fuel=10, max_ammo=10)
+        for ship_id in ship_ids
+    )
+
+
+def review_resupply_plan():
+    """A reviewed (fake-calibrated) supply click for the F2/M3 driver."""
+    return ResupplyPlan(
+        steps=(
+            SettlementStep(
+                RecordedPoint(300, 600, "supply-button"), 1.0, "HOME_PORT", "HOME_PORT"
+            ),
+        )
+    )
+
+
+class ResupplyDriverTests(unittest.TestCase):
+    def test_a_missing_plan_fails_closed_before_any_click(self):
+        game_input = FakeInput()
+        states = ScriptedFleetStates([make_fleet(supply=unsupplied_supply())])
+        driver = build_driver(states, ScriptedGate(), game_input=game_input)
+        with self.assertRaisesRegex(ContinuousUiDriverError, "No reviewed resupply plan"):
+            driver.resupply_fleet(fleet_id=2)
+        self.assertEqual(game_input.clicks, [])
+
+    def test_a_plan_for_another_fleet_is_refused(self):
+        game_input = FakeInput()
+        states = ScriptedFleetStates([make_fleet(supply=unsupplied_supply())])
+        driver = build_driver(
+            states, ScriptedGate(), game_input=game_input,
+            resupply_plan=review_resupply_plan(),
+        )
+        with self.assertRaisesRegex(ContinuousUiDriverError, "only executes fleet 2"):
+            driver.resupply_fleet(fleet_id=3)
+        self.assertEqual(game_input.clicks, [])
+
+    def test_a_fully_supplied_fleet_is_not_clicked(self):
+        game_input = FakeInput()
+        states = ScriptedFleetStates([make_fleet(supply=supplied_supply())])
+        driver = build_driver(
+            states, ScriptedGate(), game_input=game_input,
+            resupply_plan=review_resupply_plan(),
+        )
+        with self.assertRaisesRegex(ContinuousUiDriverError, "no ship below capacity"):
+            driver.resupply_fleet(fleet_id=2)
+        self.assertEqual(game_input.clicks, [])
+
+    def test_a_missing_supply_snapshot_is_refused(self):
+        game_input = FakeInput()
+        states = ScriptedFleetStates([make_fleet(supply=())])
+        driver = build_driver(
+            states, ScriptedGate(), game_input=game_input,
+            resupply_plan=review_resupply_plan(),
+        )
+        with self.assertRaisesRegex(ContinuousUiDriverError, "supply snapshot is missing"):
+            driver.resupply_fleet(fleet_id=2)
+        self.assertEqual(game_input.clicks, [])
+
+    def test_a_busy_fleet_is_refused(self):
+        game_input = FakeInput()
+        states = ScriptedFleetStates(
+            [make_fleet(mission=(1, 3, 0, 0), supply=unsupplied_supply())]
+        )
+        driver = build_driver(
+            states, ScriptedGate(), game_input=game_input,
+            resupply_plan=review_resupply_plan(),
+        )
+        with self.assertRaisesRegex(ContinuousUiDriverError, "not idle"):
+            driver.resupply_fleet(fleet_id=2)
+        self.assertEqual(game_input.clicks, [])
+
+    def test_a_verified_supply_clicks_once_and_returns_home_port(self):
+        game_input = FakeInput()
+        states = ScriptedFleetStates(
+            [make_fleet(supply=unsupplied_supply())],
+            [make_fleet(supply=supplied_supply())],
+        )
+        driver = build_driver(
+            states, ScriptedGate(), game_input=game_input,
+            resupply_plan=review_resupply_plan(),
+        )
+        evidence = driver.resupply_fleet(fleet_id=2)
+        self.assertEqual(game_input.clicks, ["supply-button"])
+        self.assertEqual(evidence.state, "HOME_PORT")
+        self.assertEqual(evidence.consecutive_states, ("HOME_PORT", "HOME_PORT"))
+
+    def test_a_supply_that_leaves_a_ship_empty_is_refused(self):
+        game_input = FakeInput()
+        states = ScriptedFleetStates(
+            [make_fleet(supply=unsupplied_supply())],
+            [make_fleet(supply=unsupplied_supply())],
+        )
+        driver = build_driver(
+            states, ScriptedGate(), game_input=game_input,
+            resupply_plan=review_resupply_plan(),
+        )
+        with self.assertRaisesRegex(ContinuousUiDriverError, "did not verify as fully supplied"):
+            driver.resupply_fleet(fleet_id=2)
+        self.assertEqual(game_input.clicks, ["supply-button"])
+
+    def test_a_plan_whose_steps_leave_the_home_port_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "start and end at HOME_PORT"):
+            ResupplyPlan(
+                steps=(
+                    SettlementStep(
+                        RecordedPoint(1, 1, "x"), 1.0, "HOME_PORT", "RETURN_RESULT"
+                    ),
+                )
             )
 
 

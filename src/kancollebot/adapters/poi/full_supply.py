@@ -152,6 +152,131 @@ def build_full_supply_plan(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class FleetSupplyPlan:
+    """The deficit of exactly one fleet, which is what a single-fleet action needs.
+
+    ``build_full_supply_plan`` requires *every* unlocked fleet to be idle because
+    the UI button it guards supplies them all at once. The continuous loop cannot
+    satisfy that: at any moment another fleet is out on an expedition, so a
+    single-fleet plan must be able to ignore the others - and must therefore say
+    so explicitly rather than quietly relaxing the all-idle rule.
+    """
+
+    fleet_id: int
+    ship_ids: tuple[int, ...]
+    fuel_required: int
+    ammo_required: int
+    fuel_available: int
+    ammo_available: int
+
+    @property
+    def ship_count(self) -> int:
+        return len(self.ship_ids)
+
+    @property
+    def needs_supply(self) -> bool:
+        return self.fuel_required > 0 or self.ammo_required > 0
+
+
+def build_fleet_supply_plan(
+    fleet_id: int,
+    fleets: Any,
+    ships: Any,
+    master_ships: Any,
+    resources: Any,
+    *,
+    source_freshness_verified: bool,
+    observed_at: datetime,
+    now: datetime,
+    max_age: timedelta = timedelta(seconds=30),
+) -> FleetSupplyPlan:
+    """Calculate one fleet's fuel/ammo deficit from a recent verified observation.
+
+    Other fleets may be anywhere - on an expedition, empty, or absent - because
+    this plan only ever drives one fleet's supply. The fleet being supplied must
+    still be idle: supplying a fleet that is under way is meaningless and would
+    mean the observation disagreed with the scheduler.
+    """
+    if isinstance(fleet_id, bool) or not isinstance(fleet_id, int) or fleet_id < 1:
+        raise ValueError("fleet_id must be a positive integer")
+    if source_freshness_verified is not True:
+        raise FullSupplyPreflightError("live port freshness witness is not verified")
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("now must be timezone-aware")
+    if observed_at.tzinfo is None or observed_at.utcoffset() is None:
+        raise FullSupplyPreflightError("observation timestamp must be timezone-aware")
+    if max_age < timedelta(0):
+        raise ValueError("max_age must not be negative")
+    age = now - observed_at
+    if age < timedelta(0) or age > max_age:
+        raise FullSupplyPreflightError("live port freshness witness is stale or future-dated")
+    if not isinstance(fleets, list) or not isinstance(ships, dict) or not isinstance(master_ships, dict):
+        raise FullSupplyPreflightError("fleet, ship, or master data has an invalid shape")
+    if not isinstance(resources, list) or len(resources) < 2:
+        raise FullSupplyPreflightError("resource inventory is incomplete")
+    fuel_available = _nonnegative_int(resources[0], "fuel inventory")
+    ammo_available = _nonnegative_int(resources[1], "ammo inventory")
+
+    matches = [
+        fleet for fleet in fleets
+        if isinstance(fleet, dict) and fleet.get("api_id") == fleet_id
+    ]
+    if len(matches) != 1:
+        raise FullSupplyPreflightError(f"fleet {fleet_id} is missing or duplicated")
+    fleet = matches[0]
+    mission = fleet.get("api_mission")
+    if not isinstance(mission, list) or len(mission) != 4 or any(
+        isinstance(value, bool) or not isinstance(value, int) for value in mission
+    ):
+        raise FullSupplyPreflightError(f"fleet {fleet_id} mission state is incomplete")
+    if mission != [0, 0, 0, 0]:
+        raise FullSupplyPreflightError(f"fleet {fleet_id} is not idle; single-fleet resupply blocked")
+    slots = fleet.get("api_ship")
+    if not isinstance(slots, list) or len(slots) > 6:
+        raise FullSupplyPreflightError(f"fleet {fleet_id} ship roster is invalid")
+
+    fuel_required = ammo_required = 0
+    ship_ids: list[int] = []
+    for ship_id in slots:
+        if isinstance(ship_id, bool) or not isinstance(ship_id, int):
+            raise FullSupplyPreflightError(f"fleet {fleet_id} has an invalid ship slot")
+        if ship_id == -1:
+            continue
+        if ship_id < 1 or ship_id in ship_ids:
+            raise FullSupplyPreflightError("ship IDs are invalid or assigned more than once")
+        ship_ids.append(ship_id)
+        ship = ships.get(str(ship_id))
+        if not isinstance(ship, dict) or ship.get("api_id") != ship_id:
+            raise FullSupplyPreflightError(f"ship {ship_id} is missing from the live snapshot")
+        master_id = ship.get("api_ship_id")
+        if isinstance(master_id, bool) or not isinstance(master_id, int) or master_id < 1:
+            raise FullSupplyPreflightError(f"ship {ship_id} has no valid master ID")
+        master = master_ships.get(str(master_id))
+        if not isinstance(master, dict):
+            raise FullSupplyPreflightError(f"ship {ship_id} master data is missing")
+        fuel = _nonnegative_int(ship.get("api_fuel"), f"ship {ship_id} fuel")
+        ammo = _nonnegative_int(ship.get("api_bull"), f"ship {ship_id} ammo")
+        max_fuel = _nonnegative_int(master.get("api_fuel_max"), f"ship {ship_id} max fuel")
+        max_ammo = _nonnegative_int(master.get("api_bull_max"), f"ship {ship_id} max ammo")
+        if max_fuel < 1 or max_ammo < 1 or fuel > max_fuel or ammo > max_ammo:
+            raise FullSupplyPreflightError(f"ship {ship_id} supply values are out of range")
+        fuel_required += max_fuel - fuel
+        ammo_required += max_ammo - ammo
+    if not ship_ids:
+        raise FullSupplyPreflightError(f"fleet {fleet_id} is empty")
+    if fuel_available < fuel_required or ammo_available < ammo_required:
+        raise FullSupplyPreflightError("resource inventory is insufficient for this fleet's resupply")
+    return FleetSupplyPlan(
+        fleet_id=fleet_id,
+        ship_ids=tuple(ship_ids),
+        fuel_required=fuel_required,
+        ammo_required=ammo_required,
+        fuel_available=fuel_available,
+        ammo_available=ammo_available,
+    )
+
+
 def verify_fleet_supply_complete(
     fleet_id: int,
     fleets: Any,

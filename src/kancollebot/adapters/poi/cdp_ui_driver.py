@@ -199,6 +199,30 @@ class SettlementPlan:
                     raise ValueError(f"{name} steps must chain")
 
 
+@dataclass(frozen=True, slots=True)
+class ResupplyPlan:
+    """Reviewed clicks for the single-fleet supply action.
+
+    Supplying a fleet is an in-page action: it consumes a click (and sometimes a
+    confirmation) but both start and end on the Home Port, so every step is gated
+    on ``HOME_PORT`` rather than on a dedicated supply screen. That is also why
+    the driver re-reads the *fleet* state afterwards - the UI never changes, so
+    only the ship fuel/ammo values can prove the supply happened.
+    """
+
+    steps: tuple[SettlementStep, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.steps, tuple) or not self.steps:
+            raise ValueError("resupply steps must be a non-empty tuple")
+        for step in self.steps:
+            if (
+                step.state_before != UiState.HOME_PORT.value
+                or step.state_after != UiState.HOME_PORT.value
+            ):
+                raise ValueError("every resupply step must start and end at HOME_PORT")
+
+
 class ProductionStateGate:
     """Three-tier fail-closed UI state gate.
 
@@ -390,6 +414,7 @@ class PoiCdpContinuousUiDriver:
         time_ms_fn: Callable[[], int] = lambda: int(time.time() * 1000),
         event_sink: Callable[[str, Mapping[str, object]], None] | None = None,
         settlement_plan: "SettlementPlan | None" = None,
+        resupply_plan: "ResupplyPlan | None" = None,
         recovery_attempts: int = 3,
         dispatch_verify_timeout_seconds: float = 12.0,
         home_port_recovery_settle_seconds: float = 2.0,
@@ -416,8 +441,11 @@ class PoiCdpContinuousUiDriver:
             raise ValueError("home_port_recovery_settle_seconds must be a finite non-negative number")
         if settlement_plan is not None and not isinstance(settlement_plan, SettlementPlan):
             raise ValueError("settlement_plan must be a SettlementPlan or None")
+        if resupply_plan is not None and not isinstance(resupply_plan, ResupplyPlan):
+            raise ValueError("resupply_plan must be a ResupplyPlan or None")
         self._plan = plan
         self._settlement_plan = settlement_plan
+        self._resupply_plan = resupply_plan
         self._fleet_states_fn = fleet_states_fn
         self._game_input = game_input
         self._gate = gate
@@ -567,6 +595,76 @@ class PoiCdpContinuousUiDriver:
             action="claim_reward",
         )
 
+    def resupply_fleet(self, *, fleet_id: int) -> UiStateEvidence:
+        """Supply one idle fleet through the reviewed supply clicks.
+
+        Fails closed without a reviewed plan, for a fleet that is not idle, and
+        for a fleet that has nothing below capacity - the last case matters
+        because a supply click with nothing missing still spends a real action
+        and consumes real fuel/ammo for no gain.
+
+        The UI state stays on the Home Port across a supply, so the UI gate can
+        only prove "we are still on the right screen". Completion is therefore
+        verified from the *fleet* snapshot's per-ship fuel/ammo, which is the
+        only signal that distinguishes a successful supply from a dead click.
+        """
+        if isinstance(fleet_id, bool) or not isinstance(fleet_id, int) or fleet_id < 1:
+            raise ContinuousUiDriverError("fleet_id must be a positive integer")
+        if fleet_id != self._plan.fleet_id:
+            raise ContinuousUiDriverError(
+                f"No reviewed resupply plan for fleet {fleet_id}; "
+                f"this driver only executes fleet {self._plan.fleet_id}"
+            )
+        plan = self._require_resupply_plan()
+        before = self._require_fleet(fleet_id)
+        if not _is_idle(before):
+            raise ContinuousUiDriverError(
+                f"Fleet {fleet_id} is not idle; refusing to resupply"
+            )
+        if not before.supply:
+            raise ContinuousUiDriverError(
+                f"Fleet {fleet_id} supply snapshot is missing; refusing to click"
+            )
+        unsupplied = [item for item in before.supply if not item.is_fully_supplied]
+        if not unsupplied:
+            raise ContinuousUiDriverError(
+                f"Fleet {fleet_id} has no ship below capacity; "
+                f"refusing to spend a supply action"
+            )
+        self._emit(
+            "resupply_preflight_confirmed",
+            fleet_id=fleet_id,
+            unsupplied_ship_count=len(unsupplied),
+        )
+        evidence = self._execute_settlement_chain(
+            fleet_id=fleet_id,
+            steps=plan.steps,
+            final_state=UiState.HOME_PORT.value,
+            action="resupply_fleet",
+            chain_event="resupply_chain_confirmed",
+        )
+        after = self._require_fleet(fleet_id)
+        if not after.supply or any(
+            not item.is_fully_supplied for item in after.supply
+        ):
+            raise ContinuousUiDriverError(
+                f"Fleet {fleet_id} did not verify as fully supplied after the "
+                f"supply clicks"
+            )
+        self._emit(
+            "resupply_verified",
+            fleet_id=fleet_id,
+            fully_supplied_ship_count=len(after.supply),
+        )
+        return evidence
+
+    def _require_resupply_plan(self) -> ResupplyPlan:
+        if self._resupply_plan is None:
+            raise ContinuousUiDriverError(
+                "No reviewed resupply plan configured; refusing to click supply controls"
+            )
+        return self._resupply_plan
+
     def _require_settlement_plan(self) -> SettlementPlan:
         if self._settlement_plan is None:
             raise ContinuousUiDriverError(
@@ -581,6 +679,7 @@ class PoiCdpContinuousUiDriver:
         steps: tuple[SettlementStep, ...],
         final_state: str,
         action: str,
+        chain_event: str = "settlement_chain_confirmed",
     ) -> UiStateEvidence:
         if isinstance(fleet_id, bool) or not isinstance(fleet_id, int) or fleet_id < 1:
             raise ContinuousUiDriverError("fleet_id must be a positive integer")
@@ -616,7 +715,7 @@ class PoiCdpContinuousUiDriver:
         # its evidence string is returned to the settlement controller.
         final_evidence = self._gate.require(UiState(final_state))
         self._emit(
-            "settlement_chain_confirmed",
+            chain_event,
             action=action,
             fleet_id=fleet_id,
             final_state=final_state,
