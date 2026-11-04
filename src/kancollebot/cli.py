@@ -20,6 +20,29 @@ _COMMAND_MODULES = {
 }
 
 
+def _list_tasks() -> int:
+    """Read-only view of declared automation tasks and their calibration state."""
+    from kancollebot.task_scope import (
+        declared_task_kinds,
+        describe_shared_capabilities,
+        fleet_policy_for,
+    )
+
+    for kind in declared_task_kinds():
+        policy = fleet_policy_for(kind)
+        if policy.implemented:
+            status = "IMPLEMENTED"
+            fleets = str(list(policy.dispatchable_fleet_ids))
+        else:
+            status = "DECLARED / NOT IMPLEMENTED (fail-closed)"
+            fleets = "uncalibrated - expedition policy is NOT reused"
+        print(f"{kind.value:<12} {status:<42} fleets={fleets}")
+    print("\nShared infrastructure (must stay task-neutral):")
+    for line in describe_shared_capabilities():
+        print(f"  - {line}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="kancollebot",
@@ -32,7 +55,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         add_help=False,
         help="Run one safety-gated Fleet 3 -> mission 3 UI dispatch transaction",
     )
+    commands.add_parser(
+        "tasks",
+        add_help=False,
+        help="List declared automation tasks, their status, and shared capabilities",
+    )
     args, command_args = parser.parse_known_args(argv)
+
+    if args.command == "tasks":
+        return _list_tasks()
 
     module = importlib.import_module(_COMMAND_MODULES[args.command])
     implementation = getattr(module, "_main_impl", None)

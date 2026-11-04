@@ -1,4 +1,13 @@
-"""Single source of truth for local KancolleBot runtime defaults."""
+"""Single source of truth for local KancolleBot runtime defaults.
+
+SCOPE WARNING: this project is not expedition-only. ``all_fleet_ids`` and the
+endpoint/timing fields are task-neutral, but every fleet-permission field below
+(``monitor_candidate_fleet_ids``, ``production_*``, ``deferred_*``,
+``non_dispatchable_*``, ``resupply_verified_*`` and the derived
+``dispatchable_fleet_ids``) is the policy of ONE task: EXPEDITION. Combat,
+sparkle, composition and quest automation must declare their own policy through
+``kancollebot.task_scope`` instead of reading these globals.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,27 +23,33 @@ class RuntimeConfig:
     # but a real account unlocks 2/3/4 progressively. Which fleets actually
     # exist must come from the observed Poi fleet set (see fleet_availability).
     all_fleet_ids: tuple[int, ...] = (1, 2, 3, 4)
-    # Candidate ceiling for the continuous monitor. Fleet 4 is now dispatchable
-    # in principle; the account's unlocked set decides whether it participates
-    # in a given run.
+    # Which TASK the fleet-permission fields below belong to. Kept as a plain
+    # string to avoid a runtime_config -> task_scope import cycle; task_scope
+    # validates it on lookup. Changing this is a policy change, not a config tweak.
+    dispatch_policy_task_kind: str = "expedition"
+    # EXPEDITION-only: candidate ceiling for the continuous monitor. Fleet 4 is
+    # dispatchable in principle; the account's unlocked set decides whether it
+    # participates in a given run.
     monitor_candidate_fleet_ids: tuple[int, ...] = (2, 3, 4)
+    # EXPEDITION-only: production target and its mission id.
     production_dispatch_fleet_id: int = 3
     production_mission_id: int = 3
     # Static deferral is gone: a fleet that has not been unlocked on THIS
     # account is derived at runtime from the observed fleet set and placed in
     # the scheduler's deferred group for that run, not hardcoded here.
     deferred_fleet_ids: tuple[int, ...] = ()
-    # Unlocked fleets (present in all_fleet_ids) that the bot must never
-    # dispatch on an expedition. Fleet 1 is the flagship sortie fleet and is
-    # reserved by design; dispatching it is a logic error, not a configuration
-    # grey area, so it is excluded at the policy layer rather than merely left
-    # out of the dispatch candidates.
+    # EXPEDITION-only. Fleet 1 is reserved because the game does not offer it
+    # on the expedition tab strip and it is the flagship SORTIE/COMBAT fleet.
+    # This is a per-task policy, NOT a global fact about Fleet 1: combat
+    # automation must use its own declared policy and may legitimately use
+    # Fleet 1. Dispatching Fleet 1 on an expedition is still a logic error.
     non_dispatchable_fleet_ids: tuple[int, ...] = (1,)
-    # Fleets with a calibrated, unambiguous visual gate for real resupply
-    # clicks (tab region, checkbox fingerprints, UI state enum). Fleet 4 has a
-    # dispatch tab but NO verified supply-tab region or checkbox fingerprints,
-    # so it must not be resupplied by the closed loop until that evidence is
-    # captured on a real client.
+    # EXPEDITION closed-loop only: fleets with a calibrated, unambiguous visual
+    # gate for real resupply clicks (tab region, checkbox fingerprints, UI state
+    # enum). Fleet 4 has a dispatch tab but NO verified supply-tab region or
+    # checkbox fingerprints, so the closed loop must not resupply it. Resupply
+    # itself is a cross-task capability (a sortie needs it too); this set is
+    # merely the evidence available to THIS task today.
     resupply_verified_fleet_ids: tuple[int, ...] = (2, 3)
     poi_endpoint: str = "http://127.0.0.1:12450/mcp"
     observer_timeout_seconds: float = 130.0
@@ -62,14 +77,17 @@ class RuntimeConfig:
 
     @property
     def dispatchable_fleet_ids(self) -> tuple[int, ...]:
-        """POLICY ceiling of fleets the bot may ever dispatch: (2, 3, 4).
+        """EXPEDITION policy ceiling of fleets that may be dispatched: (2, 3, 4).
 
         Derived as ``all_fleet_ids`` minus the deferred and reserved
-        (``non_dispatchable``) fleets. This is authoritative for *permission*,
-        but it says nothing about which fleets a given account has unlocked.
-        ``build_runtime`` and the production entry gate must additionally
-        resolve the observed unlocked set through ``fleet_availability`` before
-        any fleet participates in a run; never guess that at a call site.
+        (``non_dispatchable``) fleets. This is authoritative for *expedition
+        permission* only; other task kinds must use
+        ``kancollebot.task_scope.fleet_policy_for`` and must not read this
+        property. It also says nothing about which fleets a given account has
+        unlocked: ``build_runtime`` and the production entry gate must
+        additionally resolve the observed unlocked set through
+        ``fleet_availability`` before any fleet participates in a run; never
+        guess that at a call site.
         """
         reserved = set(self.deferred_fleet_ids) | set(self.non_dispatchable_fleet_ids)
         return tuple(

@@ -20,9 +20,22 @@ At the time of this update, the GitHub default branch **main** contains only the
 ## Current development priorities
 
 1. Complete production dispatch/supervisor composition only after freshness, UI-state gates, durable intent recovery, exact post-action verification, reward settlement, and fleet-wide resupply are integrated.
-2. Keep Fleet 1 read-only. Fleets 2/3/4 are the dispatch policy ceiling, but the effective set is always resolved from the fleets this account has actually unlocked (2, 3 and 4 unlock progressively); a missing fleet fails closed rather than being assumed. Fleet 4 may be dispatched but has no verified supply visual gate yet, so its closed-loop resupply remains blocked until real-client calibration.
+2. Keep Fleet 1 read-only **for expeditions**. Fleets 2/3/4 are the *expedition* dispatch policy ceiling, but the effective set is always resolved from the fleets this account has actually unlocked (2, 3 and 4 unlock progressively); a missing fleet fails closed rather than being assumed. Fleet 4 may be dispatched but has no verified supply visual gate yet, so its closed-loop resupply remains blocked until real-client calibration. Fleet 1 is the flagship **sortie/combat** fleet: this reservation is a per-task policy, not a global fact, and combat automation must declare its own fleet policy.
 3. Continue mocked/offline tests and static CI; missing, stale, ambiguous, or malformed observations must remain fail-closed.
 4. Treat any future live operation as a separately authorized, operator-supervised activity. CI and this repository workflow do not authorize unattended game actions.
+
+## Automation tasks and scope
+
+This repository is **not expedition-only**. Expedition automation is the first implemented task; combat, sparkle (morale grinding), fleet composition, and quest automation are declared future tasks. `src/kancollebot/task_scope.py` is the single source of truth for task kinds, per-task fleet policy, and shared infrastructure. Run `kancollebot tasks` for the current status.
+
+Only `expedition` has a reviewed visible-UI path. Every other declared task is **fail-closed**: its fleet policy is deliberately empty and uncalibrated, and `require_task_enabled()` must be called before any UI action. Declaring a task is not implementing it.
+
+Two rules protect the roadmap:
+
+- **Fleet policy is per task.** `RuntimeConfig`'s fleet-permission fields (`non_dispatchable_fleet_ids`, `dispatchable_fleet_ids`, `monitor_candidate_fleet_ids`, `resupply_verified_fleet_ids`) belong to the expedition task. Reusing them for combat would wrongly forbid Fleet 1.
+- **Shared infrastructure stays task-neutral.** The cross-process UI mutex, read-only Poi fleet snapshot, supply preflight/verification, composition snapshot shapes, the append-only event sink, and the visual dependency gate are shared by all tasks; no task-specific game logic belongs inside them.
+
+Known work before a second task runs alongside expedition: fleet runtime state is keyed by `fleet_id` alone (`fleet_runtime`, `dispatch_intents`), so a shared fleet-lease / `(task_kind, fleet_id)` key is required; `dispatch_events` needs structured task attribution; and each new task needs its own screen registry (UI states, fingerprints, coordinates, click plans). These are documented in `docs/PROJECT_kancollebot_Progress.md` and are intentionally not implemented yet.
 
 ## Current status — 2026-11-03
 

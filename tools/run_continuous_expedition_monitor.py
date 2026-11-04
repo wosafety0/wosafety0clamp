@@ -61,6 +61,10 @@ from kancollebot.expeditions.fleet_availability import (  # noqa: E402
     resolve_fleet_availability,
 )
 from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
+from kancollebot.task_scope import (  # noqa: E402
+    TaskKind,
+    require_task_enabled,
+)
 
 
 DEFAULT_OBSERVER_SCRIPT = RUNTIME_CONFIG.observer_script
@@ -82,6 +86,10 @@ class MonitorRuntime:
     # backstop; this flag must never be reported as "verified" in that case.
     unlocked_fleet_ids: tuple[int, ...] | None = None
     fleet_availability_verified: bool = False
+    # Which automation task this runtime was composed for. The monitor and its
+    # stores are expedition-specific today; recording the task makes mixed
+    # event logs attributable and stops a future task from silently reusing it.
+    task_kind: str = TaskKind.EXPEDITION.value
 
 
 def build_runtime(
@@ -108,15 +116,25 @@ def build_runtime(
     refresh_wait_seconds: float = RUNTIME_CONFIG.refresh_wait_seconds,
     refresh_poll_seconds: float = RUNTIME_CONFIG.refresh_poll_seconds,
     refresh_cooldown_seconds: float = RUNTIME_CONFIG.refresh_cooldown_seconds,
+    # This composition root is expedition-specific (its stores, scheduler and
+    # mission_requirements are). A declared-but-unimplemented task is rejected
+    # here instead of silently inheriting expedition fleet policy.
+    task_kind: TaskKind | str = TaskKind.EXPEDITION,
 ) -> MonitorRuntime:
     """Compose one read-only monitor with shared durable stores and witness source."""
+    policy = require_task_enabled(task_kind)
+    if policy.task_kind is not TaskKind.EXPEDITION:
+        raise ValueError(
+            "build_runtime is the expedition composition root; task "
+            f"{policy.task_kind.value!r} needs its own runtime"
+        )
     if not math.isfinite(observer_timeout_seconds) or observer_timeout_seconds <= 0:
         raise ValueError("observer_timeout_seconds must be finite and positive")
     if not math.isfinite(max_state_age_seconds) or max_state_age_seconds < 0:
         raise ValueError("max_state_age_seconds must be finite and non-negative")
     if not dispatch_fleet_ids or len(set(dispatch_fleet_ids)) != len(dispatch_fleet_ids):
         raise ValueError("dispatch_fleet_ids must be a non-empty unique sequence")
-    dispatchable = set(RUNTIME_CONFIG.dispatchable_fleet_ids)
+    dispatchable = set(policy.dispatchable_fleet_ids)
     if not dispatchable.issuperset(dispatch_fleet_ids):
         raise ValueError(
             "dispatch_fleet_ids must be a subset of the configured dispatchable "
@@ -146,6 +164,7 @@ def build_runtime(
             unlocked_fleet_ids,
             dispatch_fleet_ids,
             strict=fleet_availability_strict,
+            task_kind=policy.task_kind,
         )
         effective_dispatch_fleet_ids = availability.effective_dispatch_fleet_ids
         observed_unlocked = availability.unlocked_fleet_ids
@@ -162,7 +181,9 @@ def build_runtime(
     database = Path(database_path).expanduser()
     database.parent.mkdir(parents=True, exist_ok=True)
 
-    event_sink = SqliteDispatchEventLog(str(database))
+    event_sink = SqliteDispatchEventLog(
+        str(database), task_kind=policy.task_kind.value
+    )
     state_store = SqliteFleetStateStore(database)
     intent_store = SqliteDispatchIntentStore(database)
     # The three scheduler roles must be disjoint. Fleets the account has not
@@ -264,6 +285,7 @@ def build_runtime(
         ui_refresh_driver=ui_refresh_driver,
         unlocked_fleet_ids=observed_unlocked,
         fleet_availability_verified=availability_verified,
+        task_kind=policy.task_kind.value,
     )
 
 

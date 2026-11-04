@@ -1,8 +1,10 @@
 """Account-specific fleet unlock facts, kept separate from dispatch policy.
 
-``RuntimeConfig.all_fleet_ids`` / ``dispatchable_fleet_ids`` are a POLICY
-ceiling: which fleets this bot is ever allowed to dispatch. They are NOT a
-statement about a particular game account. KanColle unlocks fleets 2, 3 and 4
+``RuntimeConfig.all_fleet_ids`` is a game-level ceiling; the EXPEDITION policy
+(``dispatchable_fleet_ids`` via ``task_scope.fleet_policy_for``) says which
+fleets THAT task may dispatch. Neither is a statement about a particular game
+account, and neither is a global law about a fleet for other tasks. KanColle
+unlocks fleets 2, 3 and 4
 progressively, so a real account may expose only ``(1, 2)``, ``(1, 2, 3)`` or
 ``(1, 2, 3, 4)`` in ``info.fleets`` / the live Poi CDP fleet snapshot.
 
@@ -21,6 +23,7 @@ from dataclasses import dataclass
 from typing import Iterable, Sequence
 
 from kancollebot.runtime_config import RUNTIME_CONFIG, RuntimeConfig
+from kancollebot.task_scope import TaskKind, TaskScopeError, require_task_enabled
 
 
 class FleetAvailabilityError(ValueError):
@@ -69,12 +72,13 @@ def normalize_unlocked_fleet_ids(
 
 @dataclass(frozen=True, slots=True)
 class FleetAvailability:
-    """The resolved account fleet picture for one run."""
+    """The resolved account fleet picture for one run of one task."""
 
     unlocked_fleet_ids: tuple[int, ...]
     effective_dispatch_fleet_ids: tuple[int, ...]
     requested_but_not_unlocked: tuple[int, ...]
     locked_fleet_ids: tuple[int, ...]
+    task_kind: str = TaskKind.EXPEDITION.value
 
 
 def resolve_fleet_availability(
@@ -83,6 +87,7 @@ def resolve_fleet_availability(
     *,
     config: RuntimeConfig = RUNTIME_CONFIG,
     strict: bool = False,
+    task_kind: TaskKind | str = TaskKind.EXPEDITION,
 ) -> FleetAvailability:
     """Resolve which of the requested fleets may actually be dispatched.
 
@@ -93,7 +98,16 @@ def resolve_fleet_availability(
     ``strict=False`` is for a candidate set (the continuous monitor): fleets the
     account has not unlocked are dropped from the candidate set. An empty
     result is always an error.
+
+    ``task_kind`` selects the fleet POLICY. It defaults to expedition for
+    backward compatibility, but a task that is declared and not yet implemented
+    fails closed here instead of inheriting the expedition policy (which would,
+    for example, wrongly forbid Fleet 1 for combat automation).
     """
+    try:
+        policy = require_task_enabled(task_kind, config=config)
+    except TaskScopeError as exc:
+        raise FleetAvailabilityError(f"task scope refused: {exc}") from exc
     unlocked = normalize_unlocked_fleet_ids(unlocked_fleet_ids, config=config)
     requested = tuple(requested_fleet_ids)
     if not requested:
@@ -106,12 +120,19 @@ def resolve_fleet_availability(
                 f"requested fleet id {fleet_id!r} must be an integer"
             )
 
-    policy = config.dispatchable_fleet_ids
-    forbidden = tuple(fleet_id for fleet_id in requested if fleet_id not in policy)
+    allowed = policy.dispatchable_fleet_ids
+    forbidden = tuple(fleet_id for fleet_id in requested if fleet_id not in allowed)
     if forbidden:
+        reserved_hint = ""
+        if any(fleet_id in policy.reserved_fleet_ids for fleet_id in forbidden):
+            reserved_hint = (
+                " (reserved for this task only; other task kinds declare their "
+                "own policy)"
+            )
         raise FleetAvailabilityError(
-            f"Fleet(s) {list(forbidden)} are not permitted by policy; the dispatchable "
-            f"ceiling is {list(policy)} (Fleet 1 is reserved). Refusing to dispatch."
+            f"Fleet(s) {list(forbidden)} are not permitted by policy; the "
+            f"{policy.task_kind.value} dispatchable ceiling is {list(allowed)}"
+            f"{reserved_hint}. Refusing to dispatch."
         )
 
     not_unlocked = tuple(
@@ -138,4 +159,5 @@ def resolve_fleet_availability(
         effective_dispatch_fleet_ids=effective,
         requested_but_not_unlocked=not_unlocked,
         locked_fleet_ids=locked,
+        task_kind=policy.task_kind.value,
     )

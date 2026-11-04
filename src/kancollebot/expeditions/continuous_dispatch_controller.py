@@ -97,10 +97,18 @@ class DispatchExecution:
 
 
 class SqliteDispatchEventLog:
-    """Append-only event sink suitable for sharing the scheduler SQLite database."""
+    """Append-only event sink suitable for sharing the scheduler SQLite database.
 
-    def __init__(self, path: str) -> None:
+    ``task_kind`` is opt-in attribution. When supplied, every event payload
+    carries it so a log shared by several automation tasks can be split by
+    task. When omitted the payload is byte-for-byte unchanged, which keeps the
+    existing offline tests and on-disk databases valid; composition roots for
+    real runs should always pass it.
+    """
+
+    def __init__(self, path: str, *, task_kind: str | None = None) -> None:
         self.path = str(path)
+        self.task_kind = task_kind
         with self._connect() as db:
             db.execute(
                 """CREATE TABLE IF NOT EXISTS dispatch_events (
@@ -129,8 +137,11 @@ class SqliteDispatchEventLog:
             raise ValueError("event name must be a non-empty string")
         if not isinstance(fields, Mapping):
             raise TypeError("event fields must be a mapping")
+        payload_fields = dict(fields)
+        if self.task_kind is not None:
+            payload_fields.setdefault("task_kind", self.task_kind)
         payload = json.dumps(
-            dict(fields), ensure_ascii=False, sort_keys=True,
+            payload_fields, ensure_ascii=False, sort_keys=True,
             separators=(",", ":"), allow_nan=False,
         )
         with self._connect() as db:

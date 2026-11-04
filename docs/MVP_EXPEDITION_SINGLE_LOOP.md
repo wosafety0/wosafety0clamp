@@ -141,8 +141,10 @@ Unknown or stale state, mismatched fleet/expedition, ambiguous completion, unava
 ## Immediate next implementation task
 The production UI controller integration is now in place. The next live acceptance is one explicitly authorized Fleet 3 / mission 3 dispatch through tools/one_expedition_ui_loop.py --authorize-ui-actions, and only when a current natural api_port/port freshness witness, Fleet 3 readiness/full-supply/composition checks, and all visual/viewport gates pass. The runner stops after fresh active-mission readback and Home Port proof; timer, return/result, reward collection, idle confirmation, and resupply remain the next P0 closure work. Do not call game APIs, construct/send game-server requests, or use page/PIXI injection. Any stale or ambiguous state must stop without retry.
 
-## Explicitly out of scope
+## Explicitly out of scope (historical MVP scope)
 AI model comparisons, generalized Bot reverse engineering, multi-fleet scheduling, optimal expeditions, battle automation, generic frameworks, extensive security investigations, or GitHub Actions.
+
+**Scope clarification (2026-11-04):** this section records the boundary of the *single-expedition MVP at the time*, not the project's long-term boundary. Combat, sparkle, fleet composition and quest automation are declared future tasks; see `README.md` ("Automation tasks and scope"), `src/kancollebot/task_scope.py`, and the multi-task architecture section of `docs/PROJECT_kancollebot_Progress.md`. "Generic frameworks" meant that no framework was to be built during that MVP; it does not forbid the minimal task-scoping layer introduced later.
 
 ## Workflow
 Cloud GitHub first; no local checkout required. Read before write. Record verified commits and unresolved blockers; never claim unrun tests passed.

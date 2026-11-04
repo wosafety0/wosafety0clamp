@@ -194,6 +194,9 @@ def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra:
     payload: dict[str, object] = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "run_id": RUN_ID,
+        # Structured attribution: this jsonl is one of several automation logs,
+        # and future tasks must be distinguishable without parsing event names.
+        "task_kind": RUNTIME_CONFIG.dispatch_policy_task_kind,
         "event": event,
         **extra,
     }
