@@ -138,6 +138,18 @@ class SignatureTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             RowSignature((), 0)
 
+    def test_signature_rejects_mutable_or_non_integer_bins(self) -> None:
+        for bins in ([1, 2], (True,), (1.0,), ("1",)):
+            with self.subTest(bins=bins):
+                with self.assertRaises(ValueError):
+                    RowSignature(bins, 0)
+
+    def test_signature_rejects_non_integer_dark_total(self) -> None:
+        for total in (True, 1.0, "1"):
+            with self.subTest(total=total):
+                with self.assertRaises(ValueError):
+                    RowSignature((1,), total)
+
     def test_row_signature_validates_columns(self) -> None:
         scan = _scan([0])
         image = _page([0])
