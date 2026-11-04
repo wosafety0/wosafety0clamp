@@ -3787,3 +3787,12 @@ The Hand plugin's read-only probe reported:
 - **VALIDATION STATUS:** IMPLEMENTED; tests and current-facing docs have been pushed. The dev/** push workflow is configured, but the available workflow-run query exposes PR-triggered runs only and no local checkout was available. Exact-head CI remains unverified; do not mark TESTED/VERIFIED until the push run is read back.
 - **PR / DUPLICATE CONTROL:** Draft PR #34 is stacked on PR #32. Earlier PR #33 remains open/Draft as a historical candidate based on PR #30; it is superseded and must not be merged independently. No PR was merged or closed.
 - **SCOPE / SAFETY:** Repository/offline only. No Poi connection, screenshot capture, scrolling, game input, dispatch, supply, reward collection, game API request, Runtime.evaluate, page JavaScript, getter access, or system change. Production freshness/dispatch gates remain fail-closed.
+
+
+## 2026-11-05 — Verify exact-head CI for the current scan-session row-signature stack
+
+- **EXACT HEAD:** `8628c269ce3d09b575b4ce0f4afabf6a773a89d7` on `dev/row-signature-exact-integer-current-stack-20261105`, Draft PR [#34](https://github.com/wosafety0/wosafety0clamp/pull/34), stacked on PR #32 head `ddb6b6a7d475d95ea0eeacd5274d8b937690484c`.
+- **TESTED:** Push CI [run 41886869791](https://github.com/wosafety0/wosafety0clamp/actions/runs/41886869791) completed successfully on that exact HEAD. Node static tests **17/17**; passive observer `node --check`; package installation and unified CLI/compatibility-shim help smoke checks; Python `compileall`; full unittest suite **780 tests, 20 skipped, no failures**.
+- **SCOPE:** This confirms repository/offline behavior only. The row-signature constructor now rejects mutable bins and bool/float/string numeric values before they can alter fingerprint identity. It does not verify visual edge detectors or live scrolling.
+- **STACK CONTROL:** PR #34 is the current-stack version after #31/#32. PR #33 remains an older duplicate based on #30 and is superseded; do not merge it independently. All scanner PRs remain Draft/open/unmerged.
+- **SAFETY:** No Poi connection, screenshots, scrolling, game input, dispatch, supply, reward collection, game API request, Runtime.evaluate, page JavaScript, getter access, or system change occurred.
