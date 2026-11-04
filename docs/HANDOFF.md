@@ -3,7 +3,7 @@
 **Updated:** 2026-11-04  
 **Repository:** wosafety0/wosafety0clamp  
 **Working branch:** dev/expedition-closed-loop-mvp  
-**Current code baseline:** 25de147d718d2939e6b84a7c6882fc784a94bc68
+**Current code baseline:** 7e8972dc3c515bb80afe4f0f09a9f8c7765078ec
 
 This document is the concise handoff entry point. The long design and progress records remain useful for implementation history, but older entries are point-in-time records and may be superseded by later entries.
 
@@ -20,7 +20,7 @@ This document is the concise handoff entry point. The long design and progress r
 - Repository visibility: **public**.
 - Active code branch: **dev/expedition-closed-loop-mvp**.
 - Current code baseline: **25de147d718d2939e6b84a7c6882fc784a94bc68** — “Observe due expedition returns in supervisor tick”.
-- Latest verified CI for the archived branch head: [run 41767117657](https://github.com/wosafety0/wosafety0clamp/actions/runs/41767117657), conclusion **success**. The test job passed JavaScript static tests, passive observer syntax check, package/CLI smoke checks, Python compile, and the complete Python unit suite (**569 tests; 20 skipped; all remaining passed**).
+- Latest verified CI for the archived branch head: [run 41767679742](https://github.com/wosafety0/wosafety0clamp/actions/runs/41767679742), conclusion **success**. The test job passed JavaScript static tests, passive observer syntax check, package/CLI smoke checks, Python compile, and the complete Python unit suite (**571 tests; 20 skipped; all remaining passed**).
 - The default branch has not been changed, no PR has been created or merged as part of this handoff, and no collaborator permissions have been changed. Public read access does not grant push access; a new developer needs repository write permission to push.
 
 ## 3. Architecture map
@@ -63,13 +63,14 @@ This document is the concise handoff entry point. The long design and progress r
 - A read-only OpenCV visual adapter is implemented for bounded mission-marker and scrollbar-thumb template matching. Mocked-frame integration tests exercise screenshot decoding, row matching, scrollbar location, and ambiguity rejection. The adapter requires a manually verified proportional scrollbar model and remains disconnected from dispatch.
 - The dispatch controller waits for the background passive observer to capture a port witness whose response-received and body-captured timestamps are both later than the dispatch-completion boundary, and repeats this wait after Home Port navigation. It then reads Poi and verifies the exact active mission tuple. The wait uses an in-process condition variable, not repeated MCP reads; timeout fails closed and does not retry UI input.
 - Added `ContinuousDispatchController.wait_for_return()`: it is available only after the scheduler confirms both an active mission and verified Home Port. It refuses to observe before the mission's `final_time_ms`, waits for a natural port witness newer than that deadline, requires a fresh Poi Redux observation newer than the deadline, and confirms returned status 2 plus exact mission ID, return timestamp, reserved slot, and ordered ship roster before moving the durable scheduler to `RETURNED_PENDING_UI`.
+- Tightened `visual_state_gate.py` settlement classification: `RETURN_RESULT` and `BONUS_ITEMS` now reject conflicting `sortie_menu_title.png` evidence in addition to their existing return-notice/home/result guards. Added regression tests for a bonus-title/return-notice collision and a result/sortie-title collision. GitHub Actions run 41767679742 passed **571 Python tests; 20 skipped**; all remaining Python tests, 17 Node tests, observer syntax, CLI smoke checks, and compile passed. This is offline classifier validation only; it does not calibrate or authorize any reward click.
 
 ## 5. Explicitly not verified / blocked
 
 Do not describe the project as a completed automatic expedition loop.
 
 - **No end-to-end live dispatch acceptance:** the expedition-start action has not been verified in the current production acceptance record. Fresh post-dispatch readback, return/result progression, reward collection, idle confirmation, and the complete repeat cycle are not accepted.
-- **Return observer is offline-tested only:** six new controller tests plus supervisor integration tests cover due-time gating, passive witness timeout, exact returned tuple matching, rejection of unverified Poi state, and settlement pause before another dispatch. No live expedition has reached its return deadline through this method. It performs no UI input and does not yet recognize/advance RETURN_RESULT, BONUS_ITEMS, or reward collection.
+- **Return observer is offline-tested only:** six new controller tests plus supervisor integration tests cover due-time gating, passive witness timeout, exact returned tuple matching, rejection of unverified Poi state, and settlement pause before another dispatch. No live expedition has reached its return deadline through this method. It performs no UI input. The visual classifier can label RETURN_RESULT and BONUS_ITEMS from configured local templates, and the one-shot visual gate requires two consecutive matching frames; however, this is not integrated into the supervisor's settlement lifecycle and has no live validation. Reward collection remains blocked.
 - **Taiha gate is offline-tested only:** no live Taiha snapshot or live dispatch-block attempt has been recorded. Healthy-ship replacement is deliberately deferred and is not implemented.
 - **Unattended scheduler is not accepted:** the read-only monitor is separate from the one-shot UI runner. Do not infer that the continuous supervisor is a ready-to-run unattended game process.
 - **Mission list discovery remains incomplete:** the offline page aggregator and OpenCV adapter are implemented, but no local mission-marker templates, calibrated visual profile, live Canvas row-recognition sequence, or verified scrollbar proportionality evidence is available in GitHub. `scrollbar_scale_verified` defaults to false, so screenshot scanning cannot produce complete-scan evidence until Poi calibration. The previously observed eight rows (01 through A1) are not the complete mission catalogue.
