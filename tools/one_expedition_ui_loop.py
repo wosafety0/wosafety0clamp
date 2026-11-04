@@ -153,6 +153,12 @@ def _require_ui_state(
         or not 2 <= visual_attempts <= 12
     ):
         raise ValueError("visual_attempts must be an integer from 2 through 12")
+    def capture_visual_payload():
+        if captured_frames is None:
+            return game_session.input.capture_screenshot(), None
+        frame = game_session.input.capture_frame()
+        return frame.screenshot_base64, frame
+
     result = game_session.transport.send("Accessibility.getFullAXTree", {})
     nodes = result.get("nodes") if isinstance(result, dict) else None
     try:
@@ -205,8 +211,7 @@ def _require_ui_state(
                         {"type": "mouseMoved", "x": 1195, "y": 715},
                     )
                     time.sleep(0.15)
-                    frame = game_session.input.capture_frame()
-                    payload = frame.screenshot_base64
+                    payload, frame = capture_visual_payload()
                     observed, scores = classify_supply_checkbox_state(
                         payload, document, checkbox_document,
                         fleet_index=fleet_index, ship_index=ship_index,
@@ -218,11 +223,9 @@ def _require_ui_state(
                         observed=observed,
                         scores={key: round(value, 4) for key, value in scores.items()},
                         screenshot_written_to_disk=False,
-                        frame_id=frame.frame_id,
-                        frame_sha256=frame.sha256,
                     )
                     if observed == expected.value:
-                        if captured_frames is not None:
+                        if captured_frames is not None and frame is not None:
                             captured_frames.append(frame)
                         consecutive_matches += 1
                         if consecutive_matches >= 2:
@@ -297,8 +300,7 @@ def _require_ui_state(
                     {"type": "mouseMoved", "x": 1195, "y": 715},
                 )
                 time.sleep(0.15)
-                frame = game_session.input.capture_frame()
-                payload = frame.screenshot_base64
+                payload, frame = capture_visual_payload()
                 visual_state, scores = classify_screenshot_png(payload, template_path)
                 if HOME_REFERENCE_BASE64:
                     scores["home_reference_similarity"] = home_reference_similarity(
