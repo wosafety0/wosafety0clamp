@@ -38,6 +38,8 @@ class RewardClaimTarget:
     second_best_score: float
     candidate_count: int
     consecutive_states: tuple[str, str]
+    state_frame_ids: tuple[int, int]
+    state_frame_sha256s: tuple[str, str]
 
     def __post_init__(self) -> None:
         if self.template_name != _APPROVED_TARGET:
@@ -77,6 +79,25 @@ class RewardClaimTarget:
             raise ValueError("reward target confidence or uniqueness margin is insufficient")
         if self.consecutive_states != ("BONUS_ITEMS", "BONUS_ITEMS"):
             raise ValueError("two consecutive BONUS_ITEMS state checks are required")
+        if (
+            not isinstance(self.state_frame_ids, tuple)
+            or len(self.state_frame_ids) != 2
+            or any(isinstance(value, bool) or not isinstance(value, int) for value in self.state_frame_ids)
+            or self.state_frame_ids[0] < 1
+            or self.state_frame_ids[1] <= self.state_frame_ids[0]
+        ):
+            raise ValueError("two distinct, increasing state frame IDs are required")
+        if (
+            not isinstance(self.state_frame_sha256s, tuple)
+            or len(self.state_frame_sha256s) != 2
+            or any(not isinstance(value, str) or not _SHA256.fullmatch(value) for value in self.state_frame_sha256s)
+            or self.state_frame_sha256s[0] == self.state_frame_sha256s[1]
+        ):
+            raise ValueError("two distinct state frame SHA-256 fingerprints are required")
+        if self.frame_id != self.state_frame_ids[1]:
+            raise ValueError("target localization must use the second verified state frame")
+        if self.frame_sha256 != self.state_frame_sha256s[1]:
+            raise ValueError("target frame fingerprint must match the second verified state frame")
 
 
 @dataclass(frozen=True, slots=True)
