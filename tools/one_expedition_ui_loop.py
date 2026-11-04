@@ -649,13 +649,26 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
 
             def verify_state(expected: str) -> UiStateEvidence:
                 state = UiState(expected)
-                first_evidence = _require_ui_state(game_session, state)
+                first_frames: list[CapturedFrame] = []
+                first_evidence = _require_ui_state(
+                    game_session, state, captured_frames=first_frames,
+                )
                 time.sleep(0.15)
-                second_evidence = _require_ui_state(game_session, state)
+                second_frames: list[CapturedFrame] = []
+                second_evidence = _require_ui_state(
+                    game_session, state, captured_frames=second_frames,
+                )
+                if len(first_frames) < 2 or len(second_frames) < 2:
+                    raise LoopError(
+                        f"{expected}: two independent visual checks must each retain "
+                        "two exact CapturedFrame objects; accessibility-only evidence is insufficient"
+                    )
+                first_frame, second_frame = first_frames[-1], second_frames[-1]
                 return UiStateEvidence(
                     state=state.value,
                     consecutive_states=(state.value, state.value),
                     evidence=f"{first_evidence}+{second_evidence}",
+                    frames=(first_frame, second_frame),
                 )
 
             def verify_settlement_state(expected: str) -> UiStateEvidence:
