@@ -45,6 +45,7 @@ from .expedition_scan_session import (
     ScanSessionSnapshot,
     ScanSessionState,
     VerifiedEndMarker,
+    VerifiedStartMarker,
 )
 from .expedition_rows import (
     DEFAULT_DARK_THRESHOLD,
@@ -105,6 +106,7 @@ __all__ = [
     "ScanSessionSnapshot",
     "ScanSessionState",
     "VerifiedEndMarker",
+    "VerifiedStartMarker",
     "VisibleRow",
     "align_pages",
     "calibrate_rows",

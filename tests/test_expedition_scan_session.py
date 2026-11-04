@@ -12,6 +12,7 @@ from kancollebot.calibration import (
     RowSignature,
     ScanSessionState,
     VerifiedEndMarker,
+    VerifiedStartMarker,
     VisibleRow,
 )
 
@@ -83,7 +84,11 @@ class ScanSessionTests(unittest.TestCase):
 
     def test_complete_requires_exact_end_marker_and_all_identity_labels(self) -> None:
         session = ExpeditionScanSession(expected_tab=0)
-        session.observe_page(_scan([1, 2, 3, 4]))
+        first_page = _scan([1, 2, 3, 4])
+        start_proof = VerifiedStartMarker.for_page(
+            first_page, marker_id="scrollbar-top", evidence_source="independent-calibrated-detector"
+        )
+        session.observe_page(first_page, start_marker=start_proof)
         for row, mission in enumerate(("01", "02", "03", "04"), start=1):
             session.label_row(0, row, mission)
         final_page = _scan([3, 4, 5, 6])
@@ -96,12 +101,60 @@ class ScanSessionTests(unittest.TestCase):
         self.assertEqual(snapshot.unbound_rows, ((1, 3), (1, 4)))
         session.label_row(1, 3, "A1")
         snapshot = session.label_row(1, 4, "A2")
+        self.assertTrue(snapshot.start_verified)
+        self.assertTrue(snapshot.end_verified)
         self.assertIs(snapshot.state, ScanSessionState.COMPLETE)
         self.assertEqual(snapshot.entry_count, 6)
         self.assertEqual(
             tuple(entry.expedition_id for entry in session.entries),
             ("01", "02", "03", "04", "A1", "A2"),
         )
+
+    def test_end_marker_alone_cannot_complete_without_verified_top(self) -> None:
+        first = _scan([1, 2, 3])
+        session = ExpeditionScanSession(expected_tab=0)
+        session.observe_page(first)
+        for row, mission in enumerate(("01", "02", "03"), start=1):
+            session.label_row(0, row, mission)
+        end_proof = VerifiedEndMarker.for_page(
+            first, marker_id="bottom", evidence_source="test-fixture"
+        )
+        snapshot = session.observe_page(first, end_marker=end_proof)
+        self.assertIs(snapshot.state, ScanSessionState.INCOMPLETE)
+        self.assertFalse(snapshot.start_verified)
+        self.assertTrue(snapshot.end_verified)
+        self.assertEqual(snapshot.reason, "verified_end_but_start_not_verified")
+
+    def test_start_marker_is_bound_to_the_first_page_not_the_latest_page(self) -> None:
+        first = _scan([1, 2, 3, 4])
+        second = _scan([3, 4, 5, 6])
+        start_proof = VerifiedStartMarker.for_page(
+            first, marker_id="top", evidence_source="test-fixture"
+        )
+        session = ExpeditionScanSession(expected_tab=0)
+        session.observe_page(first)
+        snapshot = session.observe_page(second, start_marker=start_proof)
+        self.assertTrue(snapshot.start_verified)
+        self.assertFalse(snapshot.end_verified)
+        self.assertIs(snapshot.state, ScanSessionState.INCOMPLETE)
+
+    def test_stale_start_marker_is_rejected(self) -> None:
+        first = _scan([1, 2, 3, 4])
+        second = _scan([2, 3, 4, 5])
+        proof = VerifiedStartMarker.for_page(
+            second, marker_id="top", evidence_source="test-fixture"
+        )
+        session = ExpeditionScanSession(expected_tab=0)
+        session.observe_page(first)
+        with self.assertRaisesRegex(ExpeditionListError, "start-marker evidence"):
+            session.observe_page(first, start_marker=proof)
+        self.assertFalse(session.snapshot().start_verified)
+
+    def test_start_marker_with_unknown_tab_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ExpeditionListError, "unknown area tab"):
+            VerifiedStartMarker.for_page(
+                _scan([1, 2], tab=None), marker_id="top", evidence_source="test"
+            )
 
     def test_stale_end_marker_cannot_complete_a_different_page(self) -> None:
         first = _scan([1, 2, 3, 4])
@@ -133,11 +186,13 @@ class ScanSessionTests(unittest.TestCase):
             if row == 1:
                 session.observe_page(first)
             session.label_row(0, row, mission)
-        proof = VerifiedEndMarker.for_page(
+        start_proof = VerifiedStartMarker.for_page(
+            first, marker_id="top", evidence_source="test-fixture"
+        )
+        end_proof = VerifiedEndMarker.for_page(
             first, marker_id="bottom", evidence_source="test-fixture"
         )
-        # A proof for the first page is accepted only while that page is latest.
-        session.observe_page(first, end_marker=proof)
+        session.observe_page(first, start_marker=start_proof, end_marker=end_proof)
         self.assertIs(session.snapshot().state, ScanSessionState.COMPLETE)
         with self.assertRaisesRegex(ExpeditionListError, "already complete"):
             session.observe_page(_scan([2, 3, 4, 5]))
