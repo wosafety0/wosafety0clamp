@@ -3,7 +3,7 @@
 **Updated:** 2026-11-04  
 **Repository:** wosafety0/wosafety0clamp  
 **Working branch:** dev/expedition-closed-loop-mvp  
-**Current code baseline:** a93784d8e93d36aaaa50dc31977d1d073f8e717b
+**Current code baseline:** 46c76b3e20a83302edc7cdee82789dfc2e497492
 
 This document is the concise handoff entry point. The long design and progress records remain useful for implementation history, but older entries are point-in-time records and may be superseded by later entries.
 
@@ -19,8 +19,8 @@ This document is the concise handoff entry point. The long design and progress r
 
 - Repository visibility: **public**.
 - Active code branch: **dev/expedition-closed-loop-mvp**.
-- Current code baseline: **a93784d8e93d36aaaa50dc31977d1d073f8e717b** — fail-closed reward claim authorization gate.
-- Latest verified CI for the archived branch head: [run 41767679742](https://github.com/wosafety0/wosafety0clamp/actions/runs/41767679742), conclusion **success**. The test job passed JavaScript static tests, passive observer syntax check, package/CLI smoke checks, Python compile, and the complete Python unit suite (**571 tests; 20 skipped; all remaining passed**).
+- Current code baseline: **46c76b3e20a83302edc7cdee82789dfc2e497492** — fail-closed reward claim authorization gate and current handoff/design documentation.
+- Latest verified CI for this exact code baseline: [run 41769006678](https://github.com/wosafety0/wosafety0clamp/actions/runs/41769006678), conclusion **success**. The test job passed JavaScript static tests, passive observer syntax check, package/CLI smoke checks, Python compile, and the complete Python unit suite (**593 tests; 20 skipped; all remaining passed**).
 - The default branch has not been changed, no PR has been created or merged as part of this handoff, and no collaborator permissions have been changed. Public read access does not grant push access; a new developer needs repository write permission to push.
 
 ## 3. Architecture map
@@ -58,6 +58,7 @@ This document is the concise handoff entry point. The long design and progress r
 
 - Passive port witness, exact current-state matching, background observation, durable fleet state, dispatch-intent recovery, UI arbitration, visual state gates, and guarded supply logic have offline test coverage.
 - Delayed supply verification was corrected to tolerate later store propagation within a bounded read window, without issuing a second click. Its focused regression tests passed.
+- A fail-closed reward claim authorization gate was added at `src/kancollebot/expeditions/reward_claim_gate.py`. It requires an explicitly approved template fingerprint/calibration ID, unique high-confidence in-frame target localization, two consecutive BONUS_ITEMS checks, and a frame-bound authorization. The default calibration allowlist is empty; it does not click and cannot be used until real Poi reward-button calibration is obtained.
 - Pre-dispatch Taiha (大破) detection is implemented: HP at or below 25% is classified with integer arithmetic (api_nowhp * 4 <= api_maxhp). The dispatch controller blocks before durable intent creation and before UI input.
 - The offline mission-catalogue scan accumulator is implemented. It deduplicates overlapping visible pages, rejects conflicting row identities and unsafe scroll progression, and only marks a scan complete when measured bottom geometry agrees with an independent visual bottom confirmation. Its output is not connected to dispatch.
 - A read-only OpenCV visual adapter is implemented for bounded mission-marker and scrollbar-thumb template matching. Mocked-frame integration tests exercise screenshot decoding, row matching, scrollbar location, and ambiguity rejection. The adapter requires a manually verified proportional scrollbar model and remains disconnected from dispatch.
@@ -89,7 +90,7 @@ Do not describe the project as a completed automatic expedition loop.
 2. When Poi is available, calibrate the visual adapter using operator-local mission number crops and a scrollbar-thumb crop. Verify the 1200×720 list/track regions, marker thresholds, scrollbar proportionality, and the bottom tolerance with real top/middle/bottom captures. Keep those assets local unless separately approved for sharing.
 3. Validate row identity and localization against each current screenshot. Recompute every row target after every scroll; never reuse pre-scroll coordinates. Feed page observations into the offline accumulator and do not treat A1 or the current eight rows as the end.
 4. After Poi access is restored and visual calibration is available, perform a separately authorized single live dispatch acceptance. Confirm the post-dispatch and post-navigation witnesses, then exercise `wait_for_return()` only after the recorded return deadline; verify the status-2 tuple and durable `RETURNED_PENDING_UI` transition. No retry is allowed on ambiguous clicks or missing freshness evidence.
-5. Implement and test the remaining visible settlement path: two-frame RETURN_RESULT and BONUS_ITEMS recognition, independently calibrated reward-claim control, post-claim confirmation, and Fleet 3 resupply postcondition. Do not invent a reward click target from the title marker alone.
+5. Keep the supervisor paused at BONUS_ITEMS until real Poi reward-button calibration exists. The offline authorization gate is implemented, but there is no click executor. After real captures, validate the target template and calibration, then implement a separate executor with immediate same-frame revalidation and independent post-click state confirmation. Do not invent a reward click target from the title marker alone.
 6. Keep AX/DOM targeting for genuine DOM nodes only. Decide separately whether the incomplete DOM protocol chain is worth enabling for shell controls; do not use it as a substitute for Canvas recognition.
 7. Add live read-only verification for the Taiha gate before considering any dispatch attempt. Healthy-ship replacement remains a separate, later feature requiring explicit fleet-composition and safety tests.
 8. Only after all state gates and the post-dispatch / return / reward / idle path are independently verified should the full expedition loop be considered for live acceptance.
