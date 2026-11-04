@@ -14,6 +14,7 @@ except ImportError:
     np = None
 
 from kancollebot.adapters.poi.cdp_input import CapturedFrame
+from kancollebot.expeditions.settlement_observer import SettlementObservation
 from kancollebot.expeditions.reward_claim_locator import (
     RewardClaimLocalizationError,
     locate_reward_claim_target,
@@ -31,16 +32,33 @@ def make_frame(frame_id: int, payload: bytes) -> CapturedFrame:
 
 class RewardClaimLocatorValidationTests(unittest.TestCase):
     def setUp(self):
-        first = make_frame(10, b"\\x89PNG\\r\\n\\x1a\\nfirst")
-        second = make_frame(12, b"\\x89PNG\\r\\n\\x1a\\nsecond")
+        first = make_frame(10, b"\x89PNG\r\n\x1a\nfirst")
+        second = make_frame(12, b"\x89PNG\r\n\x1a\nsecond")
         self.evidence = SimpleNamespace(
             state="BONUS_ITEMS",
             consecutive_states=("BONUS_ITEMS", "BONUS_ITEMS"),
             frames=(first, second),
         )
 
+
+    def test_rejects_caller_fabricated_lookalike_evidence(self):
+        lookalike = SimpleNamespace(
+            state="BONUS_ITEMS",
+            consecutive_states=("BONUS_ITEMS", "BONUS_ITEMS"),
+            frames=self.evidence.frames,
+        )
+        with self.assertRaisesRegex(RewardClaimLocalizationError, "production UiStateEvidence"):
+            locate_reward_claim_target(
+                lookalike, "bonus_claim_button.png",
+                calibration_id="live-calibration", region=(800, 500, 1150, 700),
+            )
+
     def test_rejects_wrong_state_before_loading_vision_dependencies(self):
-        self.evidence.state = "RETURN_RESULT"
+        self.evidence = SimpleNamespace(
+            state="RETURN_RESULT",
+            consecutive_states=("RETURN_RESULT", "RETURN_RESULT"),
+            frames=self.evidence.frames,
+        )
         with self.assertRaisesRegex(RewardClaimLocalizationError, "two consecutive BONUS_ITEMS"):
             locate_reward_claim_target(
                 self.evidence, "bonus_claim_button.png",
@@ -48,7 +66,11 @@ class RewardClaimLocatorValidationTests(unittest.TestCase):
             )
 
     def test_rejects_missing_frame_objects(self):
-        self.evidence.frames = None
+        self.evidence = SimpleNamespace(
+            state="BONUS_ITEMS",
+            consecutive_states=("BONUS_ITEMS", "BONUS_ITEMS"),
+            frames=None,
+        )
         with self.assertRaisesRegex(RewardClaimLocalizationError, "two retained CapturedFrame"):
             locate_reward_claim_target(
                 self.evidence, "bonus_claim_button.png",
@@ -91,7 +113,7 @@ class RewardClaimLocatorVisionTests(unittest.TestCase):
         self.assertTrue(ok)
         payload = encoded.tobytes()
         self.frames = (
-            make_frame(100, b"\\x89PNG\\r\\n\\x1a\\nfirst-frame"),
+            make_frame(100, b"\x89PNG\r\n\x1a\nfirst-frame"),
             make_frame(102, payload),
         )
         self.evidence = SimpleNamespace(
@@ -129,7 +151,13 @@ class RewardClaimLocatorVisionTests(unittest.TestCase):
         ok, encoded = cv2.imencode(".png", image)
         self.assertTrue(ok)
         duplicate_frame = make_frame(104, encoded.tobytes())
-        self.evidence.frames = (self.frames[0], duplicate_frame)
+        self.evidence = SettlementObservation(
+            fleet_id=3,
+            state="BONUS_ITEMS",
+            consecutive_states=("BONUS_ITEMS", "BONUS_ITEMS"),
+            evidence="two consecutive in-memory fingerprint matches",
+            frames=(self.frames[0], duplicate_frame),
+        )
         with self.assertRaisesRegex(RewardClaimLocalizationError, "uniqueness margin"):
             locate_reward_claim_target(
                 self.evidence,
