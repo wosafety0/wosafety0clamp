@@ -9,15 +9,14 @@ import hashlib
 import math
 from pathlib import Path
 from kancollebot.adapters.poi.cdp_input import CapturedFrame
-from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
-from kancollebot.expeditions.settlement_observer import SettlementObservation
 from kancollebot.adapters.poi.visual_state_gate import (
-    VisualStateError,
     _decode_grayscale,
     _load_grayscale_template,
     _vision_modules,
 )
+from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
 from kancollebot.expeditions.reward_claim_gate import RewardClaimTarget
+from kancollebot.expeditions.settlement_observer import SettlementObservation
 
 
 class RewardClaimLocalizationError(RuntimeError):
