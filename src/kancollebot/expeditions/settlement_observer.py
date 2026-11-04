@@ -23,7 +23,7 @@ class SettlementObservation:
     def __post_init__(self) -> None:
         if isinstance(self.fleet_id, bool) or not isinstance(self.fleet_id, int) or self.fleet_id < 1:
             raise ValueError("fleet_id must be a positive integer")
-        if self.state not in {"RETURN_RESULT", "BONUS_ITEMS"}:
+        if not isinstance(self.state, str) or self.state not in {"RETURN_RESULT", "BONUS_ITEMS"}:
             raise ValueError("unsupported settlement state")
         if (
             not isinstance(self.consecutive_states, tuple)
@@ -48,7 +48,7 @@ class SettlementStateObserver:
     def observe(self, fleet_id: int, expected_state: str) -> SettlementObservation:
         if isinstance(fleet_id, bool) or not isinstance(fleet_id, int) or fleet_id < 1:
             raise ValueError("fleet_id must be a positive integer")
-        if expected_state not in self.EXPECTED_STATES:
+        if not isinstance(expected_state, str) or expected_state not in self.EXPECTED_STATES:
             raise ValueError("expected_state must be RETURN_RESULT or BONUS_ITEMS")
 
         # A mismatch or capture failure propagates; callers must stop the shared UI queue.
