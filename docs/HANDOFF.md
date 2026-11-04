@@ -164,3 +164,11 @@ The purpose of this inventory is to prevent a new developer from mistaking an ol
 - **IMPLEMENTED:** `CdpInput.capture_frame()` returns an immutable `CapturedFrame` containing a process-monotonic frame ID, monotonic capture timestamp, exact PNG bytes, and SHA-256 computed internally from those bytes. It rejects invalid base64 and non-PNG payloads; the original screenshot string API remains available for existing callers.
 - **TESTS ADDED:** verify exact-byte digest, monotonically increasing IDs, base64 round-trip, non-PNG rejection, and fabricated-digest rejection.
 - **LIMITS:** this is a reusable capture primitive only. The settlement verifier and reward target locator are not yet wired to consume the same `CapturedFrame` instances, so it does not yet establish end-to-end provenance or enable reward authorization. No click path was added.
+
+## 2026-11-04 — Settlement verifier consumes exact captured Poi frames
+
+- **IMPLEMENTED:** `_require_ui_state` can now capture immutable `CapturedFrame` objects for settlement verification. The settlement-specific verifier uses that path and returns the exact two matching frame objects alongside the state evidence. Dispatch checkpoint verification retains its prior screenshot/accessibility behavior and does not require frame objects.
+- **IMPLEMENTED:** `SettlementStateObserver` now rejects missing/non-`CapturedFrame` evidence, duplicate or non-increasing frame IDs, duplicate image fingerprints, and non-increasing monotonic capture timestamps. `SettlementObservation` retains both frame objects for a later target-localization step.
+- **CORRECTED:** PNG signature validation and its fixtures now use actual PNG signature bytes rather than double-escaped text. This closes a false-positive in the earlier capture tests.
+- **TESTED:** GitHub Actions run [41770859932](https://github.com/wosafety0/wosafety0clamp/actions/runs/41770859932) passed 601 Python tests (20 skipped), plus workflow syntax, CLI smoke, and compile checks.
+- **LIMITS:** reward target localization still does not consume the retained second `CapturedFrame`; `RewardClaimTarget` still accepts caller-supplied metadata. The chain is improved through settlement observation, but not yet end-to-end at reward target detection. No reward click executor, live calibration, or game interaction was enabled.
