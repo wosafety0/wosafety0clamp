@@ -25,6 +25,7 @@ from kancollebot.calibration import (
     PageScan,
     RowSignature,
     ScrollAffordance,
+    VisibleRow,
     align_pages,
     check_display_order,
     classify_boundary,
@@ -623,6 +624,97 @@ class IndexTests(unittest.TestCase):
         index.label_row(0, 2, "02")
         index.label_row(1, 3, "A1")
         self.assertEqual(index.tab_order(0), ("01", "02", "A1"))
+
+
+class LocateAmbiguityTests(unittest.TestCase):
+    """A tolerant lookup must not guess which expedition a row is.
+
+    Live measurement forced this class into existence: in 西方海域, 29 and 30
+    fingerprint *identically*, 28 sits exactly on the tolerance from both, and an
+    edge-clipped row drifts by up to 4 between frames. So "nearest match wins"
+    would sometimes return a neighbouring expedition's click point, and the caller
+    would dispatch the wrong fleet. Anything but a unique match is reported as
+    ambiguous here.
+    """
+
+    @staticmethod
+    def _signature(offset_bin: int = 0, offset_value: int = 0, *, total: int = 100) -> RowSignature:
+        bins = [5] * 16
+        if offset_bin:
+            bins[offset_bin] = bins[offset_bin] + offset_value
+        return RowSignature(tuple(bins), total)
+
+    @staticmethod
+    def _page(signatures: list[RowSignature], *, active_tab: int = 0) -> PageScan:
+        rows = tuple(
+            VisibleRow(
+                index=position,
+                top=ROW_TOP + ROW_PITCH * (position - 1),
+                bottom=ROW_TOP + ROW_PITCH * (position - 1) + ROW_HEIGHT,
+                center=ROW_TOP + ROW_PITCH * (position - 1) + ROW_HEIGHT / 2,
+                signature=signature,
+            )
+            for position, signature in enumerate(signatures, start=1)
+        )
+        return PageScan(
+            rows=rows,
+            tabs=detect_area_tabs(_page([0], active_tab=active_tab)),
+            scroll_candidates=(),
+            image_size=(WIDTH, HEIGHT),
+        )
+
+    def _index(self, bindings: dict[str, RowSignature]) -> ExpeditionListIndex:
+        index = ExpeditionListIndex()
+        for number, signature in bindings.items():
+            index.bindings[(0, signature.key)] = number
+        return index
+
+    def test_exact_match_is_preferred(self) -> None:
+        stored = self._signature()
+        index = self._index({"29": stored})
+        relocation = index.locate("29", self._page([stored]))
+        self.assertEqual(relocation.state, "located")
+        self.assertEqual(relocation.detail, "exact signature match")
+
+    def test_single_unambiguous_near_row_is_located(self) -> None:
+        stored = self._signature()
+        near = self._signature(3, 2)
+        index = self._index({"29": stored})
+        relocation = index.locate("29", self._page([near]))
+        self.assertEqual(relocation.state, "located")
+        self.assertEqual(relocation.detail, "tolerant signature match")
+
+    def test_two_live_rows_inside_the_tolerance_are_ambiguous(self) -> None:
+        stored = self._signature()
+        index = self._index({"29": stored})
+        page = self._page([self._signature(3, 2), self._signature(4, 3)])
+        relocation = index.locate("29", page)
+        self.assertEqual(relocation.state, "ambiguous")
+        self.assertIsNone(relocation.point)
+
+    def test_a_neighbour_that_also_fits_makes_it_ambiguous(self) -> None:
+        stored = self._signature()
+        neighbour = self._signature(3, 4)
+        index = self._index({"29": stored, "30": neighbour})
+        relocation = index.locate("29", self._page([self._signature(3, 2)]))
+        self.assertEqual(relocation.state, "ambiguous")
+        self.assertIsNone(relocation.point)
+        self.assertIn("30", relocation.detail)
+
+    def test_no_row_close_enough_is_not_visible(self) -> None:
+        index = self._index({"29": self._signature()})
+        page = self._page([self._signature(8, 30)])
+        self.assertEqual(index.locate("29", page).state, "not_visible")
+
+    def test_identical_rows_bound_to_two_numbers_stay_ambiguous(self) -> None:
+        # The measured 西方 case: one rendering, two expeditions.
+        twin = self._signature()
+        index = ExpeditionListIndex()
+        index.bindings[(0, twin.key)] = "29"
+        rival = self._signature(0, 0, total=101)
+        index.bindings[(0, rival.key)] = "30"
+        relocation = index.locate("29", self._page([self._signature(1, 1)]))
+        self.assertEqual(relocation.state, "ambiguous")
 
 
 class DisplayOrderTests(unittest.TestCase):

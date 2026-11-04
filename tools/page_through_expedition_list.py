@@ -1,11 +1,17 @@
 """Page through one area tab of the expedition list and read every row.
 
 ``scan_expedition_list.py`` never clicks. This tool does, so it is deliberately
-separate and gated behind ``--allow-scroll-clicks``. Every click it is willing
-to make is a *measured* scroll chevron: ``plan_scroll_step`` must return
-``click_measured_control``, otherwise the walk stops instead of guessing a
-coordinate. Nothing else on the screen is ever pressed - not a row, not a tab,
-not a dispatch button.
+separate and gated behind ``--allow-scroll-clicks``. It is willing to press
+exactly two kinds of thing, both of them measured rather than guessed:
+
+* a scroll chevron - ``plan_scroll_step`` must return ``click_measured_control``,
+  otherwise the walk stops instead of inventing a coordinate;
+* one area tab, and only when ``--switch-to`` asked for it. The point comes from
+  ``detect_area_tabs(...).centers``, and the click is only accepted if the
+  orange label moves to that tab (see ``Walker.select_tab``); a click that
+  changes nothing, or leaves the selection unreadable, blocks the walk.
+
+Nothing else on the screen is ever pressed - not a row, not a dispatch button.
 
 Why a walk is needed at all: the eight-row viewport hides rows, so a single
 screenshot cannot distinguish "this account has not unlocked the rest" from
@@ -49,6 +55,7 @@ from kancollebot.calibration import (  # noqa: E402
     DEFAULT_CATALOG,
     DEFAULT_PANEL_BOX,
     DEFAULT_TAB_AREAS,
+    BoundaryState,
     ExpeditionListError,
     ExpeditionListIndex,
     PageScan,
@@ -118,6 +125,37 @@ class Walker:
             return "no_movement", None
         return "moved", moved
 
+    def select_tab(self, current: PageScan, target: int) -> tuple[str, PageScan | None]:
+        """Press one area tab and prove the strip really moved there.
+
+        The selected tab is the only one painting its label orange, so the tab's
+        own detection doubles as the receipt for the click: either the label is
+        on ``target`` afterwards or the click is treated as not delivered. That
+        is why no coordinate can be "probably right" - a miss costs nothing and
+        is reported as a miss.
+
+        A tab that is already selected gets no click at all: pressing it again
+        would be indistinguishable from a failed press, and the caller asked for
+        a state, not for an event.
+        """
+        centers = current.tabs.centers
+        if not 0 <= target < len(centers):
+            return "target_out_of_range", None
+        if current.tab == target:
+            print(f"  tab {target + 1}: already selected, no click", flush=True)
+            return "already_selected", current
+        point = centers[target]
+        print(f"  tab {target + 1}: click {point}", flush=True)
+        _click_measured(self.session, point, f"expedition-tab-{target + 1}")
+        self.clicks += 1
+        time.sleep(self.settle_seconds)
+        after = self.capture(f"tab_{target + 1:02d}_selected")
+        if after.tab is None:
+            return "tab_unreadable", None
+        if after.tab != target:
+            return "tab_not_selected", None
+        return "selected", after
+
 
 def _parse_labels(text: str) -> list[str]:
     labels = [part.strip() for part in text.split(",") if part.strip()]
@@ -139,6 +177,15 @@ def main(argv: list[str] | None = None) -> int:
         help="required: without it the tool refuses to touch the input at all",
     )
     parser.add_argument("--area", help="area name for the catalogue comparison (inferred when omitted)")
+    parser.add_argument(
+        "--switch-to",
+        type=int,
+        metavar="TAB",
+        help=(
+            "1-based position on the tab strip to select before walking, e.g. 4 for "
+            "南西海域; switching resets the list to its top page"
+        ),
+    )
     parser.add_argument("--panel-box", default=None, help="override the list panel box 'l,t,r,b'")
     parser.add_argument(
         "--label-first",
@@ -218,6 +265,25 @@ def main(argv: list[str] | None = None) -> int:
         with connect_game_webview() as session:
             walker = Walker(session, settle_seconds=args.settle_seconds, frames=frames)
             original = walker.capture("00_original")
+            if args.switch_to is not None:
+                target = args.switch_to - 1
+                outcome, selected = walker.select_tab(original, target)
+                walker.events.append(
+                    {"phase": "select_tab", "target": target, "outcome": outcome}
+                )
+                if outcome not in {"selected", "already_selected"} or selected is None:
+                    wanted = (
+                        DEFAULT_TAB_AREAS[target]
+                        if 0 <= target < len(DEFAULT_TAB_AREAS)
+                        else "not a known area"
+                    )
+                    print(
+                        f"WALK_BLOCKED: tab {args.switch_to} ({wanted}) was not "
+                        f"selected: {outcome}",
+                        file=sys.stderr,
+                    )
+                    return 2
+                original = selected
             if not original.rows:
                 if original.tab is None:
                     print(
@@ -245,8 +311,12 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 return 1
             tab = original.tab
+            tab_label = (
+                DEFAULT_TAB_AREAS[tab] if 0 <= tab < len(DEFAULT_TAB_AREAS) else "unknown"
+            )
             print(
-                f"start: tab {tab + 1}/{original.tabs.count}, {len(original.rows)} rows, "
+                f"start: tab {tab + 1}/{original.tabs.count} ({tab_label}), "
+                f"{len(original.rows)} rows, "
                 f"PREV {'present' if original.scroll_up else 'absent'}",
                 flush=True,
             )
@@ -434,29 +504,43 @@ def main(argv: list[str] | None = None) -> int:
     print(f"blocked        : {blocked or 'no'}")
 
     if coverage is not None:
+        bottom_proven = boundary.state is BoundaryState.END_CONFIRMED
         print()
         print("=== catalogue coverage (wiki ceiling, not this account) ===")
         print(f"  area     : {coverage.area}")
         print(f"  observed : {len(coverage.observed)}")
         print(f"  missing  : {', '.join(coverage.missing) if coverage.missing else 'none'}")
         print(f"  extra    : {', '.join(coverage.foreign) if coverage.foreign else 'none'}")
-        if coverage.missing:
+        if bottom_proven and coverage.missing:
             print(
-                "  note     : both ends were reached, so 'missing' here means NOT "
+                "  note     : the bottom was proven, so 'missing' here means NOT "
                 "UNLOCKED by this account - not 'not scanned'"
             )
-        else:
+        elif bottom_proven:
             print("  note     : this account has every expedition the area defines")
+        else:
+            # Claiming the stronger reading here would be a lie: a full last page
+            # without a measured NEXT is exactly the case where "locked" and
+            # "never reached" look identical.
+            print(
+                f"  note     : the bottom was NOT proven ({boundary.reason}), so "
+                "'missing' is 'not unlocked OR not reached' - pixels cannot tell "
+                "the two apart"
+            )
         print(f"  source   : {DEFAULT_CATALOG.source} ({DEFAULT_CATALOG.retrieved_on})")
 
     payload = {
         "tab": tab,
+        "tab_label": from_tab,
         "tab_count": original.tabs.count,
+        "tab_scores": list(original.tabs.scores),
+        "tab_switch": args.switch_to,
         "steps_to_top": said_top,
         "pages": len(index.pages),
         "down_steps": down_steps,
         "clicks": walker.clicks,
         "boundary": {"state": boundary.state.value, "reason": boundary.reason},
+        "bottom_proven": boundary.state is BoundaryState.END_CONFIRMED,
         "end_evidence": end_evidence,
         "restored": restored,
         "blocked": blocked,

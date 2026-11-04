@@ -69,8 +69,19 @@ SIGNATURE_MAX_LEVEL = 63
 # in a different slot after scrolling.
 SIGNATURE_HEIGHT = 24
 # Identical rows re-render to identical pixels; a rendering of a *different*
-# expedition differs in several bins. Measured L1 distance on live captures is
-# 0 for the same row and >20 for distinct rows, so the gate sits well inside.
+# expedition usually differs in several bins. The margin is far thinner than the
+# first version of this note claimed ("0 for the same row, >20 for distinct"):
+# a live 西方海域 capture showed 29 潜水艦派遣演習 and 30 潜水艦派遣作戦 hashing to
+# the *same* key, because their names share length and ink and the material icons
+# are too small to move a bin. 28 vs 29 landed exactly on this tolerance, and an
+# edge-clipped row drifted by up to 4 across scrolls.
+#
+# The two ranges therefore overlap, and no value of this constant separates them:
+# a gate wide enough for a clipped row is wide enough for its neighbour. What the
+# constant is still good for is *alignment*, where many rows vote on one shift,
+# and for recognising the same rendering twice. It is not evidence that a row is
+# expedition N - which is why ``locate`` refuses an ambiguous match instead of
+# returning the nearest row.
 DEFAULT_SIGNATURE_TOLERANCE = 6
 
 # Measured on a live capture: seven area tabs of ~52px starting at x=176 with a
@@ -1079,6 +1090,14 @@ class ExpeditionListIndex:
 
         The point returned is measured on the page that was just captured, so a
         scroll between planning and clicking cannot leave a stale coordinate.
+
+        A tolerant match is only returned when it is the *only* one: the same
+        live row must not also fit another number, and no second live row may fit
+        this number. The tolerance cannot be trusted to separate neighbours - two
+        live rows in 西方海域 sit 1 apart and an edge row drifts by 4 - so a
+        nearest-match answer here would be a coin flip on which expedition gets
+        clicked. When the evidence is one row short, the answer is ``ambiguous``
+        and the caller must not click.
         """
         keys = [
             (tab, signature_key)
@@ -1094,12 +1113,42 @@ class ExpeditionListIndex:
                     "located", row.click_point, row.index, "exact signature match"
                 )
         stored = [signature_from_key(signature_key) for _, signature_key in keys]
-        for row in scan.rows:
-            if any(row.signature.matches(value, tolerance=tolerance) for value in stored):
-                return Relocation(
-                    "located", row.click_point, row.index, "tolerant signature match"
-                )
-        return Relocation("not_visible", None, None, "the target is not on the current page")
+        near_rows = [
+            row
+            for row in scan.rows
+            if any(row.signature.matches(value, tolerance=tolerance) for value in stored)
+        ]
+        if not near_rows:
+            return Relocation(
+                "not_visible", None, None, "the target is not on the current page"
+            )
+        if len(near_rows) > 1:
+            return Relocation(
+                "ambiguous",
+                None,
+                None,
+                f"{len(near_rows)} live rows fit within tolerance {tolerance}",
+            )
+        # One live row fits; it is only the target if no *other* number fits it.
+        rivals = [
+            bound
+            for (tab, signature_key), bound in self.bindings.items()
+            if bound != expedition_id
+            and (tab is None or scan.tab is None or tab == scan.tab)
+            and near_rows[0].signature.matches(
+                signature_from_key(signature_key), tolerance=tolerance
+            )
+        ]
+        if rivals:
+            return Relocation(
+                "ambiguous",
+                None,
+                None,
+                "that row also fits " + ", ".join(sorted(set(rivals))),
+            )
+        return Relocation(
+            "located", near_rows[0].click_point, near_rows[0].index, "tolerant signature match"
+        )
 
     def tab_order(self, tab: int | None) -> tuple[str, ...]:
         """Known numbers of one tab, in list order."""
