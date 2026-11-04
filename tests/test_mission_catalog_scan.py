@@ -70,7 +70,7 @@ class ExpeditionListScanAccumulatorTests(unittest.TestCase):
 
     def test_first_page_must_start_at_top(self):
         with self.assertRaisesRegex(ExpeditionListScanError, "start at the top"):
-            ExpeditionListScanAccumulator().add_page(page(2, [row(1)])
+            ExpeditionListScanAccumulator().add_page(page(2, [row(1)]))
 
     def test_scroll_must_advance(self):
         scan = ExpeditionListScanAccumulator()
