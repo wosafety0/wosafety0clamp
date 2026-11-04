@@ -197,3 +197,5 @@ The purpose of this inventory is to prevent a new developer from mistaking an ol
 - **CI VERIFIED:** GitHub Actions run [41772607310](https://github.com/wosafety0/wosafety0clamp/actions/runs/41772607310) passed all 612 tests with optional OpenCV/NumPy vision dependencies installed; zero tests were skipped. This includes synthetic target localization, duplicate-match rejection, exact second-frame object retention, and allowlist-gated authorization. It is offline synthetic evidence, not live Poi calibration.
 
 - **HARDENING:** template matching now decodes the exact byte buffer whose SHA-256 is recorded in the target (no second file read or cache race); boolean/non-numeric thresholds are rejected. Regression coverage verifies the exact template digest.
+
+- **FINAL HARDENING CI:** after exact-template-byte binding and boolean-threshold rejection, GitHub Actions run [41772835706](https://github.com/wosafety0/wosafety0clamp/actions/runs/41772835706) passed 613 tests with OpenCV/NumPy enabled and zero skips.
