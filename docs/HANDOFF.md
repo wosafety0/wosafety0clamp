@@ -3,7 +3,7 @@
 **Updated:** 2026-11-04  
 **Repository:** wosafety0/wosafety0clamp  
 **Working branch:** dev/expedition-closed-loop-mvp  
-**Current code baseline:** 1e320314b5ef7f12b9f461459c1ea528a502ba9f — reward lifecycle protocol and oldest-state-frame freshness guard; CI pending
+**Current code baseline:** 1e320314b5ef7f12b9f461459c1ea528a502ba9f — reward lifecycle protocol and oldest-state-frame freshness guard; verified by CI run 41776371723
 
 This document is the concise handoff entry point. The long design and progress records remain useful for implementation history, but older entries are point-in-time records and may be superseded by later entries.
 
@@ -19,8 +19,8 @@ This document is the concise handoff entry point. The long design and progress r
 
 - Repository visibility: **public**.
 - Active code branch: **dev/expedition-closed-loop-mvp**.
-- Current code baseline: **1e320314b5ef7f12b9f461459c1ea528a502ba9f** — process-local reward authorization registry, one-shot lifecycle protocol, and oldest-state-frame freshness guard. CI for this latest code commit is pending.
-- Prior verified code CI: [run 41775989058](https://github.com/wosafety0/wosafety0clamp/actions/runs/41775989058) passed 636 Python tests with zero skips; this predates the oldest-frame freshness guard.
+- Current code baseline: **1e320314b5ef7f12b9f461459c1ea528a502ba9f** — process-local reward authorization registry, one-shot lifecycle protocol, and oldest-state-frame freshness guard.
+- Latest verified code CI: [run 41776371723](https://github.com/wosafety0/wosafety0clamp/actions/runs/41776371723) passed **638 Python tests with zero skips**, Node static tests, passive observer syntax, package/CLI smoke checks, and Python compilation.
 - The default branch has not been changed, no PR has been created or merged as part of this handoff, and no collaborator permissions have been changed. Public read access does not grant push access; a new developer needs repository write permission to push.
 
 ## 3. Architecture map
@@ -258,5 +258,5 @@ The purpose of this inventory is to prevent a new developer from mistaking an ol
 - **IMPLEMENTED:** each reward authorization now retains the capture timestamp of the oldest of its two consecutive BONUS_ITEMS frames. `assert_same_frame()` checks the age of that oldest frame again at the input boundary, using the same TTL as the authorization window.
 - **SAFETY:** this closes the timing gap where the first state frame could already be near its TTL when authorization was issued, then exceed the TTL while the authorization object itself remained unexpired.
 - **TESTS ADDED:** regression tests prove the oldest frame is rejected at consumption even while the authorization's own expiry timestamp has not yet elapsed; the protocol test confirms this blocks before input.
-- **VALIDATION:** CI pending for code commit `1e320314b5ef7f12b9f461459c1ea528a502ba9f`.
+- **VALIDATION:** GitHub Actions [41776371723](https://github.com/wosafety0/wosafety0clamp/actions/runs/41776371723) passed **638 Python tests with zero skips**, plus all other workflow checks. This verifies offline time-bound validation only.
 - **LIMITS:** this remains offline timestamp validation. It does not capture the live screen, authenticate an in-process caller, or enable reward input.
