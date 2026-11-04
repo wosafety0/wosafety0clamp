@@ -8,6 +8,7 @@ reader, one UI driver/session, and a durable event sink from its composition roo
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
@@ -175,6 +176,7 @@ class ContinuousDispatchController:
         event_sink: Callable[[str, Mapping[str, object]], None],
         allow_ui_actions: bool = False,
         max_state_age: timedelta = timedelta(seconds=30),
+        freshness_witness_timeout_seconds: float = 30.0,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         if set(mission_requirements) != set(scheduler.dispatch_fleet_ids):
@@ -189,6 +191,13 @@ class ContinuousDispatchController:
             raise ValueError("dispatch coordinator and controller must share the same scheduler")
         if max_state_age < timedelta(0):
             raise ValueError("max_state_age must not be negative")
+        if (
+            not isinstance(freshness_witness_timeout_seconds, (int, float))
+            or isinstance(freshness_witness_timeout_seconds, bool)
+            or not math.isfinite(freshness_witness_timeout_seconds)
+            or freshness_witness_timeout_seconds < 0
+        ):
+            raise ValueError("freshness_witness_timeout_seconds must be finite and non-negative")
         if not callable(event_sink):
             raise ValueError("a durable event_sink is required")
         self.scheduler = scheduler
@@ -200,6 +209,7 @@ class ContinuousDispatchController:
         self.event_sink = event_sink
         self.allow_ui_actions = allow_ui_actions
         self.max_state_age = max_state_age
+        self.freshness_witness_timeout_seconds = float(freshness_witness_timeout_seconds)
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def dispatch_one_ready(self, fleet_id: int) -> DispatchExecution:
@@ -259,6 +269,10 @@ class ContinuousDispatchController:
                     fleet_id, completed_at=action_completed_at
                 )
 
+                self._wait_for_fresh_port_witness(
+                    after=action_completed_at,
+                    phase="post_dispatch",
+                )
                 after_dispatch, _ = self._read_observation(newer_than=action_completed_at)
                 active_snapshot = self._snapshot_for(after_dispatch, fleet_id)
                 mission = self._mission_from_snapshot(
@@ -282,6 +296,10 @@ class ContinuousDispatchController:
                 home_navigation_started_at = self.clock()
                 home_evidence = self.ui_driver.return_to_home_port(fleet_id=fleet_id)
                 self._require_home_port_evidence(home_evidence)
+                self._wait_for_fresh_port_witness(
+                    after=home_navigation_started_at,
+                    phase="post_home_navigation",
+                )
                 after_home, _ = self._read_observation(newer_than=home_navigation_started_at)
                 home_snapshot = self._snapshot_for(after_home, fleet_id)
                 home_mission = self._mission_from_snapshot(
@@ -319,6 +337,43 @@ class ContinuousDispatchController:
             except Exception as exc:
                 self._block_after_ambiguous_action(fleet_id, exc)
                 raise
+
+    def _wait_for_fresh_port_witness(self, *, after: datetime, phase: str) -> None:
+        """Wait only on the already-armed passive observer; never poll MCP or retry UI input."""
+        waiter = getattr(self.state_reader, "wait_for_fresh_port_witness", None)
+        if not callable(waiter):
+            return
+        self.event_sink("dispatch_freshness_wait_started", {
+            "phase": phase,
+            "after": after.isoformat(),
+            "timeout_seconds": self.freshness_witness_timeout_seconds,
+            "source": "passive_port_observer",
+        })
+        try:
+            received = waiter(
+                after=after,
+                timeout_seconds=self.freshness_witness_timeout_seconds,
+            )
+        except Exception as exc:
+            self.event_sink("dispatch_freshness_wait_failed", {
+                "phase": phase,
+                "error_type": type(exc).__name__,
+            })
+            raise ContinuousDispatchError(
+                f"Passive Poi freshness wait failed during {phase}"
+            ) from exc
+        if received is not True:
+            self.event_sink("dispatch_freshness_wait_timed_out", {
+                "phase": phase,
+                "ui_click_retries": 0,
+            })
+            raise ContinuousDispatchError(
+                f"No new natural /api_port/port freshness witness was observed during {phase}"
+            )
+        self.event_sink("dispatch_freshness_wait_completed", {
+            "phase": phase,
+            "after": after.isoformat(),
+        })
 
     def _read_observation(
         self, *, newer_than: datetime | None = None

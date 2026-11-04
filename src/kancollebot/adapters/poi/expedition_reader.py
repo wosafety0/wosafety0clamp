@@ -6,6 +6,7 @@ perform gameplay actions.
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
@@ -135,6 +136,24 @@ class PoiExpeditionReader:
                 if isinstance(field_value, bool) or not isinstance(field_value, int) or field_value < 0:
                     raise PoiMcpError(f"Master ship record {master_id} has invalid {field}")
         return items
+
+    def wait_for_fresh_port_witness(
+        self, *, after: datetime, timeout_seconds: float
+    ) -> bool:
+        """Wait in memory for the passive observer, without issuing a game or MCP request."""
+        if not isinstance(after, datetime) or after.tzinfo is None or after.utcoffset() is None:
+            raise ValueError("after must be a timezone-aware datetime")
+        if (
+            isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, (int, float))
+            or not math.isfinite(timeout_seconds)
+            or timeout_seconds < 0
+        ):
+            raise ValueError("timeout_seconds must be finite and non-negative")
+        waiter = getattr(self._port_snapshot_provider, "wait_for_snapshot_after", None)
+        if not callable(waiter):
+            return False
+        return waiter(after=after, timeout_seconds=timeout_seconds) is not None
 
     def read_fleets(self) -> ObservedState[tuple[ExpeditionFleetSnapshot, ...]]:
         """Read fleet and ship instances, then lookup only referenced master records."""

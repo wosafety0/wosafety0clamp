@@ -11,7 +11,21 @@ from kancollebot.adapters.poi.background_port_snapshot_provider import (
 
 WITNESS = {
     "schemaVersion": 1,
-    "source": {"path": "/kcsapi/api_port/port"},
+    "source": {
+        "path": "/kcsapi/api_port/port",
+        "responseReceivedAt": "2026-11-02T00:00:03Z",
+        "bodyCapturedAt": "2026-11-02T00:00:04Z",
+    },
+    "data": {"api_deck_port": [{"api_id": 2}]},
+}
+
+NEW_WITNESS = {
+    "schemaVersion": 1,
+    "source": {
+        "path": "/kcsapi/api_port/port",
+        "responseReceivedAt": "2026-11-02T00:00:13Z",
+        "bodyCapturedAt": "2026-11-02T00:00:14Z",
+    },
     "data": {"api_deck_port": [{"api_id": 2}]},
 }
 
@@ -73,6 +87,23 @@ class CancellableObserver:
         return None
 
 
+class TimedSecondCaptureObserver:
+    def __init__(self):
+        self.calls = 0
+        self.second_capture_entered = threading.Event()
+        self.release_second_capture = threading.Event()
+        self.last_status = "captured"
+
+    def capture(self):
+        self.calls += 1
+        if self.calls == 1:
+            return WITNESS
+        self.second_capture_entered.set()
+        self.release_second_capture.wait(2)
+        self.last_status = "captured"
+        return NEW_WITNESS
+
+
 class BackgroundPortSnapshotProviderTests(unittest.TestCase):
     def test_reader_call_is_non_blocking_while_observer_waits(self):
         observer = BlockingObserver()
@@ -115,6 +146,24 @@ class BackgroundPortSnapshotProviderTests(unittest.TestCase):
             self.assertGreaterEqual(observer.calls, 2)
         finally:
             observer.release_second_call.set()
+            provider.close(join_timeout_seconds=1)
+
+
+    def test_wait_for_snapshot_after_ignores_old_witness_and_returns_new_capture(self):
+        observer = TimedSecondCaptureObserver()
+        provider = BackgroundPortSnapshotProvider(observer, retry_delay_seconds=0.01)
+        from datetime import datetime, timezone
+        after = datetime(2026, 11, 2, 0, 0, 10, tzinfo=timezone.utc)
+        try:
+            provider()
+            self.assertTrue(observer.second_capture_entered.wait(1))
+            self.assertIsNone(provider.wait_for_snapshot_after(after=after, timeout_seconds=0.01))
+            observer.release_second_capture.set()
+            received = provider.wait_for_snapshot_after(after=after, timeout_seconds=1.0)
+            self.assertEqual(received, NEW_WITNESS)
+            self.assertEqual(provider.latest_snapshot, NEW_WITNESS)
+        finally:
+            observer.release_second_capture.set()
             provider.close(join_timeout_seconds=1)
 
     def test_returned_witness_is_defensively_copied(self):

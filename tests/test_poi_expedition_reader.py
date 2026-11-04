@@ -125,6 +125,38 @@ class PoiExpeditionReaderTests(unittest.TestCase):
             },
         }
 
+    def test_wait_for_fresh_port_witness_delegates_to_passive_provider(self):
+        class Waiter:
+            def __init__(self):
+                self.calls = []
+
+            def wait_for_snapshot_after(self, *, after, timeout_seconds):
+                self.calls.append((after, timeout_seconds))
+                return {"source": {"responseReceivedAt": after.isoformat()}}
+
+        waiter = Waiter()
+        reader = PoiExpeditionReader(
+            client=FakeClient(),
+            clock=lambda: NOW,
+            port_snapshot_provider=waiter,
+        )
+        self.assertTrue(
+            reader.wait_for_fresh_port_witness(
+                after=NOW,
+                timeout_seconds=12.5,
+            )
+        )
+        self.assertEqual(waiter.calls, [(NOW, 12.5)])
+
+    def test_wait_for_fresh_port_witness_returns_false_without_waitable_provider(self):
+        _, reader = self.make_reader()
+        self.assertFalse(
+            reader.wait_for_fresh_port_witness(
+                after=NOW,
+                timeout_seconds=0.1,
+            )
+        )
+
     def test_matching_live_port_snapshot_marks_source_freshness_verified(self):
         payloads = sample_payloads()
         snapshot = self.make_port_snapshot(payloads)

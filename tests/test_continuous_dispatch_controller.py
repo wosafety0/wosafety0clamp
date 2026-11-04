@@ -89,6 +89,18 @@ class FakeReader:
             raise AssertionError("unexpected extra Poi read")
         return self.observations.pop(0)
 
+class WaitableFakeReader(FakeReader):
+    def __init__(self, *observations, wait_results):
+        super().__init__(*observations)
+        self.wait_results = list(wait_results)
+        self.wait_calls = []
+
+    def wait_for_fresh_port_witness(self, *, after, timeout_seconds):
+        self.wait_calls.append((after, timeout_seconds))
+        if not self.wait_results:
+            raise AssertionError("unexpected extra passive freshness wait")
+        return self.wait_results.pop(0)
+
 
 class FakeUi:
     def __init__(self, home_evidence=None, dispatch_error=None):
@@ -233,6 +245,81 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
             self.assertEqual(result.mission_id, 3)
             self.assertEqual(ui.dispatches, [(3, 3)])
             self.assertTrue(scheduler.fleet(3).home_port_verified)
+
+
+    def test_waits_for_natural_freshness_witness_after_dispatch_and_home_navigation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reader = WaitableFakeReader(
+                *self.valid_observations(),
+                wait_results=(True, True),
+            )
+            ui = FakeUi()
+            clock = FakeClock(
+                BASE,
+                BASE + timedelta(seconds=2),
+                BASE + timedelta(seconds=3),
+                BASE + timedelta(seconds=4),
+                BASE + timedelta(seconds=5),
+            )
+            controller, scheduler, _, events = self.make_controller(
+                directory, reader, ui, clock=clock
+            )
+            result = controller.dispatch_one_ready(2)
+            self.assertTrue(scheduler.fleet(2).home_port_verified)
+            self.assertEqual(result.mission_id, 1)
+            self.assertEqual(len(reader.wait_calls), 2)
+            self.assertEqual(reader.wait_calls[0][0], BASE + timedelta(seconds=2))
+            self.assertEqual(reader.wait_calls[1][0], BASE + timedelta(seconds=4))
+            self.assertEqual(reader.wait_calls[0][1], 30.0)
+            self.assertEqual(
+                [name for name, _ in events].count("dispatch_freshness_wait_completed"),
+                2,
+            )
+
+    def test_post_dispatch_freshness_timeout_blocks_without_repeating_ui_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reader = WaitableFakeReader(
+                *self.valid_observations(),
+                wait_results=(False,),
+            )
+            ui = FakeUi()
+            clock = FakeClock(BASE, BASE + timedelta(seconds=2))
+            controller, scheduler, intents, events = self.make_controller(
+                directory, reader, ui, clock=clock
+            )
+            with self.assertRaisesRegex(ContinuousDispatchError, "No new natural"):
+                controller.dispatch_one_ready(2)
+            self.assertEqual(reader.read_count, 1)
+            self.assertEqual(ui.dispatches, [(2, 1)])
+            self.assertEqual(ui.home_calls, [])
+            self.assertEqual(scheduler.fleet(2).phase, FleetPhase.BLOCKED)
+            self.assertIsNotNone(intents.get(2))
+            self.assertTrue(any(name == "dispatch_freshness_wait_timed_out" for name, _ in events))
+
+    def test_home_navigation_freshness_timeout_blocks_home_port_acceptance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reader = WaitableFakeReader(
+                *self.valid_observations(),
+                wait_results=(True, False),
+            )
+            ui = FakeUi()
+            clock = FakeClock(
+                BASE,
+                BASE + timedelta(seconds=2),
+                BASE + timedelta(seconds=3),
+                BASE + timedelta(seconds=4),
+            )
+            controller, scheduler, _, events = self.make_controller(
+                directory, reader, ui, clock=clock
+            )
+            with self.assertRaisesRegex(ContinuousDispatchError, "post_home_navigation"):
+                controller.dispatch_one_ready(2)
+            self.assertEqual(reader.read_count, 2)
+            self.assertEqual(ui.dispatches, [(2, 1)])
+            self.assertEqual(ui.home_calls, [2])
+            self.assertEqual(scheduler.fleet(2).phase, FleetPhase.BLOCKED)
+            self.assertFalse(scheduler.fleet(2).home_port_verified)
+            self.assertTrue(any(name == "dispatch_freshness_wait_timed_out" for name, _ in events))
 
     def test_ui_actions_require_explicit_enablement(self):
         with tempfile.TemporaryDirectory() as directory:
