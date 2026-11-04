@@ -652,11 +652,13 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
 
             def verify_state(expected: str) -> UiStateEvidence:
                 state = UiState(expected)
-                evidence = _require_ui_state(game_session, state)
+                first_evidence = _require_ui_state(game_session, state)
+                time.sleep(0.15)
+                second_evidence = _require_ui_state(game_session, state)
                 return UiStateEvidence(
                     state=state.value,
                     consecutive_states=(state.value, state.value),
-                    evidence=evidence,
+                    evidence=f"{first_evidence}+{second_evidence}",
                 )
 
             ui_driver = CdpContinuousExpeditionUiDriver(
