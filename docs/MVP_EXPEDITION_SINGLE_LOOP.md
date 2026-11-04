@@ -640,5 +640,5 @@ This section defines the minimum evidence needed to unblock implementation; it i
 
 - **IMPLEMENTED:** `RewardClaimAuthorization` now carries the capture timestamp of the oldest frame in its two-frame BONUS_ITEMS evidence. `assert_same_frame()` rechecks that timestamp against the authorization TTL at the input boundary.
 - **FAIL-CLOSED:** a first frame that ages beyond the TTL is rejected even if the authorization object has not reached its own expiry time. No input attempt may follow that rejection.
-- **TESTS ADDED:** gate and protocol regressions cover the boundary where the first frame has expired but the authorization itself is still nominally valid. CI is pending for the latest code commit.
+- **TESTS ADDED:** gate and protocol regressions cover the boundary where the first frame has expired but the authorization itself is still nominally valid. GitHub Actions [41776371723](https://github.com/wosafety0/wosafety0clamp/actions/runs/41776371723) passed 638 Python tests with zero skips, plus all other workflow checks.
 - **LIMITS:** this is offline time-bound validation only; it does not provide live screen capture, input execution, or post-click acceptance.
