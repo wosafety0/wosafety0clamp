@@ -122,27 +122,39 @@ def locate_reward_claim_target(
         matches = cv2_module.matchTemplate(
             roi, template, cv2_module.TM_CCOEFF_NORMED
         )
-        _, best_score, _, best_location = cv2_module.minMaxLoc(matches)
-        best_score = float(best_score)
-        if not math.isfinite(best_score) or not 0 <= best_score <= 1:
-            raise RewardClaimLocalizationError("reward template returned an invalid confidence score")
-        x, y = best_location
+        required_score = max(float(minimum_score), 0.96)
         suppressed = matches.copy()
         pad_x = max(1, template_width // 2)
         pad_y = max(1, template_height // 2)
-        suppressed[
-            max(0, y - pad_y):min(suppressed.shape[0], y + template_height + pad_y),
-            max(0, x - pad_x):min(suppressed.shape[1], x + template_width + pad_x),
-        ] = -1.0
-        second_score = float(suppressed.max()) if suppressed.size else -1.0
-        second_score = max(0.0, second_score)
-        if best_score < minimum_score or best_score - second_score < minimum_margin:
+        candidate_locations: list[tuple[int, int, float]] = []
+        while suppressed.size:
+            _, candidate_score, _, candidate_location = cv2_module.minMaxLoc(suppressed)
+            candidate_score = float(candidate_score)
+            if not math.isfinite(candidate_score) or not -1.0 <= candidate_score <= 1.0:
+                raise RewardClaimLocalizationError("reward template returned an invalid confidence score")
+            if candidate_score < required_score:
+                break
+            candidate_x, candidate_y = candidate_location
+            candidate_locations.append((int(candidate_x), int(candidate_y), candidate_score))
+            suppressed[
+                max(0, candidate_y - pad_y):min(suppressed.shape[0], candidate_y + template_height + pad_y),
+                max(0, candidate_x - pad_x):min(suppressed.shape[1], candidate_x + template_width + pad_x),
+            ] = -1.0
+
+        if not candidate_locations:
             raise RewardClaimLocalizationError(
                 "reward target confidence or uniqueness margin is insufficient"
             )
-        if best_score < 0.96 or best_score - second_score < 0.10:
+        x, y, best_score = candidate_locations[0]
+        second_score = candidate_locations[1][2] if len(candidate_locations) > 1 else 0.0
+        candidate_count = len(candidate_locations)
+        if candidate_count != 1:
             raise RewardClaimLocalizationError(
-                "reward target does not meet the authorization gate's stricter thresholds"
+                "multiple spatially distinct reward target candidates exceed the confidence threshold"
+            )
+        if best_score - second_score < max(float(minimum_margin), 0.10):
+            raise RewardClaimLocalizationError(
+                "reward target confidence or uniqueness margin is insufficient"
             )
         target_left = left + int(x)
         target_top = top + int(y)
@@ -160,7 +172,7 @@ def locate_reward_claim_target(
             bottom=target_top + template_height,
             score=best_score,
             second_best_score=second_score,
-            candidate_count=1,
+            candidate_count=candidate_count,
             consecutive_states=consecutive,
             state_frame_ids=(first_frame.frame_id, second_frame.frame_id),
             state_frame_sha256s=(first_frame.sha256, second_frame.sha256),
