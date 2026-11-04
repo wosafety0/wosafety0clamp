@@ -1,10 +1,12 @@
 import hashlib
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 
 from kancollebot.adapters.poi.cdp_input import CapturedFrame
 
 from kancollebot.expeditions.reward_claim_gate import (
     RewardClaimAuthorizationError,
+    RewardClaimAuthorizationRegistry,
     RewardClaimGate,
     RewardClaimTarget,
 )
@@ -206,6 +208,79 @@ class RewardClaimGateTests(unittest.TestCase):
                 target(),
                 now_monotonic_ns=SECOND_FRAME.captured_monotonic_ns - 1,
             )
+
+    def test_registry_consumes_authorization_exactly_once(self):
+        gate = RewardClaimGate({TEMPLATE_HASH: CALIBRATION_ID})
+        authorization = gate.authorize(
+            target(),
+            now_monotonic_ns=SECOND_FRAME.captured_monotonic_ns + 100,
+        )
+        registry = gate.authorization_registry
+        self.assertEqual(registry.pending_count, 1)
+        registry.consume(
+            authorization,
+            now_monotonic_ns=authorization.issued_monotonic_ns + 1,
+        )
+        self.assertEqual(registry.pending_count, 0)
+        with self.assertRaisesRegex(RewardClaimAuthorizationError, "already consumed"):
+            registry.consume(
+                authorization,
+                now_monotonic_ns=authorization.issued_monotonic_ns + 2,
+            )
+
+    def test_registry_rejects_fabricated_or_foreign_authorizations(self):
+        gate = RewardClaimGate({TEMPLATE_HASH: CALIBRATION_ID})
+        authorization = gate.authorize(
+            target(),
+            now_monotonic_ns=SECOND_FRAME.captured_monotonic_ns + 100,
+        )
+        foreign = RewardClaimAuthorizationRegistry()
+        with self.assertRaisesRegex(RewardClaimAuthorizationError, "unknown, foreign"):
+            foreign.consume(
+                authorization,
+                now_monotonic_ns=authorization.issued_monotonic_ns + 1,
+            )
+        from dataclasses import replace
+        forged_copy = replace(authorization)
+        with self.assertRaisesRegex(RewardClaimAuthorizationError, "unknown, foreign"):
+            gate.authorization_registry.consume(
+                forged_copy,
+                now_monotonic_ns=authorization.issued_monotonic_ns + 1,
+            )
+
+    def test_registry_rejects_expired_authorization_and_removes_it(self):
+        gate = RewardClaimGate({TEMPLATE_HASH: CALIBRATION_ID})
+        authorization = gate.authorize(
+            target(),
+            now_monotonic_ns=SECOND_FRAME.captured_monotonic_ns + 100,
+        )
+        with self.assertRaisesRegex(RewardClaimAuthorizationError, "expired before consumption"):
+            gate.authorization_registry.consume(
+                authorization,
+                now_monotonic_ns=authorization.expires_monotonic_ns + 1,
+            )
+        self.assertEqual(gate.authorization_registry.pending_count, 0)
+
+    def test_registry_allows_only_one_concurrent_consumer(self):
+        gate = RewardClaimGate({TEMPLATE_HASH: CALIBRATION_ID})
+        authorization = gate.authorize(
+            target(),
+            now_monotonic_ns=SECOND_FRAME.captured_monotonic_ns + 100,
+        )
+        registry = gate.authorization_registry
+        def attempt():
+            try:
+                registry.consume(
+                    authorization,
+                    now_monotonic_ns=authorization.issued_monotonic_ns + 1,
+                )
+                return "consumed"
+            except RewardClaimAuthorizationError:
+                return "rejected"
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = list(pool.map(lambda _: attempt(), range(2)))
+        self.assertEqual(sorted(outcomes), ["consumed", "rejected"])
+        self.assertEqual(registry.pending_count, 0)
 
     def test_authorization_does_not_expose_a_click_operation(self):
         authorization = RewardClaimGate({TEMPLATE_HASH: CALIBRATION_ID}).authorize(target(), now_monotonic_ns=SECOND_FRAME.captured_monotonic_ns + 100)
