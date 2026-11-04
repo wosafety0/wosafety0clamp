@@ -556,3 +556,10 @@ This section defines the minimum evidence needed to unblock implementation; it i
 - **CORRECTED:** PNG signature validation and its fixtures now use actual PNG signature bytes rather than double-escaped text. This closes a false-positive in the earlier capture tests.
 - **TESTED:** GitHub Actions run [41770859932](https://github.com/wosafety0/wosafety0clamp/actions/runs/41770859932) passed 601 Python tests (20 skipped), plus workflow syntax, CLI smoke, and compile checks.
 - **LIMITS:** reward target localization still does not consume the retained second `CapturedFrame`; `RewardClaimTarget` still accepts caller-supplied metadata. The chain is improved through settlement observation, but not yet end-to-end at reward target detection. No reward click executor, live calibration, or game interaction was enabled.
+
+## 2026-11-04 — Production UI state evidence bound to exact captured frames
+
+- **IMPLEMENTED:** the continuous production verifier now performs two independent state checks, each requiring two consecutive visual matches backed by exact CapturedFrame objects. The UiStateEvidence returned to the dispatch controller retains the final frame from each independent check.
+- **FAIL-CLOSED:** accessibility-only evidence cannot satisfy the production two-check verifier. Missing frame objects, repeated image fingerprints, non-increasing frame IDs, or non-increasing monotonic capture timestamps are rejected.
+- **TEST COVERAGE:** the classifier input is asserted to be the exact base64 encoding of each captured PNG frame; existing accessibility-only and visual fallback unit coverage remains separate.
+- **LIMITS:** this establishes frame provenance for production state-check evidence, not cryptographic authenticity against a malicious in-process caller. Reward target localization still does not consume the retained second frame, and no reward click path or live Poi calibration is enabled.
