@@ -184,6 +184,37 @@ class CdpInputTests(unittest.TestCase):
         transport = FakeTransport()
         self.assertEqual(CdpInput(transport).capture_screenshot(), "cG5n")
 
+    def test_capture_frame_hashes_exact_png_bytes_and_assigns_increasing_ids(self):
+        import base64
+        import hashlib
+
+        png_bytes = b"\\x89PNG\\r\\n\\x1a\\nframe-payload"
+        class PngTransport(FakeTransport):
+            def send(self, method, params):
+                if method == "Page.captureScreenshot":
+                    self.calls.append((method, params))
+                    return {"data": base64.b64encode(png_bytes).decode("ascii")}
+                return super().send(method, params)
+
+        first = CdpInput(PngTransport()).capture_frame()
+        second = CdpInput(PngTransport()).capture_frame()
+        self.assertGreater(second.frame_id, first.frame_id)
+        self.assertGreaterEqual(second.captured_monotonic_ns, first.captured_monotonic_ns)
+        self.assertEqual(first.png_bytes, png_bytes)
+        self.assertEqual(first.sha256, hashlib.sha256(png_bytes).hexdigest())
+        self.assertEqual(base64.b64decode(first.screenshot_base64), png_bytes)
+
+    def test_capture_frame_rejects_non_png_payload(self):
+        with self.assertRaisesRegex(CdpInputError, "not a PNG"):
+            CdpInput(FakeTransport()).capture_frame()
+
+    def test_captured_frame_rejects_fabricated_digest(self):
+        from kancollebot.adapters.poi.cdp_input import CapturedFrame
+
+        png_bytes = b"\\x89PNG\\r\\n\\x1a\\nframe-payload"
+        with self.assertRaisesRegex(ValueError, "exact PNG bytes"):
+            CapturedFrame(1, 1, png_bytes, "0" * 64)
+
     def test_invalid_coordinates_are_rejected(self):
         with self.assertRaises(ValueError):
             RecordedPoint(float("nan"), 20, "bad")
