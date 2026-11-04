@@ -181,6 +181,7 @@ def classify_template_scores(
         and home_reference < minimum_score
         and bonus < minimum_score
         and return_notice < minimum_score
+        and sortie_title < minimum_score
         and result >= minimum_score
         and result - second_result >= minimum_margin
     ):
@@ -188,6 +189,8 @@ def classify_template_scores(
     if (
         home < minimum_score
         and home_reference < minimum_score
+        and return_notice < minimum_score
+        and sortie_title < minimum_score
         and result < minimum_score
         and bonus >= minimum_score
     ):
