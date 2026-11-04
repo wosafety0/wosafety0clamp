@@ -124,6 +124,23 @@ class VisualStateGateTests(unittest.TestCase):
             "result_next_button.png": 1.0,
         }), "UNKNOWN")
 
+    def test_bonus_title_conflicting_with_return_notice_fails_closed(self):
+        self.assertEqual(classify_template_scores({
+            "home_sortie_menu.png": 0.20,
+            "expedition_result_success.png": 0.35,
+            "expedition_result_failure.png": 0.28,
+            "return_notice.png": 0.99,
+            "bonus_title.png": 0.99,
+        }), "UNKNOWN")
+
+    def test_result_marker_conflicting_with_sortie_title_fails_closed(self):
+        self.assertEqual(classify_template_scores({
+            "home_sortie_menu.png": 0.20,
+            "expedition_result_success.png": 0.99,
+            "expedition_result_failure.png": 0.20,
+            "sortie_menu_title.png": 0.99,
+        }), "UNKNOWN")
+
     def test_ambiguous_and_weak_matches_fail_closed(self):
         self.assertEqual(classify_template_scores({"home_sortie_menu.png": 0.80}), "UNKNOWN")
         self.assertEqual(classify_template_scores({
