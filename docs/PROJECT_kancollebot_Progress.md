@@ -3874,4 +3874,14 @@ The Hand plugin's read-only probe reported:
 - **TESTED:** 受影响 86 个用例全绿。新增/改动 `tests/test_runtime_config.py`、`tests/test_one_expedition_ui_loop.py`、`tests/test_continuous_monitor_runtime.py`。注意：全量套件另有 13 个 `test_full_supply` 失败，来自此前未提交的 `full_supply.py`/`full_supply_ui_action.py` 编辑（`expected_fleet_ids` 不一致），与本任务无关、本任务未触碰这些文件。
 - **SAFETY:** 纯配置/门禁变更，无新增游戏点击。Fleet 1 在调度器默认 `read_only_fleet_ids=(1,)` 之上新增配置层显式排除，多层防御（config 门禁 → build_runtime 子集校验 → 调度器分组）。
 - **LIMITS / NOT VERIFIED:** 仅改逻辑层，未做真实游戏实证。Fleet 1 在 UI 层本就无远征页签（生产 UI 驱动 `supported_fleets=(2,3,4)` 不含 1，`visual_fingerprint`/`navigate_supply_fleet_tab` 的 `(2,3)` 页签约束一致），本次未改这些 UI 硬编码。`dispatch_recovery.py` 的 `(2,3)` 持久化校验未改（当前配置只派遣 2/3，超出需另立任务）。
-- **ARTIFACTS:** `src/kancollebot/runtime_config.py`、`tools/one_expedition_ui_loop.py`、`tools/run_continuous_expedition_monitor.py`、`tests/test_runtime_config.py`、`tests/test_one_expedition_ui_loop.py`、`tests/test_continuous_monitor_runtime.py`。本地分支 `feat/closed-loop-settlement-20261104`，未推、未碰 main。
+- **ARTIFACTS:** `src/kancollebot/runtime_config.py`、`tools/one_expedition_ui_loop.py`、`tools/run_continuous_expedition_monitor.py`、`tests/test_runtime_config.py`、`tests/test_one_expedition_ui_loop.py`、`tests/test_continuous_monitor_runtime.py`。本地分支 `feat/closed-loop-settlement-20261104` 已于 2026-11-04 推送 `origin/feat/closed-loop-settlement-20261104`（独立分支，未碰 main）。
+
+## 2026-11-04 - 远程保全推送 + 补给模块代码整合
+
+- **IMPLEMENTED (远程保全):** 将本地分支 `feat/closed-loop-settlement-20261104` 推送到 `origin` 作为独立分支（`[new branch]`，已设置上游跟踪 `origin/feat/closed-loop-settlement-20261104`），main 未触碰。完成用户要求的"本地成果先推进到远程、独立分支保全"。
+- **IMPLEMENTED (补给模块整合 / 配置一致性):** 修正此前半成品 `full_supply` 编辑导致的 13 个 `test_full_supply` 失败。`build_full_supply_plan` 的 `expected_fleet_ids` 默认值回退到保守的 `(1,2,3)`（供测试与未解锁第4舰队的账号使用）；生产调用点 `tools/full_supply_ui_action.py` 的 3 处 `build_full_supply_plan` 调用已显式传 `(1,2,3,4)`（真实账号 Fleet 4 已解锁），二者不再冲突。保留的合法修复：(A) `_collection` 对 `info.ships` 走 `limit=1000 + select` 投影全量读，规避 Poi MCP 按序列化体积截断（239 艘 → 239/239 不截断）；(B) 报告调用 `select_full_supply_targets(plan, supported_fleet_ids=plan.fleet_ids)`，避免"Fleet 4 缺独立校验的 UI 选择门"误报。
+- **VERIFIED:** 全量套件 `Ran 968 tests ... OK (skipped=18)`，0 失败 0 错误；`test_full_supply` 26 项全绿。此前 13 个失败已消除。
+- **TESTED:** 全量套件通过。
+- **SAFETY:** 未改动任何游戏点击逻辑；仅回退一个默认值并保留只读/MCP 读取修复。`.workbuddy/` 本地记忆目录未进仓库。
+- **LIMITS / NOT VERIFIED:** `src/kancollebot/loop/resupply.py:evaluate_resupply_readiness` 默认 `expected_fleet_ids=(1,2,3)` 与 adapter 一致、内部自洽，但闭环补给尚未接入 `ContinuousExpeditionSupervisor.tick()`（缺口 #1），且真实 4 舰队账号若走该默认会触发 preflight 拒绝；闭环补给接入时需由调用方显式传 `(1,2,3,4)`。OpenCV/NumPy 缺失仍阻塞真实补给点击（缺口 #3）。
+- **ARTIFACTS:** `tools/full_supply_ui_action.py`（整合后唯一剩余改动，已提交并推送）、`docs/PROJECT_kancollebot_Progress.md`。远端分支 `origin/feat/closed-loop-settlement-20261104` 含 Fleet 1 门禁提交 `97568e3` 与本次整合提交。

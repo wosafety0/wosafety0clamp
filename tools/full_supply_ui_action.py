@@ -77,8 +77,27 @@ def _tool_value(result: dict[str, Any], name: str) -> Any:
         raise PoiMcpError(f"{name} returned invalid JSON") from exc
 
 
+# The ship attributes the supply plan and post-click verification read. The
+# larger maxima (api_fuel_max/api_bull_max) come from the master lookup, not
+# from info.ships.
+SHIP_FIELDS = [
+    "api_id", "api_ship_id", "api_nowhp", "api_maxhp",
+    "api_fuel", "api_bull", "api_cond", "api_lv",
+]
+
+
 def _collection(client: PoiMcpClient, path: str, kind: str) -> Any:
-    value = _tool_value(client.call_read_tool("poi_get", {"path": path}), f"poi_get({path})")
+    arguments: dict[str, Any] = {"path": path}
+    if path == "info.ships":
+        # The Poi MCP caps responses by serialized size, not by item count. This
+        # account holds 239 ship instances, so a plain read is truncated and the
+        # suite's consistency gates fail. A field projection with a high limit
+        # returns the full roster untruncated (verified live: 239/239). The
+        # projection is what makes source freshness possible: the port witness
+        # carries all 239 ships, and the snapshot must match key-for-key.
+        arguments["limit"] = 1000
+        arguments["select"] = SHIP_FIELDS
+    value = _tool_value(client.call_read_tool("poi_get", arguments), f"poi_get({path})")
     if (
         not isinstance(value, dict) or value.get("kind") != kind
         or value.get("truncated") is not False
@@ -462,9 +481,9 @@ def _prepare_full_supply_preflight(
         observed_at=observed_at,
         now=now,
         max_age=MAX_AGE,
-        expected_fleet_ids=(1, 2, 3),
+        expected_fleet_ids=(1, 2, 3, 4),
     )
-    all_needed_fleets = select_full_supply_targets(plan)
+    all_needed_fleets = select_full_supply_targets(plan, supported_fleet_ids=plan.fleet_ids)
     needed_fleets = select_full_supply_targets(
         plan, target_fleet_ids=target_fleet_ids
     )
@@ -582,7 +601,7 @@ def run(*, dry_run: bool = False) -> int:
                     observed_at=cycle_observed_at,
                     now=cycle_now,
                     max_age=MAX_AGE,
-                    expected_fleet_ids=(1, 2, 3),
+                    expected_fleet_ids=(1, 2, 3, 4),
                 )
                 log(
                     "next_fleet_freshness_cycle_verified",
@@ -637,7 +656,7 @@ def run(*, dry_run: bool = False) -> int:
                 observed_at=cycle_observed_at,
                 now=before_now,
                 max_age=MAX_AGE,
-                expected_fleet_ids=(1, 2, 3),
+                expected_fleet_ids=(1, 2, 3, 4),
             )
             before_remaining = validate_full_supply_progress(
                 plan, before_plan, tuple(completed_fleet_ids),
