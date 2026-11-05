@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from kancollebot.adapters.poi.cdp_input import CdpInputError
@@ -308,6 +309,85 @@ class FreshnessRefreshingStateReaderTests(unittest.TestCase):
         clock[0] += 0.5
         wrapper.read_fleets()
         self.assertEqual(refresh_calls, ["refresh", "refresh"])
+
+
+class PassiveWitnessWaitTests(unittest.TestCase):
+    """The wait that keeps a post-action read from navigating for its witness."""
+
+    @staticmethod
+    def _reader(observations, clock, refresh_calls):
+        driver = SimpleNamespace(
+            refresh_port_state=lambda: refresh_calls.append("refresh")
+        )
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        reader = FakeReader(observations)
+        wrapper = FreshnessRefreshingStateReader(
+            reader,
+            driver,
+            max_wait_seconds=5.0,
+            poll_interval_seconds=0.5,
+            refresh_cooldown_seconds=0.0,
+            monotonic=lambda: clock[0],
+            sleep=sleep,
+        )
+        return wrapper, reader
+
+    def test_a_witness_that_arrives_on_its_own_sends_no_click(self):
+        clock = [0.0]
+        refresh_calls = []
+        wrapper, reader = self._reader(
+            [observation(False), observation(False), observation(True)],
+            clock,
+            refresh_calls,
+        )
+
+        result = wrapper.await_passive_witness(timeout_seconds=5.0)
+
+        self.assertTrue(result.source_freshness_verified)
+        self.assertEqual(refresh_calls, [])
+        self.assertEqual(reader.calls, 3)
+
+    def test_a_witness_that_never_arrives_still_sends_no_click(self):
+        clock = [0.0]
+        refresh_calls = []
+        wrapper, _ = self._reader([observation(False)], clock, refresh_calls)
+
+        result = wrapper.await_passive_witness(timeout_seconds=1.0)
+
+        self.assertFalse(result.source_freshness_verified)
+        self.assertEqual(refresh_calls, [])
+        self.assertEqual(clock[0], 1.0)
+
+    def test_the_wait_respects_the_ui_action_time_boundary(self):
+        clock = [0.0]
+        refresh_calls = []
+        boundary = datetime(2026, 11, 5, 4, 0, tzinfo=timezone.utc)
+        stale = SimpleNamespace(
+            source_freshness_verified=True,
+            observed_at=boundary,
+        )
+        fresh = SimpleNamespace(
+            source_freshness_verified=True,
+            observed_at=boundary + timedelta(seconds=1),
+        )
+        wrapper, _ = self._reader([stale, fresh], clock, refresh_calls)
+
+        result = wrapper.await_passive_witness(
+            timeout_seconds=5.0, newer_than=boundary
+        )
+
+        self.assertEqual(result.observed_at, boundary + timedelta(seconds=1))
+        self.assertEqual(refresh_calls, [])
+
+    def test_a_negative_timeout_is_refused(self):
+        clock = [0.0]
+        wrapper, _ = self._reader([observation(False)], clock, [])
+
+        with self.assertRaisesRegex(ValueError, "finite and non-negative"):
+            wrapper.await_passive_witness(timeout_seconds=-1.0)
 
 
 if __name__ == "__main__":

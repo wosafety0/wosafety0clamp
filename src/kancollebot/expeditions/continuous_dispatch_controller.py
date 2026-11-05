@@ -8,6 +8,7 @@ reader, one UI driver/session, and a durable event sink from its composition roo
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
@@ -184,6 +185,7 @@ class ContinuousDispatchController:
         allow_ui_actions: bool = False,
         max_state_age: timedelta = timedelta(seconds=30),
         clock: Callable[[], datetime] | None = None,
+        passive_witness_wait_seconds: float = 10.0,
     ) -> None:
         if set(mission_requirements) != set(scheduler.dispatch_fleet_ids):
             raise ValueError("mission_requirements must configure every and only dispatchable fleet")
@@ -197,6 +199,15 @@ class ContinuousDispatchController:
             raise ValueError("dispatch coordinator and controller must share the same scheduler")
         if max_state_age < timedelta(0):
             raise ValueError("max_state_age must not be negative")
+        if (
+            isinstance(passive_witness_wait_seconds, bool)
+            or not isinstance(passive_witness_wait_seconds, (int, float))
+            or not math.isfinite(passive_witness_wait_seconds)
+            or passive_witness_wait_seconds < 0
+        ):
+            raise ValueError(
+                "passive_witness_wait_seconds must be a finite non-negative number"
+            )
         if not callable(event_sink):
             raise ValueError("a durable event_sink is required")
         self.scheduler = scheduler
@@ -209,6 +220,7 @@ class ContinuousDispatchController:
         self.allow_ui_actions = allow_ui_actions
         self.max_state_age = max_state_age
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.passive_witness_wait_seconds = float(passive_witness_wait_seconds)
 
     def dispatch_one_ready(self, fleet_id: int) -> DispatchExecution:
         """Dispatch one ready fleet, confirm the new mission, and verify Home Port."""
@@ -278,6 +290,17 @@ class ContinuousDispatchController:
                 home_navigation_started_at = self.clock()
                 home_evidence = self.ui_driver.return_to_home_port(fleet_id=fleet_id)
 
+                # The 母港 click already made the client ask for a fresh port
+                # payload, so give that natural response a bounded chance to
+                # arrive before reading. Reading first is what used to turn the
+                # post-dispatch check into a second full three-click round trip;
+                # live 2026-11-05 one run spent 27 navigations (75 clicks) on two
+                # dispatches. This wait never clicks - if no witness arrives the
+                # observation policy below is exactly as strict as before.
+                self._await_passive_witness(
+                    fleet_id=fleet_id,
+                    newer_than=max(home_navigation_started_at, action_completed_at),
+                )
                 after_dispatch, _ = self._read_observation(newer_than=action_completed_at)
                 active_snapshot = self._snapshot_for(after_dispatch, fleet_id)
                 mission = self._mission_from_snapshot(
@@ -342,6 +365,27 @@ class ContinuousDispatchController:
             except Exception as exc:
                 self._block_after_ambiguous_action(fleet_id, exc)
                 raise
+
+    def _await_passive_witness(self, *, fleet_id: int, newer_than: datetime) -> None:
+        """Give the port response that the Home Port click caused a chance to land.
+
+        Only the refreshing reader has this capability. A plain reader (offline
+        fake, or a composition root with UI refresh disabled) is left untouched,
+        and the observation gate in ``_read_observation`` stays the single
+        authority on whether the state is trustworthy.
+        """
+        waiter = getattr(self.state_reader, "await_passive_witness", None)
+        if not callable(waiter) or self.passive_witness_wait_seconds <= 0:
+            return
+        self.event_sink("dispatch_post_action_passive_wait", {
+            "fleet_id": fleet_id,
+            "timeout_seconds": self.passive_witness_wait_seconds,
+            "game_actions_sent": 0,
+        })
+        waiter(
+            timeout_seconds=self.passive_witness_wait_seconds,
+            newer_than=newer_than,
+        )
 
     def _read_observation(
         self, *, newer_than: datetime | None = None

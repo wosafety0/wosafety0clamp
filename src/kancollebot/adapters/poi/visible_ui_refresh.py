@@ -12,6 +12,7 @@ import re
 import threading
 import time
 from collections.abc import Callable, Mapping
+from datetime import datetime
 from typing import Any, Protocol
 
 from kancollebot.adapters.poi.cdp_input import RecordedPoint, home_port_point
@@ -265,6 +266,48 @@ class FreshnessRefreshingStateReader:
         self._sleep = sleep
         self._refresh_lock = threading.Lock()
         self._last_refresh_at: float | None = None
+
+    @staticmethod
+    def _is_trusted(observation: Any, newer_than: datetime | None) -> bool:
+        if not bool(getattr(observation, "source_freshness_verified", False)):
+            return False
+        if newer_than is None:
+            return True
+        observed_at = getattr(observation, "observed_at", None)
+        return isinstance(observed_at, datetime) and observed_at > newer_than
+
+    def await_passive_witness(
+        self,
+        *,
+        timeout_seconds: float,
+        newer_than: datetime | None = None,
+    ) -> Any:
+        """Wait for a natural port response instead of navigating for one.
+
+        The 母港 click itself makes the client request a fresh port payload, so
+        a caller that has just navigated home can often get a verified witness
+        with no navigation at all. Waiting first is what keeps a post-action
+        read from turning into another full three-click round trip: live
+        2026-11-05 one run sent 27 navigations (75 clicks) to support two
+        dispatches, because every read that found no witness navigated.
+
+        Read-only by construction - it never clicks, even when it times out. A
+        caller that still has no witness afterwards keeps whatever policy it
+        had before (the refreshing reader may then navigate, or the caller
+        fails closed).
+        """
+        if not math.isfinite(timeout_seconds) or timeout_seconds < 0:
+            raise ValueError("timeout_seconds must be finite and non-negative")
+        deadline = self._monotonic() + timeout_seconds
+        with self._refresh_lock:
+            observation = self._reader.read_fleets()
+            while not self._is_trusted(observation, newer_than):
+                remaining = deadline - self._monotonic()
+                if remaining <= 0:
+                    return observation
+                self._sleep(min(self._poll_interval_seconds, remaining))
+                observation = self._reader.read_fleets()
+            return observation
 
     def read_fleets(self) -> Any:
         with self._refresh_lock:

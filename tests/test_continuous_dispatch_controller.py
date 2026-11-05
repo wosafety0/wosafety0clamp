@@ -116,6 +116,29 @@ class FakeUi:
         return self.home_evidence
 
 
+class WitnessAwareReader(FakeReader):
+    """A reader that can be asked to wait for a natural port witness.
+
+    The wait must never come before the Home Port click: that click is what
+    makes the client request the port payload being waited for.
+    """
+
+    def __init__(self, ui, *observations):
+        super().__init__(*observations)
+        self.ui = ui
+        self.waits = []
+
+    def await_passive_witness(self, *, timeout_seconds, newer_than):
+        if not self.ui.home_calls:
+            raise AssertionError(
+                "the passive witness wait must follow the Home Port click"
+            )
+        self.waits.append(
+            {"timeout_seconds": timeout_seconds, "newer_than": newer_than}
+        )
+        return None
+
+
 class ContinuousDispatchControllerTests(unittest.TestCase):
     def make_controller(
         self,
@@ -128,6 +151,7 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
         allow=True,
         events=None,
         mission_requirements=None,
+        passive_witness_wait_seconds=10.0,
     ):
         db_path = Path(directory) / "state.sqlite3"
         scheduler = ContinuousExpeditionScheduler(
@@ -150,6 +174,7 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
             allow_ui_actions=allow,
             max_state_age=fresh_age,
             clock=clock or (lambda: BASE + timedelta(seconds=10)),
+            passive_witness_wait_seconds=passive_witness_wait_seconds,
         )
         return controller, scheduler, intent_store, events
 
@@ -187,6 +212,65 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
             self.assertEqual(events[0]["event"], "dispatch_intent_persisted")
             self.assertEqual(events[0]["fields"], {"fleet_id": 2, "ship_ids": [1, 2]})
             self.assertTrue(events[0]["created_at"])
+    def test_dispatch_waits_for_the_natural_witness_after_returning_home(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = WitnessAwareReader(ui, *self.valid_observations())
+            clock = FakeClock(
+                BASE,
+                BASE + timedelta(seconds=2),
+                BASE + timedelta(seconds=3),
+                BASE + timedelta(seconds=4),
+                BASE + timedelta(seconds=5),
+            )
+            controller, scheduler, intents, events = self.make_controller(
+                directory, reader, ui, clock=clock
+            )
+
+            result = controller.dispatch_one_ready(2)
+
+            self.assertEqual(result.fleet_id, 2)
+            self.assertEqual(ui.home_calls, [2])
+            self.assertEqual(len(reader.waits), 1)
+            self.assertEqual(reader.waits[0]["timeout_seconds"], 10.0)
+            names = [name for name, _ in events]
+            self.assertIn("dispatch_post_action_passive_wait", names)
+            self.assertLess(
+                names.index("dispatch_post_action_passive_wait"),
+                names.index("dispatch_confirmed_by_poi"),
+            )
+
+    def test_a_reader_without_the_wait_capability_is_left_alone(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reader = FakeReader(*self.valid_observations())
+            ui = FakeUi()
+            clock = FakeClock(
+                BASE,
+                BASE + timedelta(seconds=2),
+                BASE + timedelta(seconds=3),
+                BASE + timedelta(seconds=4),
+                BASE + timedelta(seconds=5),
+            )
+            controller, scheduler, intents, events = self.make_controller(
+                directory, reader, ui, clock=clock
+            )
+
+            controller.dispatch_one_ready(2)
+
+            names = [name for name, _ in events]
+            self.assertNotIn("dispatch_post_action_passive_wait", names)
+
+    def test_a_negative_passive_wait_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reader = FakeReader(*self.valid_observations())
+            with self.assertRaisesRegex(ValueError, "finite non-negative"):
+                self.make_controller(
+                    directory,
+                    reader,
+                    FakeUi(),
+                    passive_witness_wait_seconds=-1.0,
+                )
+
     def test_dispatch_confirms_active_tuple_and_two_frame_home_port(self):
         with tempfile.TemporaryDirectory() as directory:
             observations = self.valid_observations()
