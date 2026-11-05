@@ -74,13 +74,16 @@ class FakeReader:
 class AttributingReader(FakeReader):
     """A reader that records which caller asked for a fresh observation."""
 
-    def __init__(self, state):
+    def __init__(self, state, refreshed_state=None):
         super().__init__(state)
+        self.refreshed_state = refreshed_state
         self.origins = []
 
     def ensure_fresh(self, *, origin):
         self.origins.append(origin)
         self.read_count += 1
+        if self.refreshed_state is not None:
+            self.state = self.refreshed_state
         return self.state
 
 
@@ -112,10 +115,19 @@ class ContinuousExpeditionMonitorTests(unittest.TestCase):
             ship_ids=ships,
         )
 
-    def set_active(self, scheduler, fleet_id=2, mission_id=1, *, home_verified=True):
+    def set_active(self, scheduler, fleet_id=2, mission_id=1, *, home_verified=True, due_in=None):
         scheduler.mark_ready(fleet_id)
         scheduler.begin_dispatch(fleet_id)
         mission = self.active_tuple(fleet_id, mission_id)
+        if due_in is not None:
+            ships = (1, 2) if fleet_id == 2 else (3, 4, 5)
+            mission = MissionTuple(
+                mission_status=1,
+                mission_id=mission_id,
+                final_time_ms=int((BASE + due_in).timestamp() * 1000),
+                reserved=0,
+                ship_ids=ships,
+            )
         scheduler.confirm_dispatch(fleet_id, mission)
         if home_verified:
             scheduler.confirm_home_port_after_dispatch(
@@ -133,15 +145,93 @@ class ContinuousExpeditionMonitorTests(unittest.TestCase):
             self.assertEqual(report.fleets[1].current_phase, FleetPhase.READY)
             self.assertEqual(len(events), 2)
 
-    def test_a_tick_names_itself_as_the_refresh_caller(self):
+    def test_a_tick_names_itself_only_when_it_asks_for_a_refresh(self):
         with tempfile.TemporaryDirectory() as directory:
-            state = observed([make_snapshot(2), make_snapshot(3)], fresh=True)
-            reader = AttributingReader(state)
-            monitor, _, _, _ = self.make_monitor(directory, state, reader=reader)
+            snapshots = [make_snapshot(2), make_snapshot(3)]
+            reader = AttributingReader(
+                observed(snapshots, fresh=False), refreshed_state=observed(snapshots)
+            )
+            monitor, _, _, _ = self.make_monitor(
+                directory, reader.state, reader=reader
+            )
 
             monitor.tick()
 
             self.assertEqual(reader.origins, ["monitor_tick"])
+
+    def test_a_tick_with_nothing_pending_refuses_to_navigate(self):
+        """Every fleet is out with its return far away: no navigation is worth it."""
+        with tempfile.TemporaryDirectory() as directory:
+            far = BASE + timedelta(minutes=20)
+            snapshots = [
+                make_snapshot(2, status=1, mission_id=1, return_at=far),
+                make_snapshot(3, status=1, mission_id=3, return_at=far),
+            ]
+            reader = AttributingReader(observed(snapshots, fresh=False))
+            monitor, scheduler, _, _ = self.make_monitor(
+                directory, reader.state, reader=reader
+            )
+            self.set_active(scheduler, 2, 1)
+            self.set_active(scheduler, 3, 3)
+
+            with self.assertRaisesRegex(ContinuousMonitorError, "will not navigate"):
+                monitor.tick()
+
+            self.assertEqual(reader.origins, [])
+            self.assertEqual(reader.read_count, 1)
+
+    def test_a_return_due_within_the_lead_time_still_asks_for_a_refresh(self):
+        with tempfile.TemporaryDirectory() as directory:
+            snapshots = [
+                make_snapshot(2, status=1, mission_id=1, return_at=BASE + timedelta(seconds=30)),
+                make_snapshot(3, status=1, mission_id=3, return_at=BASE + timedelta(minutes=20)),
+            ]
+            reader = AttributingReader(
+                observed(snapshots, fresh=False), refreshed_state=observed(snapshots)
+            )
+            monitor, scheduler, _, events = self.make_monitor(
+                directory, reader.state, reader=reader
+            )
+            self.set_active(scheduler, 2, 1, due_in=timedelta(seconds=30))
+            self.set_active(scheduler, 3, 3, due_in=timedelta(minutes=20))
+
+            monitor.tick()
+
+            self.assertEqual(reader.origins, ["monitor_tick"])
+            reasons = [
+                fields["reason"] for name, fields in events
+                if name == "monitor_refresh_requested"
+            ]
+            self.assertEqual(len(reasons), 1)
+            self.assertIn("due to return", reasons[0])
+
+    def test_a_refresh_that_still_lacks_a_witness_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            snapshots = [make_snapshot(2), make_snapshot(3)]
+            reader = AttributingReader(observed(snapshots, fresh=False))
+            monitor, _, _, _ = self.make_monitor(
+                directory, reader.state, reader=reader
+            )
+
+            with self.assertRaisesRegex(ContinuousMonitorError, "not trusted"):
+                monitor.tick()
+
+            self.assertEqual(reader.origins, ["monitor_tick"])
+
+    def test_an_expired_observation_still_fails_closed(self):
+        """Aging out is not a reason to trust a state; refresh first, then judge."""
+        with tempfile.TemporaryDirectory() as directory:
+            stale_at = BASE - timedelta(minutes=5)
+            monitor, scheduler, _, _ = self.make_monitor(
+                directory,
+                observed([make_snapshot(2), make_snapshot(3)], at=stale_at),
+            )
+
+            with self.assertRaisesRegex(ContinuousMonitorError, "not trusted"):
+                monitor.tick()
+
+            self.assertEqual(scheduler.fleet(2).phase, FleetPhase.IDLE)
+            self.assertEqual(scheduler.fleet(3).phase, FleetPhase.IDLE)
 
     def test_report_carries_source_freshness_verified_when_trusted(self):
         with tempfile.TemporaryDirectory() as directory:

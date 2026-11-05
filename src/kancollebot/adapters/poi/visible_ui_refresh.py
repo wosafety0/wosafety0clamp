@@ -291,12 +291,15 @@ class VisibleUiPortRefreshDriver:
 
 
 class FreshnessRefreshingStateReader:
-    """Obtain a fresh witness through visible navigation when passive observation stalls.
+    """Obtain a fresh witness through visible navigation when a caller asks.
 
-    A single read may trigger at most one navigation sequence. Subsequent reads
-    respect the cooldown. If no matching natural response arrives before the
-    bounded wait expires, the last unverified observation is returned unchanged
-    so the continuous monitor remains fail-closed.
+    Reading is separate from refreshing. :meth:`read_fleets` is pure observation
+    and never touches the game; :meth:`ensure_fresh` is the only method that may
+    navigate, and it requires the caller to name itself. A single refresh sends
+    at most one navigation sequence, and subsequent requests respect the
+    cooldown. If no matching natural response arrives before the bounded wait
+    expires, the last unverified observation is returned unchanged so the
+    continuous monitor remains fail-closed.
     """
 
     def __init__(
@@ -440,14 +443,19 @@ class FreshnessRefreshingStateReader:
             return observation
 
     def read_fleets(self) -> Any:
-        """Legacy implicit entry point: read, and refresh if no witness is held.
+        """Read the current state without touching the game.
 
-        Kept so existing callers keep working unchanged. Every refresh it does
-        trigger is stamped ``origin="implicit_read"``, which is exactly the
-        attribution that makes an implicit side effect visible in the log.
-        New callers should name themselves through :meth:`ensure_fresh`.
+        Genuinely read-only: it never navigates, never clicks and never waits
+        for a witness. Callers that need a fresh observation must ask for one
+        through :meth:`ensure_fresh` and name themselves as the reason.
+
+        Before this change every read that found no witness fired a full
+        three-click navigation, which turned routine polling into game input
+        (live 2026-11-05: 27 navigations and 75 clicks behind two dispatch
+        intents, 17 of those navigations never consumed by anything).
         """
-        return self.ensure_fresh(origin="implicit_read")
+        with self._refresh_lock:
+            return self._reader.read_fleets()
 
     def ensure_fresh(self, *, origin: str) -> Any:
         """Read once, refreshing only when the caller asked for a fresh state.

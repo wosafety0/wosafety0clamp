@@ -107,6 +107,10 @@ def build_runtime(
     observer_script: str | Path = DEFAULT_OBSERVER_SCRIPT,
     observer_timeout_seconds: float = 130.0,
     max_state_age_seconds: float = 30.0,
+    # How close a scheduled return has to be before a stale observation is
+    # worth a navigation. This is what keeps an idle tick from turning into
+    # game input every cooldown period.
+    refresh_lead_seconds: float = 60.0,
     client: PoiMcpClient | None = None,
     observer: PassivePortResponseObserver | None = None,
     dispatch_fleet_ids: tuple[int, ...] = RUNTIME_CONFIG.monitor_candidate_fleet_ids,
@@ -146,6 +150,8 @@ def build_runtime(
         raise ValueError("observer_timeout_seconds must be finite and positive")
     if not math.isfinite(max_state_age_seconds) or max_state_age_seconds < 0:
         raise ValueError("max_state_age_seconds must be finite and non-negative")
+    if not math.isfinite(refresh_lead_seconds) or refresh_lead_seconds < 0:
+        raise ValueError("refresh_lead_seconds must be finite and non-negative")
     if not dispatch_fleet_ids or len(set(dispatch_fleet_ids)) != len(dispatch_fleet_ids):
         raise ValueError("dispatch_fleet_ids must be a non-empty unique sequence")
     dispatchable = set(policy.dispatchable_fleet_ids)
@@ -291,6 +297,7 @@ def build_runtime(
         mission_requirements=requirements,
         event_sink=event_sink,
         max_state_age=timedelta(seconds=max_state_age_seconds),
+        refresh_lead_time=timedelta(seconds=refresh_lead_seconds),
         adopt_unplanned_missions=adopt_unplanned_missions,
     )
     return MonitorRuntime(
@@ -588,6 +595,7 @@ def _run_monitor_with_session(
             observer_script=args.observer_script,
             observer_timeout_seconds=args.observer_timeout_seconds,
             max_state_age_seconds=args.max_state_age_seconds,
+            refresh_lead_seconds=args.refresh_lead_seconds,
             enable_ui_refresh=enable_ui_refresh,
             ui_input=game_session.input if game_session is not None else None,
             ui_state_verifier=(
@@ -675,6 +683,12 @@ def _main_impl(argv: list[str] | None = None) -> int:
     parser.add_argument("--observer-script", type=Path, default=DEFAULT_OBSERVER_SCRIPT)
     parser.add_argument("--observer-timeout-seconds", type=float, default=RUNTIME_CONFIG.observer_timeout_seconds)
     parser.add_argument("--max-state-age-seconds", type=float, default=RUNTIME_CONFIG.max_state_age_seconds)
+    parser.add_argument(
+        "--refresh-lead-seconds",
+        type=float,
+        default=60.0,
+        help="how close a return must be before a stale observation justifies navigation",
+    )
     parser.add_argument("--poll-seconds", type=float, default=RUNTIME_CONFIG.monitor_poll_seconds)
     parser.add_argument("--max-ticks", type=int)
     parser.add_argument(
@@ -799,6 +813,8 @@ def _main_impl(argv: list[str] | None = None) -> int:
         parser.error("--modal-dismiss-limit must be a positive integer")
     if not math.isfinite(args.poll_seconds) or args.poll_seconds <= 0:
         parser.error("--poll-seconds must be finite and positive")
+    if not math.isfinite(args.refresh_lead_seconds) or args.refresh_lead_seconds < 0:
+        parser.error("--refresh-lead-seconds must be finite and non-negative")
     if args.max_ticks is not None and args.max_ticks < 1:
         parser.error("--max-ticks must be a positive integer")
     if args.once and args.max_ticks is not None and args.max_ticks != 1:

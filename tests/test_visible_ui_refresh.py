@@ -192,7 +192,7 @@ class FreshnessRefreshingStateReaderTests(unittest.TestCase):
         driver = SimpleNamespace(refresh_port_state=lambda: self.fail("unexpected refresh"))
         wrapper = FreshnessRefreshingStateReader(reader, driver)
 
-        result = wrapper.read_fleets()
+        result = wrapper.ensure_fresh(origin="test_reader")
 
         self.assertTrue(result.source_freshness_verified)
         self.assertEqual(reader.calls, 1)
@@ -222,7 +222,7 @@ class FreshnessRefreshingStateReaderTests(unittest.TestCase):
             sleep=sleep,
         )
 
-        result = wrapper.read_fleets()
+        result = wrapper.ensure_fresh(origin="test_reader")
 
         self.assertTrue(result.source_freshness_verified)
         self.assertEqual(refresh_calls, ["refresh"])
@@ -247,7 +247,7 @@ class FreshnessRefreshingStateReaderTests(unittest.TestCase):
             sleep=sleep,
         )
 
-        result = wrapper.read_fleets()
+        result = wrapper.ensure_fresh(origin="test_reader")
 
         self.assertFalse(result.source_freshness_verified)
         self.assertEqual(refresh_calls, ["refresh"])
@@ -272,8 +272,8 @@ class FreshnessRefreshingStateReaderTests(unittest.TestCase):
             sleep=sleep,
         )
 
-        first = wrapper.read_fleets()
-        second = wrapper.read_fleets()
+        first = wrapper.ensure_fresh(origin="test_reader")
+        second = wrapper.ensure_fresh(origin="test_reader")
 
         self.assertFalse(first.source_freshness_verified)
         self.assertFalse(second.source_freshness_verified)
@@ -298,16 +298,16 @@ class FreshnessRefreshingStateReaderTests(unittest.TestCase):
             sleep=sleep,
         )
 
-        first = wrapper.read_fleets()
+        first = wrapper.ensure_fresh(origin="test_reader")
         self.assertFalse(first.source_freshness_verified)
         self.assertEqual(clock[0], 1.0)
 
-        second = wrapper.read_fleets()
+        second = wrapper.ensure_fresh(origin="test_reader")
         self.assertFalse(second.source_freshness_verified)
         self.assertEqual(refresh_calls, ["refresh"])
 
         clock[0] += 0.5
-        wrapper.read_fleets()
+        wrapper.ensure_fresh(origin="test_reader")
         self.assertEqual(refresh_calls, ["refresh", "refresh"])
 
 
@@ -512,15 +512,25 @@ class RefreshAttributionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "name the caller"):
             wrapper.ensure_fresh(origin="   ")
 
-    def test_the_legacy_entry_point_marks_itself_implicit(self):
+    def test_reading_a_stale_state_navigates_for_nothing(self):
+        """R3-D: read_fleets is observation, not a refresh request.
+
+        A read that finds no witness used to fire a full navigation, which is
+        how 27 navigations ended up behind two dispatch intents.
+        """
         events = []
-        driver = SimpleNamespace(refresh_port_state=lambda **kwargs: None)
-        wrapper, _ = self._reader([observation(True)], events=events, driver=driver)
+        driver = SimpleNamespace(
+            refresh_port_state=lambda **kwargs: self.fail("read_fleets must not navigate")
+        )
+        wrapper, _ = self._reader([observation(False)], events=events, driver=driver)
 
-        wrapper.read_fleets()
+        result = wrapper.read_fleets()
 
-        audits = [fields for name, fields in events if name == "ui_refresh_audit"]
-        self.assertEqual(audits[0]["origin"], "implicit_read")
+        self.assertFalse(result.source_freshness_verified)
+        self.assertEqual(
+            [name for name, _ in events if name == "ui_refresh_audit"], []
+        )
+        self.assertIsNone(wrapper._last_refresh_at)
 
 
 if __name__ == "__main__":

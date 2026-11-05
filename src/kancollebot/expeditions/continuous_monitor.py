@@ -30,16 +30,28 @@ class ContinuousMonitorError(RuntimeError):
     """A fleet observation cannot be safely reconciled."""
 
 
-def _read_observation(state_reader: Any, *, origin: str) -> Any:
-    """Read once, naming this caller when the reader can attribute a refresh.
+# Phases that can still change what the scheduler does next, and therefore
+# justify asking the game for a fresh observation. EXPEDITION_ACTIVE is handled
+# separately: it only qualifies once the return is close, or once the fleet
+# still owes a post-dispatch Home Port verification.
+_WORK_PENDING_PHASES = frozenset({
+    FleetPhase.IDLE,
+    FleetPhase.DISPATCHING,
+    FleetPhase.RETURNED_PENDING_UI,
+    FleetPhase.RETURN_RESULT,
+    FleetPhase.BONUS_ITEMS,
+    FleetPhase.RESUPPLY_REQUIRED,
+    FleetPhase.READY,
+})
 
-    A plain reader (offline fake, or a runtime without UI refresh) is read
-    exactly as before. Only the refreshing reader records who asked, and this
-    module never asks for a refresh it cannot attribute.
+
+def _read_observation(state_reader: Any) -> Any:
+    """Read once without asking for anything.
+
+    Reading is pure observation since R3-D: a reader that can refresh does not
+    refresh here. Callers that need a fresh state name themselves through
+    :meth:`ContinuousExpeditionMonitor._request_refresh`.
     """
-    ensure_fresh = getattr(state_reader, "ensure_fresh", None)
-    if callable(ensure_fresh):
-        return ensure_fresh(origin=origin)
     return state_reader.read_fleets()
 
 
@@ -83,6 +95,13 @@ class ContinuousExpeditionMonitor:
         event_sink: Callable[[str, Mapping[str, object]], None],
         max_state_age: timedelta = timedelta(seconds=30),
         clock: Callable[[], datetime] | None = None,
+        # How close a fleet's scheduled return has to be before a stale
+        # observation is worth a navigation. Without a lead time an idle
+        # monitoring tick would either navigate every 35s for nothing or never
+        # notice a return at all; the default sits well above one refresh cycle
+        # (cooldown plus witness wait) so a single refresh still lands ahead of
+        # the return.
+        refresh_lead_time: timedelta = timedelta(seconds=60),
         # Opt-in: adopt a mission the scheduler did not dispatch when it matches
         # the configured mission for that fleet. Off by default because the
         # conservative answer to "I expected an idle fleet" is BLOCKED; a caller
@@ -97,6 +116,8 @@ class ContinuousExpeditionMonitor:
             raise ValueError("a durable event_sink is required")
         if max_state_age < timedelta(0):
             raise ValueError("max_state_age must not be negative")
+        if not isinstance(refresh_lead_time, timedelta) or refresh_lead_time < timedelta(0):
+            raise ValueError("refresh_lead_time must be a non-negative timedelta")
         if not isinstance(adopt_unplanned_missions, bool):
             raise ValueError("adopt_unplanned_missions must be a bool")
         self.scheduler = scheduler
@@ -104,13 +125,37 @@ class ContinuousExpeditionMonitor:
         self.mission_requirements = dict(mission_requirements)
         self.event_sink = event_sink
         self.max_state_age = max_state_age
+        self.refresh_lead_time = refresh_lead_time
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.adopt_unplanned_missions = adopt_unplanned_missions
 
     def tick(self) -> ContinuousMonitorReport:
-        """Read once, validate the whole fleet set, then reconcile each fleet."""
-        observation = _read_observation(self.state_reader, origin="monitor_tick")
+        """Read once, refresh only if pending work needs a witness, then reconcile.
+
+        The read is pure observation. A navigation happens only when the
+        observation is not usable *and* the scheduler still has work that a
+        fresh observation could change: a fleet waiting on settlement,
+        resupply, dispatch, Home Port verification, or a return that is close
+        enough to matter. When nothing is pending the monitor fails closed
+        instead of clicking - live 2026-11-05, eleven of twenty-seven
+        navigations happened after the last real action, purely because every
+        tick read through a self-refreshing reader.
+        """
+        observation = _read_observation(self.state_reader)
         now = self.clock()
+        if not self._is_usable(observation, now):
+            reason = self._pending_work_reason(now)
+            if reason is None:
+                raise ContinuousMonitorError(
+                    "Poi observation is not trusted: no fleet work is pending, so "
+                    "the monitor will not navigate for a fresh one "
+                    f"(observed_at={getattr(observation, 'observed_at', None)})"
+                )
+            observation = self._request_refresh(observation, origin="monitor_tick", reason=reason)
+            # The refresh blocks for a whole navigation; a timestamp taken
+            # before it would judge the new observation against the old clock.
+            now = self.clock()
+
         try:
             observation.require_fresh(now=now, max_age=self.max_state_age)
         except ValueError as exc:
@@ -142,6 +187,52 @@ class ContinuousExpeditionMonitor:
             fleets=results,
             source_freshness_verified=observation.source_freshness_verified,
         )
+
+    def _is_usable(self, observation: Any, now: datetime) -> bool:
+        try:
+            observation.require_fresh(now=now, max_age=self.max_state_age)
+        except ValueError:
+            return False
+        return True
+
+    def _pending_work_reason(self, now: datetime) -> str | None:
+        """Name the pending work that a fresh observation could change.
+
+        Returns ``None`` when every dispatchable fleet is parked in a state that
+        no observation can advance - an expedition still running with its return
+        far away, or a fleet already blocked for an operator. In that case a
+        navigation buys nothing, so the monitor declines to send one.
+        """
+        for fleet_id in self.scheduler.dispatch_fleet_ids:
+            runtime = self.scheduler.fleet(fleet_id)
+            if runtime.phase in _WORK_PENDING_PHASES:
+                return f"fleet {fleet_id} is {runtime.phase.value}"
+            if runtime.phase is not FleetPhase.EXPEDITION_ACTIVE:
+                # BLOCKED holds until an operator intervenes; the same read
+                # would return the same verdict.
+                continue
+            if not runtime.home_port_verified:
+                return f"fleet {fleet_id} still owes post-dispatch Home Port verification"
+            if runtime.mission is None:
+                continue
+            due_at = datetime.fromtimestamp(
+                runtime.mission.final_time_ms / 1000, tz=timezone.utc
+            )
+            if due_at - now <= self.refresh_lead_time:
+                return f"fleet {fleet_id} is due to return at {due_at.isoformat()}"
+        return None
+
+    def _request_refresh(self, observation: Any, *, origin: str, reason: str) -> Any:
+        ensure_fresh = getattr(self.state_reader, "ensure_fresh", None)
+        if not callable(ensure_fresh):
+            # A reader that cannot refresh is not read twice: the second read
+            # would return the same unverified state and only cost time.
+            return observation
+        self.event_sink("monitor_refresh_requested", {
+            "origin": origin,
+            "reason": reason,
+        })
+        return ensure_fresh(origin=origin)
 
     def _reconcile_fleet(
         self, fleet_id: int, snapshot: ExpeditionFleetSnapshot, *, now: datetime
