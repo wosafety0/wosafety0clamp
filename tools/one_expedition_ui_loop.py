@@ -964,13 +964,15 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
             # clicked, so Fleet 4 still fails closed until its supply tab is
             # calibrated.
             #
-            # Capability is checked, not assumed. The production driver
-            # implements the visible supply chain, but it has no calibrated
-            # click chain for the return-result / bonus / reward screens, so
-            # injecting a settlement controller here would only turn "paused at
-            # settlement" into an AttributeError at the first returned fleet.
-            # The controller is therefore wired only when the driver can
-            # actually execute it; otherwise the supervisor keeps pausing.
+            # Capability is checked, not assumed. The production driver now
+            # implements the visible supply chain *and* the three reward-screen
+            # transitions (2026-11-05: the return notice, result and bonus
+            # screens all advance on a click anywhere, so each step is one
+            # proven click rather than a located button). The check stays
+            # because a driver without those methods must keep the supervisor
+            # paused instead of raising AttributeError at the first returned
+            # fleet - swapped drivers and future refactors are exactly when
+            # this guard earns its keep.
             settlement_actions = (
                 "collect_return_result",
                 "claim_bonus_items",

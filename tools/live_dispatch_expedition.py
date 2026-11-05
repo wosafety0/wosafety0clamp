@@ -121,9 +121,13 @@ def main(argv=None) -> int:
             "ship_ids": ships,
         })
 
-        def verify_state(expected: str) -> UiStateEvidence:
+        def verify_state(expected: str, *, visual_attempts: int = 6) -> UiStateEvidence:
+            # The driver passes its own sample count for the reward screens; the
+            # dispatch checkpoints keep this tool's six-sample default.
             state = UiState(expected)
-            evidence = _require_ui_state(game_session, state, visual_attempts=6)
+            evidence = _require_ui_state(
+                game_session, state, visual_attempts=visual_attempts
+            )
             return UiStateEvidence(
                 state=state.value,
                 consecutive_states=(state.value, state.value),

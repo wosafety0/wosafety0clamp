@@ -396,15 +396,15 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
             self.assertEqual(set(kwargs["mission_requirements"]), {3})
             self.assertIsNotNone(kwargs["ui_input"])
 
-    def test_production_supervisor_injects_only_the_controllers_the_driver_can_execute(self):
-        """R3: wire what the driver can actually run, and record what it cannot.
+    def test_production_supervisor_injects_every_controller_the_driver_can_execute(self):
+        """R3: the composition root must wire the whole closed loop it can run.
 
-        The resupply controller is wired because the production driver now owns
-        a calibrated supply click chain. The settlement controller is *not*
-        wired, because the same driver has no calibrated return-result / bonus /
-        reward chain: injecting it would replace "paused at settlement" with an
-        AttributeError at the first returned fleet. The composition root must
-        say so explicitly rather than pretend the loop is complete.
+        Both branches are now executable by the production driver: the supply
+        click chain and, since 2026-11-05, the three reward-screen transitions
+        (each reward screen advances on a click anywhere, so every step is one
+        proven click). The supervisor therefore receives a real settlement
+        controller, and the "unavailable" report must disappear rather than
+        linger as a stale excuse.
         """
         return_at = datetime.now(timezone.utc) + timedelta(minutes=20)
         idle = make_snapshot()
@@ -470,31 +470,34 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
             self.assertIs(assembly["monitor"], runtime.monitor)
             self.assertEqual(len(built_supervisors), 1)
             instance = built_supervisors[0]
-            self.assertIsNone(instance.settlement_controller)
+            self.assertIsNotNone(instance.settlement_controller)
             self.assertIsNotNone(instance.resupply_controller)
 
-            # The gap is reported, not hidden.
+            # Nothing is reported as missing, because nothing is.
             unavailable = [
                 call for call in print_event.call_args_list
                 if call.args and call.args[0] == "settlement_controller_unavailable"
             ]
-            self.assertEqual(len(unavailable), 1)
-            self.assertIn(
-                "collect_return_result", unavailable[0].kwargs["missing_actions"]
-            )
+            self.assertEqual(unavailable, [])
 
             # Every visible click workflow that IS wired must exclude the others.
             arbiter = instance.resupply_controller.ui_arbiter
             self.assertIs(instance.dispatch_controller.ui_arbiter, arbiter)
+            self.assertIs(instance.settlement_controller.ui_arbiter, arbiter)
             self.assertIs(arbiter, assembly["dispatch_controller"].ui_arbiter)
 
             # The supervisor enforces these shares at construction time; assert
             # them here so a future refactor cannot quietly drop one.
             self.assertIs(instance.resupply_controller.scheduler, runtime.scheduler)
+            self.assertIs(instance.settlement_controller.scheduler, runtime.scheduler)
             self.assertIs(
                 instance.resupply_controller.event_sink, runtime.monitor.event_sink
             )
+            self.assertIs(
+                instance.settlement_controller.event_sink, runtime.monitor.event_sink
+            )
             self.assertIs(instance.resupply_controller.allow_ui_actions, True)
+            self.assertIs(instance.settlement_controller.allow_ui_actions, True)
 
             # The supply cost source stays the Redux-read snapshot joined with
             # the monitor's passive port witness, not a fabricated payload.

@@ -68,6 +68,15 @@ SUPPLY_MENU = RecordedPoint(103, 340, "supply-menu")
 SUPPLY_VERIFY_SAMPLES = 6
 SUPPLY_SETTLE_SECONDS = 1.0
 
+# The three reward screens (return notice -> result -> bonus items -> port)
+# advance on a click *anywhere*, so no button has to be located: one fixed point
+# in the empty area under the roster is used for every step. It sits well away
+# from the 次 control in the bottom-right corner, which is the only other thing
+# on those screens a stray click could reach.
+REWARD_ADVANCE = RecordedPoint(600, 400, "reward-advance")
+REWARD_SETTLE_SECONDS = 1.6
+REWARD_VERIFY_SAMPLES = 6
+
 # Fleets the game lets a player send on an expedition. Fleet 1 is drawn on the
 # tab strip but cannot be dispatched, so it is not offered.
 DEFAULT_SUPPORTED_FLEETS = (2, 3, 4)
@@ -560,6 +569,82 @@ class CdpContinuousExpeditionUiDriver:
             "completion_verified_by": "caller_poi_observation",
         })
         return evidence
+
+    # -- settlement -------------------------------------------------------
+    def _advance_reward_screen(
+        self,
+        *,
+        fleet_id: int,
+        before: str,
+        after: str,
+        phase: str,
+        step: int,
+    ) -> UiStateEvidence:
+        """Prove one reward screen, click once, then prove the next one.
+
+        Each of the three screens accepts a click anywhere, so the same fixed
+        point advances all of them; what is *not* assumed is the resulting
+        screen. The post-click state must be observed on two consecutive frames
+        or the chain stops here - the caller's scheduler is what decides whether
+        the fleet is idle afterwards.
+        """
+        if isinstance(fleet_id, bool) or not isinstance(fleet_id, int) or fleet_id < 1:
+            raise ContinuousUiDriverError("fleet_id must be a positive integer")
+        if fleet_id not in self._supported_fleets:
+            raise ContinuousUiDriverError(
+                f"fleet {fleet_id} is not a supported dispatch/settlement fleet; "
+                f"supported fleets are {list(self._supported_fleets)}"
+            )
+        self._event_sink("continuous_ui_settlement_step_started", {
+            "fleet_id": fleet_id,
+            "phase": phase,
+            "expected_before": before,
+            "expected_after": after,
+            "game_api_requests": False,
+        })
+        self._confirm(before, phase=f"{phase} precondition", samples=REWARD_VERIFY_SAMPLES)
+        self._click(REWARD_ADVANCE, action=f"advance_{phase}", step=step)
+        self._sleep(REWARD_SETTLE_SECONDS)
+        evidence = self._confirm(
+            after, phase=f"after {phase}", samples=REWARD_VERIFY_SAMPLES
+        )
+        self._event_sink("continuous_ui_settlement_step_completed", {
+            "fleet_id": fleet_id,
+            "phase": phase,
+            "final_state": after,
+            "evidence": evidence.evidence,
+        })
+        return evidence
+
+    def collect_return_result(self, *, fleet_id: int) -> UiStateEvidence:
+        """Advance the return notice to the expedition result screen."""
+        return self._advance_reward_screen(
+            fleet_id=fleet_id,
+            before="HOME_PORT_RETURN_NOTICE",
+            after="RETURN_RESULT",
+            phase="return_result",
+            step=1,
+        )
+
+    def claim_bonus_items(self, *, fleet_id: int) -> UiStateEvidence:
+        """Advance the result screen to the bonus/reward screen."""
+        return self._advance_reward_screen(
+            fleet_id=fleet_id,
+            before="RETURN_RESULT",
+            after="BONUS_ITEMS",
+            phase="bonus_items",
+            step=2,
+        )
+
+    def claim_reward(self, *, fleet_id: int) -> UiStateEvidence:
+        """Dismiss the bonus screen and prove the idle Home Port behind it."""
+        return self._advance_reward_screen(
+            fleet_id=fleet_id,
+            before="BONUS_ITEMS",
+            after="HOME_PORT",
+            phase="reward",
+            step=3,
+        )
 
 
 class DetailSourceLike(Protocol):
