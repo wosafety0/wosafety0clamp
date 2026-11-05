@@ -18,7 +18,7 @@
 | `event_id` | 一条持久化日志记录 | 唯一定位、排序、去重单条事件 |
 | `dispatch_id` | 一次远征从派遣到归还、结算、补给的生命周期 | 把多个事件关联为同一事务 |
 
-不能把 `event_id`、`fleet_id` 或 `mission_id` 冒充 `dispatch_id`：一个 dispatch 有多个 event；同一舰队会反复执行相同 mission。
+不能把 `event_id`、`fleet_id` 或 `mission_id` 冒充 `dispatch_id`：一个 dispatch 有多个 event；同一舰队会反复执行相同 mission。`event_id` 只标识数据库中的一行，可作为稳定读取游标；它不能识别两次重复发出的语义相同事件。
 
 ## 3. 推荐的后续契约
 
@@ -27,9 +27,16 @@
 3. 将 ID 传入 dispatch、return observation、settlement、reward claim、resupply 和 READY-confirmed 事件。
 4. 在 `FleetRuntime` 中保留 ID，直到 resupply 成功并确认 READY；之后才清除。
 5. 旧数据库行没有该 ID 时标记为 unknown，不从时间戳或相邻事件猜测补齐。
-6. `event_id` 用于事件级去重；`dispatch_id` 用于生命周期分组。二者都不能代替状态证据。
+6. `event_id` 用于唯一定位日志行和推进消费游标；它不能单独去重重复发出的语义事件。
+7. `dispatch_id` 用于生命周期分组。若同一阶段可能被重复发出，还需独立的 `event_key` / `idempotency_key`，其组成必须区分合法的重复阶段/尝试，不能简单使用 `dispatch_id + event_name`。
+8. 以上 ID 都不能代替状态证据。
 
-实现前仍需单独设计兼容迁移：当前 intent/runtime 表都没有可存放该 ID 的字段。此分支不执行 `ALTER TABLE`，不改变既有数据库。
+**dispatch_id 的存储选项尚未定案：**
+
+- **事件日志派生方案（无 schema 迁移）：** 从已持久化的 `DispatchIntent` 字段确定性计算 ID，在 `dispatch_intent_persisted` 事件中写入；settlement/resupply 通过注入的只读 resolver 从同一 append-only 事件日志恢复当前 fleet 的未闭合 lifecycle。resolver 必须在缺失、歧义或日志损坏时 fail-closed，并证明同一 fleet 在 lifecycle 闭合前不会出现可覆盖它的新 dispatch。
+- **直接持久化方案：** 将 ID 加入 intent/runtime 持久化记录；当前表没有字段，因此需要独立的 additive migration、旧行 unknown 语义和回滚方案。
+
+两种方案都需要崩溃恢复、重复事件和多舰队并发测试。此分支不执行 `ALTER TABLE`，不改变既有数据库，也不预选实现方案。
 
 ## 4. 结果归属与状态证据
 

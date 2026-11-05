@@ -4104,10 +4104,10 @@ The Hand plugin's read-only probe reported:
 
 ## 2026-11-06 — 暴露持久化 event_id，并厘清 dispatch_id 设计边界
 
-- **FINDING:** `dispatch_events` 已有 SQLite `event_id INTEGER PRIMARY KEY AUTOINCREMENT`，但 `SqliteDispatchEventLog.load_all()` 丢弃了该列，调用写入也不返回 ID。日志消费者因此不能直接使用数据库已有的唯一事件键。
+- **FINDING:** `dispatch_events` 已有 SQLite `event_id INTEGER PRIMARY KEY AUTOINCREMENT`，但 `SqliteDispatchEventLog.load_all()` 丢弃了该列，调用写入也不返回 ID。日志消费者此前无法直接使用数据库已有的唯一行 ID；该 ID 可作为读取游标，但不等于语义事件去重键。
 - **IMPLEMENTED:** `SqliteDispatchEventLog.__call__()` 现在返回新插入的 event_id；`load_all()` 为每条记录返回 event_id。四列旧 schema 完全不变；dispatch/settlement/resupply/monitor 的 event_sink 类型允许返回 int 或 None，既有只返回 None 的测试 sink 仍兼容。
 - **TESTS:** 扩展真实 SQLite sink 测试：新写入返回 2；旧四列数据库的旧行/新行 ID 为 1/2；两个 sink 共用同一数据库时 ID 连续为 1/2/3，读取顺序一致。
-- **DESIGN:** 新增 `docs/DESIGN_event_identity_and_dedup.md`。确认 event_id 是单条事件 ID，不是一次远征的 dispatch_id。当前 DispatchIntent/FleetRuntime 均未持久化 dispatch_id，且 reward claim 后 mission tuple 被清空；若要跨派遣、归还、结算、补给关联，必须先设计可恢复的生命周期 ID 与兼容迁移。当前不伪造 dispatch_id、不迁移 schema。
+- **DESIGN:** 新增 `docs/DESIGN_event_identity_and_dedup.md`。确认 event_id 是单条事件 ID，不是一次远征的 dispatch_id。当前 DispatchIntent/FleetRuntime 均未持久化 dispatch_id，且 reward claim 后 mission tuple 被清空；若要跨派遣、归还、结算、补给关联，必须先设计可恢复的生命周期 ID。可评估从持久化 intent + append-only event log 派生并恢复，或为 intent/runtime 增加字段（后者需要兼容迁移）；还需独立 event_key 处理重复发出。当前不伪造 dispatch_id、不迁移 schema。
 - **RESULT ATTRIBUTION:** 结算归属必须由新鲜舰队状态、mission tuple 和状态机证据判定；点击行为和 UI 页面本身不作为结果归属证明。多个待结算舰队必须逐个读回确认。
 - **VERIFIED (exact code HEAD `fc85a9dc03cdf45619e73a4d4b1139bda07b8112`):** Push CI [run 42084057280](https://github.com/wosafety0/wosafety0clamp/actions/runs/42084057280) passed: 1,108 Python tests, Node static tests 17/17, compileall and package/CLI smoke checks. Feature CI [run 42084123744](https://github.com/wosafety0/wosafety0clamp/actions/runs/42084123744) passed all four jobs (Python 3.12/3.13 × vision with/without); each ran 1,108 Python tests and Node 19/19. Vision-disabled jobs confirmed the visual dependency gate fails closed as designed.
 - **REMOTE / PR:** `dev/event-id-readback-20261106` code HEAD is `fc85a9dc03cdf45619e73a4d4b1139bda07b8112`; Draft PR [#39](https://github.com/wosafety0/wosafety0clamp/pull/39) is open and unmerged, based on current PR #27 branch `dev/dispatch-observer-safety-current-mvp-20261103` at `ba8884466f2bb1d568cc46b76034711df81bb50c`. Final archive-head CI is checked separately.
