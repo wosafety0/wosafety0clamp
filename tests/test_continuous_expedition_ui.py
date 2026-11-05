@@ -91,6 +91,73 @@ class FakeScreen:
                 self.marks.selected = int(point.label.split("-")[1])
 
 
+class HomePortReturnPreconditionTests(unittest.TestCase):
+    """The page a start click leaves behind is one of several, not one.
+
+    Live 2026-11-05 the client still showed FLEET_3_SELECTED three seconds after
+    an irreversible start, then dropped back to the list with that mission
+    selected. Demanding EXPEDITION_LIST there marked a working dispatch BLOCKED.
+    """
+
+    class Screen:
+        def __init__(self, state: str) -> None:
+            self.state = state
+            self.clicks: list[str] = []
+
+        def verify(self, expected, *, visual_attempts=None):
+            if expected != self.state:
+                raise ContinuousUiDriverError(
+                    f"expected {expected}, screen shows {self.state}"
+                )
+            return UiStateEvidence(
+                state=expected,
+                consecutive_states=(expected, expected),
+                evidence="scripted",
+            )
+
+    def build(self, state: str):
+        screen = self.Screen(state)
+
+        def click(point):
+            screen.clicks.append(point.label)
+            if point.label == "home-port":
+                screen.state = "HOME_PORT"
+
+        driver = CdpContinuousExpeditionUiDriver(
+            game_input=type("Input", (), {"click": staticmethod(click)})(),
+            verify_state=screen.verify,
+            event_sink=lambda event, payload: None,
+            details=FakeDetails(),
+            marks=FakeMarks(),
+            capture=lambda: "frame",
+            sleep=lambda seconds: None,
+            settle_seconds=0.0,
+        )
+        return driver, screen
+
+    def test_every_page_the_start_click_can_leave_behind_returns_home(self):
+        for state in ("FLEET_3_SELECTED", "MISSION_SELECTED", "EXPEDITION_LIST"):
+            with self.subTest(state=state):
+                driver, screen = self.build(state)
+                evidence = driver.return_to_home_port(fleet_id=3)
+                self.assertEqual(evidence.state, "HOME_PORT")
+                self.assertEqual(screen.clicks, ["home-port"])
+
+    def test_a_screen_that_is_none_of_those_pages_is_never_clicked(self):
+        driver, screen = self.build("BONUS_ITEMS")
+        with self.assertRaisesRegex(ContinuousUiDriverError, "none of"):
+            driver.return_to_home_port(fleet_id=3)
+        self.assertEqual(screen.clicks, [])
+
+    def test_a_named_page_stays_strict(self):
+        driver, screen = self.build("FLEET_3_SELECTED")
+        with self.assertRaises(ContinuousUiDriverError):
+            driver.return_to_home_port(
+                fleet_id=3, expected_current_state="EXPEDITION_LIST"
+            )
+        self.assertEqual(screen.clicks, [])
+
+
 class ContinuousExpeditionUiDriverTests(unittest.TestCase):
     def make_driver(
         self,
@@ -108,7 +175,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
         sequence = list(states or [])
         failures = dict(errors or {})
 
-        def verify(state):
+        def verify(state, *, visual_attempts=None):
             if state in failures:
                 error = failures.pop(state)
                 if error is not None:

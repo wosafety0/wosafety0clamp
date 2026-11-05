@@ -177,7 +177,9 @@ class CdpContinuousExpeditionUiDriver:
         })
         return evidence
 
-    def _await_state(self, expected: str, *, phase: str) -> UiStateEvidence:
+    def _await_state(
+        self, expected: str, *, phase: str, samples: int | None = REWARD_VERIFY_SAMPLES
+    ) -> UiStateEvidence:
         """Wait for a reward screen the client reaches through a fade.
 
         A post-click check is not a precondition: the client fades through the
@@ -195,7 +197,7 @@ class CdpContinuousExpeditionUiDriver:
         """
         for attempt in range(1, REWARD_SCREEN_POLLS + 1):
             try:
-                return self._confirm(expected, phase=phase, samples=REWARD_VERIFY_SAMPLES)
+                return self._confirm(expected, phase=phase, samples=samples)
             except Exception as exc:
                 if (
                     type(exc).__name__ not in self._NOT_THIS_SCREEN
@@ -473,23 +475,47 @@ class CdpContinuousExpeditionUiDriver:
         self,
         *,
         fleet_id: int,
-        expected_current_state: str = "EXPEDITION_LIST",
+        expected_current_state: str | None = None,
     ) -> UiStateEvidence:
-        """Return from one explicitly verified page with exactly one navigation click."""
+        """Return from one *proven* page with exactly one navigation click.
+
+        The page is proven, not assumed. After the start click the client does
+        not settle on one screen: it shows the fleet-selection page the start
+        was confirmed on, then drops back to the expedition list with that
+        mission still selected. A caller naming a single expected state gets an
+        ordering race - live 2026-11-05 the dispatch was registered as BLOCKED
+        because "EXPEDITION_LIST" was demanded while the client was still
+        showing FLEET_3_SELECTED, three seconds after an irreversible click that
+        had worked. The default therefore proves whichever of the calibrated
+        pages is really on screen; naming one state stays available and stays
+        strict.
+        """
         if fleet_id not in self._supported_fleets:
             raise ContinuousUiDriverError(
                 f"Home Port recovery is not calibrated for Fleet {fleet_id}"
             )
         allowed = ["EXPEDITION_LIST", "MISSION_SELECTED"]
         allowed.extend(f"FLEET_{candidate}_SELECTED" for candidate in self._supported_fleets)
-        if expected_current_state not in allowed:
-            raise ContinuousUiDriverError(
-                f"Unsupported Home Port recovery precondition: {expected_current_state}"
+        if expected_current_state is None:
+            current, _evidence = self._confirm_any(
+                allowed, phase="precondition for return_home_port"
             )
-        self._confirm(expected_current_state, phase="precondition for return_home_port")
+            self._event_sink("continuous_ui_home_port_precondition", {
+                "fleet_id": fleet_id,
+                "state": current,
+                "candidates": allowed,
+            })
+        else:
+            if expected_current_state not in allowed:
+                raise ContinuousUiDriverError(
+                    f"Unsupported Home Port recovery precondition: {expected_current_state}"
+                )
+            self._confirm(expected_current_state, phase="precondition for return_home_port")
         self._click(HOME_PORT, action="return_home_port", step=7)
         try:
-            return self._confirm("HOME_PORT", phase="after return_home_port")
+            return self._await_state(
+                "HOME_PORT", phase="after return_home_port", samples=None
+            )
         except Exception as first_error:
             self._event_sink("continuous_ui_home_port_verification_pending", {
                 "fleet_id": fleet_id,
@@ -497,7 +523,30 @@ class CdpContinuousExpeditionUiDriver:
                 "retry": "read-only visual verification only; no second click",
             })
             self._sleep(self._settle_seconds)
-            return self._confirm("HOME_PORT", phase="after return_home_port observation retry")
+            return self._await_state(
+                "HOME_PORT",
+                phase="after return_home_port observation retry",
+                samples=None,
+            )
+
+    def _confirm_any(
+        self, candidates: list[str], *, phase: str
+    ) -> tuple[str, UiStateEvidence]:
+        """Prove which of these pages is on screen, without clicking anything.
+
+        Every candidate is a read-only classification of the same frame, so this
+        cannot move the client; it only refuses to guess. Raises when none of
+        them is on screen, which is the case where a click must not be sent.
+        """
+        for candidate in candidates:
+            evidence = self._probe_state(
+                candidate, phase=f"{phase} ({candidate})"
+            )
+            if evidence is not None:
+                return candidate, evidence
+        raise ContinuousUiDriverError(
+            f"{phase}: the screen is none of {candidates}; refusing to click"
+        )
 
     # -- resupply ---------------------------------------------------------
     def _supply_page_state(self) -> str:
