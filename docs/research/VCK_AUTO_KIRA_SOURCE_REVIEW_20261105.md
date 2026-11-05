@@ -371,6 +371,7 @@ Additional exact blob IDs from the pinned reference snapshot:
 | `ActionHelper.cs` | `8fc6c7a57831c627ef50b58aa2fea3c9095a671b` |
 | `KiraShipsViewModel.cs` | `02345550530dcabf4d583864a850391b6e6bcfeb` |
 | `ActReset.cs` | `61c583e14b59e4f19080b3a63a8de805cfcfdb9b` |
+| `AutoExpeditionSettings.cs` (second decompilation output) | `8aa102bdaf2674c491820c82906fd0fe1e81a288` |
 
 Status remains SOURCE_REVIEWED only. No KancolleBot runtime code changed; no tests or Poi/game runtime validation were performed; R3 was not modified.
 
@@ -398,3 +399,22 @@ Additional call-site evidence from `AutoKira.cs` and `ActReset.cs`:
 - KancolleBot design implication: an error must transition to a paused/reconciliation state. Before resuming, re-read the live fleet, current screen, target morale, supply, and saved original formation; never blindly repeat the last click or sortie after a reset.
 
 This section is a static call-flow finding, not a runtime assertion. It does not establish that KCV always loops after every error.
+
+
+## 23. AutoKira settings defaults and effective supply behavior
+
+Additional source: `AutoExpeditionSettings.cs` (second decompilation output), blob `8aa102bdaf2674c491820c82906fd0fe1e81a288`.
+
+Constructor defaults directly observed:
+
+- `AutoKiraOpen[0] = false`; `AutoKiraOpen[1..3] = true`. By array index, Fleet 1 is disabled by default and Fleets 2–4 are enabled.
+- `KiraForSupport[0] = true`; `KiraForSupport[1..3] = false`.
+- `AutoKiraCount[0..3] = 6`; `AutoKiraTargetCond[0..3] = 75`; `AutoKiraFilter[0..3] = "等级"`.
+- `AutoKiraUseFellow=true`; `AutoKiraClearEquips=true`; `AutoKiraExcludeLockedShip=true`.
+- `AutoKiraLvCondition=5`; `AutoKiraHPCondition=60`; `AutoKiraRareCondition="金色"`.
+- `AutoKiraHPPercent=60`; `AutoKiraRepairTime=10`.
+- The backing field for `AutoKiraSupplyFellows` is declared as a bool and has no assignment in the reviewed constructor or other field-write sites; its default instance value is therefore false unless a saved/user setting overrides it.
+
+Combined with Sections 14.3 and 19, the default `AutoKiraSupplyFellows=false` means the automatic preflight/supply path checks and supplies **only the flagship**, not the temporary fellow. The fellow's candidate predicate only requires fuel and ammunition ratios of at least 30%; it is not guaranteed to be fully replenished by the default policy. This is an upstream resource-saving behavior, not a safe readiness policy to inherit blindly.
+
+These values are defaults only. Persisted settings can override them, so runtime behavior must be based on the loaded settings snapshot rather than constructor defaults.
