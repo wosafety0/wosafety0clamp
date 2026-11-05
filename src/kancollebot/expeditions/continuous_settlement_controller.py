@@ -152,6 +152,22 @@ class ContinuousSettlementController:
                 # returned identity lives in the scheduler, so an idle reading
                 # is the expected shape of "this settlement is already half
                 # done" - not a reason to strand the fleet.
+                #
+                # It is only unambiguous while no OTHER fleet is waiting for its
+                # result. The reward screens say which expedition it was, not
+                # which fleet, so with a second return pending the chain would be
+                # collected for the wrong fleet. Live 2026-11-05: fleet 4's result
+                # was accepted by an earlier run, fleet 3 came home two minutes
+                # later, and this run's chain settled fleet 3 while the scheduler
+                # credited fleet 4.
+                other_returns = self._other_fleets_awaiting_result(baseline, fleet_id)
+                if other_returns:
+                    raise ContinuousSettlementError(
+                        f"Fleet {fleet_id} reads idle but fleets {other_returns} are "
+                        "waiting for their expedition result; the reward screens "
+                        "cannot be attributed to one fleet, so settlement is "
+                        "refused until only one return is pending"
+                    )
                 self.event_sink("settlement_resumed_after_result_taken", {
                     "fleet_id": fleet_id,
                     "phase": current.phase.value,
@@ -289,6 +305,25 @@ class ContinuousSettlementController:
         if newer_than is not None and observation.observed_at <= newer_than:
             raise ContinuousSettlementError("Poi observation did not cross the UI action time boundary")
         return observation, now
+
+    @staticmethod
+    def _other_fleets_awaiting_result(
+        observation: ObservedState[tuple[ExpeditionFleetSnapshot, ...]], fleet_id: int
+    ) -> tuple[int, ...]:
+        """Fleets other than this one whose result is still waiting on screen.
+
+        A fleet reads status 2 exactly while its result has not been accepted,
+        so any other status-2 fleet is a second reward chain that the UI cannot
+        tell apart from this one: the reward screens name the expedition, not the
+        fleet.
+        """
+        return tuple(
+            sorted(
+                item.fleet_id
+                for item in observation.payload
+                if item.fleet_id != fleet_id and item.mission_status == 2
+            )
+        )
 
     @staticmethod
     def _snapshot_for(

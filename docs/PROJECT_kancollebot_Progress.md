@@ -4137,3 +4137,24 @@ The Hand plugin's read-only probe reported:
 - **SAFETY:** 未推送、未开 PR、未合并、未改分支保护、未删分支；未放宽 `resupply_verified_fleet_ids=(2,3)`（Fleet 4 仍 fail-closed）；未改 `MAX_FLEET_SIZE`/7 舰；实机操作严格限定为母港/补给页导航与一次 Fleet 3 补给，全部点击前均有双帧状态确认、点击后均有状态或 Redux 复核。
 - **LIMITS:** ① 结算链缺失是下一阶段的首要开发项，需要真实返航画面做坐标/模板校准。② 补给驱动目前只用「舰队页签 + 全队补给按钮」，未走逐舰勾选路径。③ 本轮未做双舰队调度与长时间运行。④ 未更新 `PRODUCT_ARCHITECTURE.md`/`DEVELOPMENT_ROADMAP.md` 的 R3 表述（待远端归档统一处理）。
 - **ARTIFACTS:** `src/kancollebot/adapters/poi/continuous_expedition_ui.py`、`tools/one_expedition_ui_loop.py`、`src/kancollebot/expeditions/port_supply_provider.py`、`tests/test_continuous_expedition_ui_resupply.py`（新）、`tests/test_one_expedition_production_integration.py`、`docs/PROJECT_kancollebot_Progress.md`（本节点）。
+
+## 2026-11-05 — R3 实机闭环：返航气泡识别、结算链实跑、多舰队归属缺陷
+
+- **用户授权:** 本轮授权继续 R3 实机闭环（允许真实 Poi 读与游戏 UI 点击），并追加「可以用中止远征加速舰队回港」「人工派遣了第二队和第四队远征，可以进行额外的结算链验证」；边界不变：不推送、不开 PR、不合并、不改分支保护/其它分支；Fleet 4 补给继续 fail-closed。
+- **IMPLEMENTED (截图合成层):** `CdpInput.capture_screenshot(from_surface=...)`。`Page.captureScreenshot(fromSurface=True)` 取的是页面表面、丢掉合成覆盖层：2026-11-05 同一帧交替抓 4 次，返航气泡在 `True` 下 0.8332（判不出）、`False` 下 0.9994。仅 `HOME_PORT_RETURN_NOTICE` 用合成层，其余沿用原默认。
+- **IMPLEMENTED (接管已观测任务):** `--adopt-observed-mission` + `scheduler.adopt_observed_mission()`。要求任务 id 等于该舰队配置任务、编制通过同一道门、status 1 还需母港已确认；status 2 直接进 `RETURNED_PENDING_UI`。不满足仍 BLOCKED 并发 `fleet_mission_adoption_rejected`。实机：Fleet 3 远征中（`mission=[1,1,…]`）被接管为 `EXPEDITION_ACTIVE`、`home_port_verified=1`。
+- **IMPLEMENTED (结算续跑):** `api_mission` 在「结果被接受」的第一击就把状态清 0，而奖励链还有两屏。返航态观测改为可选：读到 idle 时记 `settlement_resumed_after_result_taken` 并按屏幕证据续跑；既无返航元组又无奖励页时用 `settlement_screen()` 探测后确认「已结算完成」(`settlement_closed_without_reward_screens`)；驱动无探测方法时保持原来的 fail-closed。
+- **IMPLEMENTED (过场等待):** 奖励页每步「探测目标页 → 只点一次 → 有界轮询目标页」(`REWARD_SCREEN_POLLS=8`)；已在目标页则 0 点击续跑。补给链末尾回母港、派遣后回母港同样改为轮询——实机 2026-11-05 母港点击后 2.6 s 画面仍是补给页，单次检查把一次成功补给判成失败。
+- **IMPLEMENTED (派遣后置顺序):** 先回母港、再取观测、再判 home 证据。原先派遣成功后立刻取观测会触发刷新导航，而导航前置 `HOME_PORT` 正在被开演动画遮挡，导致「点击已生效却记成 dispatch_blocked」。
+- **IMPLEMENTED (回母港前置探测):** 开始点击后客户端不落在单一页面（先 `FLEET_3_SELECTED`，再回到仍选中该任务的列表）。`return_to_home_port()` 默认在 `EXPEDITION_LIST/MISSION_SELECTED/FLEET_x_SELECTED` 里只读证明当前页，命名单一状态仍严格。
+- **IMPLEMENTED (`--settle-only`):** 只结算不派遣。跳过编制门（不会有启航点击），并注入 `SettleOnlyDispatcher`——共享 scheduler/state_reader/event_sink 但拒绝派遣，舰队变成 ready 时直接停。用于 Fleet 4 / Fleet 2 这类没有已验证编制的舰队。
+- **IMPLEMENTED (启动即奖励页):** 进程启动时若画面被证明是奖励页（返航气泡/结果/奖励），**不发**母港恢复点击，改由结算控制器接管并发 `startup_reward_screen_detected`；`_recover_home_port` 自身也加了同样的拒绝（实机教训：重启后恢复路径在结果页点了两下，result→bonus→port 被盲推完）。
+- **FINDING / FIXED (多舰队归属):** 奖励页只说明「哪次远征」，不说明「哪支舰队」。实机：Fleet 4 的结果已被先前运行接受（读 idle），两分钟后 Fleet 3 返航，本轮结算链收的其实是 **Fleet 3**，而调度库记在 Fleet 4 头上。新增 `_other_fleets_awaiting_result()`：目标舰队读 idle 且另有舰队 status=2 时拒绝结算（`cannot be attributed`），等只剩一个返航再收。
+- **VERIFIED (实机·Fleet 4 完整结算链):** `fleet4_settle.sqlite3` 预置 `RETURNED_PENDING_UI` → 启动即识别奖励页、0 次恢复点击 → `settlement_resumed_after_result_taken` → 气泡(0.9992)→结果→奖励→母港三步各一次点击、每屏 6 采样双帧确认 → `settlement_reward_claimed` → 进入 `RESUPPLY_REQUIRED` 时按设计 fail-closed（Fleet 4 无校准补给页签）。
+- **VERIFIED (实机·补给链):** 同一数据库上补给链 menu→Fleet 3 页签（视觉定位 bounds `[293,164,34,31]`）→`まとめて補給`（三帧 bounds 一致）→母港，四次点击全有前置/后置双帧证据。
+- **VERIFIED (实机·返航气泡):** 合成层识别 `HOME_PORT_RETURN_NOTICE` 0.9991/0.9992/0.9989 多次命中，`fromSurface=True` 同帧只有 0.66–0.83。
+- **TESTED:** 全量 `PYTHONPATH=src python -m unittest discover -s tests` → **1202 tests OK / 2 skip**。新增 `tests/test_continuous_mission_adoption.py`(14)、`HomePortReturnPreconditionTests`(3)、`RewardScreenFadeTests`(2)、`ResupplyExitFadeTests`(2)、`SettleOnlyDispatcherTests`(2)、结算控制器多舰队归属 2 项；`test_continuous_expedition_ui_settlement` 改写「已在目标页 0 点击续跑 / 越过目标页仍报错」。
+- **COMMITS (本地分支 `feat/production-settlement-resupply-wiring-20261105`):** `9287b07`、`746c1a6`、`b26a5d0`、`506403f`、`a6ce812`、`4e37b14`、`c1a74f9`。
+- **SAFETY:** 未推送、未开 PR、未合并、未改分支保护；Fleet 4 补给仍 fail-closed；没有任何一次点击发生在「未证明当前画面」的情况下（唯一例外是本节点末尾的人工收尾，见 LIMITS ⑤）。
+- **LIMITS:** ① 多舰队**同时**待收时无法归属，只能串行：先只让一支返航，或人工收完一支。② 结算链无法在「启动时已有奖励页」的情形里取得可信新鲜度（监视器要求自然 `/api_port/port` witness，而 observer 在进程启动后才开始监听），`--settle-only` 对已挂着气泡的舰队会 fail-closed —— 正确做法是让循环在舰队仍在途时就运行。③ 「中止远征」仍未校准：中止不产生奖励、也走不到结算页，与本轮验证目标相反，故未启用。④ Fleet 3 的调度库在本轮结束时已被人工清空（其奖励实际由 Fleet 4 那次链收走），下一轮需重新派遣才能覆盖完整闭环的最后一段。⑤ 收尾时 Fleet 2 的气泡已挂起且 freshness 不可得，由人工在 (600,400) 点了三次（每次点击后重新分类确认：气泡→结果→奖励→母港，Redux 由 `[2,2,…]` 变 `[0,0,0,0]`）——这是本节点唯一一处非代码驱动的点击，记录在此以免被误读为自动化能力。
+- **ARTIFACTS:** `src/kancollebot/adapters/poi/cdp_input.py`、`src/kancollebot/adapters/poi/continuous_expedition_ui.py`、`src/kancollebot/adapters/poi/visible_ui_refresh.py`、`src/kancollebot/expeditions/{continuous_scheduler,continuous_monitor,continuous_settlement_controller,continuous_dispatch_controller}.py`、`tools/one_expedition_ui_loop.py`、`tools/run_continuous_expedition_monitor.py`、`tests/test_continuous_mission_adoption.py`（新）等 16 个文件、`docs/PROJECT_kancollebot_Progress.md`（本节点）。
