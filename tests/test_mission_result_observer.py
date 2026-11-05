@@ -5,6 +5,7 @@ project, so its fail-closed behaviour is what matters here: anything the
 child prints that is not exactly one well-shaped witness is not a witness.
 """
 import json
+import subprocess
 import threading
 import unittest
 from pathlib import Path
@@ -175,6 +176,20 @@ class ObserverTests(unittest.TestCase):
         )
         self.assertIsNone(observer.capture())
         self.assertEqual(observer.last_status, "script_missing")
+
+    def test_the_child_is_told_the_callers_timeout(self):
+        # The child must not outlive the caller: it gets the same window.
+        # The environment is built by a helper, so that is what is checked -
+        # the subprocess plumbing itself is the standard library's.
+        from kancollebot.adapters.poi.mission_result_observer import (
+            _TIMEOUT_ENV,
+            _WITNESS_ENV,
+            child_environment,
+        )
+
+        env = child_environment(45.0)
+        self.assertEqual(env[_TIMEOUT_ENV], "45000")
+        self.assertEqual(env[_WITNESS_ENV], "1")
 
     def test_invalid_construction_is_rejected(self):
         with self.assertRaises(ValueError):

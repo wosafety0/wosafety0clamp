@@ -21,6 +21,10 @@ _WITNESS_PREFIX = "[MissionResultObserver] WITNESS_JSON:"
 _STATUS_PREFIX = "[MissionResultObserver] STATUS:"
 _DETAIL_PREFIX = "[MissionResultObserver] DETAIL:"
 _WITNESS_ENV = "KCB_MISSION_RESULT_WITNESS_STDOUT"
+#: The child's armed window. It must not outlive the caller, and the caller
+#: must not be surprised by an earlier exit, so the child is told the same
+#: timeout the wrapper enforces.
+_TIMEOUT_ENV = "KCB_MISSION_RESULT_TIMEOUT_MS"
 _DEFAULT_TIMEOUT_SECONDS = 130.0
 _MAX_STDOUT_CHARS = 1_000_000
 _MAX_WITNESS_CHARS = 500_000
@@ -31,6 +35,19 @@ _ALLOWED_DATA_FIELDS = ("apiDeckId", "apiQuestName", "apiClearResult", "apiShipI
 _ALLOWED_SOURCE_FIELDS = (
     "kind", "path", "host", "httpStatus", "requestedAt", "responseReceivedAt",
 )
+
+
+def child_environment(timeout_seconds: float) -> dict[str, str]:
+    """The environment the observer child runs with.
+
+    The child is told the caller's timeout so it cannot outlive the caller,
+    and it is told to write its witness to stdout so the in-memory bridge
+    creates no files.
+    """
+    env = os.environ.copy()
+    env[_WITNESS_ENV] = "1"
+    env[_TIMEOUT_ENV] = str(int(timeout_seconds * 1000))
+    return env
 
 
 class PassiveMissionResultObserver:
@@ -61,8 +78,7 @@ class PassiveMissionResultObserver:
             self.last_status = "script_missing"
             return None
 
-        env = os.environ.copy()
-        env[_WITNESS_ENV] = "1"
+        env = child_environment(self.timeout_seconds)
         command = [
             self.node_executable,
             "-e",
@@ -102,8 +118,7 @@ class PassiveMissionResultObserver:
             self.last_status = "script_missing"
             return None
 
-        env = os.environ.copy()
-        env[_WITNESS_ENV] = "1"
+        env = child_environment(self.timeout_seconds)
         command = [
             self.node_executable,
             "-e",

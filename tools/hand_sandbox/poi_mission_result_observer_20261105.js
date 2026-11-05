@@ -24,6 +24,15 @@ const { createCaptureCore } = require('./poi_cdp_capture_core.js');
 const RESULT_PATH = '/kcsapi/api_req_mission/result';
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
+// How long to stay armed. The caller owns the timeout; this child must not
+// outlive it, and the caller must not be surprised by an earlier exit.
+const WAIT_MS = (function() {
+  const raw = process.env.KCB_MISSION_RESULT_TIMEOUT_MS;
+  if (typeof raw !== 'string' || !/^[0-9]{1,9}$/.test(raw)) return 120000;
+  const value = Number(raw);
+  return value >= 1000 ? value : 120000;
+})();
+
 /**
  * Read the one request field this observer is allowed to know.
  * Returns null when the body does not carry a usable fleet id, so the
@@ -105,7 +114,7 @@ module.exports = function() {
   createCaptureCore({
     label: 'MissionResultObserver',
     watchPaths: [RESULT_PATH],
-    timeoutMs: 120000,
+    timeoutMs: WAIT_MS,
     maxBodyRetries: 2,
     onArmed: function() {
       console.log(
@@ -176,7 +185,7 @@ module.exports = function() {
     },
     timeoutDetail: function(counters) {
       return {
-        reason: 'No qualifying natural expedition result response was captured within 120 seconds.',
+        reason: 'No qualifying natural expedition result response was captured within the armed window.',
         networkEnabled: counters.networkEnabled,
         cdpEventMessages: counters.cdpEventMessages,
         networkRequestWillBeSentEvents: counters.networkRequestWillBeSentEvents,
