@@ -4157,3 +4157,6 @@ The Hand plugin's read-only probe reported:
 - **REPAIRS FRESHNESS GAP:** KanColle-Agent SnapshotStore 没有独立 repairs freshness domain；setRepairs 只更新 operations=partial，getOperations 返回 repairs 但不提供 repairs coverage，getFleets coverage 也不含 repairs。因此不能把 dock=false 直接当作已确认未入渠。
 - **ADAPTER DESIGN:** KancolleBot 必须保留 condition/locked/HP/maxHP/fuel/ammo/dock 的 unknown 状态，并核验 fleet/repairs coverage；在标准 Poi MCP schema 补齐前，只能从只读 raw Poi store 取缺失字段或拒绝候选。没有修改 KanColle-Agent 或 KancolleBot 代码。
 - **SOURCE BLOB EVIDENCE:** 相关 KanColle-Agent 文件 blob SHA 见研究文档第 24.5 节；其 main commit 为 `835de05a836061f9f57c484edd2455e299ff63fd`。
+
+
+- **CORRECTION (AutoKiraCount semantics):** 继续核对 `NotMatchKiraCondition` 与 `KiraFleet` 的同一计算公式后，修正此前“target queue count”简称：`AutoKiraCount` 是希望当前舰队达到适用士气阈值的舰船数量。实际待处理数量 = `min(AutoKiraCount, fleetShipCount) - alreadyMeetingThresholdCount`，小于等于0时不建队列；只从低士气候选中按配置排序选取该 deficit 数量。默认 enabled fleets 2–4 且 KiraForSupport=false 时，初始候选阈值为 Condition<50，单舰处理终点仍为配置目标75或85上限。
