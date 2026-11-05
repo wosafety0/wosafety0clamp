@@ -12,6 +12,7 @@ import math
 from typing import Final
 
 from .cdp_input import VisualTargetPoint
+from .visual_fingerprint import VisualFingerprintError, _decode_png_rgba
 
 
 class VisualTargetError(RuntimeError):
@@ -53,7 +54,16 @@ SUPPLY_FLEET_TAB_REGIONS: Final[dict[int, tuple[int, int, int, int]]] = {
     1: (195, 155, 50, 50),
     2: (240, 155, 50, 50),
     3: (285, 155, 50, 50),
+    # Fleet 4's tab exists on this account (live 2026-11-06) and the strip is
+    # evenly spaced at 45 px, so its bounded region is derived, not measured
+    # against a template. There is no SUPPLY_FLEET_4_SELECTED fingerprint yet;
+    # see classify_supply_tab_selection for the template-free check that
+    # replaces it, and the caveat that it is not live-calibrated.
+    4: (330, 155, 50, 50),
 }
+
+#: Fleets whose supply tab has a bounded, automatically locatable region.
+SUPPLY_TAB_FLEET_IDS: Final[tuple[int, ...]] = tuple(sorted(SUPPLY_FLEET_TAB_REGIONS))
 
 
 def locate_supply_fleet_tab(
@@ -67,8 +77,10 @@ def locate_supply_fleet_tab(
         import numpy as np
     except ImportError as exc:
         raise VisualTargetError("OpenCV and NumPy are required for visual target localization") from exc
-    if isinstance(fleet_index, bool) or not isinstance(fleet_index, int) or fleet_index not in (1, 2, 3):
-        raise VisualTargetError("supply fleet tab index must be 1, 2 or 3")
+    if isinstance(fleet_index, bool) or not isinstance(fleet_index, int) or fleet_index not in SUPPLY_TAB_FLEET_IDS:
+        raise VisualTargetError(
+            f"supply fleet tab index must be one of {SUPPLY_TAB_FLEET_IDS}"
+        )
     region = SUPPLY_FLEET_TAB_REGIONS[fleet_index]
     rx, ry, rw, rh = region
     try:
@@ -296,3 +308,97 @@ def locate_square_checkbox(
         source_frame_sha256=hashlib.sha256(png_bytes).hexdigest(),
         locator="opencv-canny-square-v1",
     )
+
+
+# -- template-free fleets -----------------------------------------------------
+#
+# Fleet 4 has a supply tab on this account but no captured
+# ``SUPPLY_FLEET_4_SELECTED`` fingerprint: producing one needs a live capture
+# of that exact screen, which is a real-client operation this change is not
+# allowed to claim. Refusing Fleet 4 outright would leave the closed loop
+# unable to resupply a fleet it can already dispatch, so the selected tab is
+# instead identified *relative to its neighbours*, which needs no template.
+#
+# What this proves: exactly one tab in the strip is painted in the
+# selected style, and it is the requested one.
+# What it does not prove: that the game's "selected" style looks the way the
+# thresholds below assume on this client. The thresholds are therefore
+# deliberately strict and produce UNKNOWN (never a guess) when the picture is
+# ambiguous, and the caller compensates with the post-action Poi cross-check.
+
+#: Minimum mean luminance of the selected tab. A selected tab is painted on a
+#: lighter plate than its neighbours; anything darker is not "selected".
+SUPPLY_TAB_MIN_SELECTED_LUMINANCE: Final[float] = 90.0
+#: How much brighter the selected tab must be than the next-brightest one.
+#: A single-digit difference is repaint noise, not a selection.
+SUPPLY_TAB_MIN_LUMINANCE_MARGIN: Final[float] = 12.0
+
+
+def _region_mean_luminance(
+    width: int, height: int, rgba: bytes, region: tuple[int, int, int, int]
+) -> float:
+    rx, ry, rw, rh = region
+    if rx < 0 or ry < 0 or rx + rw > width or ry + rh > height:
+        raise VisualTargetError("tab region lies outside the screenshot viewport")
+    total = 0
+    count = 0
+    for y in range(ry, ry + rh):
+        row_start = (y * width + rx) * 4
+        for x in range(0, rw):
+            offset = row_start + x * 4
+            red = rgba[offset]
+            green = rgba[offset + 1]
+            blue = rgba[offset + 2]
+            # Rec. 601 luma: the human-visible brightness of the plate.
+            total += (299 * red + 587 * green + 114 * blue) // 1000
+            count += 1
+    if not count:
+        raise VisualTargetError("tab region is empty")
+    return total / count
+
+
+def classify_supply_tab_selection(
+    screenshot_base64: str,
+    *,
+    fleet_ids: tuple[int, ...] = SUPPLY_TAB_FLEET_IDS,
+    minimum_luminance: float = SUPPLY_TAB_MIN_SELECTED_LUMINANCE,
+    minimum_margin: float = SUPPLY_TAB_MIN_LUMINANCE_MARGIN,
+) -> tuple[str, dict[int, float]]:
+    """Name the selected supply-fleet tab from relative brightness alone.
+
+    Returns ``("SUPPLY_FLEET_<n>_SELECTED", scores)`` or ``("UNKNOWN", scores)``
+    when the brightest tab is not bright enough, or not bright enough *by a
+    margin*, to be the selected one. The scores are returned either way so a
+    refusal can be explained without re-reading the frame.
+    """
+    if not fleet_ids:
+        raise ValueError("fleet_ids must not be empty")
+    for fleet_id in fleet_ids:
+        if fleet_id not in SUPPLY_FLEET_TAB_REGIONS:
+            raise ValueError(f"fleet {fleet_id} has no bounded supply tab region")
+    if not math.isfinite(minimum_luminance) or not math.isfinite(minimum_margin):
+        raise ValueError("thresholds must be finite")
+    if minimum_margin < 0:
+        raise ValueError("minimum_margin must not be negative")
+
+    try:
+        width, height, rgba = _decode_png_rgba(screenshot_base64)
+    except VisualFingerprintError as exc:
+        raise VisualTargetError(str(exc)) from exc
+    if (width, height) != (1200, 720):
+        raise VisualTargetError("screenshot must be the verified 1200x720 viewport")
+
+    scores = {
+        fleet_id: _region_mean_luminance(
+            width, height, rgba, SUPPLY_FLEET_TAB_REGIONS[fleet_id]
+        )
+        for fleet_id in fleet_ids
+    }
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    best_fleet, best_score = ranked[0]
+    second_score = ranked[1][1] if len(ranked) > 1 else 0.0
+    if best_score < minimum_luminance:
+        return "UNKNOWN", scores
+    if best_score - second_score < minimum_margin:
+        return "UNKNOWN", scores
+    return f"SUPPLY_FLEET_{best_fleet}_SELECTED", scores

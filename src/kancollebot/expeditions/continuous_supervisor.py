@@ -249,8 +249,19 @@ class ContinuousExpeditionSupervisor:
         sink (the same object every component already had to share), so a run
         can be reconstructed after the fact. A monitor double that exposes no
         callable sink is left alone rather than crashed on.
+
+        The row is written on the **failure** path too. A fresh-baseline
+        refusal is the most common production outcome, and it leaves no
+        ``supervisor_tick`` behind; without this, the log ends at
+        ``run_started`` exactly when the operator most needs to know why the
+        loop stopped. A partially completed tick (first fleet dispatched,
+        second refused) therefore also keeps its summary row.
         """
-        result = self._tick_once()
+        try:
+            result = self._tick_once()
+        except Exception as exc:
+            self._record_failure(exc)
+            raise
         self._record_decision(result)
         return result
 
@@ -409,11 +420,19 @@ class ContinuousExpeditionSupervisor:
         A sink that cannot express correlation leaves ``dispatch_id`` null
         rather than failing the dispatch: offline doubles keep working, and the
         gap stays visible in the log instead of being papered over.
+
+        The same id is handed to the controller, which writes it into the
+        durable dispatch ledger before the irreversible click. The scope and
+        the ledger therefore name one attempt, and the id is minted once rather
+        than at two call sites.
         """
+        dispatch_id = new_dispatch_id()
         with correlation_scope(
-            self._sink(), dispatch_id=new_dispatch_id(), fleet_id=fleet_id
+            self._sink(), dispatch_id=dispatch_id, fleet_id=fleet_id
         ):
-            return self.dispatch_controller.dispatch_one_ready(fleet_id)
+            return self.dispatch_controller.dispatch_one_ready(
+                fleet_id, dispatch_id=dispatch_id
+            )
 
     def _record_decision(self, result: SupervisorTickResult) -> None:
         """Emit one row describing this tick's scheduling decision.
@@ -446,6 +465,28 @@ class ContinuousExpeditionSupervisor:
         }
         event = "supervisor_paused" if result.paused_reason else "supervisor_tick"
         sink(event, fields)
+
+    def _record_failure(self, error: Exception) -> None:
+        """Emit the summary row for a tick that raised before deciding.
+
+        The exception a monitor or controller raises is never converted into a
+        result - it still propagates - but a run that stops here must not leave
+        only ``run_started`` on disk. No reason is invented: the error type and
+        the fleet phases are the facts.
+        """
+        sink = self._sink()
+        if sink is None:
+            return
+        try:
+            sink("supervisor_tick_failed", {
+                "error_type": type(error).__name__,
+                "paused_reason": None,
+                "fleet_phases": self._fleet_phases(),
+                "dispatch_count": 0,
+            })
+        except Exception:
+            # The original failure is what the caller must see.
+            pass
 
     def _fleet_phases(self) -> dict[str, str]:
         phases: dict[str, str] = {}

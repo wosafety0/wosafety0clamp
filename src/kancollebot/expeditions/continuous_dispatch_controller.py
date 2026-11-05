@@ -28,6 +28,13 @@ from kancollebot.expeditions.continuous_scheduler import (
 from kancollebot.expeditions.dispatch_recovery import (
     DurableDispatchCoordinator,
 )
+from kancollebot.expeditions.dispatch_registry import (
+    DispatchIdentity,
+    DispatchRegistryError,
+    SqliteDispatchRegistry,
+    new_dispatch_id,
+    validate_dispatch_id,
+)
 from kancollebot.expeditions.expedition_requirement_checker import (
     ExpeditionRequirementChecker,
     normalize_observed_fleets,
@@ -194,6 +201,8 @@ class ContinuousDispatchController:
         unlocked_fleet_ids: tuple[int, ...] | None = None,
         dispatchable_fleet_ids: tuple[int, ...] | None = None,
         audit_gate: Callable[[], None] | None = None,
+        dispatch_registry: SqliteDispatchRegistry | None = None,
+        dispatch_source: str = "supervisor",
     ) -> None:
         if set(mission_requirements) != set(scheduler.dispatch_fleet_ids):
             raise ValueError("mission_requirements must configure every and only dispatchable fleet")
@@ -224,6 +233,12 @@ class ContinuousDispatchController:
             raise ValueError("requirement_checker must be an ExpeditionRequirementChecker")
         if audit_gate is not None and not callable(audit_gate):
             raise ValueError("audit_gate must be callable or None")
+        if dispatch_registry is not None and not isinstance(
+            dispatch_registry, SqliteDispatchRegistry
+        ):
+            raise ValueError("dispatch_registry must be a SqliteDispatchRegistry or None")
+        if not isinstance(dispatch_source, str) or not dispatch_source.strip():
+            raise ValueError("dispatch_source must be a non-empty string")
         for label, value in (
             ("unlocked_fleet_ids", unlocked_fleet_ids),
             ("dispatchable_fleet_ids", dispatchable_fleet_ids),
@@ -248,9 +263,21 @@ class ContinuousDispatchController:
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.passive_witness_wait_seconds = float(passive_witness_wait_seconds)
         self.audit_gate = audit_gate
+        self.dispatch_registry = dispatch_registry
+        self.dispatch_source = dispatch_source.strip()
 
-    def dispatch_one_ready(self, fleet_id: int) -> DispatchExecution:
-        """Dispatch one ready fleet, confirm the new mission, and verify Home Port."""
+    def dispatch_one_ready(
+        self, fleet_id: int, *, dispatch_id: str | None = None
+    ) -> DispatchExecution:
+        """Dispatch one ready fleet, confirm the new mission, and verify Home Port.
+
+        ``dispatch_id`` names this *attempt*. The caller may pass the id it
+        already bound the correlation scope to; when it does not, one is minted
+        here so a dispatch is never anonymous. The id is minted (or validated)
+        before the first click, and the durable identity row is written before
+        the irreversible input - a dispatch that cannot be recorded must not be
+        sent.
+        """
         if not self.allow_ui_actions:
             raise ContinuousDispatchError("UI actions are disabled; explicit enablement is required")
         if fleet_id not in self.mission_requirements:
@@ -261,6 +288,14 @@ class ContinuousDispatchController:
         # the state that needs the log to reconcile later.
         if self.audit_gate is not None:
             self.audit_gate()
+        # One identity per attempt, minted (or shape-checked) before the first
+        # observation and before any input. A caller that already bound a
+        # correlation scope passes its id here so the log and the durable
+        # ledger name the same attempt.
+        attempt_id = validate_dispatch_id(
+            dispatch_id if dispatch_id is not None else new_dispatch_id()
+        )
+        click_attempted = False
 
         with self.ui_arbiter.operation(f"continuous-dispatch-fleet-{fleet_id}"):
             baseline, baseline_now = self._read_observation(
@@ -369,12 +404,18 @@ class ContinuousDispatchController:
             )
 
             try:
+                # The durable identity row is written before the event row and
+                # before the click: the event stream is diagnostic, the ledger
+                # is the record a later settlement is attributed against.
+                self._persist_dispatch_identity(attempt_id, intent)
                 self.event_sink("dispatch_intent_persisted", {
                     "fleet_id": fleet_id,
                     "mission_id": mission_id,
                     "ship_ids": intent.ship_ids,
                     "baseline_observed_at": intent.baseline_observed_at.isoformat(),
+                    "dispatch_id": attempt_id,
                 })
+                click_attempted = True
                 self.ui_driver.dispatch_expedition(fleet_id=fleet_id, mission_id=mission_id)
                 action_completed_at = self.clock()
                 self.dispatch_coordinator.mark_ui_action_completed(
@@ -418,12 +459,14 @@ class ContinuousDispatchController:
                 if mission.final_time_ms <= int(action_completed_at.timestamp() * 1000):
                     raise ContinuousDispatchError("Poi mission return time is not later than dispatch completion")
                 self.dispatch_coordinator.confirm_dispatch(fleet_id, mission)
+                self._confirm_dispatch_identity(attempt_id, mission)
                 self.event_sink("dispatch_confirmed_by_poi", {
                     "fleet_id": fleet_id,
                     "mission_id": mission_id,
                     "final_time_ms": mission.final_time_ms,
                     "ship_ids": mission.ship_ids,
                     "observed_at": after_dispatch.observed_at.isoformat(),
+                    "dispatch_id": attempt_id,
                 })
 
                 # Evidence is judged only after the mission is on record: a
@@ -469,8 +512,72 @@ class ContinuousDispatchController:
                     home_port_evidence=home_evidence.evidence,
                 )
             except Exception as exc:
+                if click_attempted:
+                    self._mark_dispatch_outcome_unknown(attempt_id, exc)
                 self._block_after_ambiguous_action(fleet_id, exc)
                 raise
+
+    # -- durable dispatch identity ------------------------------------------
+
+    def _persist_dispatch_identity(self, dispatch_id: str, intent) -> None:
+        """Record the attempt before the irreversible input.
+
+        No registry wired means offline doubles keep working unchanged. With a
+        registry, a write failure propagates: an unrecorded dispatch must not
+        be sent, because the settlement half of the loop could never attribute
+        its result.
+        """
+        if self.dispatch_registry is None:
+            return
+        self.dispatch_registry.record_intent(
+            DispatchIdentity(
+                dispatch_id=dispatch_id,
+                fleet_id=intent.fleet_id,
+                mission_id=intent.mission_id,
+                ship_ids=tuple(intent.ship_ids),
+                intent_persisted_at=self.clock(),
+                status="pending",
+                task_kind=getattr(self.dispatch_registry, "task_kind", None),
+                source=self.dispatch_source,
+                action_completed_at=None,
+                detail="intent persisted before the expedition start click",
+            )
+        )
+
+    def _confirm_dispatch_identity(self, dispatch_id: str, mission) -> None:
+        """Record Poi's confirmation of the active mission.
+
+        This is the one boundary where a dispatch becomes a durable *fact*:
+        the server is running this mission for this fleet with these ships. The
+        Home Port verification that follows is a separate, later proof.
+        """
+        if self.dispatch_registry is None:
+            return
+        self.dispatch_registry.record_confirmed(
+            dispatch_id,
+            confirmed_at=self.clock(),
+            final_time_ms=mission.final_time_ms,
+        )
+
+    def _mark_dispatch_outcome_unknown(self, dispatch_id: str, error: Exception) -> None:
+        """Record an attempt whose outcome was never proven.
+
+        Best-effort by necessity: this runs inside an exception handler, and a
+        ledger failure here must not mask the original failure. It never
+        invents a confirmation.
+        """
+        if self.dispatch_registry is None:
+            return
+        try:
+            self.dispatch_registry.record_unknown(
+                dispatch_id,
+                reason=(
+                    f"UI action outcome unknown after {type(error).__name__}; "
+                    "manual reconciliation required"
+                ),
+            )
+        except DispatchRegistryError:
+            pass
 
     def _await_passive_witness(self, *, fleet_id: int, newer_than: datetime) -> None:
         """Give the port response that the Home Port click caused a chance to land.

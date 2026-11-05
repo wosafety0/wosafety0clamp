@@ -30,6 +30,8 @@ from typing import Protocol
 
 from kancollebot.adapters.poi.cdp_input import RecordedPoint
 from kancollebot.adapters.poi.visual_target import (
+    SUPPLY_TAB_FLEET_IDS,
+    classify_supply_tab_selection,
     locate_fleet_supply_all_button,
     locate_supply_fleet_tab,
 )
@@ -90,6 +92,13 @@ REWARD_VERIFY_SAMPLES = 6
 # Fleets the game lets a player send on an expedition. Fleet 1 is drawn on the
 # tab strip but cannot be dispatched, so it is not offered.
 DEFAULT_SUPPORTED_FLEETS = (2, 3, 4)
+
+# Fleets whose supply tab can be located by its bounded region but which have
+# no captured ``SUPPLY_FLEET_<n>_SELECTED`` fingerprint template yet. Their
+# selection is verified by the relative-highlight check instead, which is
+# weaker evidence than a template match and is labelled as such in the log.
+# Fleets 2 and 3 keep their template path untouched.
+TEMPLATE_FREE_SUPPLY_FLEETS = (4,)
 
 
 class CdpContinuousExpeditionUiDriver:
@@ -691,8 +700,14 @@ class CdpContinuousExpeditionUiDriver:
         )
 
     # -- resupply ---------------------------------------------------------
-    def _supply_page_state(self) -> str:
-        """Which supply page variant is on screen, proven one state at a time."""
+    def _supply_page_state(self, requested_fleet_id: int) -> str:
+        """Which supply page variant is on screen, proven one state at a time.
+
+        Fingerprints are tried first and answer for Fleets 1-3. Only when the
+        *requested* fleet has no template is the relative-highlight check
+        consulted, and it may only name that same fleet - so a Fleet 2/3
+        resupply behaves exactly as before.
+        """
         for candidate in (
             "SUPPLY_FLEET_1_SELECTED",
             "SUPPLY_FLEET_2_SELECTED",
@@ -708,9 +723,67 @@ class CdpContinuousExpeditionUiDriver:
                 return candidate
             except Exception:
                 continue
+        if requested_fleet_id in TEMPLATE_FREE_SUPPLY_FLEETS:
+            template_free = self._template_free_supply_state(requested_fleet_id)
+            if template_free is not None:
+                return template_free
         raise ContinuousUiDriverError(
             "the current screen is not a verified supply page; refusing to click"
         )
+
+    def _template_free_supply_state(self, fleet_id: int) -> str | None:
+        """Name the selected tab from relative brightness, for one fleet only.
+
+        Returns the expected state string only when the requested fleet is the
+        one the frame paints as selected; any other answer is ``None`` so the
+        caller keeps its fail-closed path.
+        """
+        if fleet_id not in SUPPLY_TAB_FLEET_IDS:
+            return None
+        try:
+            state, scores = classify_supply_tab_selection(
+                self._frame(), fleet_ids=SUPPLY_TAB_FLEET_IDS
+            )
+        except Exception as exc:
+            self._event_sink("continuous_ui_supply_tab_highlight_failed", {
+                "fleet_id": fleet_id,
+                "error_type": type(exc).__name__,
+                "verification": "template_free_relative_brightness",
+            })
+            return None
+        self._event_sink("continuous_ui_supply_tab_highlight_scores", {
+            "fleet_id": fleet_id,
+            "detected_state": state,
+            "scores": {str(key): round(value, 2) for key, value in scores.items()},
+            "verification": "template_free_relative_brightness",
+            "live_calibrated": False,
+        })
+        expected = f"SUPPLY_FLEET_{fleet_id}_SELECTED"
+        return expected if state == expected else None
+
+    def _confirm_supply_fleet_selected(self, fleet_id: int, *, phase: str) -> None:
+        """Prove the requested fleet's supply tab is the selected one.
+
+        A template match is the strong proof and is used whenever the fleet has
+        one. A fleet without a template falls back to the relative-brightness
+        check, which is recorded as such so no reader mistakes it for a
+        calibrated fingerprint.
+        """
+        expected = f"SUPPLY_FLEET_{fleet_id}_SELECTED"
+        if fleet_id not in TEMPLATE_FREE_SUPPLY_FLEETS:
+            self._confirm(expected, phase=phase, samples=SUPPLY_VERIFY_SAMPLES)
+            return
+        try:
+            self._confirm(expected, phase=phase, samples=SUPPLY_VERIFY_SAMPLES)
+            return
+        except Exception as fingerprint_error:
+            if self._template_free_supply_state(fleet_id) is not None:
+                return
+            raise ContinuousUiDriverError(
+                f"{phase}: fleet {fleet_id} is not provably the selected supply tab "
+                "(no fingerprint template and the relative-highlight check did not "
+                "confirm it); refusing to click"
+            ) from fingerprint_error
 
     def resupply_fleet(self, *, fleet_id: int) -> UiStateEvidence:
         """Supply one idle fleet and return two-frame Home Port evidence.
@@ -728,20 +801,25 @@ class CdpContinuousExpeditionUiDriver:
                 f"fleet {fleet_id} cannot be resupplied; supported fleets are "
                 f"{list(self._supported_fleets)}"
             )
-        if fleet_id not in (2, 3):
+        if fleet_id not in (2, 3, 4):
             raise ContinuousUiDriverError(
-                f"no calibrated supply tab region for fleet {fleet_id}; only fleets 2 and 3 "
-                "have a verified supply tab and button on this account"
+                f"no calibrated supply tab region for fleet {fleet_id}; only fleets "
+                "2, 3 and 4 have a locatable supply tab on this account"
             )
         expected_fleet = f"SUPPLY_FLEET_{fleet_id}_SELECTED"
         self._event_sink("continuous_ui_resupply_started", {
             "fleet_id": fleet_id,
             "game_api_requests": False,
+            "fleet_tab_verification": (
+                "fingerprint_template"
+                if fleet_id not in TEMPLATE_FREE_SUPPLY_FLEETS
+                else "template_free_relative_brightness"
+            ),
         })
         self._confirm("HOME_PORT", phase="resupply precondition")
         self._click(SUPPLY_MENU, action="open_supply_menu", step=1)
         self._sleep(SUPPLY_SETTLE_SECONDS)
-        state = self._supply_page_state()
+        state = self._supply_page_state(fleet_id)
         if state != expected_fleet:
             frame = self._frame()
             try:
@@ -763,10 +841,8 @@ class CdpContinuousExpeditionUiDriver:
                 "retry_allowed": False,
             })
             self._sleep(self._settle_seconds)
-            self._confirm(
-                expected_fleet,
-                phase="after selecting the supply fleet tab",
-                samples=SUPPLY_VERIFY_SAMPLES,
+            self._confirm_supply_fleet_selected(
+                fleet_id, phase="after selecting the supply fleet tab"
             )
         else:
             self._event_sink("continuous_ui_supply_tab_already_selected", {
@@ -778,11 +854,7 @@ class CdpContinuousExpeditionUiDriver:
         targets = []
         frame = ""
         for _ in range(3):
-            self._confirm(
-                expected_fleet,
-                phase="supply button precondition",
-                samples=SUPPLY_VERIFY_SAMPLES,
-            )
+            self._confirm_supply_fleet_selected(fleet_id, phase="supply button precondition")
             frame = self._frame()
             try:
                 targets.append(locate_fleet_supply_all_button(frame))

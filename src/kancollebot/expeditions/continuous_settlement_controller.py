@@ -33,6 +33,15 @@ from kancollebot.expeditions.continuous_scheduler import (
     MissionTuple,
     UiOperationArbiter,
 )
+from kancollebot.expeditions.dispatch_attribution import (
+    UNATTRIBUTED,
+    AttributionVerdict,
+    attribute_dispatch,
+)
+from kancollebot.expeditions.dispatch_registry import (
+    DispatchRegistryError,
+    SqliteDispatchRegistry,
+)
 from kancollebot.expeditions.mission_result_witness import (
     DispatchRecord,
     MissionResultWitness,
@@ -129,11 +138,17 @@ class ContinuousSettlementController:
         allow_ui_actions: bool = False,
         max_state_age: timedelta = timedelta(seconds=30),
         clock: Callable[[], datetime] | None = None,
+        dispatch_registry: SqliteDispatchRegistry | None = None,
     ) -> None:
         if not callable(event_sink):
             raise ValueError("a durable event_sink is required")
         if max_state_age < timedelta(0):
             raise ValueError("max_state_age must not be negative")
+        if dispatch_registry is not None and not isinstance(
+            dispatch_registry, SqliteDispatchRegistry
+        ):
+            raise ValueError("dispatch_registry must be a SqliteDispatchRegistry or None")
+        self.dispatch_registry = dispatch_registry
         self.scheduler = scheduler
         self.state_reader = state_reader
         self.ui_driver = ui_driver
@@ -213,6 +228,28 @@ class ContinuousSettlementController:
                     "final_time_ms": persisted.final_time_ms,
                 })
 
+            # P0-3: the returned tuple names the fleet, not the attempt. The
+            # durable dispatch ledger is the only record that can say which
+            # dispatch instance this result closes, so it is consulted before
+            # the first click and a non-unique answer is a refusal, never a
+            # preference order.
+            attribution = self._attribute_returned(fleet_id, persisted)
+            if attribution is not None and not attribution.allowed:
+                self.event_sink("settlement_unattributed", {
+                    "fleet_id": fleet_id,
+                    "mission_id": persisted.mission_id,
+                    "final_time_ms": persisted.final_time_ms,
+                    "ship_ids": list(persisted.ship_ids),
+                    **attribution.as_event_fields(),
+                    "dispatch_clicks_sent": 0,
+                    "game_api_requests": False,
+                })
+                raise ContinuousSettlementError(
+                    f"Fleet {fleet_id} return cannot be attributed to exactly one "
+                    f"dispatch instance ({attribution.reason}); settlement refused "
+                    "with zero clicks"
+                )
+
             if current.phase is FleetPhase.RETURNED_PENDING_UI and returned is None:
                 # Nothing left to click is a *result*, not a failure: the reward
                 # request is accepted when the result screen opens, so a restart
@@ -240,6 +277,7 @@ class ContinuousSettlementController:
                         "current_phase": updated.phase.value,
                         "game_api_requests": False,
                     })
+                    self._close_dispatch_record(fleet_id, attribution, persisted)
                     return SettlementExecution(
                         fleet_id=fleet_id,
                         mission=persisted,
@@ -247,7 +285,6 @@ class ContinuousSettlementController:
                         bonus_items_evidence="",
                         reward_claimed_evidence="home_port_without_reward_screen",
                     )
-
             return_result_evidence = ""
             bonus_items_evidence = ""
             reward_claimed_evidence = ""
@@ -288,6 +325,7 @@ class ContinuousSettlementController:
                     idle_after=True,
                 )
 
+            self._close_dispatch_record(fleet_id, attribution, persisted)
             return SettlementExecution(
                 fleet_id=fleet_id,
                 mission=persisted,
@@ -345,6 +383,46 @@ class ContinuousSettlementController:
             snapshot = self._snapshot_for(observation, fleet_id)
             others = self._other_fleets_awaiting_result(observation, fleet_id)
             persisted = self.scheduler.fleet(fleet_id).mission
+
+            # P0-3: when the caller has no composition to attribute against,
+            # the durable ledger supplies it - but only through the same
+            # unique-match rule. This is what lets a real dispatch made by the
+            # hand-run entry (no supervisor state, no Home Port event pair)
+            # still enter the production settlement chain.
+            if expected_ship_ids is None and self.dispatch_registry is not None:
+                attribution_mission_id = (
+                    persisted.mission_id
+                    if persisted is not None
+                    else snapshot.mission_id
+                )
+                if attribution_mission_id is not None:
+                    resolved, resolved_source, rejection = (
+                        self._expected_ship_ids_from_registry(
+                            fleet_id, attribution_mission_id, snapshot.ship_ids
+                        )
+                    )
+                    if rejection is not None:
+                        self._refuse_startup(
+                            fleet_id,
+                            rejection,
+                            screen.state,
+                            failed_check="dispatch_registry_attribution",
+                            mission_id=attribution_mission_id,
+                            observed_ship_ids=list(snapshot.ship_ids),
+                            game_actions_sent=0,
+                        )
+                        raise StartupSettlementRefused(rejection)
+                    if resolved is not None:
+                        expected_ship_ids = resolved
+                        expected_ship_ids_source = resolved_source
+                        self.event_sink("settlement_composition_from_registry", {
+                            "fleet_id": fleet_id,
+                            "mission_id": attribution_mission_id,
+                            "ship_ids": list(resolved),
+                            "expected_ship_ids_source": resolved_source,
+                            "game_api_requests": False,
+                        })
+
             if persisted is not None and snapshot.mission_status == 2:
                 returned = self._require_returned_snapshot(fleet_id, snapshot)
                 if not returned.same_expedition(persisted):
@@ -689,6 +767,91 @@ class ContinuousSettlementController:
                 recovery_reason=recovery_reason,
                 witness_verdict=witness_verdict,
             )
+
+    # -- durable dispatch attribution ---------------------------------------
+
+    def _attribute_returned(
+        self, fleet_id: int, mission: MissionTuple
+    ) -> AttributionVerdict | None:
+        """Attribute one returned mission to one dispatch instance.
+
+        ``None`` means "no registry is wired", which is the pre-P0-3 behaviour
+        and must stay available for offline doubles. With a registry there are
+        only two answers: one instance, or ``UNATTRIBUTED``.
+        """
+        if self.dispatch_registry is None:
+            return None
+        try:
+            records = self.dispatch_registry.load_for_fleet(fleet_id)
+        except DispatchRegistryError as exc:
+            raise ContinuousSettlementError(
+                f"durable dispatch ledger is unreadable for Fleet {fleet_id}: {exc}"
+            ) from exc
+        return attribute_dispatch(
+            fleet_id=fleet_id,
+            mission_id=mission.mission_id,
+            ship_ids=mission.ship_ids,
+            records=records,
+            observed_at=self.clock(),
+        )
+
+    def _close_dispatch_record(
+        self,
+        fleet_id: int,
+        attribution: AttributionVerdict | None,
+        mission: MissionTuple,
+    ) -> None:
+        """Close the attributed instance so it cannot match a later return.
+
+        Best-effort on purpose: the clicks are already done and the reward has
+        been claimed, so raising here would report a failure that did not
+        happen. A record left open is visible in the ledger; it would make the
+        *next* attribution ambiguous, which fails closed rather than crediting
+        the wrong fleet.
+        """
+        if attribution is None or not attribution.allowed or attribution.dispatch_id is None:
+            return
+        try:
+            self.dispatch_registry.mark_settled(  # type: ignore[union-attr]
+                attribution.dispatch_id, settled_at=self.clock()
+            )
+        except Exception as exc:
+            try:
+                self.event_sink("settlement_dispatch_record_not_closed", {
+                    "fleet_id": fleet_id,
+                    "dispatch_id": attribution.dispatch_id,
+                    "mission_id": mission.mission_id,
+                    "error_type": type(exc).__name__,
+                    "consequence": "a later attribution may be ambiguous and will refuse",
+                })
+            except Exception:
+                pass
+
+    def _expected_ship_ids_from_registry(
+        self, fleet_id: int, mission_id: int, observed_ship_ids: tuple[int, ...]
+    ) -> tuple[tuple[int, ...] | None, str | None, str | None]:
+        """Resolve the dispatched composition from the durable ledger.
+
+        Returns ``(ship_ids, source, rejection)``. A rejection is a refusal
+        reason: the ledger may not be mined for a *plausible* ship set, only
+        for the one instance that owns this return.
+        """
+        if self.dispatch_registry is None:
+            return None, None, None
+        try:
+            records = self.dispatch_registry.load_for_fleet(fleet_id)
+        except DispatchRegistryError as exc:
+            return None, None, f"dispatch_registry_unreadable:{type(exc).__name__}"
+        verdict = attribute_dispatch(
+            fleet_id=fleet_id,
+            mission_id=mission_id,
+            ship_ids=observed_ship_ids,
+            records=records,
+            observed_at=self.clock(),
+        )
+        if not verdict.allowed or verdict.record is None:
+            return None, None, verdict.reason
+        return verdict.record.ship_ids, "dispatch_registry", None
 
     def _confirm_phase(
         self, fleet_id: int, required_phase: FleetPhase, ui_state: str

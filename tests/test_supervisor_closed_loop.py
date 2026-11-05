@@ -212,7 +212,7 @@ class FakeDispatchController:
         self.allow_ui_actions = True
         self.calls: list[int] = []
 
-    def dispatch_one_ready(self, fleet_id: int):
+    def dispatch_one_ready(self, fleet_id: int, *, dispatch_id=None):
         self.calls.append(fleet_id)
         # Same three scheduler transitions a real dispatch confirms.
         self.scheduler.begin_dispatch(fleet_id)

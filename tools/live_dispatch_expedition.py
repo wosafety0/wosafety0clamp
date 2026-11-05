@@ -22,6 +22,7 @@ import json
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -64,6 +65,13 @@ from kancollebot.calibration import (  # noqa: E402
 from kancollebot.expeditions.continuous_dispatch_controller import (  # noqa: E402
     UiStateEvidence,
 )
+from kancollebot.expeditions.dispatch_registry import (  # noqa: E402
+    DispatchIdentity,
+    DispatchRegistryError,
+    SqliteDispatchRegistry,
+    new_dispatch_id,
+)
+from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -79,6 +87,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-path", type=Path,
                         default=Path(tempfile.gettempdir()) / "live_dispatch.jsonl",
                         help="Where to append the per-event JSONL log")
+    parser.add_argument("--database", type=Path,
+                        default=RUNTIME_CONFIG.dispatch_database,
+                        help="Durable dispatch database (the same file the production "
+                             "supervisor uses); the dispatch identity of this attempt is "
+                             "recorded here so the settlement half can attribute the result")
     return parser
 
 
@@ -120,6 +133,38 @@ def main(argv=None) -> int:
             "fleet_id": args.fleet_id, "ship_count": len(ships),
             "ship_ids": ships,
         })
+
+        # P0-2: this entry sends a real dispatch, so it must leave a durable
+        # record behind - otherwise the production settlement controller can
+        # never attribute the result (the intent row is deleted the moment Poi
+        # confirms). The write happens at the same boundary the supervisor
+        # uses: pending before the irreversible click, confirmed when Poi
+        # reports the mission active.
+        try:
+            registry = SqliteDispatchRegistry(
+                args.database, task_kind=RUNTIME_CONFIG.dispatch_policy_task_kind
+            )
+            open_ids = registry.unsettled_dispatch_ids(args.fleet_id)
+        except DispatchRegistryError as exc:
+            event_sink("DISPATCH_BLOCKED_REGISTRY_UNREADABLE", {
+                "database": str(args.database),
+                "error_type": type(exc).__name__,
+                "reason": "a dispatch whose identity cannot be recorded must not be sent",
+                "ui_clicks_sent": 0,
+            })
+            return 3
+        if open_ids:
+            # Not a style preference: with two unsettled instances of the same
+            # fleet, a returned result could not be attributed to either.
+            event_sink("DISPATCH_BLOCKED_PRIOR_UNSETTLED", {
+                "fleet_id": args.fleet_id,
+                "unsettled_dispatch_ids": list(open_ids),
+                "reason": "an earlier dispatch of this fleet is not settled; a second "
+                          "attempt could not be told apart from it afterwards",
+                "ui_clicks_sent": 0,
+            })
+            return 3
+        dispatch_id = new_dispatch_id()
 
         def verify_state(expected: str, *, visual_attempts: int = 6) -> UiStateEvidence:
             # The driver passes its own sample count for the reward screens; the
@@ -184,9 +229,26 @@ def main(argv=None) -> int:
             if args.commit:
                 # dispatch_expedition runs the full prepare + the irreversible
                 # start click; do NOT call prepare_dispatch separately first.
+                # The identity row goes down before that click.
+                registry.record_intent(DispatchIdentity(
+                    dispatch_id=dispatch_id,
+                    fleet_id=args.fleet_id,
+                    mission_id=args.mission_id,
+                    ship_ids=tuple(ships),
+                    intent_persisted_at=datetime.now(timezone.utc),
+                    status="pending",
+                    task_kind=RUNTIME_CONFIG.dispatch_policy_task_kind,
+                    source="live_dispatch_tool",
+                    detail="prepare checkpoints passed; start click about to be sent",
+                ))
+                event_sink("DISPATCH_INTENT_PERSISTED", {
+                    "fleet_id": args.fleet_id, "mission_id": args.mission_id,
+                    "dispatch_id": dispatch_id,
+                })
                 driver.dispatch_expedition(fleet_id=args.fleet_id, mission_id=args.mission_id)
                 event_sink("DISPATCH_INPUT_SENT", {
                     "fleet_id": args.fleet_id, "mission_id": args.mission_id,
+                    "dispatch_id": dispatch_id,
                 })
             else:
                 driver.prepare_dispatch(fleet_id=args.fleet_id, mission_id=args.mission_id)
@@ -205,7 +267,19 @@ def main(argv=None) -> int:
         except Exception as exc:
             event_sink("DRIVER_BLOCKED", {
                 "error_type": type(exc).__name__, "error": str(exc),
+                "dispatch_id": dispatch_id if args.commit else None,
             })
+            if args.commit:
+                # The start click may or may not have landed. Recording it as
+                # anything other than unknown would be a guess.
+                try:
+                    registry.record_unknown(
+                        dispatch_id,
+                        reason=f"dispatch driver failed with {type(exc).__name__}; outcome unproven",
+                    )
+                    event_sink("DISPATCH_OUTCOME_UNKNOWN", {"dispatch_id": dispatch_id})
+                except DispatchRegistryError:
+                    pass
             # Best-effort: leave the game at a verified Home Port rather than
             # stranded on a mid-dispatch screen. Failure here is non-fatal.
             try:
@@ -221,8 +295,16 @@ def main(argv=None) -> int:
             states = tuple(read_poi_fleet_states(poi_session.transport))
             now = next((s for s in states if s.fleet_id == args.fleet_id), None)
             if now is not None and now.mission_status == 1 and now.mission_id == args.mission_id:
+                # This is the one boundary where the dispatch becomes a durable
+                # fact: the server is running this mission for this fleet.
+                registry.record_confirmed(
+                    dispatch_id,
+                    confirmed_at=datetime.now(timezone.utc),
+                    final_time_ms=now.final_time_ms,
+                )
                 event_sink("DISPATCH_CONFIRMED", {
                     "fleet_id": args.fleet_id,
+                    "dispatch_id": dispatch_id,
                     "mission": list(now.mission),
                     "final_time_ms": now.final_time_ms,
                     "ship_ids": [x for x in now.ship_ids if x > 0],
@@ -231,7 +313,15 @@ def main(argv=None) -> int:
                 break
             time.sleep(1.0)
         if not confirmed:
+            try:
+                registry.record_unknown(
+                    dispatch_id,
+                    reason="start click sent but CDP state never showed the mission active",
+                )
+            except DispatchRegistryError:
+                pass
             event_sink("DISPATCH_UNCONFIRMED", {
+                "dispatch_id": dispatch_id,
                 "note": "start click sent but CDP state did not show the expedition active; "
                         "the game refused it (e.g. supply) or it is still settling",
             })

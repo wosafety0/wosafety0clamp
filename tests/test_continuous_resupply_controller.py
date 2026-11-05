@@ -8,6 +8,7 @@ from kancollebot.expeditions.continuous_resupply_controller import (
     ContinuousResupplyError,
     FleetSupplyObservation,
 )
+from kancollebot.runtime_config import RUNTIME_CONFIG
 from kancollebot.expeditions.continuous_scheduler import (
     ContinuousExpeditionScheduler,
     FleetPhase,
@@ -133,23 +134,28 @@ class ResupplyControllerTests(unittest.TestCase):
         with self.assertRaisesRegex(ContinuousResupplyError, "not a configured"):
             controller.resupply_one_needed(1)
 
-    def test_fleet_4_can_be_dispatched_but_not_resupplied_without_a_visual_gate(self):
-        """Promoting Fleet 4 to dispatchable must not invent supply evidence."""
-        ui = FakeUi()
-        scheduler = ContinuousExpeditionScheduler(
-            dispatch_fleet_ids=(2, 3, 4),
-            read_only_fleet_ids=(1,),
-            deferred_fleet_ids=(),
+    def test_fleet_4_is_structural_only_and_never_live_verified(self):
+        """P0-1: Fleet 4's supply chain is calibrated in code, not live-verified.
+
+        This is the policy split the whole change rests on. Fleet 4 may be
+        resupplied (its tab is locatable and its selection is proven by a
+        template-free check), but ``resupply_verified_fleet_ids`` must not
+        contain it: membership there is a claim about live evidence, and the
+        production path has not been re-verified on the real client.
+        """
+        self.assertIn(4, RUNTIME_CONFIG.resupply_enabled_fleet_ids)
+        self.assertNotIn(4, RUNTIME_CONFIG.resupply_verified_fleet_ids)
+        self.assertEqual(
+            RUNTIME_CONFIG.resupply_calibration_level(4), "structural_only"
         )
-        controller, _, _ = build(
-            Provider([observation(filled=True)]), ui, scheduler=scheduler
-        )
-        self.assertIn(4, scheduler.dispatch_fleet_ids)
-        with self.assertRaisesRegex(
-            ContinuousResupplyError, "no verified supply visual gate"
-        ):
-            controller.resupply_one_needed(4)
-        self.assertEqual(ui.calls, [])
+        # Fleets 2 and 3 keep the template path and their live-verified claim.
+        for fleet_id in (2, 3):
+            self.assertEqual(
+                RUNTIME_CONFIG.resupply_calibration_level(fleet_id), "live_verified"
+            )
+        # A fleet outside both sets has no supply chain at all.
+        self.assertEqual(RUNTIME_CONFIG.resupply_calibration_level(1), "unavailable")
+        self.assertNotIn(1, RUNTIME_CONFIG.resupply_enabled_fleet_ids)
 
     def test_a_fleet_not_awaiting_resupply_is_refused(self):
         ui = FakeUi()
@@ -181,7 +187,16 @@ class ResupplyControllerTests(unittest.TestCase):
         self.assertEqual(result.ammo_required, 9)   # (10-6) + (10-5)
         self.assertEqual(ui.calls, [FLEET])
         self.assertIs(scheduler.fleet(FLEET).phase, FleetPhase.READY)
-        self.assertEqual([name for name, _ in events], ["resupply_confirmed"])
+        # P0-1 added one row before the click that states how well this fleet's
+        # supply chain is proven. Fleet 2 is live-verified, so no reader may
+        # mistake it for a structural-only fleet.
+        self.assertEqual(
+            [name for name, _ in events],
+            ["resupply_action_started", "resupply_confirmed"],
+        )
+        started = dict(events)["resupply_action_started"]
+        self.assertEqual(started["calibration_level"], "live_verified")
+        self.assertTrue(started["fingerprint_template_available"])
 
     def test_a_supply_that_did_not_take_effect_blocks_the_fleet(self):
         ui = FakeUi()
@@ -192,7 +207,10 @@ class ResupplyControllerTests(unittest.TestCase):
         with self.assertRaisesRegex(ContinuousResupplyError, "did not verify"):
             controller.resupply_one_needed(FLEET)
         self.assertIs(scheduler.fleet(FLEET).phase, FleetPhase.BLOCKED)
-        self.assertEqual([name for name, _ in events], ["resupply_blocked"])
+        self.assertEqual(
+            [name for name, _ in events],
+            ["resupply_action_started", "resupply_blocked"],
+        )
 
     def test_an_expedition_on_the_target_fleet_fails_the_preflight(self):
         ui = FakeUi()

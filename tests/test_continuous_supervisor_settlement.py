@@ -45,7 +45,7 @@ class FakeDispatchController:
         self.allow_ui_actions = enabled
         self.calls = []
 
-    def dispatch_one_ready(self, fleet_id):
+    def dispatch_one_ready(self, fleet_id, *, dispatch_id=None):
         self.calls.append(fleet_id)
         self.scheduler.states[fleet_id].phase = FleetPhase.EXPEDITION_ACTIVE
         self.scheduler.states[fleet_id].home_port_verified = True

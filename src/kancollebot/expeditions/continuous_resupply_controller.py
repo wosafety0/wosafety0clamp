@@ -145,17 +145,20 @@ class ContinuousResupplyController:
                 f"Fleet {fleet_id} is not a configured dispatch fleet"
             )
         # Being allowed to DISPATCH a fleet does not mean we can safely
-        # RESUPPLY it. A real supply click needs a calibrated tab region,
-        # checkbox fingerprints and a UI state enum. Fleet 4 has an expedition
-        # tab but none of that supply evidence, so the loop stops here rather
-        # than clicking an unlocalizable control or silently skipping resupply.
-        if fleet_id not in RUNTIME_CONFIG.resupply_verified_fleet_ids:
+        # RESUPPLY it: a real supply click needs a locatable tab and a way to
+        # prove which tab is selected. Fleet 4 is calibrated structurally (tab
+        # region derived from the 45 px strip geometry, template-free highlight
+        # check) but has not been re-verified on the production path, so its
+        # resupply is labelled ``structural_only`` in the log and relies on the
+        # post-action Poi cross-check to catch a wrong-fleet selection.
+        if fleet_id not in RUNTIME_CONFIG.resupply_enabled_fleet_ids:
             raise ContinuousResupplyError(
-                f"Fleet {fleet_id} has no verified supply visual gate; calibrated "
-                f"resupply fleets are {list(RUNTIME_CONFIG.resupply_verified_fleet_ids)}. "
+                f"Fleet {fleet_id} has no calibrated supply visual gate; resupplyable "
+                f"fleets are {list(RUNTIME_CONFIG.resupply_enabled_fleet_ids)}. "
                 "Refusing to click an unlocalizable supply control. This fleet can be "
                 "dispatched, but its closed-loop resupply needs real-client calibration."
             )
+        calibration_level = RUNTIME_CONFIG.resupply_calibration_level(fleet_id)
 
         with self.ui_arbiter.operation(f"continuous-resupply-fleet-{fleet_id}"):
             current = self.scheduler.fleet(fleet_id)
@@ -179,6 +182,19 @@ class ContinuousResupplyController:
                     already_supplied=True,
                 )
 
+            self.event_sink(
+                "resupply_action_started",
+                {
+                    "fleet_id": fleet_id,
+                    "calibration_level": calibration_level,
+                    # True only for a fleet whose supply screen has a captured
+                    # fingerprint template; a structural-only fleet is proved
+                    # by relative brightness and by the Poi check below.
+                    "fingerprint_template_available": calibration_level == "live_verified",
+                    "fuel_required": plan.fuel_required,
+                    "ammo_required": plan.ammo_required,
+                },
+            )
             evidence = self.ui_driver.resupply_fleet(fleet_id=fleet_id)
             self._require_home_port_evidence(evidence)
             action_at = self.clock()

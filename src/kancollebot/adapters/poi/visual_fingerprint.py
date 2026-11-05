@@ -262,6 +262,7 @@ def classify_screenshot_fingerprints(
         "SUPPLY_FLEET_1_SELECTED": "SUPPLY_MENU",
         "SUPPLY_FLEET_2_SELECTED": "SUPPLY_MENU",
         "SUPPLY_FLEET_3_SELECTED": "SUPPLY_MENU",
+        "SUPPLY_FLEET_4_SELECTED": "SUPPLY_MENU",
         "HOME_PORT_RETURN_NOTICE": "HOME_PORT",
     }.get(best_name)
     competitors = [

@@ -71,7 +71,7 @@ class RecordingController:
         if callable(self.event_sink):
             self.event_sink(event, fields)
 
-    def dispatch_one_ready(self, fleet_id):
+    def dispatch_one_ready(self, fleet_id, *, dispatch_id=None):
         self.attempts.append(fleet_id)
         self._emit(
             "dispatch_requirement_evaluation",

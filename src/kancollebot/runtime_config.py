@@ -46,11 +46,21 @@ class RuntimeConfig:
     non_dispatchable_fleet_ids: tuple[int, ...] = (1,)
     # EXPEDITION closed-loop only: fleets with a calibrated, unambiguous visual
     # gate for real resupply clicks (tab region, checkbox fingerprints, UI state
-    # enum). Fleet 4 has a dispatch tab but NO verified supply-tab region or
-    # checkbox fingerprints, so the closed loop must not resupply it. Resupply
-    # itself is a cross-task capability (a sortie needs it too); this set is
-    # merely the evidence available to THIS task today.
+    # enum). Fleet 4 has a supply tab that is locatable and a template-free
+    # selection check, but no captured fingerprint template, so it is NOT in
+    # this set: membership here is a claim about live evidence.
     resupply_verified_fleet_ids: tuple[int, ...] = (2, 3)
+    # EXPEDITION closed-loop only: fleets whose supply *chain* is calibrated in
+    # code - the tab has a bounded region, the locator accepts its index, and
+    # the driver can prove which tab is selected (by template, or for a fleet
+    # without one, by relative brightness). Fleet 4 was calibrated from the
+    # dispatch tab strip geometry on 2026-11-06 and its supply screen was driven
+    # successfully by hand; the production path has NOT been re-verified on the
+    # real client, which is exactly why it lives here and not above. A resupply
+    # of a fleet in this set but not in ``resupply_verified_fleet_ids`` is
+    # logged with ``calibration_level="structural_only"``, and its post-action
+    # Poi cross-check is what catches a wrong-fleet selection.
+    resupply_structurally_calibrated_fleet_ids: tuple[int, ...] = (2, 3, 4)
     poi_endpoint: str = "http://127.0.0.1:12450/mcp"
     observer_timeout_seconds: float = 130.0
     max_state_age_seconds: float = 30.0
@@ -98,6 +108,30 @@ class RuntimeConfig:
         return self.run_log_directory / self.run_log_snapshot_name
 
     @property
+    def resupply_enabled_fleet_ids(self) -> tuple[int, ...]:
+        """Fleets the closed loop may actually resupply: verified ∪ calibrated.
+
+        The union is deliberate and narrow: a verified fleet is always
+        calibrated (checked at import), so this is exactly the calibrated set.
+        It exists as a named property so call sites never have to decide which
+        of the two sets is "the" gate.
+        """
+        return tuple(
+            sorted(
+                set(self.resupply_verified_fleet_ids)
+                | set(self.resupply_structurally_calibrated_fleet_ids)
+            )
+        )
+
+    def resupply_calibration_level(self, fleet_id: int) -> str:
+        """How well this fleet's supply chain is proven: live or structural only."""
+        if fleet_id in self.resupply_verified_fleet_ids:
+            return "live_verified"
+        if fleet_id in self.resupply_structurally_calibrated_fleet_ids:
+            return "structural_only"
+        return "unavailable"
+
+    @property
     def dispatchable_fleet_ids(self) -> tuple[int, ...]:
         """EXPEDITION policy ceiling of fleets that may be dispatched: (2, 3, 4).
 
@@ -143,6 +177,21 @@ if not set(RUNTIME_CONFIG.resupply_verified_fleet_ids).issubset(
     set(RUNTIME_CONFIG.dispatchable_fleet_ids)
 ):
     raise RuntimeError("resupply_verified_fleet_ids must be a subset of dispatchable_fleet_ids")
+if not set(RUNTIME_CONFIG.resupply_structurally_calibrated_fleet_ids).issubset(
+    set(RUNTIME_CONFIG.dispatchable_fleet_ids)
+):
+    raise RuntimeError(
+        "resupply_structurally_calibrated_fleet_ids must be a subset of dispatchable_fleet_ids"
+    )
+if not set(RUNTIME_CONFIG.resupply_verified_fleet_ids).issubset(
+    set(RUNTIME_CONFIG.resupply_structurally_calibrated_fleet_ids)
+):
+    # A fleet cannot be live-verified without being calibrated in code; the
+    # reverse (calibrated but not yet live-verified) is the normal case.
+    raise RuntimeError(
+        "resupply_verified_fleet_ids must be a subset of "
+        "resupply_structurally_calibrated_fleet_ids"
+    )
 if RUNTIME_CONFIG.run_log_retention_days < 1:
     raise RuntimeError("run_log_retention_days must be at least 1")
 if RUNTIME_CONFIG.run_log_max_file_bytes < 1024:

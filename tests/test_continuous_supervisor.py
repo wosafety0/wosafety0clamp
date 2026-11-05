@@ -50,9 +50,14 @@ class FakeController:
         self.allow_ui_actions = enabled
         self.verify_home_port = verify_home_port
         self.calls = []
+        # The supervisor mints one dispatch identity per attempt and hands it
+        # to the controller; the double keeps them so a test can prove the
+        # scope and the ledger name the same attempt.
+        self.dispatch_ids: list[str | None] = []
 
-    def dispatch_one_ready(self, fleet_id):
+    def dispatch_one_ready(self, fleet_id, *, dispatch_id=None):
         self.calls.append(fleet_id)
+        self.dispatch_ids.append(dispatch_id)
         self.scheduler.states[fleet_id].phase = FleetPhase.EXPEDITION_ACTIVE
         self.scheduler.states[fleet_id].home_port_verified = self.verify_home_port
         return SimpleNamespace(fleet_id=fleet_id)

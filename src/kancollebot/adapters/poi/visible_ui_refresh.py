@@ -14,12 +14,34 @@ import threading
 import time
 import uuid
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from kancollebot.adapters.poi.cdp_input import RecordedPoint, home_port_point
 from kancollebot.adapters.poi.ui_operation_lock import UiOperationArbiter
 from kancollebot.core.observation_contracts import UiStateEvidence
+from kancollebot.core.return_refresh import (
+    ReturnRefreshCoordinator,
+    ReturnRefreshOutcome,
+    ReturnRefreshRefused,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class FleetReturnView:
+    """The three facts return detection is allowed to look at, per fleet.
+
+    Deliberately narrow: the coordinator must not be able to conclude
+    anything from the rest of a port payload, and an unknown field must read
+    as "no evidence" rather than as a default that looks like a return.
+    """
+
+    fleet_id: int
+    mission_status: int | None
+    mission_id: int | None
+    source_freshness_verified: bool
+    observed_at: datetime | None
 
 
 HOME_PORT = home_port_point()
@@ -361,6 +383,17 @@ class FreshnessRefreshingStateReader:
             lambda: f"rfr-{uuid.uuid4().hex[:12]}"
         )
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        # Observation-round token. Every refresh the reader is about to send
+        # re-checks that no newer round (or a shutdown) started while the
+        # caller was waiting for the lock; a stale round must not click.
+        self._generation = 0
+        self._return_refresh = ReturnRefreshCoordinator(
+            clock=self._clock,
+            monotonic=self._monotonic,
+            sleep=self._sleep,
+            event_sink=event_sink,
+            min_refresh_interval_seconds=refresh_cooldown_seconds,
+        )
         # A driver built before the audit fields existed still takes no keyword
         # arguments; asking it for audit fields would break a caller that only
         # wants the navigation.
@@ -456,6 +489,124 @@ class FreshnessRefreshingStateReader:
                 observation = self._reader.read_fleets()
             return observation
 
+    # -- return detection with observation rounds ---------------------------
+
+    @property
+    def generation(self) -> int:
+        """The newest observation round; older rounds are stale by definition."""
+        return self._generation
+
+    def invalidate(self, reason: str) -> int:
+        """Make every in-flight round stale before releasing listeners.
+
+        Call this on timeout, cancellation and shutdown. A callback that fires
+        afterwards sees ``is_current() is False`` and is refused before it can
+        send a click.
+        """
+        self._generation += 1
+        self._return_refresh.invalidate(reason)
+        return self._generation
+
+    def confirm_return(
+        self,
+        *,
+        fleet_id: int,
+        expected_return_at: datetime | None = None,
+        witness_wait_seconds: float | None = None,
+    ) -> ReturnRefreshOutcome:
+        """Decide whether this fleet has returned, refreshing only if needed.
+
+        The only lawful way to learn that a fleet is home is a visible
+        navigation that makes the client ask for ``api_port/port``; the timer
+        expiring proves nothing. This method therefore:
+
+        * returns ``confirmed_return=True`` only for a *fresh* status-2
+          observation, before or after exactly one refresh;
+        * never retries the navigation and never treats elapsed time as
+          success;
+        * refuses outright when a newer round has taken over.
+
+        ``witness_wait_seconds`` bounds the post-navigation wait for the
+        natural port response. It is a wait, never a click.
+        """
+        wait = (
+            self._max_wait_seconds
+            if witness_wait_seconds is None
+            else float(witness_wait_seconds)
+        )
+        if not math.isfinite(wait) or wait < 0:
+            raise ValueError("witness_wait_seconds must be finite and non-negative")
+        watch = self._return_refresh.begin_watch(
+            fleet_id=fleet_id, expected_return_at=expected_return_at
+        )
+        self._generation = watch.generation
+
+        def refresh() -> None:
+            # Re-checked here as well, so a round invalidated between the
+            # coordinator's decision and this call can never click.
+            if not self._return_refresh.is_current(watch):
+                raise ReturnRefreshRefused(
+                    f"observation round {watch.generation} is stale; refusing to refresh"
+                )
+            refresh_id = self._refresh_id_factory()
+            if self._driver_takes_audit:
+                self._refresh_driver.refresh_port_state(
+                    refresh_id=refresh_id,
+                    origin=f"return_detection:g{watch.generation}",
+                )
+            else:
+                self._refresh_driver.refresh_port_state()
+            self._await_witness(deadline_seconds=wait)
+
+        return self._return_refresh.refresh_and_confirm(
+            watch=watch,
+            observe=self._observe_fleet,
+            refresh=refresh,
+        )
+
+    def _await_witness(self, *, deadline_seconds: float) -> Any:
+        """Wait for a natural port response; never clicks, never raises."""
+        deadline = self._monotonic() + deadline_seconds
+        observation = self._reader.read_fleets()
+        while not self._is_trusted(observation, None):
+            remaining = deadline - self._monotonic()
+            if remaining <= 0:
+                return observation
+            self._sleep(min(self._poll_interval_seconds, remaining))
+            observation = self._reader.read_fleets()
+        return observation
+
+    def _observe_fleet(self, fleet_id: int) -> FleetReturnView:
+        """Read one fleet's return-relevant fields; read-only, no navigation."""
+        observation = self._reader.read_fleets()
+        return self._fleet_view(observation, fleet_id)
+
+    @staticmethod
+    def _fleet_view(observation: Any, fleet_id: int) -> FleetReturnView:
+        payload = getattr(observation, "payload", None) or ()
+        matches = [
+            item for item in payload if getattr(item, "fleet_id", None) == fleet_id
+        ]
+        if len(matches) != 1:
+            return FleetReturnView(
+                fleet_id=fleet_id,
+                mission_status=None,
+                mission_id=None,
+                source_freshness_verified=False,
+                observed_at=None,
+            )
+        item = matches[0]
+        observed_at = getattr(observation, "observed_at", None)
+        return FleetReturnView(
+            fleet_id=fleet_id,
+            mission_status=getattr(item, "mission_status", None),
+            mission_id=getattr(item, "mission_id", None),
+            source_freshness_verified=bool(
+                getattr(observation, "source_freshness_verified", False)
+            ),
+            observed_at=observed_at if isinstance(observed_at, datetime) else None,
+        )
+
     def read_fleets(self) -> Any:
         """Read the current state without touching the game.
 
@@ -486,6 +637,7 @@ class FreshnessRefreshingStateReader:
         origin = origin.strip()
         triggered_at = self._clock()
         with self._refresh_lock:
+            started_generation = self._generation
             observation = self._reader.read_fleets()
             if self._is_trusted(observation, None):
                 self._audit(
@@ -512,6 +664,20 @@ class FreshnessRefreshingStateReader:
                 return observation
 
             refresh_id = self._refresh_id_factory()
+            # P0-4: a stale round must never click. If a newer round started
+            # (or the process is shutting down) while this caller waited for
+            # the lock, the navigation is suppressed and the untrusted
+            # observation is returned unchanged, so the caller's own
+            # require_fresh gate still fails closed.
+            if started_generation != self._generation:
+                self._audit(
+                    refresh_id=None,
+                    origin=origin,
+                    outcome="stale_generation_suppressed",
+                    witness_verified=False,
+                    triggered_at=triggered_at,
+                )
+                return observation
             # Set the cooldown before touching the UI. Even an ambiguous click
             # must not be replayed automatically by the next monitor tick.
             self._last_refresh_at = now

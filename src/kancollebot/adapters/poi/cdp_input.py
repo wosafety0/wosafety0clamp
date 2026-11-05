@@ -38,6 +38,12 @@ _APPROVED_VISUAL_TARGETS = {
     "supply-fleet1-tab": (195, 155, 50, 50),
     "supply-fleet2-tab": (240, 155, 50, 50),
     "supply-fleet3-tab": (285, 155, 50, 50),
+    # Derived, not templated: the supply tab strip is evenly spaced at 45 px
+    # (195/240/285), and Fleet 4's tab was confirmed on screen on 2026-11-06.
+    # The region is approved so the locator can reach it; the *selection* of
+    # this tab still has to be proven separately (relative-highlight check),
+    # because no fingerprint template exists for it.
+    "supply-fleet4-tab": (330, 155, 50, 50),
     "fleet-supply-all-button": (1050, 590, 145, 60),
 }
 
@@ -154,7 +160,12 @@ class VisualTargetPoint:
                 or abs(width - height) > 4
             ):
                 raise ValueError("checkbox target geometry or locator is not approved")
-        elif self.label in {"supply-fleet1-tab", "supply-fleet2-tab", "supply-fleet3-tab"}:
+        elif self.label in {
+            "supply-fleet1-tab",
+            "supply-fleet2-tab",
+            "supply-fleet3-tab",
+            "supply-fleet4-tab",
+        }:
             if (
                 self.locator != "opencv-canny-tab-v1"
                 or not 28 <= width <= 40 or not 26 <= height <= 38

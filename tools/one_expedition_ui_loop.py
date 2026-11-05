@@ -1169,6 +1169,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
         DurableDispatchCoordinator,
         SqliteDispatchIntentStore,
     )
+    from kancollebot.expeditions.dispatch_registry import SqliteDispatchRegistry
     from kancollebot.expeditions.fleet_availability import (
         FleetAvailabilityError,
         resolve_fleet_availability,
@@ -1325,6 +1326,16 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 runtime.scheduler,
                 SqliteDispatchIntentStore(args.database),
             )
+            # The durable dispatch identity ledger. It lives in the SAME
+            # dispatch database as the intents (a new table, not a second
+            # ledger) and is what lets the settlement half attribute a returned
+            # mission to the attempt that produced it. Without it, a fleet
+            # dispatched twice on the same mission with the same ships could
+            # never be told apart once the intent row is deleted on confirmation.
+            dispatch_registry = SqliteDispatchRegistry(
+                args.database,
+                task_kind=RUNTIME_CONFIG.dispatch_policy_task_kind,
+            )
             # One arbiter for every visible click in this process. The refresh
             # driver, the dispatch controller, the settlement controller and the
             # resupply controller must exclude one another, or two of them could
@@ -1376,6 +1387,8 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     # a control is clicked. A sink without a probe yields None,
                     # which restores the historical behaviour exactly.
                     audit_gate=audit_gate(runtime.monitor.event_sink),
+                    dispatch_registry=dispatch_registry,
+                    dispatch_source="supervisor",
                 )
             # R3: the settlement and resupply controllers are the two branches
             # supervisor.tick() could never reach while they were absent. They
@@ -1409,6 +1422,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     event_sink=runtime.monitor.event_sink,
                     allow_ui_actions=True,
                     max_state_age=timedelta(seconds=args.max_state_age_seconds),
+                    dispatch_registry=dispatch_registry,
                 )
             else:
                 _print_event(

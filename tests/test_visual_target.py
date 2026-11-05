@@ -94,8 +94,19 @@ class VisualTargetTests(unittest.TestCase):
         payload = self._frame(())
         with self.assertRaisesRegex(VisualTargetError, "found 0"):
             locate_supply_fleet_tab(payload, fleet_index=3)
-        with self.assertRaisesRegex(VisualTargetError, "index must be 1, 2 or 3"):
+        # Fleet 4 gained a bounded region on 2026-11-06 (the strip is evenly
+        # spaced at 45 px), so an empty frame must fail on "no target", not on
+        # the index. Fleet 5 does not exist and stays an index error.
+        with self.assertRaisesRegex(VisualTargetError, "found 0"):
             locate_supply_fleet_tab(payload, fleet_index=4)
+        with self.assertRaisesRegex(VisualTargetError, "index must be one of"):
+            locate_supply_fleet_tab(payload, fleet_index=5)
+
+    def test_supply_fleet4_tab_region_is_derived_from_the_45px_strip(self):
+        payload = self._frame(((338, 164, 34, 31),))
+        point = locate_supply_fleet_tab(payload, fleet_index=4)
+        self.assertEqual(point.region, (330, 155, 50, 50))
+        self.assertEqual(point.label, "supply-fleet4-tab")
 
     def test_locates_one_fleet_wide_supply_button(self):
         payload = self._frame(((1064, 606, 88, 26),))

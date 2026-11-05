@@ -75,6 +75,7 @@ def build_driver(
         "supply-menu": menu_state,
         "supply-fleet2-tab": "SUPPLY_FLEET_2_SELECTED",
         "supply-fleet3-tab": "SUPPLY_FLEET_3_SELECTED",
+        "supply-fleet4-tab": "SUPPLY_FLEET_4_SELECTED",
         "home-port": "HOME_PORT",
     }
 
@@ -203,12 +204,112 @@ class ResupplyChainTests(unittest.TestCase):
         self.assertEqual(clicks, ["supply-menu"])
         self.assertNotIn("continuous_ui_supply_click_sent", events)
 
-    def test_fleet_4_has_no_calibrated_supply_tab(self):
+    def test_fleet_4_supply_tab_is_located_and_the_chain_completes(self):
+        """P0-1: Fleet 4's supply tab is reachable without a fingerprint template."""
         screen = ScriptedScreen("HOME_PORT")
-        driver, clicks = build_driver(screen, [])
-        with self.assertRaisesRegex(ContinuousUiDriverError, "only fleets 2 and 3"):
-            driver.resupply_fleet(fleet_id=4)
-        self.assertEqual(clicks, [])
+        events: list[str] = []
+        driver, clicks = build_driver(screen, events, menu_state="SUPPLY_MENU")
+        button = target((1090, 600, 90, 30))
+        tab = VisualTargetPoint(
+            x=355,
+            y=180,
+            label="supply-fleet4-tab",
+            bounds=(340, 165, 30, 30),
+            region=(330, 155, 50, 50),
+            source_frame_sha256="4" * 64,
+            locator="opencv-canny-tab-v1",
+        )
+
+        with patch(
+            "kancollebot.adapters.poi.continuous_expedition_ui.locate_fleet_supply_all_button",
+            return_value=button,
+        ), patch(
+            "kancollebot.adapters.poi.continuous_expedition_ui.locate_supply_fleet_tab",
+            return_value=tab,
+        ):
+            evidence = driver.resupply_fleet(fleet_id=4)
+
+        self.assertEqual(evidence.state, "HOME_PORT")
+        self.assertEqual(
+            clicks,
+            [
+                "supply-menu",
+                "supply-fleet4-tab",
+                "fleet-supply-all-button",
+                "home-port",
+            ],
+        )
+        self.assertIn("continuous_ui_supply_click_sent", events)
+
+    def test_fleet_4_on_an_unidentifiable_supply_page_sends_no_tab_click(self):
+        """No fingerprint match and no decodable frame: the page is UNKNOWN.
+
+        Fleet 4 has no template, so an unrecognised supply page must stop the
+        chain *before* the tab click rather than clicking a tab on a screen
+        that was never proven to be a supply page.
+        """
+        screen = ScriptedScreen("HOME_PORT")
+        events: list[str] = []
+        driver, clicks = build_driver(screen, events, menu_state="SUPPLY_FLEET_4_SELECTED")
+
+        with patch(
+            "kancollebot.adapters.poi.continuous_expedition_ui.locate_fleet_supply_all_button",
+            return_value=target((1090, 600, 90, 30)),
+        ):
+            with self.assertRaisesRegex(
+                ContinuousUiDriverError, "not a verified supply page"
+            ):
+                driver.resupply_fleet(fleet_id=4)
+
+        self.assertEqual(clicks, ["supply-menu"])
+        self.assertNotIn("continuous_ui_supply_click_sent", events)
+
+    def test_fleet_4_tab_that_lands_on_another_fleet_sends_no_supply_click(self):
+        """Wrong fleet after the tab click: the supply button is never pressed.
+
+        This is the failure mode Fleet 4's missing template makes possible, so
+        it is the one that must be covered: the tab click lands, the frame
+        proves a *different* fleet, and the chain stops with no supply click.
+        """
+        screen = ScriptedScreen("HOME_PORT")
+        events: list[str] = []
+        driver, clicks = build_driver(screen, events, menu_state="SUPPLY_FLEET_2_SELECTED")
+        tab = VisualTargetPoint(
+            x=355,
+            y=180,
+            label="supply-fleet4-tab",
+            bounds=(340, 165, 30, 30),
+            region=(330, 155, 50, 50),
+            source_frame_sha256="4" * 64,
+            locator="opencv-canny-tab-v1",
+        )
+
+        def click_that_selects_fleet3(point: RecordedPoint) -> None:
+            clicks.append(point.label)
+            if point.label == "supply-menu":
+                screen.state = "SUPPLY_FLEET_2_SELECTED"
+            elif point.label == "supply-fleet4-tab":
+                # The click landed on the neighbouring tab: the frame now
+                # proves Fleet 3, not the requested Fleet 4.
+                screen.state = "SUPPLY_FLEET_3_SELECTED"
+
+        driver._input = type(
+            "Input", (), {"click": staticmethod(click_that_selects_fleet3)}
+        )()
+
+        with patch(
+            "kancollebot.adapters.poi.continuous_expedition_ui.locate_fleet_supply_all_button",
+            return_value=target((1090, 600, 90, 30)),
+        ), patch(
+            "kancollebot.adapters.poi.continuous_expedition_ui.locate_supply_fleet_tab",
+            return_value=tab,
+        ):
+            with self.assertRaises(ContinuousUiDriverError):
+                driver.resupply_fleet(fleet_id=4)
+
+        self.assertEqual(clicks, ["supply-menu", "supply-fleet4-tab"])
+        self.assertNotIn("continuous_ui_supply_click_sent", events)
+        self.assertNotIn("continuous_ui_resupply_completed", events)
 
     def test_an_unrecognised_screen_stops_before_any_supply_click(self):
         screen = ScriptedScreen("HOME_PORT")
