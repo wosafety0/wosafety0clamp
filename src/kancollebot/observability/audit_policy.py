@@ -80,7 +80,9 @@ class AuditLogUnavailable(RuntimeError):
 
 def is_critical_event(event: object) -> bool:
     """True when ``event`` must be durable before the action it describes."""
-    return isinstance(event, str) and event in CRITICAL_AUDIT_EVENTS
+    # Malformed whitespace-padded names are rejected by the envelope builder,
+    # but must still be classified as critical so they cannot bypass the gate.
+    return isinstance(event, str) and event.strip() in CRITICAL_AUDIT_EVENTS
 
 
 def audit_gate(sink: Any) -> Callable[[], None] | None:

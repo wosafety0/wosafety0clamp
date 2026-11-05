@@ -13,6 +13,7 @@ import unittest
 from contextlib import closing
 from datetime import date, datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
@@ -45,6 +46,7 @@ from kancollebot.observability.sink import (  # noqa: E402
     TeeEventSink,
     build_run_log_sink,
 )
+from kancollebot.observability.redaction import REDACTED, redact_event_record
 
 FIXED_NOW = datetime(2026, 11, 6, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -287,6 +289,31 @@ class SinkFormatTests(unittest.TestCase):
         self.assertEqual(len(store.read_events(run_id="run-20261106T120000Z-000000000001")), 1)
         self.assertEqual(len(store.read_events(run_id="run-20261106T120000Z-000000000002")), 1)
         self.assertEqual(len(store.read_events()), 2)
+
+    def test_promoted_source_and_observed_at_values_are_redacted(self):
+        sink = self.make_sink()
+        secret = "abcdef123456"
+        sink("poi_observation", {
+            "source": f"https://example.invalid/?token={secret}",
+            "observed_at": f"https://example.invalid/?token={secret}",
+        })
+        record = read_all_records(self.directory)[0]
+        self.assertIn("[REDACTED]", record["source"])
+        self.assertIn("[REDACTED]", record["observed_at"])
+        self.assertNotIn(secret, record["source"])
+        self.assertNotIn(secret, record["observed_at"])
+
+    def test_redaction_fails_closed_when_the_shared_policy_cannot_load(self):
+        with patch(
+            "kancollebot.observability.redaction._loader",
+            side_effect=ImportError("simulated missing adapter"),
+        ):
+            result = redact_event_record(
+                {"event": "safe_event", "diagnostic": "token=must-not-leak"},
+                envelope_fields=frozenset({"event"}),
+            )
+        self.assertEqual(result["event"], "safe_event")
+        self.assertEqual(result["diagnostic"], REDACTED)
 
     def test_sensitive_values_are_redacted_and_long_values_truncated(self):
         sink = self.make_sink()

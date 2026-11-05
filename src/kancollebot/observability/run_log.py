@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -183,6 +184,8 @@ class RunLogStore:
         directory that points at the action journal (or at ``C:\\``) resolves
         outside and is rejected *before* any unlink happens.
         """
+        if path.is_symlink():
+            raise RunLogPathError(f"refusing to follow symbolic link: {path}")
         root = self.directory.resolve()
         try:
             resolved = path.resolve()
@@ -201,6 +204,8 @@ class RunLogStore:
             return ()
         files: list[RunLogFile] = []
         for entry in directory.iterdir():
+            if entry.is_symlink():
+                continue
             match = _NAME_PATTERN.match(entry.name)
             if match is None or not entry.is_file():
                 continue
@@ -228,6 +233,11 @@ class RunLogStore:
         split across two files: a record either fits in the current part or the
         next part starts with it.
         """
+        if payload_bytes > self.policy.max_file_bytes:
+            raise RunLogError(
+                f"single event is {payload_bytes} bytes, exceeding "
+                f"max_file_bytes={self.policy.max_file_bytes}"
+            )
         same_day = [item for item in self.log_files() if item.day == day]
         if not same_day:
             return self._part_path(day, 0)
@@ -363,7 +373,6 @@ class RunLogStore:
             raise TypeError("snapshot payload must be a mapping")
         self.directory.mkdir(parents=True, exist_ok=True)
         target = self._assert_inside(self.snapshot_path)
-        temporary = target.with_name(target.name + ".tmp")
         data = json.dumps(
             dict(payload),
             ensure_ascii=False,
@@ -372,25 +381,44 @@ class RunLogStore:
             indent=2,
             default=str,
         ).encode("utf-8")
+        descriptor: int | None = None
+        temporary: Path | None = None
         try:
-            with open(temporary, "wb") as stream:
+            # mkstemp creates a unique file with O_EXCL in the same directory.
+            # Never open a predictable .tmp path that could be a planted symlink.
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix=f".{target.name}.",
+                suffix=".tmp",
+                dir=self.directory,
+            )
+            temporary = Path(temporary_name)
+            stream = os.fdopen(descriptor, "wb")
+            descriptor = None
+            with stream:
                 stream.write(data)
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temporary, target)
         except OSError as exc:
-            try:
-                temporary.unlink(missing_ok=True)
-            except OSError:
-                pass
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+            if temporary is not None:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
             raise SnapshotWriteError(
                 f"cannot replace snapshot {target}: {type(exc).__name__}: {exc}"
             ) from exc
         return target
 
     def read_snapshot(self) -> dict[str, Any] | None:
+        snapshot = self._assert_inside(self.snapshot_path)
         try:
-            text = self.snapshot_path.read_text(encoding="utf-8")
+            text = snapshot.read_text(encoding="utf-8")
         except FileNotFoundError:
             return None
         return json.loads(text)

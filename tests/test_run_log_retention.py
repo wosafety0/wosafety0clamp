@@ -21,6 +21,7 @@ if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
 from kancollebot.observability.run_log import (  # noqa: E402
+    RunLogError,
     RunLogPathError,
     RunLogPolicy,
     RunLogStore,
@@ -66,6 +67,28 @@ class RotationTests(unittest.TestCase):
             self.assertLessEqual(part.size_bytes, 1024, part.path.name)
         self.assertEqual(parts[0].path.name, "run-2026-11-06.jsonl")
         self.assertEqual(parts[1].path.name, "run-2026-11-06.001.jsonl")
+
+    def test_single_event_larger_than_file_cap_is_rejected(self):
+        store = self.make_store(max_file_bytes=1024, max_total_bytes=64 * 1024)
+        with self.assertRaises(RunLogError):
+            store.append({"event": "oversized", "pad": "x" * 2048})
+        self.assertEqual(store.log_files(), ())
+
+    def test_log_part_symlink_is_rejected_without_following_target(self):
+        target = self.directory / "current_state.json"
+        target.write_text('{"phase":"IDLE"}', encoding="utf-8")
+        before = target.read_text(encoding="utf-8")
+        link = self.directory / "run-2026-11-06.jsonl"
+        try:
+            link.symlink_to(target)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+
+        store = self.make_store()
+        with self.assertRaises(RunLogPathError):
+            store.append({"event": "must_not_touch_snapshot"})
+        self.assertEqual(target.read_text(encoding="utf-8"), before)
+        self.assertEqual(store.log_files(), ())
 
     def test_rotation_never_splits_one_event_across_two_files(self):
         store = self.make_store(max_file_bytes=1024, max_total_bytes=64 * 1024)
@@ -255,6 +278,53 @@ class RetentionTests(unittest.TestCase):
         warning = [item for item in records if item["event"] == "run_log_prune_failed"][0]
         self.assertTrue(warning["errors"])
         self.assertEqual(warning["removed"], [])
+
+
+class SnapshotPathSafetyTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.directory = Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def make_store(self) -> RunLogStore:
+        return RunLogStore(RunLogPolicy(directory=self.directory))
+
+    def test_snapshot_target_symlink_is_rejected_for_read_and_write(self):
+        sentinel = self.directory / "sentinel.txt"
+        sentinel.write_text("keep", encoding="utf-8")
+        target = self.directory / "current_state.json"
+        try:
+            target.symlink_to(sentinel)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+
+        store = self.make_store()
+        with self.assertRaises(RunLogPathError):
+            store.write_snapshot({"phase": "DISPATCHING"})
+        with self.assertRaises(RunLogPathError):
+            store.read_snapshot()
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
+        self.assertTrue(target.is_symlink())
+
+    def test_predictable_snapshot_temp_symlink_is_never_followed(self):
+        sentinel = self.directory / "sentinel.txt"
+        sentinel.write_text("keep", encoding="utf-8")
+        planted = self.directory / "current_state.json.tmp"
+        try:
+            planted.symlink_to(sentinel)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+
+        store = self.make_store()
+        store.write_snapshot({"phase": "IDLE"})
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
+        self.assertEqual(
+            json.loads((self.directory / "current_state.json").read_text(encoding="utf-8"))["phase"],
+            "IDLE",
+        )
+        self.assertTrue(planted.is_symlink())
 
 
 class PolicyValidationTests(unittest.TestCase):

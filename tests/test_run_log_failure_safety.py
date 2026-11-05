@@ -112,6 +112,46 @@ class SinkFailureTests(unittest.TestCase):
         self.assertIn("No space left on device", errors[0][1])
         self.assertIsNotNone(sink.degraded_reason)
 
+    def test_a_later_successful_diagnostic_write_does_not_clear_the_gap(self):
+        store = RunLogStore(RunLogPolicy(directory=self.directory))
+        sink, _ = self.make_sink(store)
+        original_append = store.append
+        failed = False
+
+        def fail_once(record, *, durable=False):
+            nonlocal failed
+            if not failed:
+                failed = True
+                raise OSError(28, "No space left on device")
+            return original_append(record, durable=durable)
+
+        with patch.object(store, "append", side_effect=fail_once):
+            sink("fleet_monitor_transition", {"fleet_id": 3})
+            sink("supervisor_tick", {"dispatch_count": 0})
+
+        self.assertIn("No space left on device", sink.degraded_reason or "")
+        with self.assertRaises(AuditLogUnavailable):
+            sink.ensure_writable()
+
+    def test_a_successful_stop_record_does_not_clear_a_critical_gap(self):
+        store = BrokenStore(
+            RunLogPolicy(directory=self.directory),
+            fail_on="continuous_ui_click_attempted",
+        )
+        sink, _ = self.make_sink(store)
+        with self.assertRaises(AuditLogUnavailable):
+            sink("continuous_ui_click_attempted", {"action": "dispatch"})
+
+        sink._store = RunLogStore(RunLogPolicy(directory=self.directory))  # noqa: SLF001
+        sink.stop("audit_failed")
+        with self.assertRaises(AuditLogUnavailable):
+            sink.ensure_writable()
+
+    def test_invalid_critical_event_name_still_fails_closed(self):
+        sink, _ = self.make_sink(RunLogStore(RunLogPolicy(directory=self.directory)))
+        with self.assertRaises(AuditLogUnavailable):
+            sink("dispatch_intent_persisted ", {"fleet_id": 4})
+
     def test_a_critical_write_failure_raises_instead_of_pretending(self):
         store = BrokenStore(RunLogPolicy(directory=self.directory))
         sink, errors = self.make_sink(store)

@@ -165,18 +165,25 @@ class RunLogSink:
         try:
             if not isinstance(fields, Mapping):
                 raise TypeError("event fields must be a mapping")
+            moment = self._clock()
             record = build_event_record(
                 event=event,
                 fields=fields,
                 context=self.context,
-                event_id=new_event_id(now=self._clock()),
-                timestamp_utc=self._clock().isoformat(),
+                event_id=new_event_id(now=moment),
+                timestamp_utc=moment.astimezone(timezone.utc).isoformat(),
             )
             if self._redact:
-                record = redact_event_record(record, envelope_fields=RESERVED_FIELDS)
+                # source / observed_at are descriptive values, not identity.
+                # Redact them too because emitters may promote them.
+                record = redact_event_record(
+                    record,
+                    envelope_fields=RESERVED_FIELDS - {"source", "observed_at"},
+                )
             self._store.append(record, durable=critical)
         except Exception as exc:
-            self._degraded_reason = f"{type(exc).__name__}: {exc}"
+            if self._degraded_reason is None:
+                self._degraded_reason = f"{type(exc).__name__}: {exc}"
             self._notify(event, exc)
             if critical:
                 # Fail closed: the caller emits this event before the click it
@@ -187,7 +194,8 @@ class RunLogSink:
                 ) from exc
             return
         self._writes += 1
-        self._degraded_reason = None
+        # A successful later append cannot repair an earlier missing row.
+        # Only a fresh run_id may start with a clean audit history.
         self._maybe_prune()
 
     def _notify(self, event: str, exc: BaseException) -> None:
@@ -239,7 +247,8 @@ class RunLogSink:
             )
             self._store.append(record)
         except Exception as exc:  # pragma: no cover - reported, never raised
-            self._degraded_reason = f"{type(exc).__name__}: {exc}"
+            if self._degraded_reason is None:
+                self._degraded_reason = f"{type(exc).__name__}: {exc}"
             self._notify("run_log_prune_completed", exc)
 
     # -- health ------------------------------------------------------------
@@ -267,7 +276,8 @@ class RunLogSink:
         try:
             self._store.probe()
         except Exception as exc:
-            self._degraded_reason = f"{type(exc).__name__}: {exc}"
+            if self._degraded_reason is None:
+                self._degraded_reason = f"{type(exc).__name__}: {exc}"
             self._notify("_probe_failed", exc)
             raise AuditLogUnavailable(
                 f"run log is not writable: {type(exc).__name__}: {exc}"

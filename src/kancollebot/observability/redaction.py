@@ -64,8 +64,11 @@ def redact_value(value: Any, *, depth: int = 0) -> Any:
     """Return a JSON-safe, size-bounded copy of ``value``."""
     try:
         text_redactor, _ = _loader()
-    except Exception:  # pragma: no cover - adapters must not be a hard dependency
-        text_redactor = _fallback_text
+    except Exception:
+        # If the shared redactor is unavailable, never fall back to writing
+        # unredacted diagnostic values. Preserve the event envelope; redact
+        # every diagnostic value until the shared policy can be loaded.
+        return REDACTED
 
     if value is None or isinstance(value, (bool, int, float)):
         return value
@@ -94,8 +97,9 @@ def _name_is_sensitive(name: str) -> bool:
     try:
         _, name_predicate = _loader()
         return bool(name_predicate(name))
-    except Exception:  # pragma: no cover
-        return False
+    except Exception:
+        # Unknown sensitivity is treated as sensitive.
+        return True
 
 
 def redact_event_record(
