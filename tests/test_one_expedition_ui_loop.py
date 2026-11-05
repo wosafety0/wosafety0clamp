@@ -927,6 +927,7 @@ class HiddenHomePortUiLayerTests(unittest.TestCase):
             patch.object(controller.time, "sleep"),
             patch.object(controller, "_require_ui_state", side_effect=require_state),
             patch.object(controller, "_home_port_ui_layer_is_hidden", return_value=True),
+            patch.object(controller, "_visible_settlement_screen", return_value=None),
         ):
             controller._recover_home_port(game_session)
 
@@ -954,6 +955,7 @@ class HiddenHomePortUiLayerTests(unittest.TestCase):
             patch.object(controller, "_require_ui_state",
                          side_effect=controller.LoopError("not HOME_PORT")),
             patch.object(controller, "_home_port_ui_layer_is_hidden", return_value=False),
+            patch.object(controller, "_visible_settlement_screen", return_value=None),
         ):
             with self.assertRaisesRegex(controller.LoopError, "bounded attempts"):
                 controller._recover_home_port(game_session)
@@ -961,6 +963,31 @@ class HiddenHomePortUiLayerTests(unittest.TestCase):
         clicked = [call.args[0] for call in game_session.input.click.call_args_list]
         self.assertEqual(len(clicked), 3)
         self.assertTrue(all(point.label == "home-port" for point in clicked))
+
+
+class RewardScreenRecoveryGuardTests(unittest.TestCase):
+    """Recovery must not walk a reward chain it cannot prove.
+
+    Every reward screen accepts a click anywhere, so a 母港 recovery click sent
+    while one is up advances the chain blindly. Live 2026-11-05 the loop started
+    on a result screen left by an interrupted settlement and two recovery clicks
+    took it through bonus items back to the port.
+    """
+
+    def test_recovery_never_clicks_through_a_reward_screen(self):
+        game_session = MagicMock()
+        with (
+            patch.object(controller, "_print_event"),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_require_ui_state",
+                         side_effect=controller.LoopError("not HOME_PORT")),
+            patch.object(controller, "_visible_settlement_screen",
+                         return_value="RETURN_RESULT"),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "reward screen"):
+                controller._recover_home_port(game_session)
+
+        self.assertEqual(game_session.input.click.call_count, 0)
 
 
 if __name__ == "__main__":

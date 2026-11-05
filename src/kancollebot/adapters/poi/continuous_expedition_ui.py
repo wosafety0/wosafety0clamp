@@ -620,9 +620,12 @@ class CdpContinuousExpeditionUiDriver:
 
         # A supply keeps the client on the supply screen; return Home Port so
         # the caller gets the same two-frame Home Port evidence every other
-        # controller action produces.
+        # controller action produces. The 母港 control starts a scene fade, so
+        # the port is polled for rather than expected on the next frame: live
+        # 2026-11-05 the screen was still the supply page 2.6 s after the click
+        # and the single post-click check ended a resupply that had worked.
         self._click(HOME_PORT, action="return_home_port", step=3)
-        evidence = self._confirm("HOME_PORT", phase="after resupply")
+        evidence = self._await_state("HOME_PORT", phase="after resupply")
         self._event_sink("continuous_ui_resupply_completed", {
             "fleet_id": fleet_id,
             "completion_verified_by": "caller_poi_observation",

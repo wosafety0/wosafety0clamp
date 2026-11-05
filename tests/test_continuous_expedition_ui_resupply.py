@@ -223,5 +223,92 @@ class ResupplyChainTests(unittest.TestCase):
         self.assertNotIn("continuous_ui_resupply_completed", events)
 
 
+class FadingPortScreen:
+    """A supply screen whose 母港 click starts a scene fade, not an instant cut.
+
+    Live 2026-11-05 the client was still painting the supply page 2.6 s after the
+    母港 click; the single post-click check called that a failure and ended a
+    resupply that had in fact worked.
+    """
+
+    def __init__(self, *, fade_reads: int) -> None:
+        self.state = "HOME_PORT"
+        self.fade_reads = fade_reads
+        self.left_supply = False
+        self.clicks: list[str] = []
+
+    def click(self, point: RecordedPoint) -> None:
+        self.clicks.append(point.label)
+        if point.label == "supply-menu":
+            self.state = "SUPPLY_FLEET_2_SELECTED"
+        elif point.label == "home-port":
+            self.left_supply = True
+
+    def verify(self, expected: str, *, visual_attempts: int | None = None) -> UiStateEvidence:
+        if expected == "HOME_PORT" and self.left_supply:
+            if self.fade_reads > 0:
+                self.fade_reads -= 1
+                raise ContinuousUiDriverError(
+                    "expected HOME_PORT, screen shows SUPPLY_FLEET_2_SELECTED"
+                )
+            self.state = "HOME_PORT"
+        if expected != self.state:
+            raise ContinuousUiDriverError(f"expected {expected}, screen shows {self.state}")
+        return UiStateEvidence(
+            state=expected,
+            consecutive_states=(expected, expected),
+            evidence="scripted",
+        )
+
+
+def build_fading_driver(screen: FadingPortScreen, events: list[str]):
+    driver = CdpContinuousExpeditionUiDriver(
+        game_input=screen,
+        verify_state=screen.verify,
+        event_sink=lambda event, payload: events.append(event),
+        details=FakeDetails(),
+        marks=FakeMarks(),
+        capture=lambda: "frame",
+        sleep=lambda seconds: None,
+        settle_seconds=0.0,
+    )
+    return driver
+
+
+class ResupplyExitFadeTests(unittest.TestCase):
+    def test_the_home_port_behind_a_fade_is_waited_for(self):
+        screen = FadingPortScreen(fade_reads=2)
+        events: list[str] = []
+        driver = build_fading_driver(screen, events)
+
+        with patch(
+            "kancollebot.adapters.poi.continuous_expedition_ui.locate_fleet_supply_all_button",
+            return_value=target((1090, 600, 90, 30)),
+        ):
+            evidence = driver.resupply_fleet(fleet_id=2)
+
+        self.assertEqual(evidence.state, "HOME_PORT")
+        self.assertEqual(screen.state, "HOME_PORT")
+        self.assertEqual(
+            screen.clicks, ["supply-menu", "fleet-supply-all-button", "home-port"]
+        )
+        self.assertIn("continuous_ui_reward_screen_pending", events)
+
+    def test_a_port_that_never_appears_stops_after_the_single_exit_click(self):
+        screen = FadingPortScreen(fade_reads=99)
+        driver = build_fading_driver(screen, [])
+
+        with patch(
+            "kancollebot.adapters.poi.continuous_expedition_ui.locate_fleet_supply_all_button",
+            return_value=target((1090, 600, 90, 30)),
+        ):
+            with self.assertRaises(ContinuousUiDriverError):
+                driver.resupply_fleet(fleet_id=2)
+
+        self.assertEqual(
+            screen.clicks, ["supply-menu", "fleet-supply-all-button", "home-port"]
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

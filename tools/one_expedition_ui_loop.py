@@ -99,6 +99,15 @@ FLEET_3_TAB = RecordedPoint(630, 170, "fleet-3-tab")
 EXPEDITION_START = RecordedPoint(920, 670, "expedition-start")
 RETURN_CONFIRM = RecordedPoint(1140, 670, "returned-expedition-confirm")
 
+# The reward chain, in order. Each screen accepts a click anywhere, so any click
+# sent while one is up advances the chain - which is why only the settlement
+# controller, which proves every screen, is allowed to send one.
+REWARD_SCREEN_STATES = (
+    UiState.HOME_PORT_RETURN_NOTICE.value,
+    UiState.RETURN_RESULT.value,
+    UiState.BONUS_ITEMS.value,
+)
+
 # Every click needs fresh evidence for its pre- and post-state. Pre-dispatch
 # checkpoints use two consecutive in-memory Ooi fingerprints. Return/bonus
 # checkpoints remain a separate production-readiness gate.
@@ -523,6 +532,39 @@ def _home_port_ui_layer_is_hidden(game_session) -> bool:
     return best_name == UiState.HOME_PORT.value and scores[best_name] >= 0.85
 
 
+def _visible_settlement_screen(game_session) -> str | None:
+    """The proven reward screen on display right now, or None.
+
+    The three reward screens advance on a click *anywhere*, so the Home Port
+    recovery must never click while one of them is up: the click would move the
+    reward chain forward without proving which screen it landed on. Live
+    2026-11-05 the loop started on a result screen left by an interrupted
+    settlement, sent two recovery clicks at the 母港 point, and walked the chain
+    result -> bonus items -> port blind. The settlement controller is the only
+    thing allowed to advance those screens, because it proves each one.
+
+    Uses the same classifier and thresholds as the UI state gate, so a screen
+    the gate would refuse to accept is also a screen the recovery leaves alone.
+    """
+    fingerprint_path = Path(
+        os.environ.get(
+            "KANCOLLEBOT_FINGERPRINTS_PATH",
+            ROOT / "src" / "kancollebot" / "adapters" / "poi" / "ooi_1200x720_fingerprints.json",
+        )
+    )
+    if not fingerprint_path.is_file():
+        return None
+    try:
+        document = _read_visual_document(fingerprint_path)
+        payload = game_session.input.capture_screenshot(
+            from_surface=False
+        )
+        observed, _scores = classify_screenshot_fingerprints(payload, document)
+    except Exception:
+        return None
+    return observed if observed in REWARD_SCREEN_STATES else None
+
+
 def _recover_home_port(game_session, attempts: int = 3, force_click: bool = False) -> None:
     """Use bounded top-left navigation retries, requiring state evidence after each click.
 
@@ -537,6 +579,13 @@ def _recover_home_port(game_session, attempts: int = 3, force_click: bool = Fals
             return
         except (UiStateGateError, LoopError) as exc:
             _print_event("home_port_state_not_confirmed", attempt=0, error=str(exc))
+    settlement_screen = _visible_settlement_screen(game_session)
+    if settlement_screen is not None:
+        raise LoopError(
+            f"The account is showing {settlement_screen}, a reward screen that advances on a "
+            "click anywhere. Home Port recovery will not send that click: the settlement "
+            "controller owns the reward chain because it proves every screen it advances."
+        )
     candidates = home_port_candidates(HOME_PORT)
     for attempt in range(1, attempts + 1):
         point = candidates[(attempt - 1) % len(candidates)]
