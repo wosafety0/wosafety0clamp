@@ -1,10 +1,13 @@
 """Conservative normalization for Poi fleet snapshots."""
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
 from kancollebot.core.observed_state import ObservedState
 from kancollebot.core.observation_contracts import ObservedFleetSnapshot
+
+from .requirement_evidence import FleetRequirementEvidence
 
 
 class PoiStateError(ValueError):
@@ -30,11 +33,17 @@ def normalize_poi_fleets(
     *,
     observed_at: datetime,
     source_freshness_verified: bool = False,
+    requirement_evidence: Mapping[int, FleetRequirementEvidence | None] | None = None,
 ) -> ObservedState[tuple[ObservedFleetSnapshot, ...]]:
     """Normalize fleet, roster, and master ship records.
 
     The API mission timestamp is intentionally not interpreted until its slot
     and units are confirmed against a current authoritative payload.
+
+    ``requirement_evidence`` comes from the SAME reader call as the records
+    above. It is attached to each fleet snapshot so the R3-I evaluator cannot
+    accidentally combine a fresh composition with equipment observed at another
+    time. A missing/mismatched entry attaches nothing, which fails closed.
     """
     if observed_at.tzinfo is None or observed_at.utcoffset() is None:
         raise PoiStateError("observed_at must be timezone-aware")
@@ -159,6 +168,18 @@ def normalize_poi_fleets(
             ):
                 ammo_ready = False
 
+        evidence = (
+            requirement_evidence.get(fleet_id)
+            if requirement_evidence is not None
+            else None
+        )
+        # A partial or foreign evidence record is worse than none: never let a
+        # stale/other-fleet equipment map be mistaken for this fleet's proof.
+        if evidence is not None and (
+            set(evidence.equipment_by_ship) != set(ship_ids)
+            or not set(evidence.in_dock_ship_ids).issubset(ship_ids)
+        ):
+            evidence = None
         snapshots.append(ObservedFleetSnapshot(
             fleet_id=fleet_id,
             ship_ids=ship_ids,
@@ -172,6 +193,10 @@ def normalize_poi_fleets(
             reserved=reserved_slot,
             ship_levels=tuple(ship_levels) if composition_complete and len(ship_levels) == len(ship_ids) else (),
             ship_types=tuple(ship_types) if composition_complete and len(ship_types) == len(ship_ids) else (),
+            equipment_by_ship=evidence.equipment_by_ship if evidence else None,
+            total_stats=evidence.total_stats if evidence else None,
+            conditions=evidence.conditions if evidence else None,
+            in_dock_ship_ids=evidence.in_dock_ship_ids if evidence else (),
         ))
     return ObservedState(
         tuple(snapshots),

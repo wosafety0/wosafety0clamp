@@ -76,8 +76,10 @@ class FakeGameInput:
         elif point.label.startswith("fleet-") and point.label.endswith("-tab"):
             self.marks.selected = int(point.label.split("-")[1])
 
-    def capture_screenshot(self):
+    def capture_screenshot(self, *, from_surface: bool = True):
         self.frames += 1
+        # The start-up probe captures both layers; the fake's "screens" do not
+        # differ per layer, so one counter is enough.
         return f"frame-{self.frames}"
 
 
@@ -147,8 +149,16 @@ class FakeListSession:
 
 
 class FakeProvider:
-    def __init__(self):
+    """Stands in for BackgroundPortSnapshotProvider, which is callable."""
+
+    def __init__(self, witness=None):
+        self.witness = witness
         self.closed = False
+        self.reads = 0
+
+    def __call__(self):
+        self.reads += 1
+        return self.witness
 
     def close(self, *, join_timeout_seconds):
         self.closed = True
@@ -214,6 +224,13 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
         args.observer_timeout_seconds = 5.0
         args.max_state_age_seconds = 30.0
         args.enable_ui_refresh = True
+        # Real values, not MagicMock truthiness: the wait-mode bounds are
+        # validated before composition.
+        args.wait_for_return = False
+        args.max_ticks = 60
+        args.tick_interval_seconds = 10.0
+        args.adopt_observed_mission = False
+        args.settle_only = False
         # The dispatch target is now an argument rather than a constant, so the
         # stub has to carry a real master-data id: an unset MagicMock attribute
         # is deliberately refused rather than coerced.
@@ -247,6 +264,16 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
         )
         stack.enter_context(
             patch.object(entry, "load_position_index", lambda _path: object())
+        )
+        # The fake frames are not decodable PNGs, and the start-up probe fails
+        # closed on an unreadable classifier. Stand in for a verified plain
+        # port reading so the tests exercise everything after the snapshot.
+        stack.enter_context(
+            patch.object(
+                entry,
+                "classify_screenshot_fingerprints",
+                return_value=("HOME_PORT", {}),
+            )
         )
 
     def test_entry_wires_real_monitor_controller_supervisor_and_cdp_driver(self):
@@ -388,13 +415,15 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
             self.assertEqual(set(kwargs["mission_requirements"]), {3})
             self.assertIsNotNone(kwargs["ui_input"])
 
-    def test_production_supervisor_has_no_settlement_or_resupply_controller(self):
-        """R3: lock the current production assembly as EVIDENCE, not as a fix.
+    def test_production_supervisor_injects_every_controller_the_driver_can_execute(self):
+        """R3: the composition root must wire the whole closed loop it can run.
 
-        Class-level tests prove the branches work when controllers are injected;
-        this one proves the real composition root never injects them, so the
-        settlement/resupply branches of tick() are unreachable in production.
-        No production click chain is modified by this test.
+        Both branches are now executable by the production driver: the supply
+        click chain and, since 2026-11-05, the three reward-screen transitions
+        (each reward screen advances on a click anywhere, so every step is one
+        proven click). The supervisor therefore receives a real settlement
+        controller, and the "unavailable" report must disappear rather than
+        linger as a stale excuse.
         """
         return_at = datetime.now(timezone.utc) + timedelta(minutes=20)
         idle = make_snapshot()
@@ -429,7 +458,7 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
                         return_value="two_consecutive_in_memory_ooi_fingerprints",
                     )
                 )
-                stack.enter_context(patch.object(entry, "_print_event"))
+                print_event = stack.enter_context(patch.object(entry, "_print_event"))
                 stack.enter_context(
                     patch("kancollebot.adapters.poi.visual_target.require_visual_dependencies")
                 )
@@ -453,16 +482,47 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
 
             supervisor_cls.assert_called_once()
             assembly = supervisor_cls.call_args.kwargs
-            self.assertEqual(set(assembly), {"monitor", "dispatch_controller"})
-            self.assertNotIn("settlement_controller", assembly)
-            self.assertNotIn("resupply_controller", assembly)
+            self.assertEqual(
+                set(assembly),
+                {"monitor", "dispatch_controller", "settlement_controller", "resupply_controller"},
+            )
             self.assertIs(assembly["monitor"], runtime.monitor)
-            # With both controllers None, tick() can never call
-            # settle_one_returned() / resupply_one_needed().
             self.assertEqual(len(built_supervisors), 1)
             instance = built_supervisors[0]
-            self.assertIsNone(instance.settlement_controller)
-            self.assertIsNone(instance.resupply_controller)
+            self.assertIsNotNone(instance.settlement_controller)
+            self.assertIsNotNone(instance.resupply_controller)
+
+            # Nothing is reported as missing, because nothing is.
+            unavailable = [
+                call for call in print_event.call_args_list
+                if call.args and call.args[0] == "settlement_controller_unavailable"
+            ]
+            self.assertEqual(unavailable, [])
+
+            # Every visible click workflow that IS wired must exclude the others.
+            arbiter = instance.resupply_controller.ui_arbiter
+            self.assertIs(instance.dispatch_controller.ui_arbiter, arbiter)
+            self.assertIs(instance.settlement_controller.ui_arbiter, arbiter)
+            self.assertIs(arbiter, assembly["dispatch_controller"].ui_arbiter)
+
+            # The supervisor enforces these shares at construction time; assert
+            # them here so a future refactor cannot quietly drop one.
+            self.assertIs(instance.resupply_controller.scheduler, runtime.scheduler)
+            self.assertIs(instance.settlement_controller.scheduler, runtime.scheduler)
+            self.assertIs(
+                instance.resupply_controller.event_sink, runtime.monitor.event_sink
+            )
+            self.assertIs(
+                instance.settlement_controller.event_sink, runtime.monitor.event_sink
+            )
+            self.assertIs(instance.resupply_controller.allow_ui_actions, True)
+            self.assertIs(instance.settlement_controller.allow_ui_actions, True)
+
+            # The supply cost source stays the Redux-read snapshot joined with
+            # the monitor's passive port witness, not a fabricated payload.
+            provider = instance.resupply_controller.fleet_data_provider
+            self.assertIsNotNone(provider.port_witness_provider)
+            self.assertIs(provider.port_witness_provider, runtime.provider)
 
     def test_unfresh_monitor_observation_stops_before_any_ui_click(self):
         runtime, reader, provider = self.make_runtime([make_snapshot()], fresh=False)
@@ -538,16 +598,24 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
     def test_fleet_4_is_no_longer_statically_deferred(self):
         """On a four-fleet account, Fleet 4 reaches the composition gate.
 
-        It must still fail closed there: no Fleet-4 composition requirement
-        has been verified live, and inventing one would be a dispatch decision
-        made from a guess. What matters here is that the old static 'deferred'
-        rejection is gone and the account-fact gate admitted the fleet.
+        R3-I replaced the entry's private two-pair table with one versioned
+        static rule table. A mission WITH a rule (3) is therefore no longer a
+        Fleet-4 dead end, but a catalogue mission WITHOUT a rule (41) must
+        still fail closed at the composition gate with zero clicks. The old
+        static 'deferred' rejection is gone either way.
         """
+        # The pure adapter now resolves Fleet 4 / mission 3 from the static
+        # table; no live-verified Fleet-4 pair is needed any more.
+        args = self.make_args(Path(tempfile.gettempdir()) / "unused.sqlite3")
+        requirement = entry._mission_requirement(args, 4, 3)
+        self.assertEqual((requirement.minimum_ships, requirement.minimum_flagship_level), (3, 3))
+
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "production" / "state.sqlite3"
             database.parent.mkdir(parents=True)
             args = self.make_args(database)
             args.fleet_id = 4
+            args.mission_id = 41  # in the catalogue, but has no static rule
             game_session = MagicMock()
             game_session.input = FakeGameInput()
             game_session.__enter__.return_value = game_session
@@ -560,7 +628,7 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
                 patch.object(entry, "_probe_unlocked_fleet_ids", return_value=(1, 2, 3, 4)),
                 patch.object(monitor_runtime, "build_runtime") as build,
             ):
-                with self.assertRaisesRegex(entry.LoopError, "no verified composition requirement"):
+                with self.assertRaisesRegex(entry.LoopError, "no static requirement rule"):
                     entry.run(args)
 
             build.assert_not_called()

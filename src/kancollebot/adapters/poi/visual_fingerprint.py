@@ -253,10 +253,16 @@ def classify_screenshot_fingerprints(
     # Supply fleet selections are child states of the supply page. Their
     # shared header intentionally resembles SUPPLY_MENU, so do not let that
     # parent checkpoint erase an otherwise unique selected-fleet match.
+    #
+    # The expedition return notice is the same situation one level up: it *is*
+    # the Home Port plus a bubble, so every Home Port crop scores just as high
+    # on it as on an idle port. Without the exemption the two states would
+    # always fall inside the margin and every return would classify as UNKNOWN.
     parent_state = {
         "SUPPLY_FLEET_1_SELECTED": "SUPPLY_MENU",
         "SUPPLY_FLEET_2_SELECTED": "SUPPLY_MENU",
         "SUPPLY_FLEET_3_SELECTED": "SUPPLY_MENU",
+        "HOME_PORT_RETURN_NOTICE": "HOME_PORT",
     }.get(best_name)
     competitors = [
         score for name, score in ranked[1:]

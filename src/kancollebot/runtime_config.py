@@ -58,6 +58,14 @@ class RuntimeConfig:
     refresh_wait_seconds: float = 45.0
     refresh_poll_seconds: float = 0.5
     refresh_cooldown_seconds: float = 30.0
+    # Task-neutral: the unified run log. Caps live here and nowhere else so a
+    # cleanup decision can never be made against a second, drifting copy of the
+    # limits. Retention is three days by the operator's explicit requirement;
+    # raising it is a disk-space decision, not a logging-quality one.
+    run_log_retention_days: int = 3
+    run_log_max_file_bytes: int = 8 * 1024 * 1024
+    run_log_max_total_bytes: int = 64 * 1024 * 1024
+    run_log_snapshot_name: str = "current_state.json"
 
     @property
     def observer_script(self) -> Path:
@@ -74,6 +82,20 @@ class RuntimeConfig:
     @property
     def dispatch_log_path(self) -> Path:
         return REPOSITORY_ROOT / "logs" / "one_expedition_ui_loop.jsonl"
+
+    @property
+    def run_log_directory(self) -> Path:
+        """Project-owned directory that is the ONLY target of log cleanup.
+
+        ``logs/`` also holds the action journal, the dispatch databases and
+        calibration captures; keeping the run log in its own subdirectory means
+        the cleanup rules never need a deny list of files they must not touch.
+        """
+        return REPOSITORY_ROOT / "logs" / "run"
+
+    @property
+    def run_log_snapshot_path(self) -> Path:
+        return self.run_log_directory / self.run_log_snapshot_name
 
     @property
     def dispatchable_fleet_ids(self) -> tuple[int, ...]:
@@ -121,3 +143,11 @@ if not set(RUNTIME_CONFIG.resupply_verified_fleet_ids).issubset(
     set(RUNTIME_CONFIG.dispatchable_fleet_ids)
 ):
     raise RuntimeError("resupply_verified_fleet_ids must be a subset of dispatchable_fleet_ids")
+if RUNTIME_CONFIG.run_log_retention_days < 1:
+    raise RuntimeError("run_log_retention_days must be at least 1")
+if RUNTIME_CONFIG.run_log_max_file_bytes < 1024:
+    raise RuntimeError("run_log_max_file_bytes must be at least 1024")
+if RUNTIME_CONFIG.run_log_max_total_bytes < RUNTIME_CONFIG.run_log_max_file_bytes:
+    raise RuntimeError("run_log_max_total_bytes must be at least run_log_max_file_bytes")
+if not RUNTIME_CONFIG.run_log_snapshot_name.endswith(".json"):
+    raise RuntimeError("run_log_snapshot_name must end with .json")

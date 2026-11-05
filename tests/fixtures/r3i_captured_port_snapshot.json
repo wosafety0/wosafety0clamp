@@ -1,0 +1,45 @@
+{
+  "provenance": {
+    "origin": "verbatim excerpt of poi-port-snapshot-20261029T140534.950Z.json (KancolleBot-path-index/KancolleBot-Port-Snapshots)",
+    "schemaVersion": 1,
+    "verificationStatus": "CAPTURED_UNDER_STATICALLY_REVIEWED_PROBE",
+    "source": {
+      "kind": "cdp-network-response",
+      "path": "/kcsapi/api_port/port",
+      "httpStatus": 200,
+      "responseReceivedAt": "2026-10-29T14:05:34.545Z",
+      "bodyCapturedAt": "2026-10-29T14:05:34.949Z",
+      "responseBodySha256": "11946f7e1e112d05bce29f972d454f2d48484576a750d1e3e3435558f84412f6",
+      "responseBodyBytes": 55489
+    },
+    "safety": {
+      "gameInputSent": false,
+      "gameApiRequestInitiated": false,
+      "runtimeEvaluateUsed": false,
+      "fullRawResponseSaved": false,
+      "productionFreshnessGateChanged": false
+    },
+    "excerpt_note": "Only api_deck_port (3 fleets) and the 14 api_ship records they reference are kept; values are unmodified. Fleet 2/3 api_ship arrays retain the real -1 sentinels."
+  },
+  "api_deck_port": [
+    {"api_id": 1, "api_name": "第1艦隊", "api_mission": [0, 0, 0, 0], "api_ship": [13, 73, 70, 10, 40, 62]},
+    {"api_id": 2, "api_name": "第2艦隊", "api_mission": [0, 0, 0, 0], "api_ship": [1, 4, 8, 25, -1, -1]},
+    {"api_id": 3, "api_name": "第3艦隊", "api_mission": [0, 0, 0, 0], "api_ship": [12, 7, 33, 2, -1, -1]}
+  ],
+  "api_ship": {
+    "13": {"api_id": 13, "api_ship_id": 13, "api_nowhp": 15, "api_maxhp": 15, "api_fuel": 15, "api_bull": 20, "api_cond": 54},
+    "73": {"api_id": 73, "api_ship_id": 68, "api_nowhp": 45, "api_maxhp": 45, "api_fuel": 40, "api_bull": 65, "api_cond": 49},
+    "70": {"api_id": 70, "api_ship_id": 69, "api_nowhp": 45, "api_maxhp": 45, "api_fuel": 40, "api_bull": 65, "api_cond": 49},
+    "10": {"api_id": 10, "api_ship_id": 54, "api_nowhp": 26, "api_maxhp": 26, "api_fuel": 25, "api_bull": 25, "api_cond": 49},
+    "40": {"api_id": 40, "api_ship_id": 75, "api_nowhp": 40, "api_maxhp": 40, "api_fuel": 40, "api_bull": 40, "api_cond": 49},
+    "62": {"api_id": 62, "api_ship_id": 55, "api_nowhp": 26, "api_maxhp": 26, "api_fuel": 25, "api_bull": 25, "api_cond": 49},
+    "1": {"api_id": 1, "api_ship_id": 46, "api_nowhp": 13, "api_maxhp": 16, "api_fuel": 8, "api_bull": 20, "api_cond": 53},
+    "4": {"api_id": 4, "api_ship_id": 29, "api_nowhp": 13, "api_maxhp": 13, "api_fuel": 8, "api_bull": 15, "api_cond": 49},
+    "8": {"api_id": 8, "api_ship_id": 11, "api_nowhp": 15, "api_maxhp": 15, "api_fuel": 8, "api_bull": 20, "api_cond": 49},
+    "25": {"api_id": 25, "api_ship_id": 42, "api_nowhp": 16, "api_maxhp": 16, "api_fuel": 8, "api_bull": 20, "api_cond": 49},
+    "12": {"api_id": 12, "api_ship_id": 45, "api_nowhp": 16, "api_maxhp": 16, "api_fuel": 11, "api_bull": 16, "api_cond": 49},
+    "7": {"api_id": 7, "api_ship_id": 34, "api_nowhp": 15, "api_maxhp": 15, "api_fuel": 11, "api_bull": 16, "api_cond": 49},
+    "33": {"api_id": 33, "api_ship_id": 18, "api_nowhp": 16, "api_maxhp": 16, "api_fuel": 11, "api_bull": 16, "api_cond": 49},
+    "2": {"api_id": 2, "api_ship_id": 36, "api_nowhp": 15, "api_maxhp": 15, "api_fuel": 11, "api_bull": 16, "api_cond": 49}
+  }
+}

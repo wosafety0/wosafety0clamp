@@ -4,6 +4,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from kancollebot.observability.event_envelope import new_dispatch_id
+from kancollebot.observability.sink import correlation_scope
+
 
 @dataclass(frozen=True)
 class SupervisorTickResult:
@@ -238,6 +241,20 @@ class ContinuousExpeditionSupervisor:
         )
 
     def tick(self) -> SupervisorTickResult:
+        """Run one scheduling decision and record what it decided.
+
+        The supervisor used to make the single most important decision of the
+        loop - "may anything be dispatched this tick, and if not, why" - without
+        emitting a single event. The decision is now written through the shared
+        sink (the same object every component already had to share), so a run
+        can be reconstructed after the fact. A monitor double that exposes no
+        callable sink is left alone rather than crashed on.
+        """
+        result = self._tick_once()
+        self._record_decision(result)
+        return result
+
+    def _tick_once(self) -> SupervisorTickResult:
         monitor_result = self.monitor.tick()
 
         settlements: tuple[Any, ...] = ()
@@ -333,9 +350,7 @@ class ContinuousExpeditionSupervisor:
             if self._phase_name(state) != "READY":
                 continue
 
-            result = self.dispatch_controller.dispatch_one_ready(
-                fleet_id
-            )
+            result = self._dispatch_with_identity(fleet_id)
             dispatches.append(result)
 
             updated_state = scheduler.fleet(fleet_id)
@@ -367,3 +382,73 @@ class ContinuousExpeditionSupervisor:
             settlements=settlements,
             resupplies=resupplies,
         )
+
+    # -- run-log integration ------------------------------------------------
+
+    def _sink(self) -> Any:
+        """The one sink every component of this process shares, or ``None``."""
+        sink = getattr(self.monitor, "event_sink", None)
+        return sink if callable(sink) else None
+
+    def _dispatch_with_identity(self, fleet_id: int) -> Any:
+        """Run one dispatch attempt under one freshly minted dispatch identity.
+
+        The **attempt** is the unit of identity, not its outcome: the id is
+        minted before the controller reads a baseline, so a fleet refused by the
+        R3-I requirement gate still yields an identifiable attempt whose
+        ``dispatch_requirement_evaluation`` / ``dispatch_blocked_*`` rows carry
+        the same ``dispatch_id`` the click rows would have carried.
+
+        A reader must therefore not treat "``dispatch_id`` is present" as
+        "a dispatch happened". Only ``dispatch_intent_persisted`` followed by
+        ``dispatch_confirmed_by_poi`` says that.
+
+        Binding happens on the shared sink the constructor already forces every
+        component to use, so the UI driver's ``continuous_ui_click_*`` rows (same
+        sink, emitted from inside the controller call) inherit the identity too.
+        A sink that cannot express correlation leaves ``dispatch_id`` null
+        rather than failing the dispatch: offline doubles keep working, and the
+        gap stays visible in the log instead of being papered over.
+        """
+        with correlation_scope(
+            self._sink(), dispatch_id=new_dispatch_id(), fleet_id=fleet_id
+        ):
+            return self.dispatch_controller.dispatch_one_ready(fleet_id)
+
+    def _record_decision(self, result: SupervisorTickResult) -> None:
+        """Emit one row describing this tick's scheduling decision.
+
+        ``supervisor_paused`` is a safety-critical event: a deliberate stop is
+        the one thing a recovery reader must be able to find. Emitting it before
+        the caller acts on the result is what keeps the log honest when the
+        process dies right afterwards.
+        """
+        sink = self._sink()
+        if sink is None:
+            # Offline/test monitors may expose the attribute without a callable
+            # (the supervisor contract only requires the *identity* to match).
+            return
+        fields = {
+            "paused_reason": result.paused_reason,
+            "dispatch_fleet_ids": [
+                getattr(item, "fleet_id", None) for item in result.dispatches
+            ],
+            "dispatch_count": len(result.dispatches),
+            "settlement_fleet_ids": [
+                getattr(item, "fleet_id", None) for item in result.settlements
+            ],
+            "settlement_count": len(result.settlements),
+            "resupply_fleet_ids": [
+                getattr(item, "fleet_id", None) for item in result.resupplies
+            ],
+            "resupply_count": len(result.resupplies),
+            "fleet_phases": self._fleet_phases(),
+        }
+        event = "supervisor_paused" if result.paused_reason else "supervisor_tick"
+        sink(event, fields)
+
+    def _fleet_phases(self) -> dict[str, str]:
+        phases: dict[str, str] = {}
+        for fleet_id, state in self._fleet_states():
+            phases[str(fleet_id)] = self._phase_name(state)
+        return phases

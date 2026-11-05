@@ -1,0 +1,892 @@
+{
+  "kind": "r3i_live_pass_gate_verification",
+  "tool": "tools/verify_r3i_live_pass_gate.py",
+  "captured_at_utc": "2026-11-05T13:09:25.926041+00:00",
+  "elapsed_seconds": 99.392,
+  "fleet_id": 3,
+  "mission_id": 1,
+  "max_state_age_seconds": 30.0,
+  "phases": {
+    "A_settle_to_home_port": {
+      "home_port_navigation_clicks": 0
+    },
+    "B_production_resupply": {
+      "tool": "tools/full_supply_ui_action.py (run, default target Fleet 3)",
+      "return_code": 0,
+      "finished_at_utc": "2026-11-05T13:08:48.885715+00:00",
+      "audit_events": [
+        {
+          "timestamp_utc": "2026-11-05T13:07:56.869600+00:00",
+          "event": "home_port_precondition_already_satisfied",
+          "click_count": 0
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:04.958244+00:00",
+          "event": "ui_refresh_started",
+          "initial_state": "HOME_PORT",
+          "evidence": "two_consecutive_in_memory_ooi_fingerprints",
+          "game_actions_enabled": false
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:04.966628+00:00",
+          "event": "ui_refresh_action_precondition",
+          "step": 1,
+          "action": "open_sortie",
+          "target": "sortie",
+          "expected_state": "HOME_PORT",
+          "clicks_attempted": 0,
+          "clicks_completed": 0
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:04.976807+00:00",
+          "event": "ui_refresh_click_attempted",
+          "step": 1,
+          "action": "open_sortie",
+          "target": "sortie",
+          "clicks_attempted": 1
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:05.242990+00:00",
+          "event": "ui_refresh_click_sent",
+          "step": 1,
+          "action": "open_sortie",
+          "target": "sortie",
+          "clicks_sent": 1
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:08.256425+00:00",
+          "event": "ui_refresh_wait_completed",
+          "step": 1,
+          "action": "open_sortie",
+          "wait_seconds": 3.0
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:11.158638+00:00",
+          "event": "ui_refresh_state_confirmed",
+          "step": 1,
+          "action": "open_sortie",
+          "state": "SORTIE_MENU",
+          "consecutive_states": [
+            "SORTIE_MENU",
+            "SORTIE_MENU"
+          ],
+          "evidence": "two_consecutive_in_memory_ooi_fingerprints"
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:11.168863+00:00",
+          "event": "ui_refresh_action_precondition",
+          "step": 2,
+          "action": "open_expedition_list",
+          "target": "expedition-mode",
+          "expected_state": "SORTIE_MENU",
+          "clicks_attempted": 1,
+          "clicks_completed": 1
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:11.176631+00:00",
+          "event": "ui_refresh_click_attempted",
+          "step": 2,
+          "action": "open_expedition_list",
+          "target": "expedition-mode",
+          "clicks_attempted": 2
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:11.442674+00:00",
+          "event": "ui_refresh_click_sent",
+          "step": 2,
+          "action": "open_expedition_list",
+          "target": "expedition-mode",
+          "clicks_sent": 2
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:14.456891+00:00",
+          "event": "ui_refresh_wait_completed",
+          "step": 2,
+          "action": "open_expedition_list",
+          "wait_seconds": 3.0
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:17.565063+00:00",
+          "event": "ui_refresh_state_confirmed",
+          "step": 2,
+          "action": "open_expedition_list",
+          "state": "EXPEDITION_LIST",
+          "consecutive_states": [
+            "EXPEDITION_LIST",
+            "EXPEDITION_LIST"
+          ],
+          "evidence": "two_consecutive_in_memory_ooi_fingerprints"
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:17.576159+00:00",
+          "event": "ui_refresh_action_precondition",
+          "step": 3,
+          "action": "return_home_port",
+          "target": "home-port",
+          "expected_state": "EXPEDITION_LIST",
+          "clicks_attempted": 2,
+          "clicks_completed": 2
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:17.584757+00:00",
+          "event": "ui_refresh_click_attempted",
+          "step": 3,
+          "action": "return_home_port",
+          "target": "home-port",
+          "clicks_attempted": 3
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:17.851819+00:00",
+          "event": "ui_refresh_click_sent",
+          "step": 3,
+          "action": "return_home_port",
+          "target": "home-port",
+          "clicks_sent": 3
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:20.868330+00:00",
+          "event": "ui_refresh_wait_completed",
+          "step": 3,
+          "action": "return_home_port",
+          "wait_seconds": 3.0
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:25.647182+00:00",
+          "event": "ui_refresh_state_confirmed",
+          "step": 3,
+          "action": "return_home_port",
+          "state": "HOME_PORT",
+          "consecutive_states": [
+            "HOME_PORT",
+            "HOME_PORT"
+          ],
+          "evidence": "two_consecutive_in_memory_ooi_fingerprints"
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:25.657656+00:00",
+          "event": "ui_refresh_completed",
+          "sequence": [
+            "HOME_PORT",
+            "SORTIE_MENU",
+            "EXPEDITION_LIST",
+            "HOME_PORT"
+          ],
+          "clicks_sent": 3,
+          "final_state": "HOME_PORT"
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:25.665870+00:00",
+          "event": "fresh_port_witness_captured",
+          "source": "natural_api_port_port_response",
+          "material_count": 8
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:25.801918+00:00",
+          "event": "full_supply_preflight_passed",
+          "observed_fleet_ids": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "observed_fleet_count": 4,
+          "observed_ship_count": 13,
+          "observed_all_fleet_fuel_required": 60,
+          "observed_all_fleet_ammo_required": 13,
+          "target_fleet_ids": [
+            3
+          ],
+          "target_fleets": [
+            3
+          ],
+          "target_ship_count": 4,
+          "target_fuel_required": 16,
+          "target_ammo_required": 0,
+          "read_only_fleet_deficits": [
+            {
+              "fleet_id": 2,
+              "fuel_required": 28,
+              "ammo_required": 0
+            },
+            {
+              "fleet_id": 4,
+              "fuel_required": 16,
+              "ammo_required": 13
+            }
+          ],
+          "planned_fleet_wide_clicks": 1,
+          "fuel_available": 43914,
+          "ammo_available": 63261,
+          "damaged_ships_present": 0
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:29.111866+00:00",
+          "event": "supply_menu_navigation_click_sent",
+          "fleet_id": 3,
+          "click_count": 1
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:33.648341+00:00",
+          "event": "supply_fleet_tab_selected_for_global_button_visibility",
+          "fleet_index": 3,
+          "bounds": [
+            293,
+            164,
+            34,
+            31
+          ],
+          "click_count": 1
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:47.373217+00:00",
+          "event": "fleet_wide_supply_button_verified",
+          "fleet_id": 3,
+          "label": "fleet-supply-all-button",
+          "bounds": [
+            1062,
+            604,
+            92,
+            30
+          ],
+          "region": [
+            1050,
+            590,
+            145,
+            60
+          ],
+          "click_count": 1,
+          "source_frame_sha256": "4759bcbdc9ed702a23fdd7741d884beabb2e110e9e1d051f775d81b6e65dbc63"
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:47.654952+00:00",
+          "event": "fleet_wide_supply_click_sent",
+          "fleet_id": 3,
+          "click_count": 1,
+          "retry_allowed": false
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:47.724956+00:00",
+          "event": "fleet_supply_post_click_verification_poll",
+          "fleet_id": 3,
+          "attempt": 1,
+          "max_attempts": 10,
+          "target_fleet_complete": false,
+          "expected_material_delta_observed": false,
+          "fuel_remaining": 43914,
+          "ammo_remaining": 63261,
+          "retry_allowed": false
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:48.283520+00:00",
+          "event": "fleet_supply_post_click_verification_poll",
+          "fleet_id": 3,
+          "attempt": 2,
+          "max_attempts": 10,
+          "target_fleet_complete": false,
+          "expected_material_delta_observed": false,
+          "fuel_remaining": 43914,
+          "ammo_remaining": 63261,
+          "retry_allowed": false
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:48.836718+00:00",
+          "event": "fleet_supply_post_click_verification_poll",
+          "fleet_id": 3,
+          "attempt": 3,
+          "max_attempts": 10,
+          "target_fleet_complete": true,
+          "expected_material_delta_observed": true,
+          "fuel_remaining": 43898,
+          "ammo_remaining": 63261,
+          "retry_allowed": false
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:48.848490+00:00",
+          "event": "full_supply_completed_and_verified_after_delayed_store_sync",
+          "fleet_id": 3,
+          "poll_attempts": 3,
+          "max_attempts": 10,
+          "fuel_remaining": 43898,
+          "ammo_remaining": 63261,
+          "ui_click_count": 1,
+          "retry_allowed": false,
+          "game_api_request_initiated": false
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:48.858258+00:00",
+          "event": "fleet_full_supply_completed",
+          "target_fleet_id": 3,
+          "completed_fleet_ids": [
+            3
+          ],
+          "target_fleet_fuel_consumed": 16,
+          "target_fleet_ammo_consumed": 0,
+          "fuel_remaining": 43898,
+          "ammo_remaining": 63261,
+          "ui_click_count": 1,
+          "retry_allowed": false,
+          "game_api_request_initiated": false
+        },
+        {
+          "timestamp_utc": "2026-11-05T13:08:48.869635+00:00",
+          "event": "full_supply_completed_and_verified",
+          "target_fleet_ids": [
+            3
+          ],
+          "observed_fleet_count": 4,
+          "target_ship_count": 4,
+          "fuel_consumed": 16,
+          "ammo_consumed": 0,
+          "fuel_remaining": 43898,
+          "ammo_remaining": 63261,
+          "ui_click_count": 1,
+          "target_fleets_complete": true,
+          "non_target_fleets_untouched": true,
+          "game_api_request_initiated": false
+        }
+      ],
+      "audit_click_count": 6,
+      "stdout_line_count": 64,
+      "process_local_refresh_settle_seconds": 3.0,
+      "settle_before_supply_seconds": 3.0,
+      "production_files_modified": false
+    },
+    "C_post_resupply_refresh": {
+      "home_port_return_clicks": 1,
+      "refresh_stats": {
+        "refresh_id": "r3i-live-pass-gate",
+        "origin": "verify_r3i_live_pass_gate",
+        "clicks_attempted": 3,
+        "clicks_completed": 3,
+        "final_state": "HOME_PORT",
+        "steps": [
+          "open_sortie",
+          "open_expedition_list",
+          "return_home_port"
+        ],
+        "outcome": "completed"
+      },
+      "refresh_events": [
+        {
+          "event": "ui_refresh_started",
+          "initial_state": "HOME_PORT",
+          "evidence": "two_consecutive_in_memory_ooi_fingerprints",
+          "game_actions_enabled": false,
+          "refresh_id": "r3i-live-pass-gate",
+          "refresh_origin": "verify_r3i_live_pass_gate"
+        },
+        {
+          "event": "ui_refresh_action_precondition",
+          "step": 1,
+          "action": "open_sortie",
+          "target": "sortie",
+          "expected_state": "HOME_PORT",
+          "clicks_attempted": 0,
+          "clicks_completed": 0,
+          "refresh_id": "r3i-live-pass-gate",
+          "refresh_origin": "verify_r3i_live_pass_gate"
+        },
+        {
+          "event": "ui_refresh_click_attempted",
+          "step": 1,
+          "action": "open_sortie",
+          "target": "sortie",
+          "clicks_attempted": 1,
+          "refresh_id": "r3i-live-pass-gate",
+          "refresh_origin": "verify_r3i_live_pass_gate"
+        },
+        {
+          "event": "ui_refresh_click_sent",
+          "step": 1,
+          "action": "open_sortie",
+          "target": "sortie",
+          "clicks_sent": 1,
+          "refresh_id": "r3i-live-pass-gate",
+          "refresh_origin": "verify_r3i_live_pass_gate"
+        },
+        {
+          "event": "ui_refresh_wait_completed",
+          "step": 1,
+          "action": "open_sortie",
+          "wait_seconds": 3.0,
+          "refresh_id": "r3i-live-pass-gate",
+          "refresh_origin": "verify_r3i_live_pass_gate"
+        },
+        {
+          "event": "ui_refresh_state_confirmed",
+          "step": 1,
+          "action": "open_sortie",
+          "state": "SORTIE_MENU",
+          "consecutive_states": [
+            "SORTIE_MENU",
+            "SORTIE_MENU"
+          ],
+          "evidence": "two_consecutive_in_memory_ooi_fingerprints",
+          "refresh_id": "r3i-live-pass-gate",
+          "refresh_origin": "verify_r3i_live_pass_gate"
+        },
+        {
+          "event": "ui_refresh_action_precondition",
+          "step": 2,
+          "action": "open_expedition_list",
+          "target": "expedition-mode",
+          "expected_state": "SORTIE_MENU",
+          "clicks_attempted": 1,
+          "clicks_completed": 1,
+          "refresh_id": "r3i-live-pass-gate",
+          "refresh_origin": "verify_r3i_live_pass_gate"
+        },
+        {
+          "event": "ui_refresh_click_attempted",
+          "step": 2,
+          "action": "open_expedition_list",
+          "target": "expedition-mode",
+          "clicks_attempted": 2,
+          "refresh_id": "r3i-live-pass-gate",
+          "refresh_origin": "verify_r3i_live_pass_gate"
+        },
+        {
+          "event": "ui_refresh_click_sent",
+          "step": 2,
+          "action": "open_expedition_list",
+          "target": "expedition-mode",
+          "clicks_sent": 2,
+          "refresh_id": "r3i-live-pass-gate",
+          "refresh_origin": "verify_r3i_live_pass_gate"
+        },
+        {
+          "event": "ui_refresh_wait_completed",
+          "step": 2,
+          "action": "open_expedition_list",
+          "wait_seconds": 3.0,
+          "refresh_id": "r3i-live-pass-gate",
+          "refresh_origin": "verify_r3i_live_pass_gate"
+        },
+        {
+          "event": "ui_refresh_state_confirmed",
+          "step": 2,
+          "action": "open_expedition_list",
+          "state": "EXPEDITION_LIST",
+          "consecutive_states": [
+            "EXPEDITION_LIST",
+            "EXPEDITION_LIST"
+          ],
+          "evidence": "two_consecutive_in_memory_ooi_fingerprints",
+          "refresh_id": "r3i-live-pass-gate",
+          "refresh_origin": "verify_r3i_live_pass_gate"
+        },
+        {
+          "event": "ui_refresh_action_precondition",
+          "step": 3,
+          "action": "return_home_port",
+          "target": "home-port",
+          "expected_state": "EXPEDITION_LIST",
+          "clicks_attempted": 2,
+          "clicks_completed": 2,
+          "refresh_id": "r3i-live-pass-gate",
+          "refresh_origin": "verify_r3i_live_pass_gate"
+        },
+        {
+          "event": "ui_refresh_click_attempted",
+          "step": 3,
+          "action": "return_home_port",
+          "target": "home-port",
+          "clicks_attempted": 3,
+          "refresh_id": "r3i-live-pass-gate",
+          "refresh_origin": "verify_r3i_live_pass_gate"
+        },
+        {
+          "event": "ui_refresh_click_sent",
+          "step": 3,
+          "action": "return_home_port",
+          "target": "home-port",
+          "clicks_sent": 3,
+          "refresh_id": "r3i-live-pass-gate",
+          "refresh_origin": "verify_r3i_live_pass_gate"
+        },
+        {
+          "event": "ui_refresh_wait_completed",
+          "step": 3,
+          "action": "return_home_port",
+          "wait_seconds": 3.0,
+          "refresh_id": "r3i-live-pass-gate",
+          "refresh_origin": "verify_r3i_live_pass_gate"
+        },
+        {
+          "event": "ui_refresh_state_confirmed",
+          "step": 3,
+          "action": "return_home_port",
+          "state": "HOME_PORT",
+          "consecutive_states": [
+            "HOME_PORT",
+            "HOME_PORT"
+          ],
+          "evidence": "two_consecutive_in_memory_ooi_fingerprints",
+          "refresh_id": "r3i-live-pass-gate",
+          "refresh_origin": "verify_r3i_live_pass_gate"
+        },
+        {
+          "event": "ui_refresh_completed",
+          "sequence": [
+            "HOME_PORT",
+            "SORTIE_MENU",
+            "EXPEDITION_LIST",
+            "HOME_PORT"
+          ],
+          "clicks_sent": 3,
+          "final_state": "HOME_PORT",
+          "refresh_id": "r3i-live-pass-gate",
+          "refresh_origin": "verify_r3i_live_pass_gate"
+        }
+      ],
+      "passive_observer_last_status": "captured",
+      "witness_captured_in_this_process": true,
+      "witness_source": {
+        "kind": "cdp-network-response",
+        "path": "/kcsapi/api_port/port",
+        "host": "w18i.kancolle-server.com",
+        "httpStatus": 200,
+        "responseReceivedAt": "2026-11-05T13:09:19.497Z",
+        "bodyCapturedAt": "2026-11-05T13:09:21.054Z",
+        "fromDiskCache": false,
+        "fromServiceWorker": false,
+        "fromPrefetchCache": false,
+        "responseBodySha256": "ebd0cc862876d5ed39d1c4a10f0da80b1c54bbe90a3d8f6da5684395347709e9",
+        "responseBodyBytes": 142130
+      }
+    }
+  },
+  "observation": {
+    "observed_at": "2026-11-05T13:09:25.924938+00:00",
+    "source": "poi-redux:info.fleets+info.ships",
+    "source_freshness_verified": true
+  },
+  "same_baseline_binding": {
+    "baseline_observed_at": "2026-11-05T13:09:25.924938+00:00",
+    "baseline_source": "poi-redux:info.fleets+info.ships",
+    "baseline_source_freshness_verified": true,
+    "baseline_ship_ids": [
+      16374,
+      13350,
+      6,
+      5747
+    ],
+    "normalized_snapshot_source": "poi-redux:info.fleets+info.ships",
+    "normalized_ship_ids": [
+      16374,
+      13350,
+      6,
+      5747
+    ],
+    "source_matches": true,
+    "ship_ids_match": true,
+    "equipment_evidence_present": true,
+    "fleet_stats_evidence_present": true,
+    "state_trusted": true,
+    "state_untrusted_reasons": [],
+    "same_fresh_baseline": true
+  },
+  "fleets": [
+    {
+      "fleet_id": 1,
+      "ship_ids": [
+        23
+      ],
+      "ship_levels": [
+        98
+      ],
+      "ship_types": [
+        8
+      ],
+      "mission_status": 0,
+      "mission_id": null,
+      "fuel_ready": true,
+      "ammo_ready": true,
+      "equipment_by_ship": {
+        "23": []
+      },
+      "total_stats": {
+        "anti_air": 84,
+        "los": 48,
+        "asw": 0,
+        "firepower": 98
+      },
+      "in_dock_ship_ids": []
+    },
+    {
+      "fleet_id": 2,
+      "ship_ids": [
+        12613,
+        16733,
+        16323,
+        13519
+      ],
+      "ship_levels": [
+        17,
+        15,
+        14,
+        31
+      ],
+      "ship_types": [
+        2,
+        2,
+        2,
+        2
+      ],
+      "mission_status": 0,
+      "mission_id": null,
+      "fuel_ready": false,
+      "ammo_ready": true,
+      "equipment_by_ship": {
+        "12613": [],
+        "13519": [],
+        "16323": [],
+        "16733": []
+      },
+      "total_stats": {
+        "anti_air": 74,
+        "los": 27,
+        "asw": 108,
+        "firepower": 92
+      },
+      "in_dock_ship_ids": []
+    },
+    {
+      "fleet_id": 3,
+      "ship_ids": [
+        16374,
+        13350,
+        6,
+        5747
+      ],
+      "ship_levels": [
+        88,
+        92,
+        76,
+        74
+      ],
+      "ship_types": [
+        2,
+        2,
+        2,
+        2
+      ],
+      "mission_status": 0,
+      "mission_id": null,
+      "fuel_ready": true,
+      "ammo_ready": true,
+      "equipment_by_ship": {
+        "6": [
+          75,
+          75,
+          75
+        ],
+        "5747": [
+          75,
+          75,
+          75
+        ],
+        "13350": [
+          68,
+          166,
+          75
+        ],
+        "16374": [
+          75,
+          75,
+          75
+        ]
+      },
+      "total_stats": {
+        "anti_air": 243,
+        "los": 150,
+        "asw": 235,
+        "firepower": 194
+      },
+      "in_dock_ship_ids": []
+    },
+    {
+      "fleet_id": 4,
+      "ship_ids": [
+        16859,
+        14882,
+        12794,
+        1325
+      ],
+      "ship_levels": [
+        88,
+        47,
+        39,
+        82
+      ],
+      "ship_types": [
+        2,
+        2,
+        2,
+        2
+      ],
+      "mission_status": 0,
+      "mission_id": null,
+      "fuel_ready": false,
+      "ammo_ready": false,
+      "equipment_by_ship": {
+        "1325": [
+          75,
+          75,
+          75
+        ],
+        "12794": [
+          75,
+          75
+        ],
+        "14882": [
+          75,
+          75,
+          75
+        ],
+        "16859": [
+          68,
+          68,
+          68
+        ]
+      },
+      "total_stats": {
+        "anti_air": 188,
+        "los": 108,
+        "asw": 203,
+        "firepower": 147
+      },
+      "in_dock_ship_ids": []
+    }
+  ],
+  "evidence_digest_sha256": "0a7a69323458138927a57801f41e694ba1d5ad97eb7ec67272718ed398dca934",
+  "verdict": {
+    "overall_result": "PASS",
+    "allows_dispatch": true,
+    "rule_source": "XVs32/kcauto_custom data/expedition/expedition.json@18d61ab3fe91",
+    "rule_version": "2026-11-05.1",
+    "rule_confidence": "cross_checked",
+    "passed_checks": [
+      "state_trust",
+      "rule_source",
+      "fleet_identity",
+      "fleet_available",
+      "ship_count",
+      "flagship_valid",
+      "flagship_level",
+      "fleet_total_level",
+      "ship_type_composition",
+      "equipment",
+      "fleet_stats",
+      "supply",
+      "damage"
+    ],
+    "failed_checks": [],
+    "unknown_checks": [],
+    "rejection_reasons": [],
+    "checks": [
+      {
+        "name": "state_trust",
+        "status": "PASS",
+        "detail": "Observation source 'poi-redux:info.fleets+info.ships' is trusted."
+      },
+      {
+        "name": "rule_source",
+        "status": "PASS",
+        "detail": "Rule 01 '練習航海' from community_wiki_and_tool_agree (confidence cross_checked); refs: kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#1, wikiwiki.jp/kancolle 遠征/詳細一覧表 (Last-modified 2026-09-01)#01."
+      },
+      {
+        "name": "fleet_identity",
+        "status": "PASS",
+        "detail": "Exactly one trusted record for Fleet 3."
+      },
+      {
+        "name": "fleet_available",
+        "status": "PASS",
+        "detail": "Fleet is idle, unlocked and policy-permitted."
+      },
+      {
+        "name": "ship_count",
+        "status": "PASS",
+        "detail": "Observed 4 ships meets the minimum 2."
+      },
+      {
+        "name": "flagship_valid",
+        "status": "PASS",
+        "detail": "Flagship api_stype 2 is valid (allowed: any)."
+      },
+      {
+        "name": "flagship_level",
+        "status": "PASS",
+        "detail": "Flagship level 88 meets minimum 1."
+      },
+      {
+        "name": "fleet_total_level",
+        "status": "NOT_APPLICABLE",
+        "detail": "No fleet total-level requirement."
+      },
+      {
+        "name": "ship_type_composition",
+        "status": "NOT_APPLICABLE",
+        "detail": "No fixed ship-type requirement."
+      },
+      {
+        "name": "equipment",
+        "status": "NOT_APPLICABLE",
+        "detail": "No equipment requirement for this expedition."
+      },
+      {
+        "name": "fleet_stats",
+        "status": "NOT_APPLICABLE",
+        "detail": "No fleet stat requirement."
+      },
+      {
+        "name": "supply",
+        "status": "PASS",
+        "detail": "Every member is fully supplied with fuel and ammunition."
+      },
+      {
+        "name": "damage",
+        "status": "PASS",
+        "detail": "No heavy damage observed."
+      }
+    ]
+  },
+  "safety": {
+    "authorised_ui_clicks_sent": 10,
+    "navigation_click_labels": [
+      "home-port@reward=None",
+      "sortie",
+      "expedition-mode",
+      "home-port"
+    ],
+    "game_api_requests_authored_by_tool": 0,
+    "game_api_requests_replayed_or_constructed": 0,
+    "dispatch_attempted": false,
+    "dispatch_intent_written": false,
+    "fleet_composition_changes_proposed": false,
+    "runtime_evaluate_used": false,
+    "files_written_by_probe": [
+      "evidence JSON at --out"
+    ],
+    "click_breakdown": {
+      "phase_A_settle": 0,
+      "phase_B_resupply_and_its_refresh": 6,
+      "phase_C_post_resupply_refresh": 4
+    }
+  },
+  "safety_reconciliation": {
+    "reason": "Initial tool build summed every click_count field: it counted fleet_wide_supply_button_verified (a PLANNED click) and missed ui_refresh_click_sent (which reports a running clicks_sent total). No observation was changed; only this derived counter was recomputed.",
+    "recomputed_with": "tools/verify_r3i_live_pass_gate.py:count_supply_clicks()",
+    "recomputed_from": [
+      "phases.B_production_resupply.audit_events",
+      "phases.C_post_resupply_refresh.refresh_events",
+      "safety.navigation_click_labels"
+    ],
+    "original_reported_supply_clicks": 4,
+    "corrected_supply_clicks": 6,
+    "original_reported_total": 8,
+    "corrected_total": 10,
+    "verdict_and_baseline_fields_unchanged": true
+  }
+}

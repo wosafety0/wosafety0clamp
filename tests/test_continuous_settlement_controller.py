@@ -230,6 +230,50 @@ class ContinuousSettlementControllerTests(unittest.TestCase):
                 controller.settle_one_returned(FLEET)
             self.assertEqual(scheduler.fleet(FLEET).phase, FleetPhase.IDLE)
 
+    def test_an_idle_fleet_is_not_settled_while_another_return_is_pending(self):
+        # Live 2026-11-05: fleet 4's result had already been accepted (so it read
+        # idle) while fleet 3 was still waiting on screen. The reward screens say
+        # which expedition it was, never which fleet, so the next chain settled
+        # fleet 3 and the scheduler credited fleet 4.
+        with tempfile.TemporaryDirectory() as directory:
+            reader = FakeReader(
+                observation(
+                    BASE - timedelta(seconds=1),
+                    [idle_snapshot(), returned_snapshot(fleet_id=4)],
+                )
+            )
+            ui = FakeSettlementUi()
+            controller, scheduler, events = self.make_controller(directory, reader, ui)
+
+            with self.assertRaisesRegex(
+                ContinuousSettlementError, "cannot be attributed"
+            ):
+                controller.settle_one_returned(FLEET)
+
+            self.assertEqual(ui.calls, [])
+            self.assertEqual(
+                scheduler.fleet(FLEET).phase, FleetPhase.RETURNED_PENDING_UI
+            )
+            self.assertEqual(events, [])
+
+    def test_an_idle_fleet_alone_still_reaches_the_old_refusal(self):
+        # The new guard must not swallow the ordinary path: with no other fleet
+        # pending, an idle reading without a screen probe keeps the old error.
+        with tempfile.TemporaryDirectory() as directory:
+            reader = FakeReader(
+                observation(
+                    BASE - timedelta(seconds=1),
+                    [idle_snapshot(), idle_snapshot(fleet_id=4)],
+                )
+            )
+            controller, _, _ = self.make_controller(
+                directory, reader, FakeSettlementUi()
+            )
+            with self.assertRaisesRegex(
+                ContinuousSettlementError, "no returned mission tuple"
+            ):
+                controller.settle_one_returned(FLEET)
+
     def test_refuses_baseline_without_returned_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:
             reader = FakeReader(

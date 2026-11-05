@@ -8,6 +8,7 @@ reader, one UI driver/session, and a durable event sink from its composition roo
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
@@ -26,6 +27,10 @@ from kancollebot.expeditions.continuous_scheduler import (
 )
 from kancollebot.expeditions.dispatch_recovery import (
     DurableDispatchCoordinator,
+)
+from kancollebot.expeditions.expedition_requirement_checker import (
+    ExpeditionRequirementChecker,
+    normalize_observed_fleets,
 )
 from kancollebot.expeditions.mission_eligibility import (
     FleetCompositionSnapshot,
@@ -184,6 +189,11 @@ class ContinuousDispatchController:
         allow_ui_actions: bool = False,
         max_state_age: timedelta = timedelta(seconds=30),
         clock: Callable[[], datetime] | None = None,
+        passive_witness_wait_seconds: float = 10.0,
+        requirement_checker: ExpeditionRequirementChecker | None = None,
+        unlocked_fleet_ids: tuple[int, ...] | None = None,
+        dispatchable_fleet_ids: tuple[int, ...] | None = None,
+        audit_gate: Callable[[], None] | None = None,
     ) -> None:
         if set(mission_requirements) != set(scheduler.dispatch_fleet_ids):
             raise ValueError("mission_requirements must configure every and only dispatchable fleet")
@@ -197,8 +207,35 @@ class ContinuousDispatchController:
             raise ValueError("dispatch coordinator and controller must share the same scheduler")
         if max_state_age < timedelta(0):
             raise ValueError("max_state_age must not be negative")
+        if (
+            isinstance(passive_witness_wait_seconds, bool)
+            or not isinstance(passive_witness_wait_seconds, (int, float))
+            or not math.isfinite(passive_witness_wait_seconds)
+            or passive_witness_wait_seconds < 0
+        ):
+            raise ValueError(
+                "passive_witness_wait_seconds must be a finite non-negative number"
+            )
         if not callable(event_sink):
             raise ValueError("a durable event_sink is required")
+        if requirement_checker is not None and not isinstance(
+            requirement_checker, ExpeditionRequirementChecker
+        ):
+            raise ValueError("requirement_checker must be an ExpeditionRequirementChecker")
+        if audit_gate is not None and not callable(audit_gate):
+            raise ValueError("audit_gate must be callable or None")
+        for label, value in (
+            ("unlocked_fleet_ids", unlocked_fleet_ids),
+            ("dispatchable_fleet_ids", dispatchable_fleet_ids),
+        ):
+            if value is not None and (
+                not isinstance(value, tuple)
+                or any(isinstance(item, bool) or not isinstance(item, int) or item < 1 for item in value)
+            ):
+                raise ValueError(f"{label} must be a tuple of positive integers")
+        self.requirement_checker = requirement_checker
+        self.unlocked_fleet_ids = unlocked_fleet_ids
+        self.dispatchable_fleet_ids = dispatchable_fleet_ids
         self.scheduler = scheduler
         self.dispatch_coordinator = dispatch_coordinator
         self.state_reader = state_reader
@@ -209,6 +246,8 @@ class ContinuousDispatchController:
         self.allow_ui_actions = allow_ui_actions
         self.max_state_age = max_state_age
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.passive_witness_wait_seconds = float(passive_witness_wait_seconds)
+        self.audit_gate = audit_gate
 
     def dispatch_one_ready(self, fleet_id: int) -> DispatchExecution:
         """Dispatch one ready fleet, confirm the new mission, and verify Home Port."""
@@ -216,11 +255,86 @@ class ContinuousDispatchController:
             raise ContinuousDispatchError("UI actions are disabled; explicit enablement is required")
         if fleet_id not in self.mission_requirements:
             raise ContinuousDispatchError(f"Fleet {fleet_id} has no configured expedition assignment")
+        # The audit log must be provably writable BEFORE an intent is persisted
+        # or a control is clicked. Checking here (not only at the click) keeps a
+        # broken log from leaving an unresolved intent behind, which is exactly
+        # the state that needs the log to reconcile later.
+        if self.audit_gate is not None:
+            self.audit_gate()
 
         with self.ui_arbiter.operation(f"continuous-dispatch-fleet-{fleet_id}"):
-            baseline, baseline_now = self._read_observation()
+            baseline, baseline_now = self._read_observation(
+                origin="dispatch_preflight"
+            )
             snapshot = self._snapshot_for(baseline, fleet_id)
             requirement = self.mission_requirements[fleet_id]
+            # R3-I: the full static-rule evaluation happens on the SAME fresh
+            # baseline, before the first click and before an intent is written.
+            # REJECT and UNKNOWN both leave dispatch_clicks_sent at zero.
+            if self.requirement_checker is not None:
+                normalized = normalize_observed_fleets(
+                    baseline,
+                    fleet_id,
+                    now=baseline_now,
+                    max_state_age=self.max_state_age,
+                    fleet_unlocked=(
+                        fleet_id in self.unlocked_fleet_ids
+                        if self.unlocked_fleet_ids is not None else True
+                    ),
+                    dispatch_policy_allowed=(
+                        fleet_id in self.dispatchable_fleet_ids
+                        if self.dispatchable_fleet_ids is not None else True
+                    ),
+                )
+                # Prove the gate did not wander onto another observation: the
+                # normalizer's snapshot source and ship set must be the exact
+                # ones prepare_dispatch() will bind the intent to below.
+                if (
+                    normalized.snapshot_source != baseline.source
+                    or normalized.ship_ids != snapshot.ship_ids
+                ):
+                    raise ContinuousDispatchError(
+                        "R3-I requirement evaluation diverged from the dispatch baseline"
+                    )
+                verdict = self.requirement_checker.evaluate(
+                    normalized, requirement.mission_id, fleet_id=fleet_id
+                )
+                evaluation_payload = verdict.as_dict()
+                evaluation_payload.update(
+                    {
+                        "baseline_observed_at": baseline.observed_at.isoformat(),
+                        "baseline_source": baseline.source,
+                        "baseline_source_freshness_verified": baseline.source_freshness_verified,
+                        "baseline_ship_ids": list(snapshot.ship_ids),
+                        "equipment_evidence_present": normalized.equipment_by_ship is not None,
+                        "fleet_stats_evidence_present": normalized.total_stats is not None,
+                        "fleet_stats": (
+                            dict(normalized.total_stats)
+                            if normalized.total_stats is not None
+                            else None
+                        ),
+                        "in_dock_ship_ids": list(normalized.in_dock_ship_ids),
+                    }
+                )
+                self.event_sink("dispatch_requirement_evaluation", evaluation_payload)
+                if not verdict.allows_dispatch:
+                    reasons = " | ".join(verdict.rejection_reasons[:4])
+                    self.event_sink("dispatch_blocked_requirement_check", {
+                        "fleet_id": fleet_id,
+                        "mission_id": requirement.mission_id,
+                        "overall_result": verdict.overall_result.value,
+                        "failed_checks": list(verdict.failed_checks),
+                        "unknown_checks": list(verdict.unknown_checks),
+                        "baseline_observed_at": baseline.observed_at.isoformat(),
+                        "baseline_source_freshness_verified": baseline.source_freshness_verified,
+                        "dispatch_clicks_sent": 0,
+                        "game_api_requests_sent": 0,
+                        "fleet_composition_changes_proposed": False,
+                    })
+                    raise ContinuousDispatchError(
+                        f"Fleet {fleet_id} / mission {requirement.mission_id} "
+                        f"requirement check {verdict.overall_result.value}: {reasons}"
+                    )
             if snapshot.heavy_damage_ship_ids:
                 blocked_ship_ids = tuple(snapshot.heavy_damage_ship_ids)
                 self.event_sink("dispatch_blocked_large_damage", {
@@ -267,7 +381,32 @@ class ContinuousDispatchController:
                     fleet_id, completed_at=action_completed_at
                 )
 
-                after_dispatch, _ = self._read_observation(newer_than=action_completed_at)
+                # Return home BEFORE asking for a new observation. The 母港
+                # click is what makes the client request a fresh port payload,
+                # so reading first leaves the freshness reader no option but to
+                # navigate on its own - and that navigation starts from whatever
+                # screen the dispatch just left, where its HOME_PORT
+                # precondition cannot hold. Live 2026-11-05: that ordering
+                # marked a successful dispatch BLOCKED at 03:24:18 even though
+                # Poi had already reported the new mission at 03:24:08.
+                home_navigation_started_at = self.clock()
+                home_evidence = self.ui_driver.return_to_home_port(fleet_id=fleet_id)
+
+                # The 母港 click already made the client ask for a fresh port
+                # payload, so give that natural response a bounded chance to
+                # arrive before reading. Reading first is what used to turn the
+                # post-dispatch check into a second full three-click round trip;
+                # live 2026-11-05 one run spent 27 navigations (75 clicks) on two
+                # dispatches. This wait never clicks - if no witness arrives the
+                # observation policy below is exactly as strict as before.
+                self._await_passive_witness(
+                    fleet_id=fleet_id,
+                    newer_than=max(home_navigation_started_at, action_completed_at),
+                )
+                after_dispatch, _ = self._read_observation(
+                    newer_than=action_completed_at,
+                    origin="dispatch_post_action",
+                )
                 active_snapshot = self._snapshot_for(after_dispatch, fleet_id)
                 mission = self._mission_from_snapshot(
                     active_snapshot,
@@ -287,10 +426,15 @@ class ContinuousDispatchController:
                     "observed_at": after_dispatch.observed_at.isoformat(),
                 })
 
-                home_navigation_started_at = self.clock()
-                home_evidence = self.ui_driver.return_to_home_port(fleet_id=fleet_id)
+                # Evidence is judged only after the mission is on record: a
+                # dispatch that Poi confirms is never re-labelled "unconfirmed"
+                # just because the port frame was still animating.
                 self._require_home_port_evidence(home_evidence)
-                after_home, _ = self._read_observation(newer_than=home_navigation_started_at)
+
+                after_home, _ = self._read_observation(
+                    newer_than=max(home_navigation_started_at, action_completed_at),
+                    origin="dispatch_home_verification",
+                )
                 home_snapshot = self._snapshot_for(after_home, fleet_id)
                 home_mission = self._mission_from_snapshot(
                     home_snapshot,
@@ -328,10 +472,38 @@ class ContinuousDispatchController:
                 self._block_after_ambiguous_action(fleet_id, exc)
                 raise
 
+    def _await_passive_witness(self, *, fleet_id: int, newer_than: datetime) -> None:
+        """Give the port response that the Home Port click caused a chance to land.
+
+        Only the refreshing reader has this capability. A plain reader (offline
+        fake, or a composition root with UI refresh disabled) is left untouched,
+        and the observation gate in ``_read_observation`` stays the single
+        authority on whether the state is trustworthy.
+        """
+        waiter = getattr(self.state_reader, "await_passive_witness", None)
+        if not callable(waiter) or self.passive_witness_wait_seconds <= 0:
+            return
+        self.event_sink("dispatch_post_action_passive_wait", {
+            "fleet_id": fleet_id,
+            "timeout_seconds": self.passive_witness_wait_seconds,
+            "game_actions_sent": 0,
+        })
+        waiter(
+            timeout_seconds=self.passive_witness_wait_seconds,
+            newer_than=newer_than,
+        )
+
     def _read_observation(
-        self, *, newer_than: datetime | None = None
+        self,
+        *,
+        newer_than: datetime | None = None,
+        origin: str = "dispatch_read",
     ) -> tuple[ObservedState[tuple[ExpeditionFleetSnapshot, ...]], datetime]:
-        observation = self.state_reader.read_fleets()
+        ensure_fresh = getattr(self.state_reader, "ensure_fresh", None)
+        if callable(ensure_fresh):
+            observation = ensure_fresh(origin=origin)
+        else:
+            observation = self.state_reader.read_fleets()
         now = self.clock()
         try:
             observation.require_fresh(now=now, max_age=self.max_state_age)

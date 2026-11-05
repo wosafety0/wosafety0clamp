@@ -8,6 +8,7 @@ from kancollebot.adapters.poi.continuous_expedition_ui import (
     CdpContinuousExpeditionUiDriver,
     ContinuousUiDriverError,
 )
+from kancollebot.adapters.poi.ui_state_gate import UiState
 from kancollebot.calibration import DetailMatch, MarkMatch, RowLocation
 from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
 
@@ -91,6 +92,91 @@ class FakeScreen:
                 self.marks.selected = int(point.label.split("-")[1])
 
 
+class HomePortReturnPreconditionTests(unittest.TestCase):
+    """The page a start click leaves behind is one of several, not one.
+
+    Live 2026-11-05 the client still showed FLEET_3_SELECTED three seconds after
+    an irreversible start, then dropped back to the list with that mission
+    selected. Demanding EXPEDITION_LIST there marked a working dispatch BLOCKED.
+    """
+
+    class Screen:
+        def __init__(self, state: str) -> None:
+            self.state = state
+            self.clicks: list[str] = []
+
+        def verify(self, expected, *, visual_attempts=None):
+            if expected != self.state:
+                raise ContinuousUiDriverError(
+                    f"expected {expected}, screen shows {self.state}"
+                )
+            return UiStateEvidence(
+                state=expected,
+                consecutive_states=(expected, expected),
+                evidence="scripted",
+            )
+
+    def build(self, state: str):
+        screen = self.Screen(state)
+
+        def click(point):
+            screen.clicks.append(point.label)
+            if point.label == "home-port":
+                screen.state = "HOME_PORT"
+
+        driver = CdpContinuousExpeditionUiDriver(
+            game_input=type("Input", (), {"click": staticmethod(click)})(),
+            verify_state=screen.verify,
+            event_sink=lambda event, payload: None,
+            details=FakeDetails(),
+            marks=FakeMarks(),
+            capture=lambda: "frame",
+            sleep=lambda seconds: None,
+            settle_seconds=0.0,
+        )
+        return driver, screen
+
+    def test_every_page_the_start_click_can_leave_behind_returns_home(self):
+        for state in ("FLEET_3_SELECTED", "MISSION_SELECTED", "EXPEDITION_LIST"):
+            with self.subTest(state=state):
+                driver, screen = self.build(state)
+                evidence = driver.return_to_home_port(fleet_id=3)
+                self.assertEqual(evidence.state, "HOME_PORT")
+                self.assertEqual(screen.clicks, ["home-port"])
+
+    def test_a_screen_that_is_none_of_those_pages_is_never_clicked(self):
+        # The named proof fails, the observed loop takes over, and its reward
+        # guard refuses before any click: a reward screen advances on a click
+        # anywhere and belongs to the settlement controller.
+        driver, screen = self.build("BONUS_ITEMS")
+        with self.assertRaisesRegex(ContinuousUiDriverError, "reward screen"):
+            driver.return_to_home_port(fleet_id=3)
+        self.assertEqual(screen.clicks, [])
+
+    def test_a_named_page_stays_strict(self):
+        driver, screen = self.build("FLEET_3_SELECTED")
+        with self.assertRaises(ContinuousUiDriverError):
+            driver.return_to_home_port(
+                fleet_id=3, expected_current_state="EXPEDITION_LIST"
+            )
+        self.assertEqual(screen.clicks, [])
+
+    def test_every_candidate_page_is_a_declared_ui_state(self):
+        """The candidates are strings here but become UiState in production.
+
+        A fleet tab with no enum member raised ValueError inside the verifier,
+        which is not in the driver's "not this screen" set: a refusal to click
+        turned into a crash. Live 2026-11-05 that is exactly what
+        FLEET_4_SELECTED did, one second after a dispatch had already
+        succeeded. Every supported fleet must therefore have a real state.
+        """
+        driver, _ = self.build("EXPEDITION_LIST")
+        for fleet_id in driver._supported_fleets:
+            with self.subTest(fleet_id=fleet_id):
+                name = f"FLEET_{fleet_id}_SELECTED"
+                self.assertEqual(UiState(name).value, name)
+
+
 class ContinuousExpeditionUiDriverTests(unittest.TestCase):
     def make_driver(
         self,
@@ -108,7 +194,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
         sequence = list(states or [])
         failures = dict(errors or {})
 
-        def verify(state):
+        def verify(state, *, visual_attempts=None):
             if state in failures:
                 error = failures.pop(state)
                 if error is not None:
@@ -388,6 +474,216 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
         driver, game_input, _, _, _ = self.make_driver()
         with self.assertRaisesRegex(ContinuousUiDriverError, "not calibrated for Fleet 1"):
             driver.return_to_home_port(fleet_id=1)
+        self.assertEqual(game_input.clicks, [])
+
+
+class FleetPageFallbackTests(unittest.TestCase):
+    """The fleet-selection page has no usable fingerprint; the marks do.
+
+    Live 2026-11-05 the post-start page could not be named at all: the
+    ``FLEET_*_SELECTED`` templates crop a 50x60 window that misses the tab
+    label, so Fleet 3 and Fleet 2 scored within 0.03 of each other and the
+    dispatch was registered as BLOCKED after the start click had already
+    worked. The calibrated fleet tab reaches its threshold only on that page,
+    so it is the fallback proof - with the same two-frame rule.
+    """
+
+    NO_VISUAL_STATE = {
+        "EXPEDITION_LIST": ContinuousUiDriverError("not this screen"),
+        "MISSION_SELECTED": ContinuousUiDriverError("not this screen"),
+        "FLEET_2_SELECTED": ContinuousUiDriverError("not this screen"),
+        "FLEET_3_SELECTED": ContinuousUiDriverError("not this screen"),
+        "FLEET_4_SELECTED": ContinuousUiDriverError("not this screen"),
+    }
+
+    def make_driver(self, *, marks, errors=None):
+        game_input = FakeInput()
+        events = []
+        failures = dict(errors if errors is not None else self.NO_VISUAL_STATE)
+
+        def verify(state, *, visual_attempts=None):
+            if state in failures:
+                error = failures.pop(state)
+                if error is not None:
+                    raise error
+            return UiStateEvidence(
+                state=state,
+                consecutive_states=(state, state),
+                evidence="two_consecutive_in_memory_ooi_fingerprints",
+            )
+
+        class Screen:
+            def capture(self):
+                return "frame"
+
+            def click(self, point):
+                game_input.click(point)
+
+        driver = CdpContinuousExpeditionUiDriver(
+            game_input=game_input,
+            verify_state=verify,
+            event_sink=lambda name, fields: events.append((name, dict(fields))),
+            details=FakeDetails(),
+            marks=marks,
+            capture=lambda: "frame",
+            sleep=lambda _seconds: None,
+            settle_seconds=0.0,
+        )
+        return driver, game_input, events
+
+    def test_the_fleet_tab_proof_allows_the_single_home_click(self):
+        driver, game_input, events = self.make_driver(marks=FakeMarks(selected=3))
+        evidence = driver.return_to_home_port(fleet_id=3)
+        self.assertEqual(evidence.state, "HOME_PORT")
+        self.assertEqual(game_input.clicks, ["home-port"])
+        self.assertTrue(any(
+            name == "continuous_ui_fleet_page_confirmed" for name, _ in events
+        ))
+
+    def test_without_either_proof_the_observed_loop_takes_over(self):
+        # Neither the named states nor the fleet tab prove the page: the
+        # click-and-observe loop takes over and the port is confirmed.
+        marks = FakeMarks(selected=2)
+        driver, game_input, _ = self.make_driver(marks=marks)
+        evidence = driver.return_to_home_port(fleet_id=3)
+        self.assertEqual(evidence.state, "HOME_PORT")
+        # The fleet tab was consulted for both frames and refused.
+        self.assertEqual(marks.checks, [3, 3])
+
+    def test_the_fleet_tab_proof_needs_two_frames(self):
+        class OneFrameMarks(FakeMarks):
+            def __init__(self):
+                super().__init__(selected=3)
+                self.calls = 0
+
+            def require_fleet(self, fleet_id, screenshot_base64):
+                self.calls += 1
+                if self.calls == 1:
+                    raise ContinuousUiDriverError("the tab is still rendering")
+                return super().require_fleet(fleet_id, screenshot_base64)
+
+        marks = OneFrameMarks()
+        driver, game_input, _ = self.make_driver(marks=marks)
+        driver.return_to_home_port(fleet_id=3)
+        # Two frames were asked for, and the single matching frame was not
+        # accepted as a proof of the page.
+        self.assertEqual(marks.calls, 2)
+
+    def test_a_named_page_stays_strict_and_never_uses_the_fallback(self):
+        driver, game_input, _ = self.make_driver(marks=FakeMarks(selected=3))
+        with self.assertRaises(ContinuousUiDriverError):
+            driver.return_to_home_port(
+                fleet_id=3, expected_current_state="EXPEDITION_LIST"
+            )
+        self.assertEqual(game_input.clicks, [])
+
+
+class ReturnByObservationTests(unittest.TestCase):
+    """Clicking and observing, for the pages that cannot be named.
+
+    A proof that never succeeds is a proof that never sends the click that
+    would fix it. These tests pin the loop: it clicks the 母港 control, looks
+    again, stops at a recognised Home Port, never clicks while a reward screen
+    is up, and never runs unbounded.
+    """
+
+    def make_driver(self, *, verify, marks=None):
+        game_input = FakeInput()
+        events = []
+        driver = CdpContinuousExpeditionUiDriver(
+            game_input=game_input,
+            verify_state=verify,
+            event_sink=lambda name, fields: events.append((name, dict(fields))),
+            details=FakeDetails(),
+            marks=marks or FakeMarks(selected=2),
+            capture=lambda: "frame",
+            sleep=lambda _seconds: None,
+            settle_seconds=0.0,
+        )
+        return driver, game_input, events
+
+    @staticmethod
+    def verify_with_port_after(failures):
+        """A verifier that reports the port only after N failed attempts."""
+        calls = {"home_port": 0}
+
+        def verify(state, *, visual_attempts=None):
+            if state == "HOME_PORT":
+                calls["home_port"] += 1
+                if calls["home_port"] <= failures:
+                    raise ContinuousUiDriverError("the Home Port is not on screen yet")
+                return UiStateEvidence(
+                    state="HOME_PORT",
+                    consecutive_states=("HOME_PORT", "HOME_PORT"),
+                    evidence="two_consecutive_in_memory_ooi_fingerprints",
+                )
+            raise ContinuousUiDriverError(f"not this screen: {state}")
+
+        return verify
+
+    def test_the_loop_waits_before_its_first_click(self):
+        # The client often settles on its own - after a start click it shows
+        # the fleet page and then drops back to the expedition list - so the
+        # first round waits instead of clicking.
+        driver, game_input, events = self.make_driver(
+            verify=self.verify_with_port_after(2)
+        )
+        evidence = driver.return_to_home_port(fleet_id=3)
+        self.assertEqual(evidence.state, "HOME_PORT")
+        self.assertEqual(game_input.clicks, ["home-port"])
+        self.assertTrue(any(
+            name == "continuous_ui_return_by_observation_wait" for name, _ in events
+        ))
+        self.assertTrue(any(
+            name == "continuous_ui_return_by_observation_attempt" for name, _ in events
+        ))
+
+    def test_the_loop_never_clicks_when_the_port_appears_on_its_own(self):
+        driver, game_input, events = self.make_driver(
+            verify=self.verify_with_port_after(1)
+        )
+        evidence = driver.return_to_home_port(fleet_id=3)
+        self.assertEqual(evidence.state, "HOME_PORT")
+        self.assertEqual(game_input.clicks, [])
+        self.assertTrue(any(
+            name == "continuous_ui_return_by_observation_wait" for name, _ in events
+        ))
+
+    def test_a_reward_screen_stops_the_loop_before_any_click(self):
+        def verify(state, *, visual_attempts=None):
+            if state == "RETURN_RESULT":
+                return UiStateEvidence(
+                    state="RETURN_RESULT",
+                    consecutive_states=("RETURN_RESULT", "RETURN_RESULT"),
+                    evidence="two_consecutive_frames",
+                )
+            raise ContinuousUiDriverError(f"not this screen: {state}")
+
+        driver, game_input, events = self.make_driver(verify=verify)
+        with self.assertRaisesRegex(ContinuousUiDriverError, "reward screen"):
+            driver.return_to_home_port(fleet_id=3)
+        self.assertEqual(game_input.clicks, [])
+        self.assertTrue(any(
+            name == "continuous_ui_reward_screen_blocks_return" for name, _ in events
+        ))
+
+    def test_the_loop_is_bounded(self):
+        def verify(state, *, visual_attempts=None):
+            raise ContinuousUiDriverError(f"not this screen: {state}")
+
+        driver, game_input, _ = self.make_driver(verify=verify)
+        with self.assertRaisesRegex(ContinuousUiDriverError, "not reached after"):
+            driver.return_to_home_port(fleet_id=3)
+        self.assertLessEqual(len(game_input.clicks), 6)
+
+    def test_a_named_page_never_reaches_the_loop(self):
+        driver, game_input, _ = self.make_driver(
+            verify=self.verify_with_port_after(1)
+        )
+        with self.assertRaises(ContinuousUiDriverError):
+            driver.return_to_home_port(
+                fleet_id=3, expected_current_state="EXPEDITION_LIST"
+            )
         self.assertEqual(game_input.clicks, [])
 
 

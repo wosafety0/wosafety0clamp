@@ -19,6 +19,9 @@ from kancollebot.expeditions.dispatch_recovery import (
     DurableDispatchCoordinator,
     SqliteDispatchIntentStore,
 )
+from kancollebot.expeditions.expedition_requirement_checker import (
+    ExpeditionRequirementChecker,
+)
 from kancollebot.expeditions.fleet_state_store import SqliteFleetStateStore
 from kancollebot.expeditions.mission_eligibility import MissionCompositionRequirement
 from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
@@ -41,6 +44,9 @@ def snapshot(
     reserved=0,
     ship_levels=None,
     ship_types=None,
+    equipment_by_ship=None,
+    total_stats=None,
+    in_dock_ship_ids=(),
 ):
     if ship_ids is None:
         ship_ids = (1, 2) if fleet_id == 2 else (3, 4, 5)
@@ -66,6 +72,9 @@ def snapshot(
         reserved=reserved,
         ship_levels=tuple(ship_levels),
         ship_types=tuple(ship_types),
+        equipment_by_ship=equipment_by_ship,
+        total_stats=total_stats,
+        in_dock_ship_ids=tuple(in_dock_ship_ids),
     )
 
 
@@ -116,6 +125,37 @@ class FakeUi:
         return self.home_evidence
 
 
+class WitnessAwareReader(FakeReader):
+    """A reader that can be asked to wait for a natural port witness.
+
+    The wait must never come before the Home Port click: that click is what
+    makes the client request the port payload being waited for.
+    """
+
+    def __init__(self, ui, *observations):
+        super().__init__(*observations)
+        self.ui = ui
+        self.waits = []
+        self.origins = []
+
+    def ensure_fresh(self, *, origin):
+        self.origins.append(origin)
+        if not self.observations:
+            raise AssertionError("unexpected extra Poi read")
+        self.read_count += 1
+        return self.observations.pop(0)
+
+    def await_passive_witness(self, *, timeout_seconds, newer_than):
+        if not self.ui.home_calls:
+            raise AssertionError(
+                "the passive witness wait must follow the Home Port click"
+            )
+        self.waits.append(
+            {"timeout_seconds": timeout_seconds, "newer_than": newer_than}
+        )
+        return None
+
+
 class ContinuousDispatchControllerTests(unittest.TestCase):
     def make_controller(
         self,
@@ -128,6 +168,10 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
         allow=True,
         events=None,
         mission_requirements=None,
+        passive_witness_wait_seconds=10.0,
+        requirement_checker=None,
+        unlocked_fleet_ids=None,
+        dispatchable_fleet_ids=None,
     ):
         db_path = Path(directory) / "state.sqlite3"
         scheduler = ContinuousExpeditionScheduler(
@@ -150,6 +194,10 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
             allow_ui_actions=allow,
             max_state_age=fresh_age,
             clock=clock or (lambda: BASE + timedelta(seconds=10)),
+            passive_witness_wait_seconds=passive_witness_wait_seconds,
+            requirement_checker=requirement_checker,
+            unlocked_fleet_ids=unlocked_fleet_ids,
+            dispatchable_fleet_ids=dispatchable_fleet_ids,
         )
         return controller, scheduler, intent_store, events
 
@@ -187,6 +235,73 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
             self.assertEqual(events[0]["event"], "dispatch_intent_persisted")
             self.assertEqual(events[0]["fields"], {"fleet_id": 2, "ship_ids": [1, 2]})
             self.assertTrue(events[0]["created_at"])
+    def test_dispatch_waits_for_the_natural_witness_after_returning_home(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = WitnessAwareReader(ui, *self.valid_observations())
+            clock = FakeClock(
+                BASE,
+                BASE + timedelta(seconds=2),
+                BASE + timedelta(seconds=3),
+                BASE + timedelta(seconds=4),
+                BASE + timedelta(seconds=5),
+            )
+            controller, scheduler, intents, events = self.make_controller(
+                directory, reader, ui, clock=clock
+            )
+
+            result = controller.dispatch_one_ready(2)
+
+            self.assertEqual(result.fleet_id, 2)
+            self.assertEqual(ui.home_calls, [2])
+            self.assertEqual(
+                reader.origins,
+                [
+                    "dispatch_preflight",
+                    "dispatch_post_action",
+                    "dispatch_home_verification",
+                ],
+            )
+            self.assertEqual(len(reader.waits), 1)
+            self.assertEqual(reader.waits[0]["timeout_seconds"], 10.0)
+            names = [name for name, _ in events]
+            self.assertIn("dispatch_post_action_passive_wait", names)
+            self.assertLess(
+                names.index("dispatch_post_action_passive_wait"),
+                names.index("dispatch_confirmed_by_poi"),
+            )
+
+    def test_a_reader_without_the_wait_capability_is_left_alone(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reader = FakeReader(*self.valid_observations())
+            ui = FakeUi()
+            clock = FakeClock(
+                BASE,
+                BASE + timedelta(seconds=2),
+                BASE + timedelta(seconds=3),
+                BASE + timedelta(seconds=4),
+                BASE + timedelta(seconds=5),
+            )
+            controller, scheduler, intents, events = self.make_controller(
+                directory, reader, ui, clock=clock
+            )
+
+            controller.dispatch_one_ready(2)
+
+            names = [name for name, _ in events]
+            self.assertNotIn("dispatch_post_action_passive_wait", names)
+
+    def test_a_negative_passive_wait_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reader = FakeReader(*self.valid_observations())
+            with self.assertRaisesRegex(ValueError, "finite non-negative"):
+                self.make_controller(
+                    directory,
+                    reader,
+                    FakeUi(),
+                    passive_witness_wait_seconds=-1.0,
+                )
+
     def test_dispatch_confirms_active_tuple_and_two_frame_home_port(self):
         with tempfile.TemporaryDirectory() as directory:
             observations = self.valid_observations()
@@ -346,6 +461,7 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
                 BASE,
                 BASE + timedelta(seconds=2),
                 BASE + timedelta(seconds=3),
+                BASE + timedelta(seconds=4),
             )
             controller, scheduler, intents, _ = self.make_controller(
                 directory, reader, ui, clock=clock
@@ -354,7 +470,11 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
                 controller.dispatch_one_ready(2)
             self.assertEqual(scheduler.fleet(2).phase, FleetPhase.BLOCKED)
             self.assertIsNotNone(intents.get(2))
-            self.assertEqual(ui.home_calls, [])
+            # The 母港 click comes first now: it is what makes the client
+            # request the port payload the freshness gate needs, so a stale
+            # observation is detected *after* navigating home - the click is
+            # still the only game input the postcondition check may cause.
+            self.assertEqual(len(ui.home_calls), 1)
 
     def test_poi_return_time_must_be_later_than_dispatch_completion(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -369,6 +489,7 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
                 BASE,
                 BASE + timedelta(seconds=2),
                 BASE + timedelta(seconds=3),
+                BASE + timedelta(seconds=4),
             )
             controller, scheduler, intents, _ = self.make_controller(
                 directory, reader, ui, clock=clock
@@ -377,7 +498,11 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
                 controller.dispatch_one_ready(2)
             self.assertEqual(scheduler.fleet(2).phase, FleetPhase.BLOCKED)
             self.assertIsNotNone(intents.get(2))
-            self.assertEqual(ui.home_calls, [])
+            # The 母港 click comes first now: it is what makes the client
+            # request the port payload the freshness gate needs, so a stale
+            # observation is detected *after* navigating home - the click is
+            # still the only game input the postcondition check may cause.
+            self.assertEqual(len(ui.home_calls), 1)
     def test_mission_identity_mismatch_blocks_and_preserves_pending_intent(self):
         with tempfile.TemporaryDirectory() as directory:
             baseline, _, home = self.valid_observations()
@@ -391,6 +516,7 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
                 BASE,
                 BASE + timedelta(seconds=2),
                 BASE + timedelta(seconds=3),
+                BASE + timedelta(seconds=4),
             )
             controller, scheduler, intents, _ = self.make_controller(
                 directory, reader, ui, clock=clock
@@ -399,7 +525,11 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
                 controller.dispatch_one_ready(2)
             self.assertEqual(scheduler.fleet(2).phase, FleetPhase.BLOCKED)
             self.assertIsNotNone(intents.get(2))
-            self.assertEqual(ui.home_calls, [])
+            # The 母港 click comes first now: it is what makes the client
+            # request the port payload the freshness gate needs, so a stale
+            # observation is detected *after* navigating home - the click is
+            # still the only game input the postcondition check may cause.
+            self.assertEqual(len(ui.home_calls), 1)
 
     def test_home_port_requires_two_consecutive_matching_states(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -485,6 +615,422 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
             with self.assertRaisesRegex(ContinuousDispatchError, "Poi Redux"):
                 controller.dispatch_one_ready(2)
             self.assertEqual(ui.dispatches, [])
+
+
+class R3IRequirementGateTests(unittest.TestCase):
+    """R3-I is wired into the dispatch transaction BEFORE the first click.
+
+    The two builders are borrowed from the legacy controller test case (they
+    compose the same real scheduler/store/arbiter), without inheriting and
+    re-running every legacy test method.
+    """
+
+    make_controller = ContinuousDispatchControllerTests.make_controller
+    valid_observations = ContinuousDispatchControllerTests.valid_observations
+
+    def r3i_checker(self, **kwargs):
+        return ExpeditionRequirementChecker(clock=lambda: BASE, **kwargs)
+
+    def full_clock(self):
+        return FakeClock(
+            BASE,
+            BASE + timedelta(seconds=2),
+            BASE + timedelta(seconds=3),
+            BASE + timedelta(seconds=4),
+            BASE + timedelta(seconds=5),
+        )
+
+    def assert_zero_click_refusal(self, *, controller, ui, reader, events, intents, expected):
+        with self.assertRaisesRegex(ContinuousDispatchError, "requirement check"):
+            controller.dispatch_one_ready(2)
+        self.assertEqual(ui.dispatches, [])
+        self.assertEqual(ui.home_calls, [])
+        self.assertEqual(reader.read_count, 1)
+        self.assertIsNone(intents.get(2))
+        names = [name for name, _ in events]
+        self.assertNotIn("dispatch_intent_persisted", names)
+        self.assertIn("dispatch_requirement_evaluation", names)
+        self.assertIn("dispatch_blocked_requirement_check", names)
+        evaluation = dict(events[names.index("dispatch_requirement_evaluation")][1])
+        blocked = dict(events[names.index("dispatch_blocked_requirement_check")][1])
+        self.assertEqual(evaluation["overall_result"], expected)
+        self.assertFalse(evaluation["allows_dispatch"])
+        self.assertEqual(evaluation["safety"]["game_clicks_sent"], 0)
+        self.assertEqual(evaluation["safety"]["game_api_requests_sent"], 0)
+        self.assertEqual(blocked["dispatch_clicks_sent"], 0)
+        self.assertEqual(blocked["game_api_requests_sent"], 0)
+        self.assertFalse(blocked["fleet_composition_changes_proposed"])
+        return evaluation
+
+    def test_only_a_pass_verdict_reaches_the_existing_dispatch_flow(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = WitnessAwareReader(ui, *self.valid_observations())
+            controller, scheduler, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=self.full_clock(),
+                requirement_checker=self.r3i_checker(),
+            )
+            result = controller.dispatch_one_ready(2)
+            self.assertEqual(result.fleet_id, 2)
+            self.assertEqual(ui.dispatches, [(2, 1)])
+            names = [name for name, _ in events]
+            self.assertIn("dispatch_requirement_evaluation", names)
+            self.assertNotIn("dispatch_blocked_requirement_check", names)
+            evaluation = dict(events[names.index("dispatch_requirement_evaluation")][1])
+            self.assertEqual(evaluation["overall_result"], "PASS")
+            self.assertTrue(evaluation["allows_dispatch"])
+            self.assertEqual(evaluation["safety"]["game_clicks_sent"], 0)
+            self.assertLess(
+                names.index("dispatch_requirement_evaluation"),
+                names.index("dispatch_intent_persisted"),
+            )
+            self.assertIn("dispatch_confirmed_by_poi", names)
+
+    def test_a_reject_verdict_blocks_with_zero_clicks_and_no_intent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            baseline = observation(
+                BASE - timedelta(seconds=1),
+                [snapshot(2, fuel_ready=False), snapshot(3)],
+            )
+            ui = FakeUi()
+            reader = FakeReader(baseline)
+            controller, scheduler, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(BASE),
+                requirement_checker=self.r3i_checker(),
+            )
+            evaluation = self.assert_zero_click_refusal(
+                controller=controller, ui=ui, reader=reader, events=events,
+                intents=intents, expected="REJECT",
+            )
+            self.assertIn("supply", evaluation["failed_checks"])
+            self.assertEqual(scheduler.fleet(2).phase, FleetPhase.IDLE)
+
+    def test_an_unknown_verdict_blocks_with_zero_clicks_and_no_intent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            baseline = observation(
+                BASE - timedelta(seconds=1),
+                [snapshot(2, ship_levels=(), ship_types=()), snapshot(3)],
+            )
+            ui = FakeUi()
+            reader = FakeReader(baseline)
+            controller, scheduler, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(BASE),
+                requirement_checker=self.r3i_checker(),
+            )
+            evaluation = self.assert_zero_click_refusal(
+                controller=controller, ui=ui, reader=reader, events=events,
+                intents=intents, expected="UNKNOWN",
+            )
+            self.assertIn("flagship_level", evaluation["unknown_checks"])
+            self.assertIn("flagship_valid", evaluation["unknown_checks"])
+
+    def test_a_missing_static_rule_is_an_unknown_zero_click_refusal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = FakeReader(observation(
+                BASE - timedelta(seconds=1), [snapshot(2), snapshot(3)]
+            ))
+            controller, scheduler, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(BASE),
+                mission_requirements={
+                    2: MissionCompositionRequirement(9999, 2, 1),
+                    3: MissionCompositionRequirement(3, 3, 3),
+                },
+                requirement_checker=self.r3i_checker(),
+            )
+            evaluation = self.assert_zero_click_refusal(
+                controller=controller, ui=ui, reader=reader, events=events,
+                intents=intents, expected="UNKNOWN",
+            )
+            self.assertIn("rule_source", evaluation["unknown_checks"])
+
+    def test_mixed_fleet_identity_is_never_used_to_clear_the_gate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            # Ship 1 appears in BOTH fleet records: the R3-I normalizer must
+            # mark the identity ambiguous even though _snapshot_for() succeeds.
+            baseline = observation(
+                BASE - timedelta(seconds=1),
+                [snapshot(2, ship_ids=(1, 2)), snapshot(3, ship_ids=(1, 4, 5))],
+            )
+            ui = FakeUi()
+            reader = FakeReader(baseline)
+            controller, scheduler, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(BASE),
+                requirement_checker=self.r3i_checker(),
+            )
+            evaluation = self.assert_zero_click_refusal(
+                controller=controller, ui=ui, reader=reader, events=events,
+                intents=intents, expected="UNKNOWN",
+            )
+            self.assertIn("fleet_identity", evaluation["unknown_checks"])
+
+    def test_account_unlock_and_dispatch_policy_facts_reach_the_gate(self):
+        for label, kwargs in (
+            ("locked", {"unlocked_fleet_ids": (3,)}),
+            ("out-of-policy", {"dispatchable_fleet_ids": (3,)}),
+        ):
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as directory:
+                ui = FakeUi()
+                reader = FakeReader(observation(
+                    BASE - timedelta(seconds=1), [snapshot(2), snapshot(3)]
+                ))
+                controller, scheduler, intents, events = self.make_controller(
+                    directory, reader, ui,
+                    clock=FakeClock(BASE),
+                    requirement_checker=self.r3i_checker(),
+                    **kwargs,
+                )
+                evaluation = self.assert_zero_click_refusal(
+                    controller=controller, ui=ui, reader=reader, events=events,
+                    intents=intents, expected="REJECT",
+                )
+                self.assertIn("fleet_available", evaluation["failed_checks"])
+
+    def test_the_gate_is_opt_in_so_existing_controller_tests_are_unchanged(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = WitnessAwareReader(ui, *self.valid_observations())
+            controller, scheduler, intents, events = self.make_controller(
+                directory, reader, ui, clock=self.full_clock()
+            )
+            controller.dispatch_one_ready(2)
+            self.assertEqual(ui.dispatches, [(2, 1)])
+            self.assertNotIn(
+                "dispatch_requirement_evaluation", [name for name, _ in events]
+            )
+
+    def test_the_constructor_refuses_a_fake_checker_or_bad_fleet_sets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reader = FakeReader(*self.valid_observations())
+            with self.assertRaisesRegex(ValueError, "must be an ExpeditionRequirementChecker"):
+                self.make_controller(
+                    directory, reader, FakeUi(), requirement_checker=object()
+                )
+            with self.assertRaisesRegex(ValueError, "must be a tuple of positive integers"):
+                self.make_controller(
+                    directory, reader, FakeUi(), unlocked_fleet_ids=[2]
+                )
+            with self.assertRaisesRegex(ValueError, "must be a tuple of positive integers"):
+                self.make_controller(
+                    directory, reader, FakeUi(), dispatchable_fleet_ids=(0,)
+                )
+
+
+class SlowOrFailingReader(FakeReader):
+    """A Poi read that stalls, times out, or returns an animation-era snapshot."""
+
+    def __init__(self, observation_or_error):
+        super().__init__()
+        self.observation_or_error = observation_or_error
+
+    def read_fleets(self):
+        self.read_count += 1
+        if isinstance(self.observation_or_error, BaseException):
+            raise self.observation_or_error
+        return self.observation_or_error
+
+
+class R3IFreshnessAndLatencyGateTests(unittest.TestCase):
+    """The dispatch gate must fail closed under latency, animation and stale data.
+
+    These scenarios are the ones a real client produces while a reward/return
+    animation is on screen: Poi Redux can already say "idle" while no fresh
+    /api_port/port witness exists, or a slow network can age a read past the
+    freshness window. In every case the refusal happens during the READ, so no
+    requirement evaluation, no intent and no click can occur.
+    """
+
+    make_controller = ContinuousDispatchControllerTests.make_controller
+    valid_observations = ContinuousDispatchControllerTests.valid_observations
+
+    def r3i_checker(self):
+        return ExpeditionRequirementChecker(clock=lambda: BASE)
+
+    def assert_read_stage_refusal(self, *, controller, ui, reader, intents, events):
+        self.assertEqual(ui.dispatches, [])
+        self.assertEqual(ui.home_calls, [])
+        self.assertIsNone(intents.get(2))
+        names = [name for name, _ in events]
+        self.assertNotIn("dispatch_intent_persisted", names)
+        self.assertNotIn("dispatch_requirement_evaluation", names)
+        self.assertNotIn("dispatch_blocked_requirement_check", names)
+        self.assertEqual(reader.read_count, 1)
+
+    def test_network_latency_that_ages_the_baseline_is_refused_zero_click(self):
+        # A read that started fresh but finished after the freshness window.
+        stale = observation(
+            BASE - timedelta(seconds=95), [snapshot(2), snapshot(3)]
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = SlowOrFailingReader(stale)
+            controller, _, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(BASE),
+                requirement_checker=self.r3i_checker(),
+            )
+            with self.assertRaisesRegex(ContinuousDispatchError, "not trusted"):
+                controller.dispatch_one_ready(2)
+            self.assert_read_stage_refusal(
+                controller=controller, ui=ui, reader=reader,
+                intents=intents, events=events,
+            )
+
+    def test_a_poi_read_timeout_never_reaches_the_gate_or_the_ui(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = SlowOrFailingReader(TimeoutError("Poi read timed out"))
+            controller, _, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(BASE),
+                requirement_checker=self.r3i_checker(),
+            )
+            with self.assertRaises(TimeoutError):
+                controller.dispatch_one_ready(2)
+            self.assert_read_stage_refusal(
+                controller=controller, ui=ui, reader=reader,
+                intents=intents, events=events,
+            )
+
+    def test_animation_period_without_a_fresh_witness_is_refused_zero_click(self):
+        # This is the real-client state observed on 2026-11-05: an expedition
+        # "成功!" result screen is on display while Poi Redux already reports
+        # every fleet idle. No natural port response => no freshness witness.
+        unverified = observation(
+            BASE - timedelta(seconds=1), [snapshot(2), snapshot(3)], fresh=False
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = SlowOrFailingReader(unverified)
+            controller, _, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(BASE),
+                requirement_checker=self.r3i_checker(),
+            )
+            with self.assertRaisesRegex(ContinuousDispatchError, "not trusted"):
+                controller.dispatch_one_ready(2)
+            self.assert_read_stage_refusal(
+                controller=controller, ui=ui, reader=reader,
+                intents=intents, events=events,
+            )
+
+    def test_a_future_dated_observation_is_refused_zero_click(self):
+        future = observation(
+            BASE + timedelta(seconds=60), [snapshot(2), snapshot(3)]
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = SlowOrFailingReader(future)
+            controller, _, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(BASE),
+                requirement_checker=self.r3i_checker(),
+            )
+            with self.assertRaisesRegex(ContinuousDispatchError, "not trusted"):
+                controller.dispatch_one_ready(2)
+            self.assert_read_stage_refusal(
+                controller=controller, ui=ui, reader=reader,
+                intents=intents, events=events,
+            )
+
+    def test_the_gate_and_the_intent_bind_the_same_fresh_baseline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = WitnessAwareReader(ui, *self.valid_observations())
+            controller, _, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(
+                    BASE, BASE + timedelta(seconds=2), BASE + timedelta(seconds=3),
+                    BASE + timedelta(seconds=4), BASE + timedelta(seconds=5),
+                ),
+                requirement_checker=self.r3i_checker(),
+            )
+            controller.dispatch_one_ready(2)
+            names = [name for name, _ in events]
+            evaluation = dict(events[names.index("dispatch_requirement_evaluation")][1])
+            persisted = dict(events[names.index("dispatch_intent_persisted")][1])
+            self.assertEqual(
+                evaluation["baseline_observed_at"], persisted["baseline_observed_at"]
+            )
+            self.assertEqual(evaluation["baseline_observed_at"], (
+                BASE - timedelta(seconds=1)
+            ).isoformat())
+            self.assertTrue(evaluation["baseline_source_freshness_verified"])
+            self.assertEqual(evaluation["baseline_ship_ids"], [1, 2])
+            self.assertEqual(
+                evaluation["baseline_source"], "poi-redux:info.fleets+info.ships"
+            )
+            self.assertLess(
+                names.index("dispatch_requirement_evaluation"),
+                names.index("dispatch_intent_persisted"),
+            )
+
+    def test_equipment_and_stat_evidence_travel_with_the_same_baseline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            equipment = {1: (75, 75), 2: ()}
+            stats = {"firepower": 50, "anti_air": 70, "asw": 180, "los": 40}
+            reader = WitnessAwareReader(ui, *self.valid_observations())
+            # Replace the first (pre-dispatch) observation with one carrying
+            # evidence on the very same fleet record.
+            original = reader.observations[0]
+            evidenced = original.__class__(
+                (
+                    snapshot(2, equipment_by_ship=equipment, total_stats=stats),
+                    original.payload[1],
+                ),
+                original.observed_at,
+                original.source,
+                source_freshness_verified=original.source_freshness_verified,
+            )
+            reader.observations[0] = evidenced
+            controller, _, _, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(
+                    BASE, BASE + timedelta(seconds=2), BASE + timedelta(seconds=3),
+                    BASE + timedelta(seconds=4), BASE + timedelta(seconds=5),
+                ),
+                requirement_checker=self.r3i_checker(),
+            )
+            controller.dispatch_one_ready(2)
+            names = [name for name, _ in events]
+            evaluation = dict(events[names.index("dispatch_requirement_evaluation")][1])
+            self.assertTrue(evaluation["equipment_evidence_present"])
+            self.assertTrue(evaluation["fleet_stats_evidence_present"])
+            self.assertEqual(evaluation["fleet_stats"], stats)
+            self.assertEqual(evaluation["in_dock_ship_ids"], [])
+            self.assertEqual(evaluation["overall_result"], "PASS")
+
+    def test_in_dock_evidence_on_the_baseline_blocks_with_zero_clicks(self):
+        baseline = observation(
+            BASE - timedelta(seconds=1),
+            [snapshot(2, in_dock_ship_ids=(1,)), snapshot(3)],
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = FakeReader(baseline)
+            controller, _, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(BASE),
+                requirement_checker=self.r3i_checker(),
+            )
+            with self.assertRaisesRegex(ContinuousDispatchError, "requirement check REJECT"):
+                controller.dispatch_one_ready(2)
+            self.assertEqual(ui.dispatches, [])
+            self.assertEqual(ui.home_calls, [])
+            self.assertIsNone(intents.get(2))
+            names = [name for name, _ in events]
+            evaluation = dict(events[names.index("dispatch_requirement_evaluation")][1])
+            self.assertEqual(evaluation["in_dock_ship_ids"], [1])
+            self.assertIn("fleet_available", evaluation["failed_checks"])
+            blocked = dict(events[names.index("dispatch_blocked_requirement_check")][1])
+            self.assertEqual(blocked["dispatch_clicks_sent"], 0)
+            self.assertEqual(blocked["game_api_requests_sent"], 0)
 
 
 if __name__ == "__main__":

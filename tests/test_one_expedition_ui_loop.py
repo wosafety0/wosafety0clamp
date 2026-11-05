@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import inspect
 import os
 import sys
 import tempfile
@@ -52,6 +53,11 @@ class ProductionStartupSafetyGateTests(unittest.TestCase):
         args.poll_seconds = 5.0
         args.timeout_seconds = 1800.0
         args.grace_delay_seconds = 10.0
+        # A MagicMock is truthy for every attribute, so the wait-mode defaults
+        # have to be real values here or run() would validate a mock.
+        args.wait_for_return = False
+        args.max_ticks = 60
+        args.tick_interval_seconds = 10.0
         return args
 
     def test_run_requires_explicit_authorization_before_composition(self):
@@ -75,6 +81,84 @@ class ProductionStartupSafetyGateTests(unittest.TestCase):
         compose.assert_called_once_with(args)
 
 
+class SettleOnlyDispatcherTests(unittest.TestCase):
+    """``--settle-only`` closes out a returned fleet and can never dispatch.
+
+    Fleets whose expedition has no verified composition requirement cannot go
+    through the production entry at all, because that gate runs before anything
+    is observed. Settling them needs no composition, so the gate is skipped - and
+    the dispatcher handed to the supervisor refuses the one thing that gate
+    exists to protect.
+    """
+
+    def test_a_ready_fleet_is_never_dispatched(self):
+        dispatcher = controller.SettleOnlyDispatcher(
+            scheduler=object(),
+            state_reader=object(),
+            event_sink=lambda event, payload: None,
+            mission_requirements=None,
+        )
+        with self.assertRaisesRegex(controller.LoopError, "settle-only run"):
+            dispatcher.dispatch_one_ready(3)
+
+    def test_it_wires_the_shared_objects_the_supervisor_compares(self):
+        scheduler, reader, sink = object(), object(), lambda event, payload: None
+        dispatcher = controller.SettleOnlyDispatcher(
+            scheduler=scheduler,
+            state_reader=reader,
+            event_sink=sink,
+            mission_requirements={},
+        )
+        self.assertIs(dispatcher.scheduler, scheduler)
+        self.assertIs(dispatcher.state_reader, reader)
+        self.assertIs(dispatcher.event_sink, sink)
+        self.assertEqual(dispatcher.mission_requirements, {})
+
+
+class WaitForReturnArgumentTests(unittest.TestCase):
+    """--wait-for-return turns one tick into a bounded wait; the bound is checked."""
+
+    def make_args(self, **overrides):
+        args = MagicMock()
+        args.authorize_ui_actions = True
+        args.wait_for_return = True
+        args.max_ticks = 60
+        args.tick_interval_seconds = 10.0
+        for name, value in overrides.items():
+            setattr(args, name, value)
+        return args
+
+    def run_with_visual_dependencies(self, args):
+        with patch("kancollebot.adapters.poi.visual_target.require_visual_dependencies"):
+            with patch.object(controller, "_run_production_supervisor_once", return_value=0):
+                return controller.run(args)
+
+    def test_a_positive_tick_budget_is_accepted(self):
+        self.assertEqual(self.run_with_visual_dependencies(self.make_args()), 0)
+
+    def test_a_zero_tick_budget_is_refused(self):
+        with self.assertRaisesRegex(controller.LoopError, "max-ticks"):
+            self.run_with_visual_dependencies(self.make_args(max_ticks=0))
+
+    def test_a_boolean_tick_budget_is_refused(self):
+        # bool is an int in Python; a True budget would silently mean "one tick".
+        with self.assertRaisesRegex(controller.LoopError, "max-ticks"):
+            self.run_with_visual_dependencies(self.make_args(max_ticks=True))
+
+    def test_a_non_positive_interval_is_refused(self):
+        with self.assertRaisesRegex(controller.LoopError, "tick-interval-seconds"):
+            self.run_with_visual_dependencies(self.make_args(tick_interval_seconds=0))
+
+    def test_the_budget_is_ignored_without_wait_mode(self):
+        # Single-tick runs keep their historical contract regardless of --max-ticks.
+        self.assertEqual(
+            self.run_with_visual_dependencies(
+                self.make_args(wait_for_return=False, max_ticks=0)
+            ),
+            0,
+        )
+
+
 try:
     import cv2  # noqa: F401
     import numpy  # noqa: F401
@@ -88,6 +172,9 @@ class ProductionStartupVisualDependencyTests(unittest.TestCase):
     def make_args(self, *, authorized=True):
         args = MagicMock()
         args.authorize_ui_actions = authorized
+        args.wait_for_return = False
+        args.max_ticks = 60
+        args.tick_interval_seconds = 10.0
         args.poll_seconds = 5.0
         args.timeout_seconds = 1800.0
         args.grace_delay_seconds = 10.0
@@ -124,19 +211,43 @@ class DispatchTargetGateTests(unittest.TestCase):
         requirement = controller._mission_requirement(self.make_args(), 2, 1)
         self.assertEqual((requirement.minimum_ships, requirement.minimum_flagship_level), (2, 1))
 
-    def test_a_mission_without_a_verified_requirement_is_refused(self):
-        with self.assertRaisesRegex(
-            controller.LoopError, "no verified composition requirement for fleet 3 / mission 5"
-        ):
-            controller._mission_requirement(self.make_args(mission_id=5), 3, 5)
+    def test_r3i_static_table_replaces_the_entry_local_hardcoded_pairs(self):
+        # Mission 5 was "unverified" when only two live pairs were hardcoded.
+        # R3-I supplies its numbers from the single versioned static table.
+        requirement = controller._mission_requirement(self.make_args(mission_id=5), 3, 5)
+        self.assertEqual((requirement.minimum_ships, requirement.minimum_flagship_level), (4, 3))
 
-    def test_explicit_numbers_are_used_for_an_unverified_mission(self):
+    def test_a_mission_without_a_static_rule_is_refused(self):
+        with self.assertRaisesRegex(
+            controller.LoopError, "no static requirement rule for fleet 3 / mission 999"
+        ):
+            controller._mission_requirement(self.make_args(mission_id=999), 3, 999)
+
+    def test_a_missing_rule_cannot_be_bypassed_with_explicit_numbers(self):
+        with self.assertRaisesRegex(controller.LoopError, "no static requirement rule"):
+            controller._mission_requirement(
+                self.make_args(mission_id=999, minimum_ships=6, flagship_level=99), 3, 999
+            )
+
+    def test_explicit_numbers_may_only_make_the_gate_stricter(self):
         requirement = controller._mission_requirement(
-            self.make_args(mission_id=5, minimum_ships=4, flagship_level=2), 3, 5
+            self.make_args(mission_id=5, minimum_ships=5, flagship_level=4), 3, 5
         )
         self.assertEqual(requirement.mission_id, 5)
-        self.assertEqual(requirement.minimum_ships, 4)
-        self.assertEqual(requirement.minimum_flagship_level, 2)
+        self.assertEqual(requirement.minimum_ships, 5)
+        self.assertEqual(requirement.minimum_flagship_level, 4)
+
+    def test_an_override_weaker_than_the_static_rule_is_refused(self):
+        for ships, level in ((3, 3), (4, 2)):
+            with self.subTest(ships=ships, level=level):
+                with self.assertRaisesRegex(controller.LoopError, "weaker than the static rule"):
+                    controller._mission_requirement(
+                        self.make_args(
+                            mission_id=5, minimum_ships=ships, flagship_level=level
+                        ),
+                        3,
+                        5,
+                    )
 
     def test_half_a_requirement_is_refused(self):
         with self.assertRaisesRegex(controller.LoopError, "must be given together"):
@@ -149,6 +260,36 @@ class DispatchTargetGateTests(unittest.TestCase):
                     controller._mission_requirement(
                         self.make_args(minimum_ships=value, flagship_level=2), 3, 5
                     )
+
+
+class R3IProductionGateWiringTests(unittest.TestCase):
+    """Guard against the LIVE dispatch gate being quietly removed.
+
+    The controller's checker is optional for legacy/offline callers, so a unit
+    test of the controller alone cannot prove that the production entry enables
+    it. This source-level guard checks the only production construction site.
+    """
+
+    def test_the_production_entry_always_injects_the_requirement_checker(self):
+        source = inspect.getsource(controller._run_production_supervisor_once)
+        self.assertIn("requirement_checker=requirement_checker", source)
+        self.assertIn('minimum_confidence="cross_checked"', source)
+        self.assertIn("unlocked_fleet_ids=unlocked_fleet_ids", source)
+        self.assertIn("dispatchable_fleet_ids=dispatchable_fleet_ids", source)
+        self.assertIn("dispatch_requirement_gate_enabled", source)
+
+    def test_the_entry_does_not_expose_a_bypass_switch_or_private_rule_table(self):
+        source = inspect.getsource(controller._run_production_supervisor_once)
+        self.assertNotIn("--disable-requirement-check", source)
+        self.assertNotIn("requirement_checker=None", source)
+        self.assertFalse(hasattr(controller, "KNOWN_COMPOSITION"))
+
+    def test_the_monitor_composition_root_reads_the_static_rule_table(self):
+        import run_continuous_expedition_monitor as monitor
+
+        source = inspect.getsource(monitor.build_runtime)
+        self.assertIn("requirements_for_assignments", source)
+        self.assertNotIn("minimum_ships=2,", source)
 
 
 class DispatchFleetValidationTests(unittest.TestCase):
@@ -312,6 +453,55 @@ class LiveCheckpointVerifierTests(unittest.TestCase):
             self.assertEqual(written.read_bytes(), png)
         events = [call.args[0] for call in event_log.call_args_list]
         self.assertIn("diagnostic_capture_written", events)
+
+    def test_the_return_notice_may_ask_for_the_composited_surface(self):
+        # fromSurface=True drops the notice bubble (2026-11-05 live: the notice
+        # scored 0.8332 there and 0.9994 on the composited surface), so the one
+        # state that lives on that overlay has to be able to request it.
+        scores = {"HOME_PORT_RETURN_NOTICE": 1.0}
+        self.game_session.transport.send.return_value = {"nodes": []}
+        self.game_session.input.capture_screenshot.return_value = "in-memory-payload"
+        with (
+            patch.object(
+                controller,
+                "classify_screenshot_fingerprints",
+                side_effect=[("HOME_PORT_RETURN_NOTICE", scores)] * 2,
+            ),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_print_event"),
+        ):
+            controller._require_ui_state(
+                self.game_session,
+                controller.UiState.HOME_PORT_RETURN_NOTICE,
+                from_surface=False,
+            )
+        for call in self.game_session.input.capture_screenshot.call_args_list:
+            self.assertIs(call.kwargs.get("from_surface"), False)
+
+    def test_the_default_surface_stays_the_calibrated_one(self):
+        scores = {"HOME_PORT": 1.0}
+        self.game_session.transport.send.return_value = {"nodes": []}
+        self.game_session.input.capture_screenshot.return_value = "in-memory-payload"
+        with (
+            patch.object(
+                controller,
+                "classify_screenshot_fingerprints",
+                side_effect=[("HOME_PORT", scores)] * 2,
+            ),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_print_event"),
+        ):
+            controller._require_ui_state(self.game_session, controller.UiState.HOME_PORT)
+        for call in self.game_session.input.capture_screenshot.call_args_list:
+            self.assertIs(call.kwargs.get("from_surface"), True)
+
+    def test_a_non_bool_surface_choice_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "from_surface"):
+            controller._require_ui_state(
+                self.game_session,
+                controller.UiState.HOME_PORT,
+                from_surface="composited",
+            )
 
     def test_no_diagnostic_capture_without_a_directory(self):
         scores = {"HOME_PORT": 1.0}
@@ -800,5 +990,315 @@ class LiveUiCoordinateEvidenceTests(unittest.TestCase):
                 controller.EXPEDITION_START,
             ],
         )
+class HiddenHomePortUiLayerTests(unittest.TestCase):
+    """A faded Home Port UI cannot be restored by the 母港 control inside it."""
+
+    def test_faded_port_is_woken_by_exactly_one_area_click(self):
+        game_session = MagicMock()
+        states = iter([
+            # One failed pre-check, then the three bounded 母港-button attempts,
+            # and only then the wake click's verification.
+            controller.LoopError("HOME_PORT was not confirmed"),
+            controller.LoopError("HOME_PORT was not confirmed"),
+            controller.LoopError("HOME_PORT was not confirmed"),
+            controller.LoopError("HOME_PORT was not confirmed"),
+            "two_consecutive_in_memory_ooi_fingerprints",
+        ])
+
+        def require_state(_session, _state):
+            outcome = next(states)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        with (
+            patch.object(controller, "_print_event") as events,
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_require_ui_state", side_effect=require_state),
+            patch.object(controller, "_home_port_ui_layer_is_hidden", return_value=True),
+            patch.object(controller, "_visible_settlement_screen", return_value=None),
+        ):
+            controller._recover_home_port(game_session)
+
+        clicked = [call.args[0] for call in game_session.input.click.call_args_list]
+        # Three bounded 母港-button attempts, then one wake click on the port area.
+        self.assertEqual(len(clicked), 4)
+        self.assertEqual(clicked[:3], [
+            controller.home_port_candidates(controller.HOME_PORT)[0],
+            controller.home_port_candidates(controller.HOME_PORT)[1],
+            controller.home_port_candidates(controller.HOME_PORT)[2],
+        ])
+        self.assertEqual(clicked[3].label, "home-port-ui-wake")
+        events.assert_any_call(
+            "home_port_recovery_confirmed", attempt=4,
+            evidence="ui_layer_woken_by_area_click",
+        )
+
+    def test_a_non_faded_screen_never_gets_the_area_click(self):
+        # Every attempt fails and the frame is not a faded port, so the loop must
+        # stop without clicking the middle of an unknown screen. The observed
+        # fallback that follows may click the 母港 control - that is the point
+        # of the fallback - but never the middle of the screen.
+        game_session = MagicMock()
+        with (
+            patch.object(controller, "_print_event"),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_require_ui_state",
+                         side_effect=controller.LoopError("not HOME_PORT")),
+            patch.object(controller, "_home_port_ui_layer_is_hidden", return_value=False),
+            patch.object(controller, "_visible_settlement_screen", return_value=None),
+            patch.object(controller, "_reward_screen_on_any_layer", return_value=None),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "not reached after"):
+                controller._recover_home_port(game_session)
+
+        clicked = [call.args[0] for call in game_session.input.click.call_args_list]
+        self.assertTrue(all(point.label == "home-port" for point in clicked))
+
+
+class VisibleSettlementScreenTests(unittest.TestCase):
+    """The startup guard: which screens the recovery is not allowed to click."""
+
+    @staticmethod
+    def session():
+        game_session = MagicMock()
+        game_session.input.capture_screenshot.return_value = "frame"
+        return game_session
+
+    def classify(self, observed):
+        return (
+            patch.object(controller, "_read_visual_document", return_value={}),
+            patch.object(
+                controller,
+                "classify_screenshot_fingerprints",
+                return_value=(observed, {}),
+            ),
+        )
+
+    def test_a_reward_screen_is_reported(self):
+        for state in ("HOME_PORT_RETURN_NOTICE", "RETURN_RESULT", "BONUS_ITEMS"):
+            with self.subTest(state=state):
+                read_doc, classify = self.classify(state)
+                with read_doc, classify:
+                    self.assertEqual(
+                        controller._visible_settlement_screen(self.session()), state
+                    )
+
+    def test_the_port_is_not_a_reward_screen(self):
+        read_doc, classify = self.classify("HOME_PORT")
+        with read_doc, classify:
+            self.assertIsNone(controller._visible_settlement_screen(self.session()))
+
+    def test_an_unreadable_frame_is_not_treated_as_a_reward_screen(self):
+        game_session = MagicMock()
+        game_session.input.capture_screenshot.side_effect = RuntimeError("no frame")
+        self.assertIsNone(controller._visible_settlement_screen(game_session))
+
+    def test_it_asks_for_the_composited_frame(self):
+        # The return notice only exists in the composited capture; asking for the
+        # page surface is the bug this whole path exists to avoid.
+        read_doc, classify = self.classify("HOME_PORT")
+        game_session = self.session()
+        with read_doc, classify:
+            controller._visible_settlement_screen(game_session)
+        game_session.input.capture_screenshot.assert_called_once_with(from_surface=False)
+
+
+class RewardScreenRecoveryGuardTests(unittest.TestCase):
+    """Recovery must not walk a reward chain it cannot prove.
+
+    Every reward screen accepts a click anywhere, so a 母港 recovery click sent
+    while one is up advances the chain blindly. Live 2026-11-05 the loop started
+    on a result screen left by an interrupted settlement and two recovery clicks
+    took it through bonus items back to the port.
+    """
+
+    def test_recovery_never_clicks_through_a_reward_screen(self):
+        game_session = MagicMock()
+        with (
+            patch.object(controller, "_print_event"),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_require_ui_state",
+                         side_effect=controller.LoopError("not HOME_PORT")),
+            patch.object(controller, "_visible_settlement_screen",
+                         return_value="RETURN_RESULT"),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "reward screen"):
+                controller._recover_home_port(game_session)
+
+        self.assertEqual(game_session.input.click.call_count, 0)
+
+
+class StartupScreenProbeTests(unittest.TestCase):
+    """The start-up snapshot: both layers captured, the composited one decides."""
+
+    @staticmethod
+    def session(capture_error=None):
+        game_session = MagicMock()
+        if capture_error is not None:
+            game_session.input.capture_screenshot.side_effect = capture_error
+        else:
+            game_session.input.capture_screenshot.return_value = "frame"
+        return game_session
+
+    def probe(self, composited, default):
+        return (
+            patch.object(controller, "_read_visual_document", return_value={}),
+            patch.object(
+                controller,
+                "classify_screenshot_fingerprints",
+                side_effect=[(composited, {composited: 0.9987}), (default, {})],
+            ),
+            patch.object(controller, "_print_event"),
+        )
+
+    def test_the_composited_layer_decides_a_disagreeing_startup(self):
+        # Live 2026-11-05: composited RETURN_NOTICE 0.9987 vs default
+        # HOME_PORT 0.9986 on the same frame. The default reading would have
+        # sent recovery into the reward chain, so it must be audit only.
+        read_doc, classify, _event = self.probe(
+            "HOME_PORT_RETURN_NOTICE", "HOME_PORT"
+        )
+        with read_doc, classify, _event:
+            screen = controller._probe_startup_screen(self.session())
+        self.assertEqual(screen.state, "HOME_PORT_RETURN_NOTICE")
+        self.assertTrue(screen.layers_disagree)
+        self.assertEqual(screen.default_surface_state, "HOME_PORT")
+
+    def test_the_default_layer_proves_a_result_screen(self):
+        # Live 2026-11-05: the result screen classified 1.0000 on the
+        # default surface while the composited capture said UNKNOWN. A
+        # composited-only probe walked straight past a live reward chain.
+        read_doc, classify, _event = self.probe("UNKNOWN", "RETURN_RESULT")
+        with read_doc, classify, _event:
+            screen = controller._probe_startup_screen(self.session())
+        self.assertEqual(screen.state, "RETURN_RESULT")
+
+    def test_the_composited_layer_wins_when_both_prove_one(self):
+        read_doc, classify, _event = self.probe(
+            "HOME_PORT_RETURN_NOTICE", "BONUS_ITEMS"
+        )
+        with read_doc, classify, _event:
+            screen = controller._probe_startup_screen(self.session())
+        self.assertEqual(screen.state, "HOME_PORT_RETURN_NOTICE")
+
+    def test_a_cdp_failure_propagates_without_any_click(self):
+        with (
+            patch.object(controller, "_read_visual_document", return_value={}),
+            patch.object(
+                controller,
+                "classify_screenshot_fingerprints",
+                side_effect=[("BONUS_ITEMS", {}), ("BONUS_ITEMS", {})],
+            ),
+            patch.object(controller, "_print_event"),
+        ):
+            broken = self.session(capture_error=RuntimeError("cdp gone"))
+            with self.assertRaises(RuntimeError):
+                controller._probe_startup_screen(broken)
+
+
+class RewardScreenAnyLayerGuardTests(unittest.TestCase):
+    """Recovery refuses a screen proven on either capture layer."""
+
+    def test_a_default_layer_screen_refuses_recovery(self):
+        # The result/bonus fingerprints were captured from the default surface,
+        # so a composited UNKNOWN is not proof of absence.
+        game_session = MagicMock()
+        game_session.input.capture_screenshot.return_value = "frame"
+        with (
+            patch.object(controller, "_print_event"),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_require_ui_state",
+                         side_effect=controller.LoopError("not HOME_PORT")),
+            patch.object(controller, "_visible_settlement_screen", return_value=None),
+            patch.object(
+                controller,
+                "classify_screenshot_fingerprints",
+                return_value=("BONUS_ITEMS", {}),
+            ),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "BONUS_ITEMS"):
+                controller._recover_home_port(game_session)
+        self.assertEqual(game_session.input.click.call_count, 0)
+
+
+class ObservedHomePortRecoveryTests(unittest.TestCase):
+    """The start-up recovery clicks and observes when it cannot name the page.
+
+    Live 2026-11-05 the named-page recovery failed twice in a row on the sortie
+    menu and the client had to be walked back by hand. The observed loop
+    clicks the 母港 control, looks again, and stops at a recognised port - but
+    it never clicks while a reward screen is up, because those advance on a
+    click anywhere and belong to the settlement controller.
+    """
+
+    def test_the_observed_loop_clicks_until_the_port_is_proven(self):
+        game_session = MagicMock()
+        checks = {"count": 0}
+
+        def require_state(_session, state, **kwargs):
+            checks["count"] += 1
+            if checks["count"] < 3:
+                raise controller.LoopError("not HOME_PORT")
+            return "two_consecutive_in_memory_ooi_fingerprints"
+
+        with (
+            patch.object(controller, "_print_event"),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_require_ui_state", side_effect=require_state),
+            patch.object(controller, "_visible_settlement_screen", return_value=None),
+            patch.object(controller, "_reward_screen_on_any_layer", return_value=None),
+        ):
+            controller._recover_home_port_by_observation(game_session)
+
+        clicked = [call.args[0] for call in game_session.input.click.call_args_list]
+        self.assertTrue(clicked)
+        self.assertTrue(all(point.label == "home-port" for point in clicked))
+
+    def test_the_observed_loop_refuses_while_a_reward_screen_is_up(self):
+        game_session = MagicMock()
+        with (
+            patch.object(controller, "_print_event"),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_require_ui_state",
+                         side_effect=controller.LoopError("not HOME_PORT")),
+            patch.object(controller, "_reward_screen_on_any_layer",
+                         return_value="RETURN_RESULT"),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "RETURN_RESULT"):
+                controller._recover_home_port_by_observation(game_session)
+        self.assertEqual(game_session.input.click.call_count, 0)
+
+    def test_the_observed_loop_is_bounded(self):
+        game_session = MagicMock()
+        with (
+            patch.object(controller, "_print_event"),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_require_ui_state",
+                         side_effect=controller.LoopError("not HOME_PORT")),
+            patch.object(controller, "_reward_screen_on_any_layer", return_value=None),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "not reached after"):
+                controller._recover_home_port_by_observation(
+                    game_session, attempts=3
+                )
+        self.assertLessEqual(game_session.input.click.call_count, 3)
+
+    def test_the_named_recovery_falls_back_to_the_observed_loop(self):
+        game_session = MagicMock()
+        with (
+            patch.object(controller, "_print_event"),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_require_ui_state",
+                         side_effect=controller.LoopError("not HOME_PORT")),
+            patch.object(controller, "_home_port_ui_layer_is_hidden", return_value=False),
+            patch.object(controller, "_visible_settlement_screen", return_value=None),
+            patch.object(controller, "_reward_screen_on_any_layer", return_value=None),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "not reached after"):
+                controller._recover_home_port(game_session)
+        self.assertGreaterEqual(game_session.input.click.call_count, 4)
+
+
 if __name__ == "__main__":
     unittest.main()

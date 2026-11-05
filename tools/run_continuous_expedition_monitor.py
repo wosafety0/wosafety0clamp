@@ -57,6 +57,10 @@ from kancollebot.expeditions.fleet_state_store import (  # noqa: E402
 from kancollebot.expeditions.mission_eligibility import (  # noqa: E402
     MissionCompositionRequirement,
 )
+from kancollebot.expeditions.expedition_rule_data import (  # noqa: E402
+    DEFAULT_RULE_SET,
+    requirements_for_assignments,
+)
 from kancollebot.expeditions.fleet_availability import (  # noqa: E402
     resolve_fleet_availability,
 )
@@ -69,6 +73,12 @@ from kancollebot.core.fleet_availability import (  # noqa: E402
     parse_unlocked_fleet_ids,
 )
 from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
+from kancollebot.observability.run_log import RunLogPolicy  # noqa: E402
+from kancollebot.observability.sink import (  # noqa: E402
+    RunLogSink,
+    TeeEventSink,
+    build_run_log_sink,
+)
 from kancollebot.task_scope import (  # noqa: E402
     TaskKind,
     require_task_enabled,
@@ -98,6 +108,10 @@ class MonitorRuntime:
     # stores are expedition-specific today; recording the task makes mixed
     # event logs attributable and stops a future task from silently reusing it.
     task_kind: str = TaskKind.EXPEDITION.value
+    # Identity of the unified run log for this process, when one is enabled.
+    # Empty means "no run log": the SQLite ledger is still the durable record.
+    run_id: str = ""
+    run_log_sink: RunLogSink | None = None
 
 
 def build_runtime(
@@ -107,6 +121,10 @@ def build_runtime(
     observer_script: str | Path = DEFAULT_OBSERVER_SCRIPT,
     observer_timeout_seconds: float = 130.0,
     max_state_age_seconds: float = 30.0,
+    # How close a scheduled return has to be before a stale observation is
+    # worth a navigation. This is what keeps an idle tick from turning into
+    # game input every cooldown period.
+    refresh_lead_seconds: float = 60.0,
     client: PoiMcpClient | None = None,
     observer: PassivePortResponseObserver | None = None,
     dispatch_fleet_ids: tuple[int, ...] = RUNTIME_CONFIG.monitor_candidate_fleet_ids,
@@ -128,6 +146,19 @@ def build_runtime(
     # mission_requirements are). A declared-but-unimplemented task is rejected
     # here instead of silently inheriting expedition fleet policy.
     task_kind: TaskKind | str = TaskKind.EXPEDITION,
+    # Opt-in recovery for a fleet that is already out (restart, or an expedition
+    # started by hand). Off by default: BLOCKED is the conservative answer when
+    # the durable state and the game disagree. Turning it on asserts that the
+    # caller confirmed HOME_PORT in the same observation window, and the monitor
+    # still requires the observed mission identity and composition to match.
+    adopt_unplanned_missions: bool = False,
+    # Opt-in unified run log. When a directory is given, every event that used to
+    # land only in SQLite is ALSO written to the three-day rolling JSONL there,
+    # through one tee object so the supervisor's "shared sink" identity check
+    # still holds. None keeps the historical behaviour exactly as it was.
+    run_log_dir: str | Path | None = None,
+    run_log_run_id: str | None = None,
+    run_log_policy: RunLogPolicy | None = None,
 ) -> MonitorRuntime:
     """Compose one read-only monitor with shared durable stores and witness source."""
     policy = require_task_enabled(task_kind)
@@ -140,6 +171,8 @@ def build_runtime(
         raise ValueError("observer_timeout_seconds must be finite and positive")
     if not math.isfinite(max_state_age_seconds) or max_state_age_seconds < 0:
         raise ValueError("max_state_age_seconds must be finite and non-negative")
+    if not math.isfinite(refresh_lead_seconds) or refresh_lead_seconds < 0:
+        raise ValueError("refresh_lead_seconds must be finite and non-negative")
     if not dispatch_fleet_ids or len(set(dispatch_fleet_ids)) != len(dispatch_fleet_ids):
         raise ValueError("dispatch_fleet_ids must be a non-empty unique sequence")
     dispatchable = set(policy.dispatchable_fleet_ids)
@@ -192,6 +225,17 @@ def build_runtime(
     event_sink = SqliteDispatchEventLog(
         str(database), task_kind=policy.task_kind.value
     )
+    run_log_sink: RunLogSink | None = None
+    if run_log_dir is not None or run_log_policy is not None:
+        # One tee, not a second scheduler: the SQLite append-only ledger stays
+        # the authoritative durable record and the run log is added beside it.
+        run_log_sink = build_run_log_sink(
+            directory=run_log_dir,
+            policy=run_log_policy,
+            task_kind=policy.task_kind.value,
+            run_id=run_log_run_id,
+        )
+        event_sink = TeeEventSink(event_sink, run_log_sink)  # type: ignore[assignment]
     state_store = SqliteFleetStateStore(database)
     intent_store = SqliteDispatchIntentStore(database)
     # The three scheduler roles must be disjoint. Fleets the account has not
@@ -222,36 +266,23 @@ def build_runtime(
         port_snapshot_provider=provider,
         freshness_max_age=timedelta(seconds=max_state_age_seconds),
     )
-    all_requirements = {
-        2: MissionCompositionRequirement(
-            mission_id=1,
-            minimum_ships=2,
-            minimum_flagship_level=1,
-        ),
-        3: MissionCompositionRequirement(
-            mission_id=3,
-            minimum_ships=3,
-            minimum_flagship_level=3,
-        ),
-        # Fleet 4 defaults to the same already live-verified mission-1
-        # composition as Fleet 2. This is a conservative default, NOT a claim
-        # that dispatching Fleet 4 has been verified on a real client; any
-        # other expedition must be supplied explicitly via mission_requirements.
-        4: MissionCompositionRequirement(
-            mission_id=1,
-            minimum_ships=2,
-            minimum_flagship_level=1,
-        ),
-    }
+    # R3-I: which fleet runs which mission is still a scheduling decision, but
+    # the NUMBERS for each mission now come from the single versioned static
+    # rule table rather than three copies of hardcoded literals. Fleet 4 keeps
+    # the conservative mission-1 default; this is not a claim that dispatching
+    # Fleet 4 was verified on a real client.
+    all_requirements = requirements_for_assignments(
+        {2: 1, 3: 3, 4: 1}, rule_set=DEFAULT_RULE_SET
+    )
     requirements = {
         fleet_id: all_requirements[fleet_id]
         for fleet_id in effective_dispatch_fleet_ids
     }
     if mission_requirements is not None:
         # A caller that dispatches a mission other than the ones configured
-        # here has to say which one, because the composition gate is what stops
-        # a fleet being sent on an expedition it cannot satisfy. The catalogue
-        # carries names and areas only, so these numbers cannot be derived.
+        # here has to say which one. The R3-I evaluator remains authoritative
+        # for the full condition set; this legacy mapping is only a blunt
+        # pre-check used by the monitor.
         if set(mission_requirements) != set(effective_dispatch_fleet_ids):
             raise ValueError(
                 "mission_requirements must configure every and only effective "
@@ -274,6 +305,9 @@ def build_runtime(
             max_wait_seconds=refresh_wait_seconds,
             poll_interval_seconds=refresh_poll_seconds,
             refresh_cooldown_seconds=refresh_cooldown_seconds,
+            # Every refresh is attributed to the caller that asked for it, so
+            # the audit trail says why the client was navigated.
+            event_sink=event_sink,
         )
 
     monitor = ContinuousExpeditionMonitor(
@@ -282,6 +316,8 @@ def build_runtime(
         mission_requirements=requirements,
         event_sink=event_sink,
         max_state_age=timedelta(seconds=max_state_age_seconds),
+        refresh_lead_time=timedelta(seconds=refresh_lead_seconds),
+        adopt_unplanned_missions=adopt_unplanned_missions,
     )
     return MonitorRuntime(
         monitor=monitor,
@@ -294,6 +330,8 @@ def build_runtime(
         unlocked_fleet_ids=observed_unlocked,
         fleet_availability_verified=availability_verified,
         task_kind=policy.task_kind.value,
+        run_id=run_log_sink.run_id if run_log_sink is not None else "",
+        run_log_sink=run_log_sink,
     )
 
 
@@ -578,6 +616,7 @@ def _run_monitor_with_session(
             observer_script=args.observer_script,
             observer_timeout_seconds=args.observer_timeout_seconds,
             max_state_age_seconds=args.max_state_age_seconds,
+            refresh_lead_seconds=args.refresh_lead_seconds,
             enable_ui_refresh=enable_ui_refresh,
             ui_input=game_session.input if game_session is not None else None,
             ui_state_verifier=(
@@ -597,6 +636,7 @@ def _run_monitor_with_session(
                 getattr(args, "fleet_availability_strict", False)
             ),
             task_kind=TaskKind.EXPEDITION,
+            run_log_dir=getattr(args, "run_log_dir", None),
         )
     except (OSError, ValueError) as exc:
         _emit(
@@ -632,9 +672,23 @@ def _run_monitor_with_session(
             "fleet_availability_verified": runtime.fleet_availability_verified,
             "game_actions_enabled": False,
             "ui_navigation_enabled": runtime.ui_refresh_enabled,
+            "run_id": getattr(runtime, "run_id", "") or None,
+            "run_log_directory": (
+                str(getattr(runtime, "run_log_sink").directory)
+                if getattr(runtime, "run_log_sink", None) is not None
+                else None
+            ),
         },
         _stdout,
     )
+    run_log_sink = getattr(runtime, "run_log_sink", None)
+    if run_log_sink is not None:
+        run_log_sink.start({
+            "database": str(args.database),
+            "dispatch_fleets": list(runtime.scheduler.dispatch_fleet_ids),
+            "ui_navigation_enabled": runtime.ui_refresh_enabled,
+            "game_actions_enabled": False,
+        })
     try:
         return run_monitor(
             runtime,
@@ -655,6 +709,10 @@ def _run_monitor_with_session(
         )
         return 130
     finally:
+        # Lifecycle rows are diagnostics, not a gate: a stop record that fails to
+        # write must never replace the exception that actually ended the run.
+        if run_log_sink is not None:
+            run_log_sink.stop("monitor_exited")
         runtime.provider.close(join_timeout_seconds=1.0)
 
 
@@ -662,9 +720,26 @@ def _main_impl(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--poi-endpoint", default=DEFAULT_POI_ENDPOINT)
     parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
+    parser.add_argument(
+        "--run-log-dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help=(
+            "Also write the unified three-day rolling JSONL run log to DIR "
+            "(default off). The SQLite append-only ledger is always written; "
+            "this adds the correlation envelope used to rebuild a run."
+        ),
+    )
     parser.add_argument("--observer-script", type=Path, default=DEFAULT_OBSERVER_SCRIPT)
     parser.add_argument("--observer-timeout-seconds", type=float, default=RUNTIME_CONFIG.observer_timeout_seconds)
     parser.add_argument("--max-state-age-seconds", type=float, default=RUNTIME_CONFIG.max_state_age_seconds)
+    parser.add_argument(
+        "--refresh-lead-seconds",
+        type=float,
+        default=60.0,
+        help="how close a return must be before a stale observation justifies navigation",
+    )
     parser.add_argument("--poll-seconds", type=float, default=RUNTIME_CONFIG.monitor_poll_seconds)
     parser.add_argument("--max-ticks", type=int)
     parser.add_argument(
@@ -789,6 +864,8 @@ def _main_impl(argv: list[str] | None = None) -> int:
         parser.error("--modal-dismiss-limit must be a positive integer")
     if not math.isfinite(args.poll_seconds) or args.poll_seconds <= 0:
         parser.error("--poll-seconds must be finite and positive")
+    if not math.isfinite(args.refresh_lead_seconds) or args.refresh_lead_seconds < 0:
+        parser.error("--refresh-lead-seconds must be finite and non-negative")
     if args.max_ticks is not None and args.max_ticks < 1:
         parser.error("--max-ticks must be a positive integer")
     if args.once and args.max_ticks is not None and args.max_ticks != 1:

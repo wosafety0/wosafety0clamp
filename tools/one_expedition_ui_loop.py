@@ -1,11 +1,14 @@
 """Run one supervised Fleet 3 -> mission 3 UI dispatch transaction.
 
 The production entry composes the fresh Poi monitor, durable scheduler and
-dispatch-intent coordinator, ContinuousDispatchController, single-tick
-ContinuousExpeditionSupervisor, and a visible CDP UI driver. It exits only after
-Poi confirms the new mission tuple and two-frame Home Port evidence. It does not
-wait for return, collect rewards, resupply, or run unattended. All game input is
-visible UI input; no game-server requests or page-state mutation are performed.
+dispatch-intent coordinator, ContinuousDispatchController, the settlement and
+resupply controllers, single-tick ContinuousExpeditionSupervisor, and a visible
+CDP UI driver. It exits only after Poi confirms the new mission tuple and
+two-frame Home Port evidence. A fleet that is already waiting for its return
+result, its reward, or its resupply is closed out first, in the same tick, by
+the injected controllers; it does not wait for a return that has not happened
+yet and it does not run unattended. All game input is visible UI input; no
+game-server requests or page-state mutation are performed.
 """
 from __future__ import annotations
 
@@ -28,6 +31,10 @@ from kancollebot.adapters.poi.cdp_fleet_state import (  # noqa: E402
     CdpFleetStateError,
     PoiFleetMissionState,
     read_poi_fleet_states,
+)
+from kancollebot.adapters.poi.cdp_port_supply import (  # noqa: E402
+    PoiPortSupplySnapshot,
+    read_poi_port_supply_snapshot,
 )
 from kancollebot.adapters.poi.cdp_input import (  # noqa: E402
     CdpInputError,
@@ -69,6 +76,7 @@ from kancollebot.calibration import (  # noqa: E402
     scan_page,
 )
 from kancollebot.core.task_attribution import merge_trusted_event_fields  # noqa: E402
+from kancollebot.observability.audit_policy import audit_gate  # noqa: E402
 from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
 
 # Long enough for the Home Port scene to finish settling before a frame is
@@ -92,6 +100,15 @@ FLEET_3_TAB = RecordedPoint(630, 170, "fleet-3-tab")
 EXPEDITION_START = RecordedPoint(920, 670, "expedition-start")
 RETURN_CONFIRM = RecordedPoint(1140, 670, "returned-expedition-confirm")
 
+# The reward chain, in order. Each screen accepts a click anywhere, so any click
+# sent while one is up advances the chain - which is why only the settlement
+# controller, which proves every screen, is allowed to send one.
+REWARD_SCREEN_STATES = (
+    UiState.HOME_PORT_RETURN_NOTICE.value,
+    UiState.RETURN_RESULT.value,
+    UiState.BONUS_ITEMS.value,
+)
+
 # Every click needs fresh evidence for its pre- and post-state. Pre-dispatch
 # checkpoints use two consecutive in-memory Ooi fingerprints. Return/bonus
 # checkpoints remain a separate production-readiness gate.
@@ -103,24 +120,58 @@ DISPATCH_STEPS = (
     (EXPEDITION_START, 1.5, "FLEET_2_SELECTED", "EXPEDITION_ACTIVE"),
 )
 
-# The composition gate needs a ship count and a flagship level per mission. The
-# catalogue carries names and areas only, and the client does not render the
-# level requirement, so only the two pairs this account has verified live are
-# kept here; anything else must be given explicitly rather than guessed.
-KNOWN_COMPOSITION = {(2, 1): (2, 1), (3, 3): (3, 3)}
+# R3-I: mission composition numbers live in ONE versioned static table
+# (src/kancollebot/expeditions/data/expedition_requirements.json), not in the
+# composition roots. `_mission_requirement()` is the only adapter from that
+# table to the legacy composition gate; the full check is performed by
+# ExpeditionRequirementChecker before any click.
 
 
 class LoopError(RuntimeError):
     """The observed state or UI sequence no longer matches the fixed loop."""
 
 
-def _mission_requirement(args, fleet_id: int, mission_id: int):
-    """The composition gate's numbers for this fleet and mission.
+class SettleOnlyDispatcher:
+    """A dispatch controller that can never dispatch.
 
-    ``--minimum-ships``/``--flagship-level`` win when given; otherwise only a
-    pair that was verified live is used. There is deliberately no default: a
-    made-up requirement would let the gate pass a fleet the mission cannot take.
+    ``--settle-only`` exists to close out a fleet that is already on an
+    expedition: settle the reward chain, resupply, stop. It still runs inside the
+    supervisor, which only knows one dispatch contract, so it is handed this
+    instead - one that satisfies the shared-scheduler/shared-reader wiring checks
+    and refuses the one thing a settle-only run must never do.
     """
+
+    def __init__(
+        self, *, scheduler, state_reader, event_sink, mission_requirements, ui_arbiter=None
+    ):
+        self.scheduler = scheduler
+        self.state_reader = state_reader
+        self.event_sink = event_sink
+        self.mission_requirements = mission_requirements
+        # Carried only so the entry's single-arbiter assertion can compare it:
+        # this controller sends no clicks, so it never asks the arbiter.
+        self.ui_arbiter = ui_arbiter
+
+    def dispatch_one_ready(self, fleet_id: int) -> None:
+        raise LoopError(
+            "settle-only run: the fleet is ready, and this entry closes out a "
+            "returned fleet without ever sending a start click"
+        )
+
+
+def _mission_requirement(args, fleet_id: int, mission_id: int):
+    """Adapt ONE static, versioned rule to the legacy composition gate.
+
+    R3-I removed the per-entry hardcoded table: a mission without a rule is
+    refused rather than guessed, and the full condition evaluation is done by
+    ``ExpeditionRequirementChecker`` on the fresh Poi baseline. The two CLI
+    overrides are kept only as an operator assertion read from the mission
+    panel; they may make the gate STRICTER than the static rule, never weaker.
+    """
+    from kancollebot.expeditions.expedition_rule_data import (
+        DEFAULT_RULE_SET,
+        mission_composition_requirement_for,
+    )
     from kancollebot.expeditions.mission_eligibility import MissionCompositionRequirement
 
     minimum_ships = getattr(args, "minimum_ships", None)
@@ -130,21 +181,31 @@ def _mission_requirement(args, fleet_id: int, mission_id: int):
             "--minimum-ships and --flagship-level must be given together; the "
             "composition gate needs both numbers"
         )
+    if DEFAULT_RULE_SET.requirement_for(mission_id) is None:
+        raise LoopError(
+            f"no static requirement rule for fleet {fleet_id} / mission "
+            f"{mission_id} in {DEFAULT_RULE_SET.rule_version}; refusing to "
+            "invent one from the mission panel"
+        )
+    baseline = mission_composition_requirement_for(mission_id)
     if minimum_ships is None:
-        known = KNOWN_COMPOSITION.get((fleet_id, mission_id))
-        if known is None:
-            raise LoopError(
-                f"no verified composition requirement for fleet {fleet_id} / mission "
-                f"{mission_id}; pass --minimum-ships and --flagship-level read from the "
-                "mission panel rather than guessing them"
-            )
-        minimum_ships, flagship_level = known
+        return baseline
     for name, value in (
         ("--minimum-ships", minimum_ships),
         ("--flagship-level", flagship_level),
     ):
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise LoopError(f"{name} must be a positive integer")
+    if (
+        minimum_ships < baseline.minimum_ships
+        or flagship_level < baseline.minimum_flagship_level
+    ):
+        raise LoopError(
+            f"explicit composition override ({minimum_ships}, {flagship_level}) is "
+            f"weaker than the static rule for mission {mission_id} "
+            f"({baseline.minimum_ships}, {baseline.minimum_flagship_level}); "
+            "refusing to weaken the gate"
+        )
     return MissionCompositionRequirement(
         mission_id=mission_id,
         minimum_ships=minimum_ships,
@@ -256,8 +317,17 @@ def _require_ui_state(
     *,
     visual_attempts: int = 3,
     capture_dir: str | Path | None = None,
+    from_surface: bool = True,
 ) -> str:
-    """Require accessible labels or two consecutive in-memory visual matches."""
+    """Require accessible labels or two consecutive in-memory visual matches.
+
+    ``from_surface`` is forwarded to the capture call. Only a state that lives
+    on a composited overlay layer - today just the Home Port return notice -
+    may ask for the slower composited surface; every other state keeps the
+    surface its calibrated fingerprint was recorded with.
+    """
+    if not isinstance(from_surface, bool):
+        raise ValueError("from_surface must be a bool")
     if (
         isinstance(visual_attempts, bool)
         or not isinstance(visual_attempts, int)
@@ -319,7 +389,7 @@ def _require_ui_state(
                         {"type": "mouseMoved", "x": 1195, "y": 715},
                     )
                     time.sleep(0.15)
-                    payload = game_session.input.capture_screenshot()
+                    payload = game_session.input.capture_screenshot(from_surface=from_surface)
                     observed, scores = classify_supply_checkbox_state(
                         payload, document, checkbox_document,
                         fleet_index=fleet_index, ship_index=ship_index
@@ -362,7 +432,7 @@ def _require_ui_state(
                         {"type": "mouseMoved", "x": 1195, "y": 715},
                     )
                     time.sleep(0.15)
-                    payload = game_session.input.capture_screenshot()
+                    payload = game_session.input.capture_screenshot(from_surface=from_surface)
                     observed, scores = classify_screenshot_fingerprints(payload, document)
                     _print_event(
                         "ui_fingerprint_state_check",
@@ -414,7 +484,7 @@ def _require_ui_state(
                     {"type": "mouseMoved", "x": 1195, "y": 715},
                 )
                 time.sleep(0.15)
-                payload = game_session.input.capture_screenshot()
+                payload = game_session.input.capture_screenshot(from_surface=from_surface)
                 visual_state, scores = classify_screenshot_png(payload, template_path)
                 if HOME_REFERENCE_BASE64:
                     scores["home_reference_similarity"] = home_reference_similarity(
@@ -473,6 +543,204 @@ def _capture_home_reference(game_session) -> None:
     )
 
 
+def _home_port_ui_layer_is_hidden(game_session) -> bool:
+    """True when the port background is on screen but its UI layer has faded.
+
+    The Home Port fades its whole UI layer after a click on the 母港 control, and
+    the faded frame still classifies as *something* - every Home Port crop keeps
+    matching the unchanged background, so the scores flatten around 0.88-0.91 and
+    the gate correctly refuses to call it HOME_PORT. That refusal is right, but
+    it leaves the loop stranded: the 母港 button is part of the hidden layer, so
+    clicking it again cannot bring the UI back.
+
+    The test is deliberately narrow - the best-scoring state must be HOME_PORT
+    itself, so a sortie menu or expedition list can never be mistaken for a faded
+    port, and the caller may then use a single area click to wake the layer.
+    """
+    fingerprint_path = Path(
+        os.environ.get(
+            "KANCOLLEBOT_FINGERPRINTS_PATH",
+            ROOT / "src" / "kancollebot" / "adapters" / "poi" / "ooi_1200x720_fingerprints.json",
+        )
+    )
+    if not fingerprint_path.is_file():
+        return False
+    try:
+        document = _read_visual_document(fingerprint_path)
+        payload = game_session.input.capture_screenshot()
+        observed, scores = classify_screenshot_fingerprints(payload, document)
+    except Exception:
+        return False
+    if observed != "UNKNOWN" or not scores:
+        return False
+    best_name = max(scores, key=scores.get)
+    return best_name == UiState.HOME_PORT.value and scores[best_name] >= 0.85
+
+
+def _visible_settlement_screen(game_session) -> str | None:
+    """The proven reward screen on display right now, or None.
+
+    The three reward screens advance on a click *anywhere*, so the Home Port
+    recovery must never click while one of them is up: the click would move the
+    reward chain forward without proving which screen it landed on. Live
+    2026-11-05 the loop started on a result screen left by an interrupted
+    settlement, sent two recovery clicks at the 母港 point, and walked the chain
+    result -> bonus items -> port blind. The settlement controller is the only
+    thing allowed to advance those screens, because it proves each one.
+
+    Uses the same classifier and thresholds as the UI state gate, so a screen
+    the gate would refuse to accept is also a screen the recovery leaves alone.
+    """
+    fingerprint_path = Path(
+        os.environ.get(
+            "KANCOLLEBOT_FINGERPRINTS_PATH",
+            ROOT / "src" / "kancollebot" / "adapters" / "poi" / "ooi_1200x720_fingerprints.json",
+        )
+    )
+    if not fingerprint_path.is_file():
+        return None
+    try:
+        document = _read_visual_document(fingerprint_path)
+        payload = game_session.input.capture_screenshot(
+            from_surface=False
+        )
+        observed, _scores = classify_screenshot_fingerprints(payload, document)
+    except Exception:
+        return None
+    return observed if observed in REWARD_SCREEN_STATES else None
+
+
+def _reward_screen_on_any_layer(game_session) -> str | None:
+    """The reward screen proven on either capture layer, or None.
+
+    The composited layer is the authoritative one for the return notice, but the
+    RETURN_RESULT and BONUS_ITEMS fingerprints were captured from the default
+    surface (``fromSurface=True``), so a composited UNKNOWN is not proof that no
+    reward screen is up. Recovery refuses on a screen proven by *either* layer:
+    checking both is read-only and can only widen the refusal, never the click.
+    """
+    screen = _visible_settlement_screen(game_session)
+    if screen is not None:
+        return screen
+    fingerprint_path = Path(
+        os.environ.get(
+            "KANCOLLEBOT_FINGERPRINTS_PATH",
+            ROOT / "src" / "kancollebot" / "adapters" / "poi" / "ooi_1200x720_fingerprints.json",
+        )
+    )
+    try:
+        document = _read_visual_document(fingerprint_path)
+        payload = game_session.input.capture_screenshot(from_surface=True)
+        observed, _scores = classify_screenshot_fingerprints(payload, document)
+    except Exception:
+        return None
+    return observed if observed in REWARD_SCREEN_STATES else None
+
+
+def _probe_startup_screen(game_session):
+    """One start-up CDP snapshot of both layers; the composited layer decides.
+
+    The reward screens are drawn on a composited overlay that the default
+    ``fromSurface=True`` capture drops. Live 2026-11-05 the same frame
+    classified HOME_PORT_RETURN_NOTICE 0.9987 on the composited layer and
+    HOME_PORT 0.9986 on the default one. A startup decision taken from the
+    default layer would therefore walk straight into Home Port recovery and
+    click the reward chain blind, so the default reading is recorded as audit
+    only. Any CDP or classifier failure propagates: no screen proof, no clicks.
+    """
+    from kancollebot.expeditions.startup_settlement import select_startup_screen
+
+    fingerprint_path = Path(
+        os.environ.get(
+            "KANCOLLEBOT_FINGERPRINTS_PATH",
+            ROOT / "src" / "kancollebot" / "adapters" / "poi" / "ooi_1200x720_fingerprints.json",
+        )
+    )
+    document = _read_visual_document(fingerprint_path)
+    composited_payload = game_session.input.capture_screenshot(from_surface=False)
+    composited_state, composited_scores = classify_screenshot_fingerprints(
+        composited_payload, document
+    )
+    try:
+        default_payload = game_session.input.capture_screenshot(from_surface=True)
+        default_state, _default_scores = classify_screenshot_fingerprints(
+            default_payload, document
+        )
+    except (CdpInputError, VisualFingerprintError, OSError, ValueError):
+        # The default layer is audit data; a broken second capture must not
+        # turn a proven composited screen into an unproven one.
+        default_state = None
+    # The two layers carry different reward screens. The notice is drawn
+    # on the composited overlay and is invisible in the default capture;
+    # the result and bonus screens are ordinary page content and were
+    # calibrated on the default surface. A reward screen proven on
+    # *either* layer is the startup screen, and the composited layer keeps
+    # priority when both prove one. Live 2026-11-05 a result screen
+    # classified 1.0000 on the default layer while the composited one said
+    # UNKNOWN - a composited-only probe walked straight past it.
+    composited_reward = composited_state in REWARD_SCREEN_STATES
+    default_reward = default_state in REWARD_SCREEN_STATES
+    if composited_reward:
+        proven_state, proven_layer = composited_state, "composited"
+    elif default_reward:
+        proven_state, proven_layer = default_state, "default_surface"
+    else:
+        proven_state, proven_layer = composited_state, "composited"
+    screen = select_startup_screen(
+        composited_state=proven_state, default_surface_state=default_state
+    )
+    score = composited_scores.get(composited_state) if composited_scores else None
+    _print_event(
+        "startup_screen_snapshot",
+        composited_state=composited_state,
+        composited_state_score=None if score is None else round(float(score), 4),
+        default_surface_state=default_state,
+        startup_screen=screen.state,
+        proven_layer=proven_layer,
+        layers_disagree=screen.layers_disagree,
+        evidence=screen.evidence,
+        clicks_sent=0,
+        game_api_requests=False,
+    )
+    return screen
+
+
+def _probe_startup_attribution(args, runtime, target_fleet_id):
+    """Resolve the recorded ship-ID set that ties a reward chain to a fleet.
+
+    Three sources, in order of directness: the scheduler's own mission, the
+    dispatch Poi confirmed (durable event log), and the dispatch intent. The
+    event log is read once and also yields the evidence a blocked fleet needs
+    to be recovered, plus the proof that a reward chain was ever closed, plus
+    the expedition-result witness the game itself stated.
+    """
+    from kancollebot.expeditions.blocked_recovery import (
+        read_dispatch_evidence,
+        read_settlement_completion,
+    )
+    from kancollebot.expeditions.continuous_dispatch_controller import (
+        SqliteDispatchEventLog,
+    )
+    from kancollebot.expeditions.dispatch_recovery import SqliteDispatchIntentStore
+    from kancollebot.expeditions.mission_result_witness import (
+        latest_witness_for_fleet,
+    )
+    from kancollebot.expeditions.startup_settlement import resolve_recorded_composition
+
+    events = SqliteDispatchEventLog(str(args.database)).load_all()
+    lookup = read_dispatch_evidence(events, target_fleet_id)
+    settlement_completed_at = read_settlement_completion(events, target_fleet_id)
+    witness = latest_witness_for_fleet(events, target_fleet_id)
+    recorded = resolve_recorded_composition(
+        mission=runtime.scheduler.fleet(target_fleet_id).mission,
+        intent=SqliteDispatchIntentStore(args.database).get(target_fleet_id),
+    )
+    if recorded is None and lookup.evidence is not None:
+        recorded = (lookup.evidence.ship_ids, "dispatch_confirmed_by_poi")
+    attribution = recorded if recorded is not None else (None, None)
+    return attribution, lookup, settlement_completed_at, witness
+
+
 def _recover_home_port(game_session, attempts: int = 3, force_click: bool = False) -> None:
     """Use bounded top-left navigation retries, requiring state evidence after each click.
 
@@ -487,6 +755,13 @@ def _recover_home_port(game_session, attempts: int = 3, force_click: bool = Fals
             return
         except (UiStateGateError, LoopError) as exc:
             _print_event("home_port_state_not_confirmed", attempt=0, error=str(exc))
+    settlement_screen = _reward_screen_on_any_layer(game_session)
+    if settlement_screen is not None:
+        raise LoopError(
+            f"The account is showing {settlement_screen}, a reward screen that advances on a "
+            "click anywhere. Home Port recovery will not send that click: the settlement "
+            "controller owns the reward chain because it proves every screen it advances."
+        )
     candidates = home_port_candidates(HOME_PORT)
     for attempt in range(1, attempts + 1):
         point = candidates[(attempt - 1) % len(candidates)]
@@ -503,7 +778,81 @@ def _recover_home_port(game_session, attempts: int = 3, force_click: bool = Fals
             return
         except (UiStateGateError, LoopError) as exc:
             _print_event("home_port_recovery_retry", attempt=attempt, error=str(exc))
-    raise LoopError(f"Home Port was not confirmed after {attempts} bounded attempts")
+    # The 母港 control is part of the UI layer it hides, so no number of retries
+    # on it can restore the layer. One click on the port background does - but
+    # only after the frame has been proven to be a faded port and nothing else.
+    if _home_port_ui_layer_is_hidden(game_session):
+        wake = RecordedPoint(600, 300, "home-port-ui-wake")
+        _print_event("ui_action_precondition", action="wake_home_port_ui_layer",
+                     attempt=1, force_click=False, point=wake.label)
+        game_session.input.click(wake)
+        _print_event("ui_click_sent", point=wake.label, attempt=1)
+        time.sleep(1.8)
+        _print_event("ui_action_wait_completed", point=wake.label, attempt=1,
+                     wait_seconds=1.8)
+        try:
+            _require_ui_state(game_session, UiState.HOME_PORT)
+        except (UiStateGateError, LoopError) as exc:
+            _print_event("home_port_ui_wake_failed", error=str(exc))
+        else:
+            _print_event("home_port_recovery_confirmed", attempt=attempts + 1,
+                         evidence="ui_layer_woken_by_area_click")
+            return
+    # The named-page proof failed on a page it cannot name. Click and observe
+    # instead - bounded, and never while a reward screen is up.
+    _recover_home_port_by_observation(game_session)
+
+
+def _recover_home_port_by_observation(
+    game_session, attempts: int = 6, interval_seconds: float = 3.0
+) -> None:
+    """Click the 母港 control and look again, instead of naming the page.
+
+    Some screens cannot be named (the fleet-selection page has no usable
+    fingerprint), and a proof that never succeeds is a proof that never sends
+    the click that would fix it. Each round proves the port, refuses to click
+    while a reward screen is up - those advance on a click anywhere and belong
+    to the settlement controller - clicks once, and looks again.
+
+    Live 2026-11-05 the named-page recovery failed twice in a row on the sortie
+    menu, and both times the client had to be walked back by hand.
+    """
+    candidates = home_port_candidates(HOME_PORT)
+    for attempt in range(1, attempts + 1):
+        try:
+            _require_ui_state(game_session, UiState.HOME_PORT)
+            _print_event("home_port_recovery_confirmed", attempt=attempt,
+                         evidence="observed_after_return_click")
+            return
+        except (UiStateGateError, LoopError):
+            pass
+        reward_screen = _reward_screen_on_any_layer(game_session)
+        if reward_screen is not None:
+            raise LoopError(
+                f"The account is showing {reward_screen}, a reward screen that advances "
+                "on a click anywhere. The observed recovery will not send that click: "
+                "the settlement controller owns the reward chain."
+            )
+        if attempt == 1:
+            # Let the client settle before the first click: waiting changes
+            # nothing, while a click on an unnamed page changes a screen we do
+            # not understand.
+            _print_event("home_port_recovery_settle_wait", attempt=attempt,
+                         wait_seconds=interval_seconds, clicks_sent=0)
+            time.sleep(interval_seconds)
+            continue
+        point = candidates[(attempt - 1) % len(candidates)]
+        _print_event("ui_action_precondition", action="click_home_port_observed",
+                     attempt=attempt, force_click=False, point=point.label)
+        game_session.input.click(point)
+        _print_event("ui_click_sent", point=point.label, attempt=attempt)
+        time.sleep(interval_seconds)
+        _print_event("ui_action_wait_completed", point=point.label,
+                     attempt=attempt, wait_seconds=interval_seconds)
+    raise LoopError(
+        f"Home Port was not reached after {attempts} observed return attempts; "
+        "refusing to keep clicking"
+    )
 
 
 def _wait_for_return(
@@ -774,6 +1123,19 @@ def _probe_unlocked_fleet_ids() -> tuple[int, ...]:
     )
 
 
+def _read_poi_port_supply_snapshot() -> PoiPortSupplySnapshot:
+    """Read-only: one fixed Redux port-supply snapshot over a short CDP session.
+
+    Poi's Redux state lives on the shell ``page`` target, not on the game
+    ``webview`` this entry clicks in, so the resupply data source needs its own
+    ``connect_poi_session``. Opening it per read keeps no long-lived second
+    connection alive across the expedition wait, and guarantees the post-action
+    verification is a genuinely new observation rather than a cached one.
+    """
+    with connect_poi_session(timeout=5.0) as poi_session:
+        return read_poi_port_supply_snapshot(poi_session.transport)
+
+
 def _run_production_supervisor_once(args: argparse.Namespace) -> int:
     """Compose the durable monitor/controller/supervisor with the visible CDP driver."""
     from datetime import timedelta
@@ -785,12 +1147,23 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
         ContinuousDispatchController,
         UiStateEvidence,
     )
+    from kancollebot.expeditions.continuous_monitor import ContinuousMonitorError
+    from kancollebot.expeditions.continuous_resupply_controller import (
+        ContinuousResupplyController,
+    )
     from kancollebot.expeditions.continuous_scheduler import (
         FleetPhase,
         UiOperationArbiter,
     )
+    from kancollebot.expeditions.continuous_settlement_controller import (
+        ContinuousSettlementController,
+    )
     from kancollebot.expeditions.continuous_supervisor import (
         ContinuousExpeditionSupervisor,
+    )
+    from kancollebot.expeditions.startup_settlement import StartupSettlementRefused
+    from kancollebot.expeditions.port_supply_provider import (
+        PoiReduxFleetSupplyProvider,
     )
     from kancollebot.expeditions.dispatch_recovery import (
         DurableDispatchCoordinator,
@@ -799,6 +1172,9 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
     from kancollebot.expeditions.fleet_availability import (
         FleetAvailabilityError,
         resolve_fleet_availability,
+    )
+    from kancollebot.expeditions.expedition_requirement_checker import (
+        ExpeditionRequirementChecker,
     )
     from kancollebot.task_scope import TaskKind
     from run_continuous_expedition_monitor import build_runtime
@@ -833,14 +1209,48 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
             source="poi-cdp-fleet-snapshot",
         )
         with connect_game_webview(timeout=3.0) as game_session:
-            requirement = _mission_requirement(args, target_fleet_id, target_mission_id)
-            _recover_home_port(game_session)
-            _capture_home_reference(game_session)
+            requirement = (
+                None
+                if args.settle_only
+                else _mission_requirement(args, target_fleet_id, target_mission_id)
+            )
+            # One start-up snapshot decides the path, from the composited layer.
+            # A proven reward screen is settled by the settlement controller
+            # BEFORE the monitor ever asks for a freshness witness: that
+            # witness needs a HOME_PORT navigation, which cannot run while a
+            # reward screen is up. This is the entry-level fix for the
+            # start-up deadlock (live 2026-11-05); the supervisor's tick order
+            # and the monitor's freshness gate are unchanged.
+            startup_screen = _probe_startup_screen(game_session)
+            if startup_screen.state is not None:
+                _print_event(
+                    "startup_reward_screen_detected",
+                    startup_screen=startup_screen.state,
+                    default_surface_state=startup_screen.default_surface_state,
+                    owned_by="startup settlement path",
+                    recovery_clicks_sent=0,
+                    ui_refresh_deferred_reason=(
+                        "the freshness navigation starts at HOME_PORT and cannot run "
+                        "while a reward screen is up"
+                    ),
+                )
+            else:
+                _recover_home_port(game_session)
+                _capture_home_reference(game_session)
 
             def verify_state(expected: str, *, visual_attempts: int = 3) -> UiStateEvidence:
                 state = UiState(expected)
+                # The return notice is drawn on a composited overlay layer that
+                # Page.captureScreenshot(fromSurface=True) drops: on 2026-11-05
+                # the same screen scored HOME_PORT 0.9985 / notice 0.8332 on the
+                # default surface and notice 0.9994 on the composited one, which
+                # made a real return look unsettleable. Ask for the composited
+                # surface only for the state that actually lives there.
                 evidence = _require_ui_state(
-                    game_session, state, visual_attempts=visual_attempts
+                    game_session,
+                    state,
+                    visual_attempts=visual_attempts,
+                    from_surface=state is not UiState.HOME_PORT_RETURN_NOTICE,
                 )
                 return UiStateEvidence(
                     state=state.value,
@@ -860,13 +1270,17 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 observer_timeout_seconds=args.observer_timeout_seconds,
                 max_state_age_seconds=args.max_state_age_seconds,
                 dispatch_fleet_ids=(target_fleet_id,),
-                mission_requirements={target_fleet_id: requirement},
+                mission_requirements=(
+                    None if requirement is None else {target_fleet_id: requirement}
+                ),
                 unlocked_fleet_ids=unlocked_fleet_ids,
                 fleet_availability_strict=True,
                 task_kind=TaskKind.EXPEDITION,
                 enable_ui_refresh=args.enable_ui_refresh,
                 ui_input=game_session.input if args.enable_ui_refresh else None,
                 ui_state_verifier=refresh_verify_state if args.enable_ui_refresh else None,
+                adopt_unplanned_missions=args.adopt_observed_mission,
+                run_log_dir=args.run_log_dir,
             )
 
             def capture_frame() -> str:
@@ -911,17 +1325,118 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 runtime.scheduler,
                 SqliteDispatchIntentStore(args.database),
             )
-            dispatch_controller = ContinuousDispatchController(
+            # One arbiter for every visible click in this process. The refresh
+            # driver, the dispatch controller, the settlement controller and the
+            # resupply controller must exclude one another, or two of them could
+            # interleave clicks on the same screen.
+            ui_arbiter = runtime.ui_arbiter or UiOperationArbiter()
+            if args.settle_only:
+                dispatch_controller = SettleOnlyDispatcher(
+                    scheduler=runtime.scheduler,
+                    state_reader=runtime.monitor.state_reader,
+                    event_sink=runtime.monitor.event_sink,
+                    mission_requirements=runtime.monitor.mission_requirements,
+                    ui_arbiter=ui_arbiter,
+                )
+            else:
+                # R3-I is a LIVE dispatch gate, not an optional diagnostic:
+                # the pure evaluator runs on the same fresh baseline before the
+                # first click. Only PASS proceeds; REJECT/UNKNOWN raise with
+                # zero UI input. Production additionally demands a cross-checked
+                # rule, so a single-source (unconfirmed) rule fails closed.
+                # There is deliberately no CLI or runtime bypass switch.
+                requirement_checker = ExpeditionRequirementChecker(
+                    minimum_confidence="cross_checked",
+                )
+                dispatchable_fleet_ids = tuple(RUNTIME_CONFIG.dispatchable_fleet_ids)
+                _print_event(
+                    "dispatch_requirement_gate_enabled",
+                    rule_source=requirement_checker.rule_source,
+                    rule_version=requirement_checker.rule_version,
+                    minimum_confidence="cross_checked",
+                    unlocked_fleet_ids=list(unlocked_fleet_ids),
+                    dispatchable_fleet_ids=list(dispatchable_fleet_ids),
+                    dispatch_clicks_sent=0,
+                )
+                dispatch_controller = ContinuousDispatchController(
+                    scheduler=runtime.scheduler,
+                    dispatch_coordinator=dispatch_coordinator,
+                    state_reader=runtime.monitor.state_reader,
+                    ui_driver=ui_driver,
+                    ui_arbiter=ui_arbiter,
+                    mission_requirements=runtime.monitor.mission_requirements,
+                    event_sink=runtime.monitor.event_sink,
+                    allow_ui_actions=True,
+                    max_state_age=timedelta(seconds=args.max_state_age_seconds),
+                    requirement_checker=requirement_checker,
+                    unlocked_fleet_ids=unlocked_fleet_ids,
+                    dispatchable_fleet_ids=dispatchable_fleet_ids,
+                    # Only present when the unified run log is enabled: the gate
+                    # proves the log is writable before an intent is persisted or
+                    # a control is clicked. A sink without a probe yields None,
+                    # which restores the historical behaviour exactly.
+                    audit_gate=audit_gate(runtime.monitor.event_sink),
+                )
+            # R3: the settlement and resupply controllers are the two branches
+            # supervisor.tick() could never reach while they were absent. They
+            # share the SAME ui_driver and the SAME arbiter as dispatch. The
+            # resupply controller keeps its own narrower safety gate: only
+            # fleets in RUNTIME_CONFIG.resupply_verified_fleet_ids may be
+            # clicked, so Fleet 4 still fails closed until its supply tab is
+            # calibrated.
+            #
+            # Capability is checked, not assumed. The production driver now
+            # implements the visible supply chain *and* the three reward-screen
+            # transitions (2026-11-05: the return notice, result and bonus
+            # screens all advance on a click anywhere, so each step is one
+            # proven click rather than a located button). The check stays
+            # because a driver without those methods must keep the supervisor
+            # paused instead of raising AttributeError at the first returned
+            # fleet - swapped drivers and future refactors are exactly when
+            # this guard earns its keep.
+            settlement_actions = (
+                "collect_return_result",
+                "claim_bonus_items",
+                "claim_reward",
+            )
+            settlement_controller = None
+            if all(callable(getattr(ui_driver, name, None)) for name in settlement_actions):
+                settlement_controller = ContinuousSettlementController(
+                    scheduler=runtime.scheduler,
+                    state_reader=runtime.monitor.state_reader,
+                    ui_driver=ui_driver,
+                    ui_arbiter=ui_arbiter,
+                    event_sink=runtime.monitor.event_sink,
+                    allow_ui_actions=True,
+                    max_state_age=timedelta(seconds=args.max_state_age_seconds),
+                )
+            else:
+                _print_event(
+                    "settlement_controller_unavailable",
+                    reason=(
+                        "the production UI driver has no calibrated settlement click chain; "
+                        "a returned fleet stays paused instead of being clicked blind"
+                    ),
+                    missing_actions=[
+                        name
+                        for name in settlement_actions
+                        if not callable(getattr(ui_driver, name, None))
+                    ],
+                    game_api_requests=False,
+                )
+            fleet_data_provider = PoiReduxFleetSupplyProvider(
+                snapshot_reader=_read_poi_port_supply_snapshot,
+                # The monitor's own passive observer is the only source of a
+                # real api_port/port witness in this process; reusing it keeps
+                # one witness stream instead of inventing a second one.
+                port_witness_provider=runtime.provider,
+                max_age=timedelta(seconds=args.max_state_age_seconds),
+            )
+            resupply_controller = ContinuousResupplyController(
                 scheduler=runtime.scheduler,
-                dispatch_coordinator=dispatch_coordinator,
-                state_reader=runtime.monitor.state_reader,
                 ui_driver=ui_driver,
-                # The refresh driver and this controller must share one
-                # arbiter, or their visible clicks would not be mutually
-                # excluded. With refresh disabled there is no refresh driver,
-                # so a fresh arbiter is sufficient.
-                ui_arbiter=runtime.ui_arbiter or UiOperationArbiter(),
-                mission_requirements=runtime.monitor.mission_requirements,
+                fleet_data_provider=fleet_data_provider,
+                ui_arbiter=ui_arbiter,
                 event_sink=runtime.monitor.event_sink,
                 allow_ui_actions=True,
                 max_state_age=timedelta(seconds=args.max_state_age_seconds),
@@ -929,6 +1444,8 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
             supervisor = ContinuousExpeditionSupervisor(
                 monitor=runtime.monitor,
                 dispatch_controller=dispatch_controller,
+                settlement_controller=settlement_controller,
+                resupply_controller=resupply_controller,
             )
 
             _print_event(
@@ -939,45 +1456,221 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 read_only_fleets=list(runtime.scheduler.read_only_fleet_ids),
                 deferred_fleets=list(runtime.scheduler.deferred_fleet_ids),
                 fleet_availability_verified=runtime.fleet_availability_verified,
+                settlement_controller_wired=supervisor.settlement_controller is not None,
+                resupply_controller_wired=supervisor.resupply_controller is not None,
+                shared_ui_arbiter=(
+                    dispatch_controller.ui_arbiter is ui_arbiter
+                    and supervisor.resupply_controller.ui_arbiter is ui_arbiter
+                    and (
+                        supervisor.settlement_controller is None
+                        or supervisor.settlement_controller.ui_arbiter is ui_arbiter
+                    )
+                ),
                 game_api_requests=False,
                 ui_refresh_enabled=args.enable_ui_refresh,
             )
-            result = supervisor.tick()
-            if result.paused_reason is not None or not result.dispatches:
+            if startup_screen.state is not None:
+                # Entry-level startup settlement. The gate compares the Fleet's
+                # observed ship-ID set with the composition recorded when it
+                # was dispatched; a missing or different set refuses with zero
+                # game actions. Only after that proof does the controller own
+                # the chain, and it re-proves the screen read-only before the
+                # first click. The monitor is not involved in this decision.
+                if settlement_controller is None:
+                    raise LoopError(
+                        "startup reward screen detected but no settlement controller "
+                        "is wired; refusing to click the chain"
+                    )
+                (
+                    (expected_ship_ids, expected_source),
+                    evidence_lookup,
+                    settled_at,
+                    mission_witness,
+                ) = _probe_startup_attribution(args, runtime, target_fleet_id)
+                try:
+                    startup_settlement = settlement_controller.settle_visible_reward_chain(
+                        fleet_id=target_fleet_id,
+                        screen=startup_screen,
+                        expected_ship_ids=expected_ship_ids,
+                        expected_ship_ids_source=expected_source,
+                        blocked_evidence=evidence_lookup.evidence,
+                        blocked_evidence_rejection=evidence_lookup.rejection,
+                        settlement_completed_at=settled_at,
+                        mission_result_witness=mission_witness,
+                    )
+                except StartupSettlementRefused as exc:
+                    raise LoopError(
+                        f"startup settlement refused ({exc.reason}); zero game actions sent"
+                    ) from exc
+                _print_event(
+                    "STARTUP_SETTLEMENT_CLOSED",
+                    fleet_id=target_fleet_id,
+                    start_screen=startup_settlement.start_screen,
+                    steps=[state for state, _ in startup_settlement.steps],
+                    ship_ids=list(startup_settlement.ship_ids),
+                    mission_credited=startup_settlement.mission is not None,
+                    recovered_from_blocked=startup_settlement.recovered_from_blocked,
+                    recovery_reason=startup_settlement.recovery_reason,
+                    scheduler_phase_after=startup_settlement.scheduler_phase_after,
+                    mission_result_witness_used=(startup_settlement.witness_verdict is not None),
+                    mission_result_witness_reason=(
+                        startup_settlement.witness_verdict.reason
+                        if startup_settlement.witness_verdict is not None
+                        else None
+                    ),
+                    game_api_requests=False,
+                )
+            # One explicit bootstrap refresh before the first tick.
+            #
+            # The monitor no longer navigates as a side effect of reading, and
+            # it refuses to navigate when the durable phase says nothing is
+            # pending. At start-up both halves of that rule deadlock: the phase
+            # says BLOCKED or "out for hours", so nothing counts as pending,
+            # so the observation can never be refreshed, so the phase can never
+            # change. Live 2026-11-05 an adopted run stopped before its first
+            # tick for exactly this reason. The caller that needs the state is
+            # this entry point, so it says so once, by name.
+            bootstrap_refresh = getattr(
+                runtime.monitor.state_reader, "ensure_fresh", None
+            )
+            if callable(bootstrap_refresh):
+                bootstrap_refresh(origin="run_bootstrap")
+
+            def report_actions(tick_index: int, result) -> None:
+                if result.settlements or result.resupplies:
+                    _print_event(
+                        "PRODUCTION_CLOSED_LOOP_ACTIONS",
+                        tick=tick_index,
+                        settlement_fleet_ids=[
+                            execution.fleet_id for execution in result.settlements
+                        ],
+                        resupply_fleet_ids=[
+                            execution.fleet_id for execution in result.resupplies
+                        ],
+                        resupply_already_supplied=[
+                            bool(execution.already_supplied)
+                            for execution in result.resupplies
+                        ],
+                        game_api_requests=False,
+                    )
+
+            def pause(result, reason: str, tick_index: int) -> int:
                 _print_event(
                     "PRODUCTION_SUPERVISOR_PAUSED",
-                    reason=result.paused_reason or f"fleet_{target_fleet_id}_not_ready",
+                    reason=result.paused_reason or reason,
                     dispatch_count=len(result.dispatches),
                     game_actions_sent=0,
+                    tick=tick_index,
                 )
                 return 2
 
-            if len(result.dispatches) != 1:
-                raise LoopError(
-                    f"Expected exactly one Fleet {target_fleet_id} dispatch, observed {len(result.dispatches)}"
+            # One tick is the historical contract: dispatch (or explain why not)
+            # and exit. --wait-for-return turns the same tick into a bounded
+            # wait, which is what makes a full round trip observable in one
+            # process instead of requiring a human to re-run the tool later.
+            max_ticks = args.max_ticks if args.wait_for_return else 1
+            for tick_index in range(1, max_ticks + 1):
+                try:
+                    result = supervisor.tick()
+                except ContinuousMonitorError as exc:
+                    # Waiting for a return means most ticks legitimately have
+                    # no trusted observation: the witness is 30s old and the
+                    # monitor will not navigate until the return is inside the
+                    # lead window. Refusing to act is the correct answer, and
+                    # killing the wait because of it would guarantee the return
+                    # is never observed. Only the wait mode tolerates this; a
+                    # single-shot run still stops on the first refusal.
+                    if not args.wait_for_return:
+                        raise
+                    _print_event(
+                        "PRODUCTION_TICK_OBSERVATION_UNAVAILABLE",
+                        tick=tick_index,
+                        of=max_ticks,
+                        error=str(exc),
+                        game_actions_sent=0,
+                    )
+                    if tick_index == max_ticks:
+                        _print_event(
+                            "PRODUCTION_SUPERVISOR_PAUSED",
+                            reason=(
+                                f"fleet_{target_fleet_id}_no_trusted_observation_"
+                                "within_max_ticks"
+                            ),
+                            dispatch_count=0,
+                            game_actions_sent=0,
+                            tick=tick_index,
+                        )
+                        return 2
+                    time.sleep(args.tick_interval_seconds)
+                    continue
+                report_actions(tick_index, result)
+                if result.paused_reason is not None:
+                    return pause(result, "", tick_index)
+                if not result.dispatches:
+                    if not args.wait_for_return:
+                        return pause(
+                            result, f"fleet_{target_fleet_id}_not_ready", tick_index
+                        )
+                    # Nothing to do and nothing wrong: the fleet is out and the
+                    # return has not been observed yet. Keep waiting, but only
+                    # while the scheduler itself says that is the truth.
+                    waiting = runtime.scheduler.fleet(target_fleet_id)
+                    if not (
+                        waiting.phase is FleetPhase.EXPEDITION_ACTIVE
+                        and waiting.home_port_verified
+                    ):
+                        return pause(
+                            result,
+                            f"fleet_{target_fleet_id}_not_dispatchable_in_phase_"
+                            f"{waiting.phase.value}",
+                            tick_index,
+                        )
+                    if tick_index == max_ticks:
+                        return pause(
+                            result,
+                            f"fleet_{target_fleet_id}_return_not_observed_within_max_ticks",
+                            tick_index,
+                        )
+                    _print_event(
+                        "production_waiting_for_return",
+                        tick=tick_index,
+                        fleet_id=target_fleet_id,
+                        mission_id=waiting.mission.mission_id,
+                        final_time_ms=waiting.mission.final_time_ms,
+                        next_tick_seconds=args.tick_interval_seconds,
+                    )
+                    time.sleep(args.tick_interval_seconds)
+                    continue
+
+                if len(result.dispatches) != 1:
+                    raise LoopError(
+                        f"Expected exactly one Fleet {target_fleet_id} dispatch, "
+                        f"observed {len(result.dispatches)}"
+                    )
+                dispatch = result.dispatches[0]
+                state = runtime.scheduler.fleet(target_fleet_id)
+                if (
+                    dispatch.fleet_id != target_fleet_id
+                    or dispatch.mission_id != target_mission_id
+                    or state.phase is not FleetPhase.EXPEDITION_ACTIVE
+                    or not state.home_port_verified
+                ):
+                    raise LoopError(
+                        f"Supervisor returned without the exact Fleet {target_fleet_id} / "
+                        f"mission {target_mission_id} active tuple and verified Home Port state"
+                    )
+                _print_event(
+                    "PRODUCTION_UI_CONTROLLER_INTEGRATION_VERIFIED",
+                    fleet_id=target_fleet_id,
+                    mission_id=target_mission_id,
+                    final_time_ms=dispatch.mission.final_time_ms,
+                    ship_ids=list(dispatch.mission.ship_ids),
+                    home_port_verified=True,
+                    tick=tick_index,
+                    closed_loop=bool(result.settlements),
+                    evidence="fresh_poi_before_after_and_two_frame_home_port",
                 )
-            dispatch = result.dispatches[0]
-            state = runtime.scheduler.fleet(target_fleet_id)
-            if (
-                dispatch.fleet_id != target_fleet_id
-                or dispatch.mission_id != target_mission_id
-                or state.phase is not FleetPhase.EXPEDITION_ACTIVE
-                or not state.home_port_verified
-            ):
-                raise LoopError(
-                    f"Supervisor returned without the exact Fleet {target_fleet_id} / "
-                    f"mission {target_mission_id} active tuple and verified Home Port state"
-                )
-            _print_event(
-                "PRODUCTION_UI_CONTROLLER_INTEGRATION_VERIFIED",
-                fleet_id=target_fleet_id,
-                mission_id=target_mission_id,
-                final_time_ms=dispatch.mission.final_time_ms,
-                ship_ids=list(dispatch.mission.ship_ids),
-                home_port_verified=True,
-                evidence="fresh_poi_before_after_and_two_frame_home_port",
-            )
-            return 0
+                return 0
     except Exception as exc:
         try:
             _print_event(
@@ -1001,6 +1694,22 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
 def run(args: argparse.Namespace) -> int:
     if not args.authorize_ui_actions:
         raise LoopError("Missing explicit --authorize-ui-actions flag")
+    if args.settle_only and not args.adopt_observed_mission:
+        # Without adoption the durable state has to already say this fleet is
+        # waiting for its result. Adopting is what lets a settle-only run pick up
+        # an expedition that is still out and close it out when it lands.
+        allowed = (
+            "a durable state that already has this fleet returned or awaiting "
+            "resupply; pass --adopt-observed-mission to close out one that is "
+            "still on expedition"
+        )
+        _print_event("settle_only_without_adoption", note=allowed)
+    if args.wait_for_return:
+        if isinstance(args.max_ticks, bool) or not isinstance(args.max_ticks, int) or args.max_ticks < 1:
+            raise LoopError("--max-ticks must be a positive integer")
+        interval = args.tick_interval_seconds
+        if not isinstance(interval, (int, float)) or isinstance(interval, bool) or not (interval > 0):
+            raise LoopError("--tick-interval-seconds must be positive")
     from kancollebot.adapters.poi.visual_target import (
         VisualTargetError,
         require_visual_dependencies,
@@ -1031,6 +1740,18 @@ def _main_impl(argv: list[str] | None = None) -> int:
         "--observer-script",
         type=Path,
         default=RUNTIME_CONFIG.observer_script,
+    )
+    parser.add_argument(
+        "--run-log-dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help=(
+            "Also write the unified three-day rolling JSONL run log to DIR "
+            "(default off, so an already-verified run behaves exactly as before). "
+            "When enabled, a critical audit row that cannot be written aborts the "
+            "action it describes instead of letting it happen unlogged."
+        ),
     )
     parser.add_argument("--observer-timeout-seconds", type=float, default=RUNTIME_CONFIG.observer_timeout_seconds)
     parser.add_argument("--max-state-age-seconds", type=float, default=RUNTIME_CONFIG.max_state_age_seconds)
@@ -1093,6 +1814,41 @@ def _main_impl(argv: list[str] | None = None) -> int:
         type=Path,
         default=RUNTIME_CONFIG.dispatch_log_path,
         help="The sole permitted local output file; defaults to logs/one_expedition_ui_loop.jsonl",
+    )
+    parser.add_argument(
+        "--settle-only",
+        action="store_true",
+        help="Close out a fleet that is already out and never dispatch. The "
+             "composition gate is skipped because no start click can be sent, and "
+             "a fleet that becomes ready stops the run instead of being dispatched.",
+    )
+    parser.add_argument(
+        "--adopt-observed-mission",
+        action="store_true",
+        help="Resume a target fleet that is already on the configured mission "
+             "(bot restart, or an expedition started by hand) instead of pausing "
+             "with fleet_N_blocked. Requires the same mission and composition; "
+             "Home Port is confirmed before the first tick either way",
+    )
+    parser.add_argument(
+        "--wait-for-return",
+        action="store_true",
+        help="Keep ticking while the target fleet is out, so its return, reward "
+             "screens, resupply and re-dispatch happen in this process instead of "
+             "requiring a second run. Bounded by --max-ticks",
+    )
+    parser.add_argument(
+        "--max-ticks",
+        type=int,
+        default=60,
+        help="Upper bound on supervisor ticks in --wait-for-return mode; each tick "
+             "is one fresh observation, not one click",
+    )
+    parser.add_argument(
+        "--tick-interval-seconds",
+        type=float,
+        default=10.0,
+        help="Pause between ticks while waiting for a return",
     )
     args = parser.parse_args(argv)
     global LOG_PATH, RUN_ID, HOME_REFERENCE_BASE64

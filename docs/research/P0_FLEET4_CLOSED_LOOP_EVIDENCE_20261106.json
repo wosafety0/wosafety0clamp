@@ -1,0 +1,388 @@
+{
+  "schema_version": "p0-fleet4-closed-loop-1",
+  "generated_at": "2026-11-05T17:02:31.456033+00:00",
+  "authorisation": {
+    "granted_by": "user",
+    "scope": "full closed loop on Fleet 4 / expedition 1: resupply, fresh witness, real dispatch, wait for return, settlement, home port, reconciliation",
+    "awaiting_return": "assistant polled read-only until the fleet returned",
+    "still_forbidden_and_respected": [
+      "modifying fleet composition",
+      "constructing, sending or replaying a game API request",
+      "turning the passive CDP listener into an active game request",
+      "relaxing the requirement gate or its confidence threshold"
+    ]
+  },
+  "environment": {
+    "cdp": "Chrome/152.0.7977.54, poi/12.0.1 Electron/44",
+    "poi_mcp": "http://127.0.0.1:12450/mcp storeReady=true",
+    "viewport": "1200x720"
+  },
+  "phase_A_resupply": {
+    "fleet_id": 4,
+    "ship_ids": [
+      16859,
+      14882,
+      12794,
+      1325
+    ],
+    "ship_levels": [
+      88,
+      47,
+      39,
+      82
+    ],
+    "before": {
+      "fuel": "11/15 (all four)",
+      "ammo": "12/15,12/15,16/20,12/15",
+      "fuel_ready": false,
+      "ammo_ready": false
+    },
+    "after": {
+      "fuel": "15/15 (all four)",
+      "ammo": "15/15,15/15,20/20,15/15",
+      "fuel_ready": true,
+      "ammo_ready": true
+    },
+    "commander_fuel_before": 43870,
+    "commander_fuel_after": 43854,
+    "commander_fuel_delta": -16,
+    "delta_matches": "4 ships x 4 fuel = 16, matching 11->15 per ship",
+    "other_fleets_untouched": {
+      "fleet_1": "unchanged",
+      "fleet_2": "already full, unchanged",
+      "fleet_3": "already full, unchanged"
+    },
+    "production_files_modified": false,
+    "note": "runtime_config.resupply_verified_fleet_ids is (2,3); the Fleet-4 supply tab exists on screen ('1 2 3 4 他') but has no calibrated region/fingerprint. Tab located by the same contour algorithm as locate_supply_fleet_tab with the derived region (330,155,50,50), proved by matching the observed level sequence 88/47/39/82 to the Poi snapshot before any supply click."
+  },
+  "phase_B_gate": {
+    "tool": "tools/verify_r3i_live_gate.py (unmodified, separate process)",
+    "fleet_id": 4,
+    "mission_id": 1,
+    "observed_at": "2026-11-05T16:38:22.380696+00:00",
+    "source_freshness_verified": true,
+    "passive_observer": {
+      "started": true,
+      "wait_seconds": 150.0,
+      "thread_alive_at_capture": true,
+      "last_status": "captured",
+      "natural_port_response_captured": true
+    },
+    "overall_result": "PASS",
+    "allows_dispatch": true,
+    "rule_confidence": "cross_checked",
+    "rule_source": "XVs32/kcauto_custom data/expedition/expedition.json@18d61ab3fe91",
+    "rule_version": "2026-11-05.1",
+    "passed_checks": [
+      "state_trust",
+      "rule_source",
+      "fleet_identity",
+      "fleet_available",
+      "ship_count",
+      "flagship_valid",
+      "flagship_level",
+      "fleet_total_level",
+      "ship_type_composition",
+      "equipment",
+      "fleet_stats",
+      "supply",
+      "damage"
+    ],
+    "failed_checks": [],
+    "unknown_checks": [],
+    "checks": [
+      {
+        "name": "state_trust",
+        "status": "PASS",
+        "detail": "Observation source 'poi-redux:info.fleets+info.ships' is trusted."
+      },
+      {
+        "name": "rule_source",
+        "status": "PASS",
+        "detail": "Rule 01 '練習航海' from community_wiki_and_tool_agree (confidence cross_checked); refs: kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#1, wikiwiki.jp/kancolle 遠征/詳細一覧表 (Last-modified 2026-09-01)#01."
+      },
+      {
+        "name": "fleet_identity",
+        "status": "PASS",
+        "detail": "Exactly one trusted record for Fleet 4."
+      },
+      {
+        "name": "fleet_available",
+        "status": "PASS",
+        "detail": "Fleet is idle, unlocked and policy-permitted."
+      },
+      {
+        "name": "ship_count",
+        "status": "PASS",
+        "detail": "Observed 4 ships meets the minimum 2."
+      },
+      {
+        "name": "flagship_valid",
+        "status": "PASS",
+        "detail": "Flagship api_stype 2 is valid (allowed: any)."
+      },
+      {
+        "name": "flagship_level",
+        "status": "PASS",
+        "detail": "Flagship level 88 meets minimum 1."
+      },
+      {
+        "name": "fleet_total_level",
+        "status": "NOT_APPLICABLE",
+        "detail": "No fleet total-level requirement."
+      },
+      {
+        "name": "ship_type_composition",
+        "status": "NOT_APPLICABLE",
+        "detail": "No fixed ship-type requirement."
+      },
+      {
+        "name": "equipment",
+        "status": "NOT_APPLICABLE",
+        "detail": "No equipment requirement for this expedition."
+      },
+      {
+        "name": "fleet_stats",
+        "status": "NOT_APPLICABLE",
+        "detail": "No fleet stat requirement."
+      },
+      {
+        "name": "supply",
+        "status": "PASS",
+        "detail": "Every member is fully supplied with fuel and ammunition."
+      },
+      {
+        "name": "damage",
+        "status": "PASS",
+        "detail": "No heavy damage observed."
+      }
+    ],
+    "baseline_ship_ids": [
+      16859,
+      14882,
+      12794,
+      1325
+    ],
+    "unknown_rule_control_9999": "UNKNOWN",
+    "probe_safety": {
+      "game_clicks_sent": 0,
+      "game_api_requests_sent": 0,
+      "game_input_sent": false,
+      "dispatch_attempted": false,
+      "fleet_composition_changes_proposed": false,
+      "ship_state_changes_proposed": false,
+      "runtime_evaluate_used": false,
+      "files_written_by_probe": [
+        "evidence JSON at --out"
+      ]
+    }
+  },
+  "phase_C_dispatch": {
+    "tool": "tools/live_dispatch_expedition.py --commit (unmodified)",
+    "preflight": {
+      "event": "PREFLIGHT_OK",
+      "fleet_id": 4,
+      "ship_count": 4,
+      "ship_ids": [
+        16859,
+        14882,
+        12794,
+        1325
+      ]
+    },
+    "dispatch_confirmed": {
+      "event": "DISPATCH_CONFIRMED",
+      "fleet_id": 4,
+      "mission": [
+        1,
+        1,
+        1793897769682,
+        0
+      ],
+      "final_time_ms": 1793897769682,
+      "ship_ids": [
+        16859,
+        14882,
+        12794,
+        1325
+      ]
+    },
+    "mission_tuple": [
+      1,
+      1,
+      1793897769682,
+      0
+    ],
+    "mission_id": 1,
+    "return_at_ms": 1793897769682,
+    "return_at_utc": "2026-11-05T16:56:09.682000+00:00",
+    "prepare_only_checkpoint_run": {
+      "note": "a prepare-only run first proved every checkpoint without the start click",
+      "result": "PREPARE_OK final_state=FLEET_4_SELECTED expedition_start_clicked=false",
+      "then": "DRIVER_BLOCKED on the prepare-only return step: FLEET_4_SELECTED has no fingerprint template"
+    }
+  },
+  "phase_D_return": {
+    "poll": "read-only Poi mission_status polling every 25 s",
+    "status_stayed_1_until_navigation": true,
+    "reason": "Poi's mission_status only advances when the client emits api_port/port; a fleet that is out produces no such response while the client sits on the home port",
+    "detection": "visible UI refresh navigation (3 clicks, 6 samples per step) then mission=[2,1,1793897769682,0]"
+  },
+  "phase_E_settlement": {
+    "attribution_rule": "R3-F: the fleet's ship-ID set plus 'no other fleet has an unaccepted result'; asserted before any click",
+    "attribution_checks": {
+      "observed_ship_ids": [
+        16859,
+        14882,
+        12794,
+        1325
+      ],
+      "expected_ship_ids": [
+        16859,
+        14882,
+        12794,
+        1325
+      ],
+      "other_fleet_mission_status": {
+        "1": 0,
+        "2": 0,
+        "3": 0
+      }
+    },
+    "screen_detected": "HOME_PORT_RETURN_NOTICE",
+    "steps": [
+      {
+        "step": "return_result",
+        "state": "RETURN_RESULT",
+        "evidence": "two_consecutive_in_memory_ooi_fingerprints"
+      },
+      {
+        "step": "bonus_items",
+        "state": "BONUS_ITEMS",
+        "evidence": "two_consecutive_in_memory_ooi_fingerprints"
+      },
+      {
+        "step": "reward_claimed",
+        "state": "HOME_PORT",
+        "evidence": "two_consecutive_in_memory_ooi_fingerprints"
+      }
+    ],
+    "post_settlement_screen": null,
+    "home_port_confirmed": true,
+    "fleet_state_after": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "why_not_settle_visible_reward_chain": "that entry attributes the fleet through the durable dispatch record written by ContinuousDispatchController; this dispatch came from live_dispatch_expedition.py, which writes no such record, so the controller would refuse rather than accept a fabricated record. The three production atomic steps were driven directly instead."
+  },
+  "phase_F_reconciliation": {
+    "fleet_idle_after": true,
+    "ship_ids_unchanged": true,
+    "per_ship_after": {
+      "1325": {
+        "fuel": "11/15",
+        "ammo": "15/15",
+        "hp": "24/24",
+        "cond": 49,
+        "ndock_time": 0
+      },
+      "12794": {
+        "fuel": "11/15",
+        "ammo": "20/20",
+        "hp": "16/16",
+        "cond": 49,
+        "ndock_time": 0
+      },
+      "14882": {
+        "fuel": "11/15",
+        "ammo": "15/15",
+        "hp": "24/24",
+        "cond": 49,
+        "ndock_time": 0
+      },
+      "16859": {
+        "fuel": "11/15",
+        "ammo": "15/15",
+        "hp": "27/27",
+        "cond": 49,
+        "ndock_time": 0
+      }
+    },
+    "closure_self_consistency": "the fleet ends at fuel 11/15 per ship, exactly the state observed before resupply, so resupply -> dispatch -> consumption -> return -> settlement returns the fleet to its recurring 'needs resupply' state",
+    "commander_resources_after": {
+      "fuel": 43854,
+      "ammo": 63282,
+      "steel": 61274,
+      "bauxite": 32939,
+      "source": "info.resources positional array"
+    },
+    "no_dock_no_damage": true
+  },
+  "click_audit": {
+    "per_phase": {
+      "supply": 4,
+      "gate_refresh": 3,
+      "dispatch_prepare": 5,
+      "dispatch_commit": 6,
+      "wait_return": 0,
+      "settlement": 6
+    },
+    "audited_ui_clicks": 24,
+    "counting_rule": "only events that actually sent a click; preset *_verified values and summary *_completed values are never counted",
+    "unlogged_probe_clicks": {
+      "total": 15,
+      "breakdown": {
+        "probe_supply_tabs.py": {
+          "clicks": 4,
+          "what": "1x supply-menu to inspect the tab strip, then 3x home-port recovery attempts",
+          "purpose": "find out how many fleet tabs the supply screen actually shows"
+        },
+        "supply_fleet4_step1.py (first run)": {
+          "clicks": 1,
+          "what": "1x supply-menu, then the run aborted on a wrong state assertion",
+          "purpose": "entering the supply screen"
+        },
+        "recover_home.py (two runs)": {
+          "clicks": 4,
+          "what": "3x + 1x home-port recovery clicks",
+          "purpose": "return to the home port between phases"
+        },
+        "supply_fleet4_step1.py (second run)": {
+          "clicks": 2,
+          "what": "1x supply-menu + 1x fleet-4 tab",
+          "purpose": "select Fleet 4 in the supply screen"
+        },
+        "supply_fleet4_step2.py": {
+          "clicks": 1,
+          "what": "1x fleet-wide resupply",
+          "purpose": "resupply Fleet 4"
+        },
+        "live_dispatch_expedition.py prepare run": {
+          "clicks": 3,
+          "what": "3x home-port recovery attempts before the dispatch checkpoints",
+          "purpose": "start the prepare-only validation from a proven home port"
+        }
+      },
+      "reason": "these ran in throwaway probe/recovery scripts whose stdout was consumed directly; they are listed by script instead of being folded into a line-addressable total"
+    },
+    "grand_total_ui_clicks": 39,
+    "probe_clicks": 0,
+    "game_api_requests_authored": 0,
+    "dispatch_intent_written": false,
+    "composition_changes": 0
+  },
+  "evidence_files": {
+    "gate_json": "docs/research/P0_FLEET4_LIVE_GATE_EVIDENCE_20261106.json",
+    "gate_json_sha256": "0f6fa0dce413a6d039078dddb8fc1508f4a7bba8bd1a9eeb2d70908a4d417e6c"
+  },
+  "log_event_counts": {
+    "supply": 11,
+    "gate_refresh": 7,
+    "dispatch_prepare": 26,
+    "dispatch_commit": 30,
+    "wait_return": 43,
+    "settlement": 54
+  }
+}

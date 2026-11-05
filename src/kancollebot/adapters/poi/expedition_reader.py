@@ -15,6 +15,15 @@ from kancollebot.adapters.poi.port_freshness import port_snapshot_matches_curren
 from kancollebot.core.observed_state import ObservedState
 from kancollebot.core.observation_contracts import ObservedFleetSnapshot
 
+from .requirement_evidence import (
+    EQUIP_INSTANCE_FIELDS,
+    SHIP_DETAIL_FIELDS,
+    RequirementEvidenceError,
+    build_equipment_where_clause,
+    equipment_instance_ids_for_fleets,
+    parse_requirement_evidence,
+)
+
 
 # The bridge caps collection responses by serialized size, not by item count:
 # this account's 239-instance roster comes back as 111 entries with
@@ -154,6 +163,79 @@ class PoiExpeditionReader:
         if returned != len(items) or total != returned:
             return None
         return items
+
+    @staticmethod
+    def _filtered_items(value: Any, path: str, wanted_ids: tuple[int, ...]) -> dict[str, Any] | None:
+        """Validate a `where`-filtered object-map read without demanding all rows."""
+        if not isinstance(value, dict) or value.get("kind") != "object-map":
+            return None
+        if value.get("truncated") is not False:
+            return None
+        items = value.get("items")
+        returned = value.get("returned")
+        if not isinstance(items, dict) or not isinstance(returned, int) or returned != len(items):
+            return None
+        if any(str(instance_id) not in items for instance_id in wanted_ids):
+            return None
+        return items
+
+    def _read_requirement_evidence_sources(
+        self, fleets: list[Any]
+    ) -> dict[str, Any] | None:
+        """Read equipment/stat evidence inside THIS observation, or return None.
+
+        The 239-ship port-witness projection must stay small, so equipment and
+        displayed stats come from a SECOND narrow projection of ``info.ships``
+        (239/239 untruncated) plus a filtered ``info.equips`` lookup. Any failed,
+        truncated, ambiguous or unresolvable read yields ``None``; the affected
+        conditions then fail closed as UNKNOWN and no other fleet is invented.
+
+        This is a read-only helper: it never writes state and never relaxes the
+        port-witness freshness check.
+        """
+        try:
+            detail_result = _tool_value(
+                self._client.call_read_tool(
+                    "poi_get",
+                    {
+                        "path": "info.ships",
+                        "limit": _INFO_SHIPS_READ_LIMIT,
+                        "select": list(SHIP_DETAIL_FIELDS),
+                    },
+                ),
+                "poi_get(info.ships requirement detail)",
+            )
+            detail = self._info_ships_complete(detail_result)
+            if detail is None:
+                return None
+            instance_ids = equipment_instance_ids_for_fleets(fleets, detail)
+            equip_instances: dict[str, Any] = {}
+            if instance_ids:
+                where = build_equipment_where_clause(instance_ids)
+                equip_result = _tool_value(
+                    self._client.call_read_tool(
+                        "poi_get",
+                        {
+                            "path": "info.equips",
+                            "where": where,
+                            "limit": _INFO_SHIPS_READ_LIMIT,
+                            "select": list(EQUIP_INSTANCE_FIELDS),
+                        },
+                    ),
+                    "poi_get(info.equips requirement detail)",
+                )
+                resolved = self._filtered_items(equip_result, "info.equips", instance_ids)
+                if resolved is None:
+                    return None
+                equip_instances = resolved
+        except (PoiMcpError, RequirementEvidenceError, KeyError, TypeError):
+            # Equipment/stat evidence is auxiliary: a bridge error degrades the
+            # observation to "no evidence" rather than fabricating a value. The
+            # evaluator then refuses any expedition that needs that evidence.
+            # A malformed/absent collection must never make the WHOLE read fail
+            # in a way that could be mistaken for a dispatch decision.
+            return None
+        return {"ship_details": detail, "equip_instances": equip_instances}
 
     def _read_info_ships(self, referenced_ids: list[int]) -> dict[str, Any]:
         """Return the complete info.ships object-map.
@@ -296,6 +378,12 @@ class PoiExpeditionReader:
         else:
             masters = {}
 
+        # R3-I evidence is read INSIDE this observation, between the two
+        # consistency reads below. It is attached to the very same fleet
+        # snapshot that carries the freshness verdict, so the dispatch gate
+        # cannot evaluate equipment from a different instant than composition.
+        evidence_sources = self._read_requirement_evidence_sources(fleets)
+
         # The MCP API exposes no source revision token. Re-read both mutable
         # Redux collections and refuse to combine records from visibly different
         # states. This is a best-effort consistency guard, not a freshness proof
@@ -312,6 +400,25 @@ class PoiExpeditionReader:
             raise PoiMcpError(
                 "Poi fleet/ship state changed during observation; refusing mixed snapshot"
             )
+        confirm_evidence_sources = self._read_requirement_evidence_sources(confirm_fleets)
+        requirement_evidence = None
+        if (
+            evidence_sources is not None
+            and confirm_evidence_sources is not None
+            and evidence_sources == confirm_evidence_sources
+        ):
+            try:
+                requirement_evidence = parse_requirement_evidence(
+                    fleets,
+                    evidence_sources["ship_details"],
+                    evidence_sources["equip_instances"],
+                    conditions=ships,
+                )
+            except RequirementEvidenceError:
+                requirement_evidence = None
+        # A changed/unavailable equipment read is NOT silently merged: any
+        # expedition needing that evidence falls back to UNKNOWN, while an
+        # expedition with no equipment/stat requirement is unaffected.
 
         observed_at = self._clock()
         source_freshness_verified = (
@@ -331,6 +438,7 @@ class PoiExpeditionReader:
                 masters,
                 observed_at=observed_at,
                 source_freshness_verified=source_freshness_verified,
+                requirement_evidence=requirement_evidence,
             )
         except (PoiStateError, ValueError, TypeError, OverflowError) as exc:
             raise PoiMcpError(f"Poi state normalization failed closed: {exc}") from exc

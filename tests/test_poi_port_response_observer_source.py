@@ -11,6 +11,23 @@ SOURCE = (
     / "poi_port_response_observer_20261029.js"
 )
 
+#: The CDP plumbing both observers share. The safety contract lives here
+#: now: one mechanism, one place to check it.
+CORE = (
+    Path(__file__).resolve().parents[1]
+    / "tools"
+    / "hand_sandbox"
+    / "poi_cdp_capture_core.js"
+)
+
+#: The expedition-result observer, which shares that core.
+RESULT_OBSERVER = (
+    Path(__file__).resolve().parents[1]
+    / "tools"
+    / "hand_sandbox"
+    / "poi_mission_result_observer_20261105.js"
+)
+
 
 class PassivePortObserverSourceTests(unittest.TestCase):
     def test_child_only_witness_mode_skips_snapshot_persistence(self):
@@ -36,7 +53,7 @@ class PassivePortObserverSourceTests(unittest.TestCase):
         )
 
     def test_target_discovery_rejects_non_array_json_before_filtering(self):
-        source = SOURCE.read_text(encoding="utf-8")
+        source = CORE.read_text(encoding="utf-8")
         parse_at = source.index("targets = JSON.parse(body)")
         guard_at = source.index("if (!Array.isArray(targets))", parse_at)
         filter_at = source.index("targets.filter(safeGameTarget)", parse_at)
@@ -48,7 +65,7 @@ class PassivePortObserverSourceTests(unittest.TestCase):
         )
 
     def test_cdp_socket_remains_loopback_and_network_read_only(self):
-        source = SOURCE.read_text(encoding="utf-8")
+        source = CORE.read_text(encoding="utf-8")
         self.assertIn("const TARGETS_URL = 'http://127.0.0.1:9222/json/list';", source)
         self.assertIn("wsUrl.protocol !== 'ws:'", source)
         self.assertIn("wsUrl.port !== '9222'", source)
@@ -60,7 +77,11 @@ class PassivePortObserverSourceTests(unittest.TestCase):
         self.assertNotIn("send('Runtime.callFunctionOn'", source)
 
     def test_observer_has_no_input_or_page_navigation_call_sites(self):
-        source = SOURCE.read_text(encoding="utf-8")
+        sources = {
+            "port": SOURCE.read_text(encoding="utf-8"),
+            "core": CORE.read_text(encoding="utf-8"),
+            "result": RESULT_OBSERVER.read_text(encoding="utf-8"),
+        }
         forbidden_methods = (
             "Input.dispatchMouseEvent",
             "Input.dispatchKeyEvent",
@@ -71,13 +92,14 @@ class PassivePortObserverSourceTests(unittest.TestCase):
             "Network.setCookie",
             "Network.replayXHR",
         )
-        for method in forbidden_methods:
-            with self.subTest(method=method):
-                self.assertNotIn(f"send('{method}'", source)
-                self.assertNotIn(f'send("{method}"', source)
+        for name, source in sources.items():
+            for method in forbidden_methods:
+                with self.subTest(observer=name, method=method):
+                    self.assertNotIn(f"send('{method}'", source)
+                    self.assertNotIn(f'send("{method}"', source)
 
     def test_observer_send_call_sites_are_literal_network_allowlist(self):
-        source = SOURCE.read_text(encoding="utf-8")
+        source = CORE.read_text(encoding="utf-8")
         source = re.sub(r"function\s+send\s*\([^)]*\)\s*\{", "", source, count=1)
         call_sites = re.findall(r"(?<![\w.])send\s*\(", source)
         literal_calls = re.findall(
@@ -90,6 +112,24 @@ class PassivePortObserverSourceTests(unittest.TestCase):
             {"Network.enable", "Network.getResponseBody"},
         )
         self.assertEqual(len(literal_calls), 2)
+
+    def test_both_observers_share_the_one_capture_core(self):
+        # One Network observation mechanism, not one per endpoint: the port
+        # observer and the expedition-result observer both go through it.
+        for source_path in (SOURCE, RESULT_OBSERVER):
+            with self.subTest(observer=source_path.name):
+                source = source_path.read_text(encoding="utf-8")
+                self.assertIn("require('./poi_cdp_capture_core.js')", source)
+                self.assertIn("createCaptureCore({", source)
+
+    def test_the_result_observer_reads_only_the_fleet_id(self):
+        # The request body may carry anything; only api_deck_id may be read,
+        # and the raw body must never be written out.
+        source = RESULT_OBSERVER.read_text(encoding="utf-8")
+        self.assertIn("'api_deck_id'", source)
+        self.assertIn("rawRequestBodySaved: false", source)
+        self.assertIn("rawResponseBodySaved: false", source)
+        self.assertNotIn("action.postBody", source)
 
 
 if __name__ == "__main__":

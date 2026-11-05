@@ -1,0 +1,1641 @@
+{
+  "schema_version": "r3i-expedition-requirements-1",
+  "rule_version": "2026-11-05.1",
+  "kind": "static_reference",
+  "generated_on": "2026-11-05",
+  "provenance": {
+    "primary": {
+      "name": "XVs32/kcauto_custom data/expedition/expedition.json",
+      "url": "https://github.com/XVs32/kcauto_custom/blob/develop/data/expedition/expedition.json",
+      "commit": "18d61ab3fe91235ea2476ea186bad5c516572a66",
+      "retrieved_on": "2026-11-05",
+      "kind": "static_community_data",
+      "confidence": "community_static_single_source",
+      "note": "Repo README states its data is compiled from the community wiki, not extracted from the game client; not guaranteed correct."
+    },
+    "cross_check": {
+      "name": "wikiwiki.jp/kancolle 遠征/詳細一覧表 (Last-modified 2026-09-01)",
+      "url": "https://wikiwiki.jp/kancolle/%E9%81%A0%E5%BE%81/%E8%A9%B3%E7%B4%B0%E4%B8%80%E8%A6%A7%E8%A1%A8",
+      "retrieved_on": "2026-11-05",
+      "kind": "community_wiki",
+      "scope": "missions 01-08, A5/A6, drum requirements of 21/37/38, flagship restrictions"
+    },
+    "corroboration": [
+      {
+        "name": "keji8/KanColle-JSON-Data json/expeditionRequirements.json",
+        "commit": "3e642f2a595691fb4b139176691a3e307c64892c",
+        "note": "Its own ship-type ID space (1..17), NOT api_stype; used only for flagship type and total level cross-checks."
+      },
+      {
+        "name": "poooi/poi-plugin-ezexped exped-reqs/world-1.es",
+        "commit": "d5051e5a19247847b40e4a29ad2af63ddb37dc70",
+        "note": "Requirement DSL for A1-A6; drum master id 75 from structs/ereq/common.es."
+      },
+      {
+        "name": "en.kancollewiki.net/Expeditions",
+        "note": "General success conditions: full resupply, flagship level, composition, drums, stat totals, Taiha flagship blocks dispatch."
+      }
+    ],
+    "type_code_space": "api_stype",
+    "drum_equipment_master_id": 75,
+    "mapping_note": "api_stype codes taken verbatim from kcauto_custom/kcauto/kca_enums/ship_types.py; NA=0 is that project's wildcard, not an official stype."
+  },
+  "rules": [
+    {
+      "mission_id": 1,
+      "catalog_number": "01",
+      "catalog_name": "練習航海",
+      "minimum_ships": 2,
+      "allow_extra_ships": true,
+      "required_stype_groups": [],
+      "free_slots": 2,
+      "flagship_stypes": [],
+      "flagship_min_level": 1,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_wiki_and_tool_agree",
+      "confidence": "cross_checked",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#1",
+        "wikiwiki.jp/kancolle 遠征/詳細一覧表 (Last-modified 2026-09-01)#01"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 2,
+      "catalog_number": "02",
+      "catalog_name": "長距離練習航海",
+      "minimum_ships": 4,
+      "allow_extra_ships": true,
+      "required_stype_groups": [],
+      "free_slots": 4,
+      "flagship_stypes": [],
+      "flagship_min_level": 2,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_wiki_and_tool_agree",
+      "confidence": "cross_checked",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#2",
+        "wikiwiki.jp/kancolle 遠征/詳細一覧表 (Last-modified 2026-09-01)#02"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 3,
+      "catalog_number": "03",
+      "catalog_name": "警備任務",
+      "minimum_ships": 3,
+      "allow_extra_ships": true,
+      "required_stype_groups": [],
+      "free_slots": 3,
+      "flagship_stypes": [],
+      "flagship_min_level": 3,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_wiki_and_tool_agree",
+      "confidence": "cross_checked",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#3",
+        "wikiwiki.jp/kancolle 遠征/詳細一覧表 (Last-modified 2026-09-01)#03"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 4,
+      "catalog_number": "04",
+      "catalog_name": "対潜警戒任務",
+      "minimum_ships": 3,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            3
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            2,
+            1
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 0,
+      "flagship_stypes": [],
+      "flagship_min_level": 3,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_wiki_and_tool_agree",
+      "confidence": "cross_checked",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#4",
+        "wikiwiki.jp/kancolle 遠征/詳細一覧表 (Last-modified 2026-09-01)#04"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 5,
+      "catalog_number": "05",
+      "catalog_name": "海上護衛任務",
+      "minimum_ships": 4,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            3
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            2,
+            1
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 1,
+      "flagship_stypes": [],
+      "flagship_min_level": 3,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_wiki_and_tool_agree",
+      "confidence": "cross_checked",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#5",
+        "wikiwiki.jp/kancolle 遠征/詳細一覧表 (Last-modified 2026-09-01)#05"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 6,
+      "catalog_number": "06",
+      "catalog_name": "防空射撃演習",
+      "minimum_ships": 4,
+      "allow_extra_ships": true,
+      "required_stype_groups": [],
+      "free_slots": 4,
+      "flagship_stypes": [],
+      "flagship_min_level": 4,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_wiki_and_tool_agree",
+      "confidence": "cross_checked",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#6",
+        "wikiwiki.jp/kancolle 遠征/詳細一覧表 (Last-modified 2026-09-01)#06"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 7,
+      "catalog_number": "07",
+      "catalog_name": "観艦式予行",
+      "minimum_ships": 6,
+      "allow_extra_ships": true,
+      "required_stype_groups": [],
+      "free_slots": 6,
+      "flagship_stypes": [],
+      "flagship_min_level": 5,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_wiki_and_tool_agree",
+      "confidence": "cross_checked",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#7",
+        "wikiwiki.jp/kancolle 遠征/詳細一覧表 (Last-modified 2026-09-01)#07"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 8,
+      "catalog_number": "08",
+      "catalog_name": "観艦式",
+      "minimum_ships": 6,
+      "allow_extra_ships": true,
+      "required_stype_groups": [],
+      "free_slots": 6,
+      "flagship_stypes": [],
+      "flagship_min_level": 6,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_wiki_and_tool_agree",
+      "confidence": "cross_checked",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#8",
+        "wikiwiki.jp/kancolle 遠征/詳細一覧表 (Last-modified 2026-09-01)#08"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 9,
+      "catalog_number": "09",
+      "catalog_name": "タンカー護衛任務",
+      "minimum_ships": 4,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            3
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            2,
+            1
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 1,
+      "flagship_stypes": [],
+      "flagship_min_level": 3,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#9"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 10,
+      "catalog_number": "10",
+      "catalog_name": "強行偵察任務",
+      "minimum_ships": 3,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            3
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 1,
+      "flagship_stypes": [],
+      "flagship_min_level": 3,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#10"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 11,
+      "catalog_number": "11",
+      "catalog_name": "ボーキサイト輸送任務",
+      "minimum_ships": 4,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            2
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 2,
+      "flagship_stypes": [],
+      "flagship_min_level": 6,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#11"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 12,
+      "catalog_number": "12",
+      "catalog_name": "資源輸送任務",
+      "minimum_ships": 4,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            2
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 2,
+      "flagship_stypes": [],
+      "flagship_min_level": 4,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#12"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 13,
+      "catalog_number": "13",
+      "catalog_name": "鼠輸送作戦",
+      "minimum_ships": 6,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            3
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            2
+          ],
+          "count": 4
+        }
+      ],
+      "free_slots": 1,
+      "flagship_stypes": [],
+      "flagship_min_level": 5,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#13"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 14,
+      "catalog_number": "14",
+      "catalog_name": "包囲陸戦隊撤収作戦",
+      "minimum_ships": 6,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            3
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            2
+          ],
+          "count": 3
+        }
+      ],
+      "free_slots": 2,
+      "flagship_stypes": [],
+      "flagship_min_level": 6,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#14"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 15,
+      "catalog_number": "15",
+      "catalog_name": "囮機動部隊支援作戦",
+      "minimum_ships": 6,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            7
+          ],
+          "count": 2
+        },
+        {
+          "stypes": [
+            2
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 2,
+      "flagship_stypes": [],
+      "flagship_min_level": 8,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#15"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 16,
+      "catalog_number": "16",
+      "catalog_name": "艦隊決戦援護作戦",
+      "minimum_ships": 6,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            3
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            2
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 3,
+      "flagship_stypes": [],
+      "flagship_min_level": 10,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#16"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 17,
+      "catalog_number": "17",
+      "catalog_name": "敵地偵察作戦",
+      "minimum_ships": 6,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            3
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            2
+          ],
+          "count": 3
+        }
+      ],
+      "free_slots": 2,
+      "flagship_stypes": [],
+      "flagship_min_level": 20,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#17"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 18,
+      "catalog_number": "18",
+      "catalog_name": "航空機輸送作戦",
+      "minimum_ships": 6,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            7
+          ],
+          "count": 2
+        },
+        {
+          "stypes": [
+            16
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            2
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 1,
+      "flagship_stypes": [],
+      "flagship_min_level": 15,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#18"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 19,
+      "catalog_number": "19",
+      "catalog_name": "北号作戦",
+      "minimum_ships": 6,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            10
+          ],
+          "count": 2
+        },
+        {
+          "stypes": [
+            2
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 2,
+      "flagship_stypes": [],
+      "flagship_min_level": 20,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#19"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 20,
+      "catalog_number": "20",
+      "catalog_name": "潜水艦哨戒任務",
+      "minimum_ships": 2,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            13
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            3
+          ],
+          "count": 1
+        }
+      ],
+      "free_slots": 0,
+      "flagship_stypes": [],
+      "flagship_min_level": 1,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#20"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 21,
+      "catalog_number": "21",
+      "catalog_name": "北方鼠輸送作戦",
+      "minimum_ships": 5,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            3
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            2
+          ],
+          "count": 4
+        }
+      ],
+      "free_slots": 0,
+      "flagship_stypes": [],
+      "flagship_min_level": 15,
+      "fleet_min_total_level": 30,
+      "required_drums": 4,
+      "required_drum_carriers": 3,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#21"
+      ],
+      "source_conflicts": [
+        {
+          "field": "required_drums",
+          "values": {
+            "kcauto_custom": 4,
+            "wiki_normal_success": 3
+          },
+          "note": "wiki: 任意の3隻にドラム缶を合計3つ / 合計4個以上は大成功条件"
+        }
+      ]
+    },
+    {
+      "mission_id": 22,
+      "catalog_number": "22",
+      "catalog_name": "艦隊演習",
+      "minimum_ships": 6,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            5
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            3
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            2
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 2,
+      "flagship_stypes": [],
+      "flagship_min_level": 30,
+      "fleet_min_total_level": 45,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#22"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 23,
+      "catalog_number": "23",
+      "catalog_name": "航空戦艦運用演習",
+      "minimum_ships": 6,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            10
+          ],
+          "count": 2
+        },
+        {
+          "stypes": [
+            2
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 2,
+      "flagship_stypes": [],
+      "flagship_min_level": 50,
+      "fleet_min_total_level": 200,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#23"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 24,
+      "catalog_number": "24",
+      "catalog_name": "北方航路海上護衛",
+      "minimum_ships": 6,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            3
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            2,
+            1
+          ],
+          "count": 4
+        }
+      ],
+      "free_slots": 1,
+      "flagship_stypes": [
+        3
+      ],
+      "flagship_min_level": 50,
+      "fleet_min_total_level": 200,
+      "required_drums": 2,
+      "required_drum_carriers": 1,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#24"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 25,
+      "catalog_number": "25",
+      "catalog_name": "通商破壊作戦",
+      "minimum_ships": 4,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            5
+          ],
+          "count": 2
+        },
+        {
+          "stypes": [
+            2
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 0,
+      "flagship_stypes": [],
+      "flagship_min_level": 25,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#25"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 26,
+      "catalog_number": "26",
+      "catalog_name": "敵母港空襲作戦",
+      "minimum_ships": 4,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            7
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            3
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            2
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 0,
+      "flagship_stypes": [],
+      "flagship_min_level": 30,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#26"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 27,
+      "catalog_number": "27",
+      "catalog_name": "潜水艦通商破壊作戦",
+      "minimum_ships": 2,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            13
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 0,
+      "flagship_stypes": [],
+      "flagship_min_level": 1,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#27"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 28,
+      "catalog_number": "28",
+      "catalog_name": "西方海域封鎖作戦",
+      "minimum_ships": 3,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            13
+          ],
+          "count": 3
+        }
+      ],
+      "free_slots": 0,
+      "flagship_stypes": [],
+      "flagship_min_level": 30,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#28"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 29,
+      "catalog_number": "29",
+      "catalog_name": "潜水艦派遣演習",
+      "minimum_ships": 3,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            13
+          ],
+          "count": 3
+        }
+      ],
+      "free_slots": 0,
+      "flagship_stypes": [],
+      "flagship_min_level": 50,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#29"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 30,
+      "catalog_number": "30",
+      "catalog_name": "潜水艦派遣作戦",
+      "minimum_ships": 4,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            13
+          ],
+          "count": 4
+        }
+      ],
+      "free_slots": 0,
+      "flagship_stypes": [],
+      "flagship_min_level": 55,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#30"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 31,
+      "catalog_number": "31",
+      "catalog_name": "海外艦との接触",
+      "minimum_ships": 4,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            13
+          ],
+          "count": 4
+        }
+      ],
+      "free_slots": 0,
+      "flagship_stypes": [],
+      "flagship_min_level": 60,
+      "fleet_min_total_level": 200,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#31"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 32,
+      "catalog_number": "32",
+      "catalog_name": "遠洋練習航海",
+      "minimum_ships": 3,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            21
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            2
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 0,
+      "flagship_stypes": [
+        21
+      ],
+      "flagship_min_level": 5,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#32"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 33,
+      "catalog_number": "33",
+      "catalog_name": "前衛支援任務",
+      "minimum_ships": 2,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            2
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 0,
+      "flagship_stypes": [],
+      "flagship_min_level": 0,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#33"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 34,
+      "catalog_number": "34",
+      "catalog_name": "艦隊決戦支援任務",
+      "minimum_ships": 2,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            2
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 0,
+      "flagship_stypes": [],
+      "flagship_min_level": 0,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#34"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 35,
+      "catalog_number": "35",
+      "catalog_name": "MO作戦",
+      "minimum_ships": 6,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            7
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            16
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            5
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            2
+          ],
+          "count": 1
+        }
+      ],
+      "free_slots": 2,
+      "flagship_stypes": [],
+      "flagship_min_level": 40,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#35"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 36,
+      "catalog_number": "36",
+      "catalog_name": "水上機基地建設",
+      "minimum_ships": 6,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            16
+          ],
+          "count": 2
+        },
+        {
+          "stypes": [
+            3
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            2
+          ],
+          "count": 1
+        }
+      ],
+      "free_slots": 2,
+      "flagship_stypes": [],
+      "flagship_min_level": 30,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#36"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 37,
+      "catalog_number": "37",
+      "catalog_name": "東京急行",
+      "minimum_ships": 6,
+      "allow_extra_ships": false,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            3
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            2
+          ],
+          "count": 5
+        }
+      ],
+      "free_slots": 0,
+      "flagship_stypes": [],
+      "flagship_min_level": 50,
+      "fleet_min_total_level": 200,
+      "required_drums": 5,
+      "required_drum_carriers": 3,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#37"
+      ],
+      "source_conflicts": [
+        {
+          "field": "required_drums",
+          "values": {
+            "kcauto_custom": 5,
+            "wiki_normal_success": 4
+          },
+          "note": "wiki: 3隻以上にドラム缶が合計4個以上必要 / 合計5個以上は大成功条件; keji8 also disagrees on carriers (4 vs 3)"
+        }
+      ]
+    },
+    {
+      "mission_id": 38,
+      "catalog_number": "38",
+      "catalog_name": "東京急行（弐）",
+      "minimum_ships": 6,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            2
+          ],
+          "count": 5
+        }
+      ],
+      "free_slots": 1,
+      "flagship_stypes": [],
+      "flagship_min_level": 65,
+      "fleet_min_total_level": 240,
+      "required_drums": 10,
+      "required_drum_carriers": 4,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#38"
+      ],
+      "source_conflicts": [
+        {
+          "field": "required_drums",
+          "values": {
+            "kcauto_custom": 10,
+            "wiki_normal_success": 8
+          },
+          "note": "wiki: 4隻以上にドラム缶が合計8個以上必要 / 合計10個以上は大成功条件; keji8 agrees with wiki (8)"
+        }
+      ]
+    },
+    {
+      "mission_id": 39,
+      "catalog_number": "39",
+      "catalog_name": "遠洋潜水艦作戦",
+      "minimum_ships": 5,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            20
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            13
+          ],
+          "count": 4
+        }
+      ],
+      "free_slots": 0,
+      "flagship_stypes": [],
+      "flagship_min_level": 3,
+      "fleet_min_total_level": 180,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#39"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 40,
+      "catalog_number": "40",
+      "catalog_name": "水上機前線輸送",
+      "minimum_ships": 6,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            3
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            16
+          ],
+          "count": 2
+        },
+        {
+          "stypes": [
+            2
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 1,
+      "flagship_stypes": [
+        3
+      ],
+      "flagship_min_level": 25,
+      "fleet_min_total_level": 150,
+      "required_drums": 4,
+      "required_drum_carriers": 1,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#40"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 42,
+      "catalog_number": "42",
+      "catalog_name": "ミ船団護衛(一号船団)",
+      "minimum_ships": 4,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            3
+          ],
+          "count": 1
+        },
+        {
+          "stypes": [
+            2
+          ],
+          "count": 2
+        }
+      ],
+      "free_slots": 1,
+      "flagship_stypes": [],
+      "flagship_min_level": 45,
+      "fleet_min_total_level": 200,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#42"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 100,
+      "catalog_number": "A1",
+      "catalog_name": "兵站強化任務",
+      "minimum_ships": 4,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            2
+          ],
+          "count": 3
+        }
+      ],
+      "free_slots": 1,
+      "flagship_stypes": [],
+      "flagship_min_level": 5,
+      "fleet_min_total_level": 10,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {},
+      "composition_unstructured": false,
+      "evidence_class": "community_static_table",
+      "confidence": "single_source",
+      "source_refs": [
+        "kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#100"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 101,
+      "catalog_number": "A2",
+      "catalog_name": "海峡警備行動",
+      "minimum_ships": 4,
+      "allow_extra_ships": true,
+      "required_stype_groups": [
+        {
+          "stypes": [
+            2,
+            1
+          ],
+          "count": 4
+        }
+      ],
+      "free_slots": 0,
+      "flagship_stypes": [],
+      "flagship_min_level": 20,
+      "fleet_min_total_level": null,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {
+        "firepower": 50,
+        "anti_air": 70,
+        "asw": 180
+      },
+      "composition_unstructured": false,
+      "evidence_class": "community_tool_static_rules",
+      "confidence": "single_source",
+      "source_refs": [
+        "poooi/poi-plugin-ezexped@d5051e5a19247847b40e4a29ad2af63ddb37dc70:exped-reqs/world-1.es#101"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 102,
+      "catalog_number": "A3",
+      "catalog_name": "長時間対潜警戒",
+      "minimum_ships": 5,
+      "allow_extra_ships": true,
+      "required_stype_groups": [],
+      "free_slots": 5,
+      "flagship_stypes": [],
+      "flagship_min_level": 35,
+      "fleet_min_total_level": 185,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {
+        "asw": 280,
+        "los": 60
+      },
+      "composition_unstructured": true,
+      "evidence_class": "community_tool_static_rules",
+      "confidence": "single_source",
+      "source_refs": [
+        "poooi/poi-plugin-ezexped@d5051e5a19247847b40e4a29ad2af63ddb37dc70:exped-reqs/world-1.es#102"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 103,
+      "catalog_number": "A4",
+      "catalog_name": "南西方面連絡線哨戒",
+      "minimum_ships": 5,
+      "allow_extra_ships": true,
+      "required_stype_groups": [],
+      "free_slots": 5,
+      "flagship_stypes": [],
+      "flagship_min_level": 40,
+      "fleet_min_total_level": 200,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {
+        "firepower": 300,
+        "anti_air": 200,
+        "asw": 200,
+        "los": 120
+      },
+      "composition_unstructured": true,
+      "evidence_class": "community_tool_static_rules",
+      "confidence": "single_source",
+      "source_refs": [
+        "poooi/poi-plugin-ezexped@d5051e5a19247847b40e4a29ad2af63ddb37dc70:exped-reqs/world-1.es#103"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 104,
+      "catalog_number": "A5",
+      "catalog_name": "小笠原沖哨戒線",
+      "minimum_ships": 5,
+      "allow_extra_ships": true,
+      "required_stype_groups": [],
+      "free_slots": 5,
+      "flagship_stypes": [],
+      "flagship_min_level": 45,
+      "fleet_min_total_level": 230,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {
+        "firepower": 280,
+        "anti_air": 220,
+        "asw": 240,
+        "los": 150
+      },
+      "composition_unstructured": true,
+      "evidence_class": "community_tool_static_rules",
+      "confidence": "cross_checked",
+      "source_refs": [
+        "poooi/poi-plugin-ezexped@d5051e5a19247847b40e4a29ad2af63ddb37dc70:exped-reqs/world-1.es#104",
+        "wikiwiki.jp/kancolle 遠征/詳細一覧表 (Last-modified 2026-09-01)#A5"
+      ],
+      "source_conflicts": []
+    },
+    {
+      "mission_id": 105,
+      "catalog_number": "A6",
+      "catalog_name": "小笠原沖戦闘哨戒",
+      "minimum_ships": 6,
+      "allow_extra_ships": true,
+      "required_stype_groups": [],
+      "free_slots": 6,
+      "flagship_stypes": [],
+      "flagship_min_level": 55,
+      "fleet_min_total_level": 290,
+      "required_drums": 0,
+      "required_drum_carriers": 0,
+      "required_equipment_master_ids": [],
+      "minimum_total_stats": {
+        "firepower": 330,
+        "anti_air": 300,
+        "asw": 270,
+        "los": 180
+      },
+      "composition_unstructured": true,
+      "evidence_class": "community_tool_static_rules",
+      "confidence": "cross_checked",
+      "source_refs": [
+        "poooi/poi-plugin-ezexped@d5051e5a19247847b40e4a29ad2af63ddb37dc70:exped-reqs/world-1.es#105",
+        "wikiwiki.jp/kancolle 遠征/詳細一覧表 (Last-modified 2026-09-01)#A6"
+      ],
+      "source_conflicts": []
+    }
+  ]
+}

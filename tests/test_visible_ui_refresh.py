@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from kancollebot.adapters.poi.cdp_input import CdpInputError
@@ -128,6 +129,49 @@ class VisibleUiPortRefreshDriverTests(unittest.TestCase):
         self.assertEqual(events[-1][1]["clicks_completed"], 1)
         self.assertFalse(events[-1][1]["outcome_ambiguous"])
 
+    def test_a_click_that_provably_did_nothing_is_repeated_once(self):
+        # Live 2026-11-05: a 出撃 click landed during a transition and the client
+        # stayed on HOME_PORT. The precondition being re-proven afterwards makes
+        # that a *known* no-op, not an ambiguous outcome, so one repeat is safe.
+        driver, game_input, events, _ = self.make_driver(
+            [
+                "HOME_PORT",       # initial precondition
+                "HOME_PORT",       # after the click: nothing happened
+                "HOME_PORT",       # precondition re-proven
+                "SORTIE_MENU",     # after the repeat
+                "EXPEDITION_LIST",
+                "HOME_PORT",
+            ]
+        )
+
+        result = driver.refresh_port_state()
+
+        self.assertEqual(
+            game_input.clicks, [SORTIE, SORTIE, EXPEDITION_MODE, HOME_PORT]
+        )
+        self.assertEqual(result.state, "HOME_PORT")
+        names = [name for name, _ in events]
+        self.assertIn("ui_refresh_click_repeated", names)
+        repeated = next(fields for name, fields in events if name == "ui_refresh_click_repeated")
+        self.assertEqual(repeated["target"], SORTIE.label)
+        self.assertEqual(repeated["state_after_first_click"], "HOME_PORT")
+        self.assertEqual(events[-1][0], "ui_refresh_completed")
+        self.assertEqual(events[-1][1]["clicks_sent"], 4)
+
+    def test_a_click_that_changed_the_screen_is_never_repeated(self):
+        # The screen moved, so the outcome is ambiguous: no second click, by
+        # design. This is the line the repeat must not cross.
+        driver, game_input, events, _ = self.make_driver(
+            ["HOME_PORT", "UNKNOWN", "EXPEDITION_LIST"]
+        )
+
+        with self.assertRaises(VisibleUiRefreshError):
+            driver.refresh_port_state()
+
+        self.assertEqual(game_input.clicks, [SORTIE])
+        self.assertEqual(events[-1][0], "ui_refresh_blocked")
+        self.assertNotIn("ui_refresh_click_repeated", [name for name, _ in events])
+
     def test_ambiguous_click_is_not_replayed(self):
         driver, game_input, events, _ = self.make_driver(
             ["HOME_PORT"], fail_click_at=1
@@ -148,7 +192,7 @@ class FreshnessRefreshingStateReaderTests(unittest.TestCase):
         driver = SimpleNamespace(refresh_port_state=lambda: self.fail("unexpected refresh"))
         wrapper = FreshnessRefreshingStateReader(reader, driver)
 
-        result = wrapper.read_fleets()
+        result = wrapper.ensure_fresh(origin="test_reader")
 
         self.assertTrue(result.source_freshness_verified)
         self.assertEqual(reader.calls, 1)
@@ -178,7 +222,7 @@ class FreshnessRefreshingStateReaderTests(unittest.TestCase):
             sleep=sleep,
         )
 
-        result = wrapper.read_fleets()
+        result = wrapper.ensure_fresh(origin="test_reader")
 
         self.assertTrue(result.source_freshness_verified)
         self.assertEqual(refresh_calls, ["refresh"])
@@ -203,7 +247,7 @@ class FreshnessRefreshingStateReaderTests(unittest.TestCase):
             sleep=sleep,
         )
 
-        result = wrapper.read_fleets()
+        result = wrapper.ensure_fresh(origin="test_reader")
 
         self.assertFalse(result.source_freshness_verified)
         self.assertEqual(refresh_calls, ["refresh"])
@@ -228,8 +272,8 @@ class FreshnessRefreshingStateReaderTests(unittest.TestCase):
             sleep=sleep,
         )
 
-        first = wrapper.read_fleets()
-        second = wrapper.read_fleets()
+        first = wrapper.ensure_fresh(origin="test_reader")
+        second = wrapper.ensure_fresh(origin="test_reader")
 
         self.assertFalse(first.source_freshness_verified)
         self.assertFalse(second.source_freshness_verified)
@@ -254,17 +298,239 @@ class FreshnessRefreshingStateReaderTests(unittest.TestCase):
             sleep=sleep,
         )
 
-        first = wrapper.read_fleets()
+        first = wrapper.ensure_fresh(origin="test_reader")
         self.assertFalse(first.source_freshness_verified)
         self.assertEqual(clock[0], 1.0)
 
-        second = wrapper.read_fleets()
+        second = wrapper.ensure_fresh(origin="test_reader")
         self.assertFalse(second.source_freshness_verified)
         self.assertEqual(refresh_calls, ["refresh"])
 
         clock[0] += 0.5
-        wrapper.read_fleets()
+        wrapper.ensure_fresh(origin="test_reader")
         self.assertEqual(refresh_calls, ["refresh", "refresh"])
+
+
+class PassiveWitnessWaitTests(unittest.TestCase):
+    """The wait that keeps a post-action read from navigating for its witness."""
+
+    @staticmethod
+    def _reader(observations, clock, refresh_calls):
+        driver = SimpleNamespace(
+            refresh_port_state=lambda: refresh_calls.append("refresh")
+        )
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        reader = FakeReader(observations)
+        wrapper = FreshnessRefreshingStateReader(
+            reader,
+            driver,
+            max_wait_seconds=5.0,
+            poll_interval_seconds=0.5,
+            refresh_cooldown_seconds=0.0,
+            monotonic=lambda: clock[0],
+            sleep=sleep,
+        )
+        return wrapper, reader
+
+    def test_a_witness_that_arrives_on_its_own_sends_no_click(self):
+        clock = [0.0]
+        refresh_calls = []
+        wrapper, reader = self._reader(
+            [observation(False), observation(False), observation(True)],
+            clock,
+            refresh_calls,
+        )
+
+        result = wrapper.await_passive_witness(timeout_seconds=5.0)
+
+        self.assertTrue(result.source_freshness_verified)
+        self.assertEqual(refresh_calls, [])
+        self.assertEqual(reader.calls, 3)
+
+    def test_a_witness_that_never_arrives_still_sends_no_click(self):
+        clock = [0.0]
+        refresh_calls = []
+        wrapper, _ = self._reader([observation(False)], clock, refresh_calls)
+
+        result = wrapper.await_passive_witness(timeout_seconds=1.0)
+
+        self.assertFalse(result.source_freshness_verified)
+        self.assertEqual(refresh_calls, [])
+        self.assertEqual(clock[0], 1.0)
+
+    def test_the_wait_respects_the_ui_action_time_boundary(self):
+        clock = [0.0]
+        refresh_calls = []
+        boundary = datetime(2026, 11, 5, 4, 0, tzinfo=timezone.utc)
+        stale = SimpleNamespace(
+            source_freshness_verified=True,
+            observed_at=boundary,
+        )
+        fresh = SimpleNamespace(
+            source_freshness_verified=True,
+            observed_at=boundary + timedelta(seconds=1),
+        )
+        wrapper, _ = self._reader([stale, fresh], clock, refresh_calls)
+
+        result = wrapper.await_passive_witness(
+            timeout_seconds=5.0, newer_than=boundary
+        )
+
+        self.assertEqual(result.observed_at, boundary + timedelta(seconds=1))
+        self.assertEqual(refresh_calls, [])
+
+    def test_a_negative_timeout_is_refused(self):
+        clock = [0.0]
+        wrapper, _ = self._reader([observation(False)], clock, [])
+
+        with self.assertRaisesRegex(ValueError, "finite and non-negative"):
+            wrapper.await_passive_witness(timeout_seconds=-1.0)
+
+
+class RefreshAttributionTests(unittest.TestCase):
+    """Every refresh must be joinable to the caller that asked for it."""
+
+    def test_the_driver_stamps_every_step_with_the_refresh_identity(self):
+        driver, _, events, _ = VisibleUiPortRefreshDriverTests.make_driver(
+            self, ["HOME_PORT", "SORTIE_MENU", "EXPEDITION_LIST", "HOME_PORT"]
+        )
+
+        driver.refresh_port_state(refresh_id="rfr-test", origin="dispatch_preflight")
+
+        stamped = [fields for _, fields in events if "refresh_id" in fields]
+        self.assertTrue(stamped)
+        for fields in stamped:
+            self.assertEqual(fields["refresh_id"], "rfr-test")
+            self.assertEqual(fields["refresh_origin"], "dispatch_preflight")
+        self.assertEqual(driver.last_refresh_stats["clicks_completed"], 3)
+        self.assertEqual(driver.last_refresh_stats["outcome"], "completed")
+        self.assertEqual(
+            driver.last_refresh_stats["steps"],
+            ["open_sortie", "open_expedition_list", "return_home_port"],
+        )
+
+    def test_the_driver_refuses_an_empty_identity(self):
+        driver, _, _, _ = VisibleUiPortRefreshDriverTests.make_driver(self, [])
+
+        with self.assertRaisesRegex(ValueError, "non-empty string"):
+            driver.refresh_port_state(refresh_id="  ")
+        with self.assertRaisesRegex(ValueError, "non-empty string"):
+            driver.refresh_port_state(origin="")
+
+    def _reader(self, observations, *, events, driver, cooldown=30.0):
+        clock = [0.0]
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        return (
+            FreshnessRefreshingStateReader(
+                FakeReader(observations),
+                driver,
+                max_wait_seconds=2.0,
+                poll_interval_seconds=0.5,
+                refresh_cooldown_seconds=cooldown,
+                event_sink=lambda event, fields: events.append((event, dict(fields))),
+                refresh_id_factory=lambda: "rfr-fixed",
+                monotonic=lambda: clock[0],
+                sleep=sleep,
+            ),
+            clock,
+        )
+
+    def test_a_refresh_records_origin_clicks_and_outcome(self):
+        events = []
+        driver = SimpleNamespace(
+            refresh_port_state=lambda **kwargs: driver.calls.append(kwargs),
+            calls=[],
+            last_refresh_stats={
+                "clicks_completed": 3,
+                "steps": ["open_sortie", "open_expedition_list", "return_home_port"],
+            },
+        )
+        wrapper, _ = self._reader(
+            [observation(False), observation(True)], events=events, driver=driver
+        )
+
+        wrapper.ensure_fresh(origin="dispatch_preflight")
+
+        audits = [fields for name, fields in events if name == "ui_refresh_audit"]
+        self.assertEqual(len(audits), 1)
+        self.assertEqual(audits[0]["origin"], "dispatch_preflight")
+        self.assertEqual(audits[0]["refresh_id"], "rfr-fixed")
+        self.assertEqual(audits[0]["outcome"], "refreshed")
+        self.assertTrue(audits[0]["witness_verified"])
+        self.assertEqual(audits[0]["clicks_sent"], 3)
+        self.assertEqual(
+            audits[0]["navigation_steps"],
+            ["open_sortie", "open_expedition_list", "return_home_port"],
+        )
+        self.assertEqual(driver.calls[0]["origin"], "dispatch_preflight")
+        self.assertEqual(driver.calls[0]["refresh_id"], "rfr-fixed")
+
+    def test_an_already_fresh_read_records_no_navigation(self):
+        events = []
+        driver = SimpleNamespace(
+            refresh_port_state=lambda **kwargs: self.fail("unexpected refresh")
+        )
+        wrapper, _ = self._reader([observation(True)], events=events, driver=driver)
+
+        wrapper.ensure_fresh(origin="monitor_tick")
+
+        audits = [fields for name, fields in events if name == "ui_refresh_audit"]
+        self.assertEqual(audits[0]["outcome"], "already_fresh")
+        self.assertIsNone(audits[0]["refresh_id"])
+        self.assertEqual(audits[0]["clicks_sent"], 0)
+
+    def test_a_suppressed_refresh_says_so_instead_of_looking_like_a_navigation(self):
+        events = []
+        driver = SimpleNamespace(
+            refresh_port_state=lambda **kwargs: self.fail("unexpected refresh")
+        )
+        wrapper, clock = self._reader(
+            [observation(False)], events=events, driver=driver
+        )
+        wrapper._last_refresh_at = 0.0
+        clock[0] = 1.0
+
+        wrapper.ensure_fresh(origin="dispatch_post_action")
+
+        audits = [fields for name, fields in events if name == "ui_refresh_audit"]
+        self.assertEqual(audits[0]["outcome"], "cooldown_suppressed")
+        self.assertEqual(audits[0]["clicks_sent"], 0)
+
+    def test_origin_is_required(self):
+        events = []
+        driver = SimpleNamespace(refresh_port_state=lambda **kwargs: None)
+        wrapper, _ = self._reader([observation(True)], events=events, driver=driver)
+
+        with self.assertRaisesRegex(ValueError, "name the caller"):
+            wrapper.ensure_fresh(origin="")
+        with self.assertRaisesRegex(ValueError, "name the caller"):
+            wrapper.ensure_fresh(origin="   ")
+
+    def test_reading_a_stale_state_navigates_for_nothing(self):
+        """R3-D: read_fleets is observation, not a refresh request.
+
+        A read that finds no witness used to fire a full navigation, which is
+        how 27 navigations ended up behind two dispatch intents.
+        """
+        events = []
+        driver = SimpleNamespace(
+            refresh_port_state=lambda **kwargs: self.fail("read_fleets must not navigate")
+        )
+        wrapper, _ = self._reader([observation(False)], events=events, driver=driver)
+
+        result = wrapper.read_fleets()
+
+        self.assertFalse(result.source_freshness_verified)
+        self.assertEqual(
+            [name for name, _ in events if name == "ui_refresh_audit"], []
+        )
+        self.assertIsNone(wrapper._last_refresh_at)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,9 @@
 """Loopback-only CDP transport with allowlisted input and passive observation.
 
-Supports viewport inspection, one fixed read-only fleet snapshot, screenshot
-capture, explicit UI recovery, mouse input, and passive Network event reading.
-Request interception/replay and arbitrary Runtime.evaluate remain forbidden.
+Supports viewport inspection, two fixed read-only Redux snapshots (fleet mission
+state and port-shaped supply state), screenshot capture, explicit UI recovery,
+mouse input, and passive Network event reading. Request interception/replay and
+arbitrary Runtime.evaluate remain forbidden.
 """
 from __future__ import annotations
 
@@ -33,7 +34,7 @@ _ALLOWED_METHODS = {
     "Page.captureScreenshot",
     # Mouse input remains the only enabled input method.
     "Input.dispatchMouseEvent",
-    # A single exact read-only Redux snapshot expression; arbitrary evaluation remains blocked.
+    # Exactly two read-only Redux snapshot expressions; arbitrary evaluation remains blocked.
     "Runtime.evaluate",
     "Network.enable",
     "Network.disable",
@@ -50,6 +51,83 @@ READ_ONLY_FLEET_SNAPSHOT_EXPRESSION = (
     "supply:(f.api_id===2||f.api_id===3)?(f.api_ship||[]).filter(id=>Number(id)>0).map(id=>{const s=findShip(id);const m=s&&masterShips[s.api_ship_id];return{id,level:s&&s.api_lv,ship_type:m&&m.api_stype,fuel:s&&s.api_fuel,ammo:s&&s.api_bull,max_fuel:m&&m.api_fuel_max,max_ammo:m&&m.api_bull_max}}):[]}));"
     "})())"
 )
+
+# The second allowlisted expression: the port-shaped Redux payload that a
+# single-fleet resupply cost needs. It is a *fixed* string, exactly like the
+# fleet snapshot above, so the transport still cannot run caller-supplied
+# JavaScript; it only exposes the collections `build_fleet_supply_plan`
+# already validates (fleets, ship instances, ship master data, materials).
+#
+# Shapes were confirmed against a live Poi session: ``info.fleets`` is an
+# array, while ``info.ships`` and ``const.$ships`` are id-keyed object maps,
+# and the material inventory lives in ``info.resources`` as a number array
+# (there is no ``info.materials`` in this Poi build). Each collection is read
+# through ``asItems`` so an array and an object map are both accepted.
+#
+# Only the master records the fleets actually reference are copied, because
+# ``const.$ships`` holds the whole 1700+ ship catalogue; the ship instances are
+# all copied, because the port-witness comparison checks the full ship set.
+#
+# It deliberately returns ``null`` rather than partial data when any required
+# collection is missing: a resupply preflight must fail closed instead of
+# computing a cost from an incomplete snapshot.
+READ_ONLY_PORT_SUPPLY_SNAPSHOT_EXPRESSION = (
+    "JSON.stringify((()=>{"
+    "const get=s=>{const v=(window.getStore?window.getStore(s):undefined);"
+    "return v===undefined?null:v;};"
+    "const asItems=v=>Array.isArray(v)?v:(v&&typeof v==='object'?Object.values(v):null);"
+    "const fleets=get('info.fleets');"
+    "const shipItems=asItems(get('info.ships'));"
+    "const masterItems=asItems(get('const.$ships'));"
+    "const resources=get('info.resources');"
+    "if(!Array.isArray(fleets))return null;"
+    "if(!Array.isArray(shipItems)||!Array.isArray(masterItems))return null;"
+    "if(!Array.isArray(resources)||resources.length<4)return null;"
+    "const shipMap={};"
+    "for(const s of shipItems){if(!s||!Number.isInteger(s.api_id)||s.api_id<1)continue;"
+    "shipMap[String(s.api_id)]={api_id:s.api_id,api_ship_id:s.api_ship_id,"
+    "api_nowhp:s.api_nowhp,api_maxhp:s.api_maxhp,api_fuel:s.api_fuel,"
+    "api_bull:s.api_bull,api_lv:s.api_lv,api_cond:s.api_cond};}"
+    "const fleetList=fleets.map(f=>({api_id:f&&f.api_id,api_name:f&&f.api_name,"
+    "api_mission:f&&f.api_mission,api_ship:f&&f.api_ship}));"
+    "const wanted={};"
+    "for(const f of fleetList){for(const id of (f.api_ship||[])){"
+    "if(!(Number(id)>0))continue;const s=shipMap[String(id)];"
+    "if(s&&Number.isInteger(s.api_ship_id))wanted[s.api_ship_id]=1;}}"
+    "const masterMap={};"
+    "for(const m of masterItems){if(!m||!wanted[m.api_id])continue;"
+    "masterMap[String(m.api_id)]={api_id:m.api_id,api_fuel_max:m.api_fuel_max,"
+    "api_bull_max:m.api_bull_max,api_stype:m.api_stype};}"
+    "return {fleets:fleetList,ships:shipMap,master_ships:masterMap,"
+    "resources:resources};"
+    "})())"
+)
+
+
+_ALLOWED_READ_ONLY_EXPRESSIONS = frozenset(
+    {
+        READ_ONLY_FLEET_SNAPSHOT_EXPRESSION,
+        READ_ONLY_PORT_SUPPLY_SNAPSHOT_EXPRESSION,
+    }
+)
+
+
+def require_allowed_runtime_evaluate(params: Any) -> None:
+    """Fail closed unless ``params`` is one of the two fixed read-only reads.
+
+    Kept separate from ``send`` so the allowlist can be tested without opening
+    a socket; ``send`` is its only production caller.
+    """
+    if (
+        not isinstance(params, dict)
+        or set(params) != {"expression", "returnByValue"}
+        or params.get("expression") not in _ALLOWED_READ_ONLY_EXPRESSIONS
+        or params.get("returnByValue") is not True
+    ):
+        raise CdpInputError(
+            "Runtime.evaluate is restricted to the fixed read-only fleet snapshot "
+            "and the fixed read-only port supply snapshot"
+        )
 
 
 class CdpWebSocketTransport:
@@ -194,13 +272,7 @@ class CdpWebSocketTransport:
         if method not in _ALLOWED_METHODS:
             raise CdpInputError(f"CDP method is not allowlisted: {method}")
         if method == "Runtime.evaluate":
-            if (
-                not isinstance(params, dict)
-                or set(params) != {"expression", "returnByValue"}
-                or params.get("expression") != READ_ONLY_FLEET_SNAPSHOT_EXPRESSION
-                or params.get("returnByValue") is not True
-            ):
-                raise CdpInputError("Runtime.evaluate is restricted to the fixed read-only fleet snapshot")
+            require_allowed_runtime_evaluate(params)
         with self._command_lock:
             request_id = self._next_id
             self._next_id += 1
