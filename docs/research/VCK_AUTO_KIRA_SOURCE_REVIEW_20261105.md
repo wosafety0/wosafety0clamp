@@ -19,12 +19,13 @@ The files are decompiled and control-flow obfuscated. Public field names and dir
 
 ## 2. Source-confirmed settings and predicates
 
-### 2.1 Per-fleet target queue count
+### 2.1 Per-fleet target count (not a queue-size cap)
 
 - `AutoKiraCount` is a four-element per-fleet setting. The constructor initializes each element to **6**.
-- `KiraFleet(Fleet)` caps this value at the current fleet's ship count, filters the fleet's low-morale target candidates, and populates `KiraShipsViewModel.Ships` with up to that many target ship IDs.
-- The later Kira update path consumes this collection as a target queue. It processes the first target, constructs a temporary formation around that target, and runs `ActAutoKira`; the list is then reevaluated as morale changes.
-- Therefore `AutoKiraCount` is the number of target ships to process for that fleet, **not** the number of escorts and **not** the total number of ships in one sortie formation. The default 6 is a configuration default, not a universal recommendation.
+- `NotMatchKiraCondition(Fleet)` and `KiraFleet(Fleet)` use the same deficit calculation. Let `desired = min(AutoKiraCount, currentFleetShipCount)`; let `already_meeting = currentFleetShipCount - candidateCount`, where candidates are ships below the applicable morale threshold. The number of target ships queued is `max(0, desired - already_meeting)`, capped by the candidate count.
+- In other words, `AutoKiraCount` is the desired number of ships in the current fleet to bring to/maintain at the applicable morale condition, **not** the number of fellows and **not** the number of targets to queue regardless of current morale.
+- Example: desired count 6 with four ships already meeting the selection threshold queues two candidates; desired count 3 with four already meeting it queues none.
+- The selected deficit candidates are ordered by descending level when `AutoKiraFilter="等级"`; the first queued target becomes the temporary formation's flagship.
 
 ### 2.2 Morale target
 
@@ -409,7 +410,7 @@ Constructor defaults directly observed:
 
 - `AutoKiraOpen[0] = false`; `AutoKiraOpen[1..3] = true`. By array index, Fleet 1 is disabled by default and Fleets 2–4 are enabled.
 - `KiraForSupport[0] = true`; `KiraForSupport[1..3] = false`.
-- `AutoKiraCount[0..3] = 6`; `AutoKiraTargetCond[0..3] = 75`; `AutoKiraFilter[0..3] = "等级"`.
+- `AutoKiraCount[0..3] = 6` (desired number of fleet ships to bring to the morale threshold, calculated as a deficit); `AutoKiraTargetCond[0..3] = 75`; `AutoKiraFilter[0..3] = "等级"`.
 - `AutoKiraUseFellow=true`; `AutoKiraClearEquips=true`; `AutoKiraExcludeLockedShip=true`.
 - `AutoKiraLvCondition=5`; `AutoKiraHPCondition=60`; `AutoKiraRareCondition="金色"`.
 - `AutoKiraHPPercent=60`; `AutoKiraRepairTime=10`.
@@ -473,3 +474,14 @@ Add a dedicated repairs freshness/coverage signal and keep domain `updated_at` t
 | `packages/poi-plugin-mcp/src/tools.ts` | `56eb30450272c52e701bd88876142baca55bff67` |
 
 This is a static source compatibility review. No plugin or KancolleBot adapter code was changed, and no live Poi runtime data was queried.
+
+
+## 25. AutoKiraCount calculation: explicit source correction
+
+The exact formula is visible in both `NotMatchKiraCondition(Fleet)` and `KiraFleet(Fleet)`:
+
+`needed = min(AutoKiraCount, fleetShipCount) - (fleetShipCount - candidatesBelowThreshold)`
+
+Only when `needed > 0` does the scheduler create a Kira target list, and it takes that many candidates from the below-threshold set. The set is sorted by descending level when the `"等级"` filter is active.
+
+This supersedes the earlier shorthand that described `AutoKiraCount` as a target queue count. It is the desired number of ships to satisfy the applicable morale threshold; the actual queue is only the deficit. For the default enabled fleets (Fleets 2–4), the candidate threshold is `Condition < 50` because `KiraForSupport=false`; the later per-target completion loop continues until `Condition >= AutoKiraTargetCond` (default 75) or `Condition >= 85`.
