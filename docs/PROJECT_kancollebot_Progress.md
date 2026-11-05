@@ -4119,3 +4119,11 @@ The Hand plugin's read-only probe reported:
 
 - **FOLLOW-UP SOURCE_REVIEWED:** 读取同一参考快照的第二份反编译输出及 `ActSupply.cs`，进一步确认陪练候选谓词：锁定排除选项、等级低于阈值、稀有度比较、驱逐舰类型分支、非入渠、HP 达标、燃料与弹药均不低于 30%。确认 `AutoKiraSupplyFellows` 反向传入 `ActSupply.flagShipOnly`：开启时执行全舰队补给，关闭时仅旗舰补给。相关证据及未还原的 helper 边界已写入研究文档第 10–11 节。
 - **LIMITS:** 锁定/稀有度 helper 与 `ActionHelper.NeedsSupply` 重载的完整语义仍待核验；这些结论仍是源码研究，不是 KancolleBot 实现或运行时验证。
+
+
+- **FOLLOW-UP SOURCE_REVIEWED (formation application):** 读取 `ActChangeOrganization.cs` 与 `ActChangeOneShip.cs`。确认通用编成动作通过可见 UI 队列逐舰调整，返回母港后重新比较目标编成；重复目标 ID、重复编成签名或四轮无效尝试会停止。该通用动作本身不保存原编成；目前尚未证明 `KiraFleet` 的候选 ID 通过这些调用点应用到实际舰队，也未证明刷闪结束后恢复原编成。
+- **FOLLOW-UP SOURCE_REVIEWED (equipment side effect):** 读取 `ActClearEquips.cs`。确认 `AutoKiraUseFellow && AutoKiraClearEquips` 时，若当前舰队第二位置舰船有装备，会触发清装备 UI 动作；单装备使用 `api_slotset`，至少两件装备使用 `api_unsetslot_all`，随后返回母港。此为实际装备变更，不是候选筛选；未找到该 Kira 调用路径的装备恢复步骤，KancolleBot 不应直接照搬。
+- **FOLLOW-UP SOURCE_REVIEWED (HP/repair):** `AutoKiraHPPercent` 检查旗舰当前 HP 比例，低于配置阈值或不高于 25% 时进入维护/修理分支；`AutoKiraRepairTime` 以分钟乘 60 传给 `ActRepair`，并作为 `ActionHelper.NeedsUseBucket` 的秒数阈值，helper 命中时创建 `ActUseBucket`。helper 内部比较规则仍待核验。
+- **FOLLOW-UP SOURCE_REVIEWED (battle loop):** `ActAutoKira` 的本次源码快照将地图变量初始化为 1 并选择 1-1；战斗后检查舰队所有现存舰船的观测 HP，任一不高于 25% 就走撤退 UI 并等待母港 session，否则继续 map-next。战斗队列明确选择 `Sortie_not_nightfight`；午夜战斗事件订阅仅能证明观察处理器存在，不能证明主动夜战。文件中的战斗计数器只见声明和递增，未发现它作为最大战斗次数的终止条件；不能据此声称固定两战或有最大次数保护。
+- **SOURCE BLOB EVIDENCE:** 本轮追加的精确 blob SHA 见 `docs/research/VCK_AUTO_KIRA_SOURCE_REVIEW_20261105.md` 第 16 节，包含第二份 `AutoKira.cs` / `ActAutoKira.cs`、`ActChangeOrganization.cs`、`ActChangeOneShip.cs`、`ActClearEquips.cs`、`ActRepair.cs` 与 `ActSupply.cs`。
+- **LIMITS:** `ActionHelper.NeedsSupply` / `NeedsUseBucket` 实现、Kira 候选 ID 到实际编成的完整调用链、原编成恢复、完整修理候选语义仍未核实。所有结论仅为反编译源码研究；未修改 KancolleBot 运行时代码、未运行测试、未做 Poi/游戏实机验证，R3 未触碰。
