@@ -565,3 +565,44 @@ KancolleBot consequence: cancellation must be modeled as a separate state transi
 - `AutoAction.cs` blob: `19d2bb4a0ed837dc14f206f92d708632fcce8c25`
 - `AutoActionQueue.cs` blob: `c5dcaac0a791d01abee571274945166f0fadbc49`
 - `ActAutoKira.cs` blob: `49ab7708935df2ebd3758a80bc7cbfb970f5521d`
+
+
+## 30. Per-expedition Kira settings and rarity threshold mapping
+
+Newly located source: `ExpeditionKiraSetting.cs`, blob `fbb80cfe745a7dc332c68baf8bdaf3684b3c52a4`. The file is present in the KCV decompilation tree and defines a serializable per-expedition settings record:
+
+- `ExpeditionId`
+- `AutoKiraOpen`
+- `KiraForSupport`
+- `AutoKiraCount`
+- `AutoKiraTargetCond`
+- `AutoKiraFilter`
+
+The `AutoExpeditionSettings` source (blob `8aa102bdaf2674c491820c82906fd0fe1e81a288`) adds these details:
+
+- `RememberKiraSettingsByExpedition` defaults to **true**.
+- `GetExpeditionKiraSetting(expeditionId)` returns the last matching record for that positive expedition ID, or null.
+- `SaveExpeditionKiraSetting(fleetId, expeditionId)` accepts fleet IDs 1–4 and positive expedition IDs. It creates the record/list if missing, then copies the selected fleet's open flag, support mode, target count, morale target, and filter into the record.
+- The per-expedition record does **not** contain fellow eligibility thresholds, supply scope, clear-equipment, lock exclusion, flagship HP, repair time, or dissolution settings. Those remain in the broader global settings object.
+- This source confirms the data model and save operation. The reviewed files do not establish the complete load/apply call path when the user changes expedition; do not claim that path is fully reconstructed.
+
+### 30.1 Exact rarity-label mapping
+
+`GetAutoKiraRareCondition()` maps the setting label to a numeric cutoff:
+
+| Label | Numeric cutoff |
+|---|---:|
+| `金色` | 5 |
+| `银色` | 4 |
+| other / fallback | 6 |
+
+The candidate predicate compares `Ship.Backs` against this cutoff and rejects candidates whose value is greater than or equal to it. Thus the default `金色` setting accepts only candidates with `Backs < 5`; it does not mean “all ships with gold rarity” in a generic sense.
+
+### KancolleBot design consequence
+
+Separate persistent task policy from execution policy. If KancolleBot later supports per-expedition sparkle profiles, scope only explicitly selected fields to the expedition profile and keep safety gates (lock, HP, damage, supply, repair, fleet reservation, equipment preservation) global and non-overridable by a profile. Resolve the selected expedition profile before planning, and record which profile/version produced the plan. Until a complete KCV load/apply call chain is found, treat this as a reference data-model pattern, not a verified UI workflow.
+
+### 30.2 Pinned source evidence
+
+- `ExpeditionKiraSetting.cs` blob: `fbb80cfe745a7dc332c68baf8bdaf3684b3c52a4`
+- `AutoExpeditionSettings.cs` blob: `8aa102bdaf2674c491820c82906fd0fe1e81a288`
