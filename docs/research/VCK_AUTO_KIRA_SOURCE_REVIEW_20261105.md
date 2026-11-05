@@ -528,3 +528,35 @@ The Kira update loop also calls `qmCpe2e1m8()`. When `AutoDissolution=true` and 
 - KancolleBot must not import this side path into brushing. Ship dismantling is outside the sparkle task and requires a separate explicit user decision; it must never be triggered automatically to make room for fellows or target processing.
 
 Source blobs: `ActDissolution.cs` `c719195fe73c3afdd450088ab0025dab60ecc09e`; `AutoExpeditionSettings.cs` `8aa102bdaf2674c491820c82906fd0fe1e81a288`.
+
+
+## 29. No-fellow fallback and manual Stop() are not fail-safe
+
+Additional call-site review of `JVjpi4cK7X()`, its `ActChangeOrganization` caller, and `AutoKira.Stop()` in the pinned KCV snapshot:
+
+### 29.1 No eligible fellow does not make the builder fail
+
+- `JVjpi4cK7X()` initializes all six formation slots to `-1`, then assigns the first queued morale target to slot 0.
+- With `AutoKiraUseFellow=true`, it filters the organization ship collection for a fellow. If one or more candidates remain, it places only `source.First()` in slot 1. If none remain, slot 1 stays `-1`; slots 2–5 also remain `-1`.
+- The caller passes the returned array to `new ActChangeOrganization(CurrentFleet, newShips, forceClearAll: true)`. The formation action's `forceClearAll` path clears all escort slots before applying the requested array.
+- Therefore, at the builder/action boundary, “no eligible fellow” produces a **target-only formation request**, not an explicit candidate-selection error. The surrounding update state machine has separate pre-check branches and is control-flow-obfuscated; this finding does not claim every no-fellow state necessarily reaches dispatch. It does establish that the builder itself does not fail closed or preserve existing escorts when the fellow pool is empty.
+- The fellow filter includes DD type, level and rarity thresholds, not repairing, HP threshold, fuel/ammo each at least 30%, excludes the target's own name, excludes ships already present in any fleet, and optionally excludes locked ships. A special case also excludes names containing `響` when the target's master ship ID is 147. Remaining candidates are not explicitly sorted before `First()`.
+
+KancolleBot consequence: make the policy explicit: either allow target-only brushing as a configured mode, or require a stated number of eligible fellows and block when that count is unavailable. Never silently interpret an empty candidate pool as a fully satisfied escort policy.
+
+### 29.2 Manual Stop() does not explicitly restore or clear the temporary formation snapshot
+
+The reviewed `AutoKira.Stop()` body performs only:
+
+- `IsStarted = false`;
+- `State = AssistantState.Idle`;
+- `StopCurrentAction()`.
+
+It does not directly call the saved-formation `ActChangeOrganization` restoration path, nor the `xlTpvgtV0K()` cleanup routine that clears `CurrentFleet`, the target queue, and the original ship-ID snapshot. The method therefore provides no source-level guarantee that manually stopping during temporary formation/sortie restores the original formation or clears the active-task snapshot. Whether `StopCurrentAction()` triggers any additional callback is not established by this method and remains unverified.
+
+KancolleBot consequence: cancellation must be modeled as a separate state transition. Stop the current UI action safely, reconcile the actual screen and fleet state, restore the captured formation if safe, and verify it from a fresh observation. If the state is ambiguous, pause for reconciliation rather than declaring cancellation complete.
+
+### 29.3 Pinned source evidence
+
+- `AutoKira.cs` blob: `ba9b2094eb26f947e725364398aefa9041c5d7ed`
+- `ActChangeOrganization.cs` blob: `2235a4e72212bccfd06445567d197bad921fe51c`
