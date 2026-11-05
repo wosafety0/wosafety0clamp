@@ -1,0 +1,24 @@
+{"ts": null, "phase": "dispatch_prepare", "event": "continuous_ui_click_sent", "target": "sortie", "fleet_id": null, "step": 1, "click_count": 1, "detail": {}}
+{"ts": null, "phase": "dispatch_prepare", "event": "continuous_ui_click_sent", "target": "expedition-mode", "fleet_id": null, "step": 2, "click_count": 1, "detail": {}}
+{"ts": null, "phase": "dispatch_prepare", "event": "continuous_ui_click_sent", "target": "expedition-row-01-pos0", "fleet_id": null, "step": 3, "click_count": 1, "detail": {}}
+{"ts": null, "phase": "dispatch_prepare", "event": "continuous_ui_click_sent", "target": "mission-confirm", "fleet_id": null, "step": 4, "click_count": 1, "detail": {}}
+{"ts": null, "phase": "dispatch_prepare", "event": "continuous_ui_click_sent", "target": "fleet-4-tab", "fleet_id": null, "step": 5, "click_count": 1, "detail": {}}
+{"ts": null, "phase": "dispatch_commit", "event": "continuous_ui_click_sent", "target": "sortie", "fleet_id": null, "step": 1, "click_count": 1, "detail": {}}
+{"ts": null, "phase": "dispatch_commit", "event": "continuous_ui_click_sent", "target": "expedition-mode", "fleet_id": null, "step": 2, "click_count": 1, "detail": {}}
+{"ts": null, "phase": "dispatch_commit", "event": "continuous_ui_click_sent", "target": "expedition-row-01-pos0", "fleet_id": null, "step": 3, "click_count": 1, "detail": {}}
+{"ts": null, "phase": "dispatch_commit", "event": "continuous_ui_click_sent", "target": "mission-confirm", "fleet_id": null, "step": 4, "click_count": 1, "detail": {}}
+{"ts": null, "phase": "dispatch_commit", "event": "continuous_ui_click_sent", "target": "fleet-4-tab", "fleet_id": null, "step": 5, "click_count": 1, "detail": {}}
+{"ts": null, "phase": "dispatch_commit", "event": "continuous_ui_click_sent", "target": "expedition-start", "fleet_id": null, "step": 6, "click_count": 1, "detail": {}}
+{"ts": "2026-11-05T16:33:37.835560+00:00", "phase": "supply", "event": "supply_menu_click_sent", "target": [103, 340], "fleet_id": null, "step": null, "click_count": 1, "detail": {}}
+{"ts": "2026-11-05T16:34:23.200821+00:00", "phase": "supply", "event": "supply_menu_click_sent", "target": [103, 340], "fleet_id": null, "step": null, "click_count": 1, "detail": {}}
+{"ts": "2026-11-05T16:34:28.848421+00:00", "phase": "supply", "event": "fleet4_tab_click_sent", "target": null, "fleet_id": null, "step": null, "click_count": 1, "detail": {"center": [355.0, 179.0]}}
+{"ts": "2026-11-05T16:35:58.948972+00:00", "phase": "supply", "event": "fleet_supply_all_click_sent", "target": null, "fleet_id": null, "step": null, "click_count": 1, "detail": {"center": [1108.0, 619.0]}}
+{"ts": "2026-11-05T16:37:58.237367+00:00", "phase": "gate_refresh", "event": "visible_ui_refresh_click_sent", "target": "sortie", "fleet_id": null, "step": 1, "click_count": 1, "detail": {"refresh_id": "fleet4-closed-loop-witness"}}
+{"ts": "2026-11-05T16:37:58.237367+00:00", "phase": "gate_refresh", "event": "visible_ui_refresh_click_sent", "target": "expedition-mode", "fleet_id": null, "step": 2, "click_count": 1, "detail": {"refresh_id": "fleet4-closed-loop-witness"}}
+{"ts": "2026-11-05T16:37:58.237367+00:00", "phase": "gate_refresh", "event": "visible_ui_refresh_click_sent", "target": "home-port", "fleet_id": null, "step": 3, "click_count": 1, "detail": {"refresh_id": "fleet4-closed-loop-witness"}}
+{"ts": "2026-11-05T16:58:32.998486+00:00", "phase": "settlement", "event": "refresh_ui_refresh_click_sent", "target": "sortie", "fleet_id": null, "step": 1, "click_count": 1, "detail": {"refresh_id": "fleet4-return-detect"}}
+{"ts": "2026-11-05T16:58:39.477489+00:00", "phase": "settlement", "event": "refresh_ui_refresh_click_sent", "target": "expedition-mode", "fleet_id": null, "step": 2, "click_count": 1, "detail": {"refresh_id": "fleet4-return-detect"}}
+{"ts": "2026-11-05T16:58:46.257282+00:00", "phase": "settlement", "event": "refresh_ui_refresh_click_sent", "target": "home-port", "fleet_id": null, "step": 3, "click_count": 1, "detail": {"refresh_id": "fleet4-return-detect"}}
+{"ts": "2026-11-05T16:59:29.869800+00:00", "phase": "settlement", "event": "driver_continuous_ui_click_sent", "target": "reward-advance", "fleet_id": null, "step": 1, "click_count": 1, "detail": {}}
+{"ts": "2026-11-05T16:59:49.129207+00:00", "phase": "settlement", "event": "driver_continuous_ui_click_sent", "target": "reward-advance", "fleet_id": null, "step": 2, "click_count": 1, "detail": {}}
+{"ts": "2026-11-05T16:59:59.510824+00:00", "phase": "settlement", "event": "driver_continuous_ui_click_sent", "target": "bonus-next", "fleet_id": null, "step": 3, "click_count": 1, "detail": {}}
