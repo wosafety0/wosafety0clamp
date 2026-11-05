@@ -4100,3 +4100,13 @@ The Hand plugin's read-only probe reported:
 - **VERIFIED (PR #35):** M1 PR #35 仍 OPEN / DRAFT，head `3b4b86490c458a255dd9f78ec538c485ae705b3f`；保持 Draft，未合并。
 - **SAFETY:** 未删除或重置任何分支。WorkBuddy 报告的 11 个本地无 upstream 分支未出现在本轮远端分支清单中；仅确认其当前没有同名远端引用，不据此清理本地分支。
 - **LIMITS / NEXT:** 集成主干最新 merge commit 为 `46362481e9b39092363575711996564d0270deee`。待回读其 push CI 结果；分支保护配置因缺少可用写接口 BLOCKED；R3 实施及 MVP 实机验收仍 PENDING。
+
+
+## 2026-11-05 — VCK AutoKira 刷闪源码研究归档
+
+- **SOURCE_REVIEWED:** 在私有上游参考快照中读取 `AutoExpeditionSettings.cs`、`AutoKira.cs`、`ActAutoKira.cs`；参考快照提交 `cb3aea65e9ed90c94271991441568874abb6e169`，三个文件的 blob SHA 与结论见 `docs/research/VCK_AUTO_KIRA_SOURCE_REVIEW_20261105.md`。
+- **SOURCE-CONFIRMED:** 每舰队刷闪选舰数量配置（默认 6）；每舰队士气目标配置（默认 75，候选分支还存在 50 阈值）；候选舰 HP 百分比/燃料/弹药检查（默认 HP 60%）；锁定舰排除选项（默认开启，实际按选项过滤）；陪练舰开关、等级与稀有度筛选；动作队列使用可见 UI 点击/等待，并订阅战斗、战果、地图推进等自然事件流。
+- **DESIGN INPUT ONLY:** 可借鉴每舰队配置、候选资格谓词、只读战斗观察、有限等待和错误停止；不得复制上游默认值或请求层。KancolleBot 仍要求 Poi 只读、可见 UI 操作、锁定状态未知即拒绝，且不自动解锁。
+- **LIMITS:** 反编译控制流混淆，部分字段调用语义未完全还原；本记录未运行测试、未做 Poi/游戏运行时验证；未修改 KancolleBot 运行时代码，也未启动 sparkle 实现。完整证据、推断边界和适配建议见独立研究文档。
+- **PRIORITY:** 远征 MVP / R3 继续优先；sparkle 仍为未实现、fail-closed 的声明任务。
+- **PUBLIC-SAFE:** 研究记录使用中性代号 VCK，不包含私有上游 URL、真实仓库身份或第三方源码副本。
