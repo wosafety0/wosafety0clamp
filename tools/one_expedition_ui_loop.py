@@ -672,15 +672,34 @@ def _probe_startup_screen(game_session):
 
 
 def _probe_startup_attribution(args, runtime, target_fleet_id):
-    """Resolve the recorded ship-ID set that ties a reward chain to a fleet."""
+    """Resolve the recorded ship-ID set that ties a reward chain to a fleet.
+
+    Three sources, in order of directness: the scheduler's own mission, the
+    dispatch Poi confirmed (durable event log), and the dispatch intent. The
+    event log is read once and also yields the evidence a blocked fleet needs
+    to be recovered, plus the proof that a reward chain was ever closed.
+    """
+    from kancollebot.expeditions.blocked_recovery import (
+        read_dispatch_evidence,
+        read_settlement_completion,
+    )
+    from kancollebot.expeditions.continuous_dispatch_controller import (
+        SqliteDispatchEventLog,
+    )
     from kancollebot.expeditions.dispatch_recovery import SqliteDispatchIntentStore
     from kancollebot.expeditions.startup_settlement import resolve_recorded_composition
 
+    events = SqliteDispatchEventLog(str(args.database)).load_all()
+    lookup = read_dispatch_evidence(events, target_fleet_id)
+    settlement_completed_at = read_settlement_completion(events, target_fleet_id)
     recorded = resolve_recorded_composition(
         mission=runtime.scheduler.fleet(target_fleet_id).mission,
         intent=SqliteDispatchIntentStore(args.database).get(target_fleet_id),
     )
-    return recorded if recorded is not None else (None, None)
+    if recorded is None and lookup.evidence is not None:
+        recorded = (lookup.evidence.ship_ids, "dispatch_confirmed_by_poi")
+    attribution = recorded if recorded is not None else (None, None)
+    return attribution, lookup, settlement_completed_at
 
 
 def _recover_home_port(game_session, attempts: int = 3, force_click: bool = False) -> None:
@@ -1338,8 +1357,8 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                         "startup reward screen detected but no settlement controller "
                         "is wired; refusing to click the chain"
                     )
-                expected_ship_ids, expected_source = _probe_startup_attribution(
-                    args, runtime, target_fleet_id
+                (expected_ship_ids, expected_source), evidence_lookup, settled_at = (
+                    _probe_startup_attribution(args, runtime, target_fleet_id)
                 )
                 try:
                     startup_settlement = settlement_controller.settle_visible_reward_chain(
@@ -1347,6 +1366,9 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                         screen=startup_screen,
                         expected_ship_ids=expected_ship_ids,
                         expected_ship_ids_source=expected_source,
+                        blocked_evidence=evidence_lookup.evidence,
+                        blocked_evidence_rejection=evidence_lookup.rejection,
+                        settlement_completed_at=settled_at,
                     )
                 except StartupSettlementRefused as exc:
                     raise LoopError(
@@ -1359,6 +1381,8 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     steps=[state for state, _ in startup_settlement.steps],
                     ship_ids=list(startup_settlement.ship_ids),
                     mission_credited=startup_settlement.mission is not None,
+                    recovered_from_blocked=startup_settlement.recovered_from_blocked,
+                    recovery_reason=startup_settlement.recovery_reason,
                     scheduler_phase_after=startup_settlement.scheduler_phase_after,
                     game_api_requests=False,
                 )

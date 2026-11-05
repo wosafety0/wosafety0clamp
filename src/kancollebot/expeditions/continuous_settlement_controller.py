@@ -34,6 +34,10 @@ from kancollebot.expeditions.continuous_scheduler import (
     UiOperationArbiter,
 )
 from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
+from kancollebot.expeditions.blocked_recovery import (
+    DispatchEvidence,
+    evaluate_blocked_recovery,
+)
 from kancollebot.expeditions.startup_settlement import (
     StartupScreen,
     StartupSettlementRefused,
@@ -61,6 +65,8 @@ class VisibleRewardSettlement:
     steps: tuple[tuple[str, str], ...]
     ship_ids: tuple[int, ...]
     scheduler_phase_after: str
+    recovered_from_blocked: bool = False
+    recovery_reason: str | None = None
 
 
 class ContinuousSettlementUiDriver(Protocol):
@@ -288,6 +294,9 @@ class ContinuousSettlementController:
         screen: StartupScreen,
         expected_ship_ids: tuple[int, ...] | None = None,
         expected_ship_ids_source: str | None = None,
+        blocked_evidence: DispatchEvidence | None = None,
+        blocked_evidence_rejection: str | None = None,
+        settlement_completed_at: datetime | None = None,
     ) -> VisibleRewardSettlement:
         """Close a reward chain that is already on display at process start.
 
@@ -388,6 +397,67 @@ class ContinuousSettlementController:
                     game_actions_sent=0,
                 )
                 raise StartupSettlementRefused(decision.reason)
+
+            # A blocked fleet may only re-enter the lifecycle with proof: the
+            # durable dispatch evidence (Poi's confirmation plus the Home Port
+            # verification that followed it) and a live observation that agrees
+            # with it. The check runs after the attribution gate, so a screen
+            # that cannot be attributed never revives a fleet either.
+            recovered = False
+            recovery_reason = None
+            current = self.scheduler.fleet(fleet_id)
+            if current.phase is FleetPhase.BLOCKED:
+                recovery = evaluate_blocked_recovery(
+                    fleet_id=fleet_id,
+                    phase=current.phase,
+                    blocked_reason=current.blocked_reason,
+                    scheduler_mission=current.mission,
+                    evidence=blocked_evidence,
+                    snapshot=snapshot,
+                    other_fleets_awaiting_result=others,
+                    reward_screen_proven=decision.allowed,
+                    settlement_completed_at=settlement_completed_at,
+                    evidence_rejection=blocked_evidence_rejection,
+                )
+                if not recovery.allowed or recovery.target_phase is None:
+                    self._refuse_startup(
+                        fleet_id,
+                        recovery.reason,
+                        decision.screen,
+                        failed_check="blocked_recovery",
+                        blocked_reason=current.blocked_reason,
+                        dispatch_evidence_present=blocked_evidence is not None,
+                        game_actions_sent=0,
+                    )
+                    raise StartupSettlementRefused(recovery.reason)
+                if recovery.target_phase is FleetPhase.RETURNED_PENDING_UI:
+                    self.scheduler.recover_blocked_returned(
+                        fleet_id,
+                        mission=recovery.mission,
+                        evidence=recovery.reason,
+                    )
+                else:
+                    self.scheduler.recover_blocked_settled(
+                        fleet_id, evidence=recovery.reason
+                    )
+                recovered = True
+                recovery_reason = recovery.reason
+                self.event_sink("blocked_fleet_recovered", {
+                    "fleet_id": fleet_id,
+                    "mission_id": (
+                        blocked_evidence.mission_id if blocked_evidence else None
+                    ),
+                    "original_block_reason": current.blocked_reason,
+                    "previous_phase": FleetPhase.BLOCKED.value,
+                    "recovered_phase": self.scheduler.fleet(fleet_id).phase.value,
+                    "evidence_event_ids": list(
+                        blocked_evidence.event_ids if blocked_evidence else ()
+                    ),
+                    "observed_at": self.clock().isoformat(),
+                    "recovery_result": "recovered",
+                    "rejection_reason": None,
+                    "game_api_requests": False,
+                })
 
             probe = getattr(self.ui_driver, "settlement_screen", None)
             if not callable(probe):
@@ -490,6 +560,8 @@ class ContinuousSettlementController:
                 "evidence": [evidence for _, evidence in steps],
                 "scheduler_phase_after": updated.phase.value,
                 "mission_credited": credited is not None,
+                "recovered_from_blocked": recovered,
+                "recovery_reason": recovery_reason,
                 "game_api_requests": False,
             })
             return VisibleRewardSettlement(
@@ -499,6 +571,8 @@ class ContinuousSettlementController:
                 steps=tuple(steps),
                 ship_ids=tuple(decision.attribution.observed_ship_ids if decision.attribution else ()),
                 scheduler_phase_after=updated.phase.value,
+                recovered_from_blocked=recovered,
+                recovery_reason=recovery_reason,
             )
 
     def _confirm_phase(
@@ -555,11 +629,15 @@ class ContinuousSettlementController:
         failed_check: str,
         **fields: object,
     ) -> None:
+        """Record one refusal with the audit fields the recovery rules require."""
         payload: dict[str, object] = {
             "fleet_id": fleet_id,
             "reason": reason,
             "screen": screen,
             "failed_check": failed_check,
+            "recovery_result": "refused",
+            "rejection_reason": reason,
+            "observed_at": self.clock().isoformat(),
             "automatic_retry": False,
             **fields,
         }
