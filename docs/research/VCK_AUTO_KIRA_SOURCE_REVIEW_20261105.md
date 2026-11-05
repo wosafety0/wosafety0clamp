@@ -108,3 +108,46 @@ The following are KancolleBot policy decisions, not claims about VCK behavior:
 ## 7. Project priority
 
 Expedition MVP / R3 remains the active priority. Sparkle remains a declared but unimplemented, fail-closed task. This research is a design input only and does not authorize or start sparkle implementation.
+
+
+## 8. Follow-up reconstruction: fleet gate and candidate selection
+
+A second pass over the same pinned `AutoKira.cs` blob clarifies several previously open call-site questions.
+
+### 8.1 Fleet eligibility gate (`NeedKira(Fleet)`)
+
+Directly visible checks include:
+
+- The per-fleet `AutoKiraOpen[fleet.Id - 1]` switch must be enabled.
+- Fleets currently marked `Sortie` or `Expedition` are rejected from this Kira scheduling path.
+- The method walks the fleet's ships and rejects the fleet if a ship is in `Repair` while a matching repair-dock entry is present.
+- It also checks `IsShipReserved(ship.Id)`; a reserved ship is not accepted by this eligibility path.
+- After the ship scan, it delegates the remaining decision to `NotMatchKiraCondition(fleet)`.
+
+This is stronger evidence than the earlier general statement that the upstream tool has availability checks. It is still not a complete reconstruction of every caller and state transition.
+
+### 8.2 Per-fleet target and low-morale selection
+
+The candidate sequence in `KiraFleet(Fleet)` is directly visible:
+
+- The configured selection count is `AutoKiraCount[fleet.Id - 1]`, capped at the current fleet size.
+- For fleet 1, and for fleets whose `KiraForSupport` option is enabled, the source sequence is ships with `Condition < 50`.
+- For other fleets, the source sequence is ships whose condition is below that fleet's `AutoKiraTargetCond`.
+- When the fleet's `AutoKiraFilter` equals `"等级"`, the candidate sequence is ordered by descending ship level before filling the Kira selection list.
+- The selection view model stores the chosen ship IDs; this is selection preparation, not proof of a successful UI fleet composition change.
+
+The `NeedKira` predicate and the `KiraFleet` selection sequence are distinct. A configured target threshold is not applied identically to all fleets.
+
+### 8.3 Consequences for KancolleBot
+
+- Model fleet availability and ship eligibility as separate predicates. A fleet-level gate should reject sortie/expedition occupancy, repair, and reserved/leased ships before any UI action.
+- Do not assume the upstream selection count means "number of escorts"; it is the configured number of ships in the selection sequence, capped by fleet size.
+- Preserve the difference between fleet 1/support low-morale selection (`< 50`) and other-fleet configured target selection.
+- Reconstruct selected IDs and final visible formation separately. A populated selection list is not proof that the game accepted the formation.
+- KancolleBot should use its stricter escort rule (level 1–3 DD/CL, explicitly unlocked, HP/supply/task checks) rather than importing this upstream level-descending candidate order.
+
+## 9. Updated evidence status
+
+- **ADDITIONAL SOURCE_REVIEWED:** `NeedKira(Fleet)`, `NotMatchKiraCondition(Fleet)`, and `KiraFleet(Fleet)` call-site excerpts from the same pinned `AutoKira.cs` blob.
+- **CONFIRMED WITH CALL-SITE EVIDENCE:** per-fleet enable switch; sortie/expedition exclusion; repair-dock and reserved-ship checks; per-fleet count cap; fleet-1/support `< 50` branch; configured target branch; descending-level ordering when filter is `"等级"`.
+- **STILL NOT VERIFIED:** the full semantics of the alternate non-`"等级"` filter branch, every delegate captured by the obfuscated compiler-generated closures, and the exact point at which the selection view model is applied to the visible game fleet.
