@@ -3,8 +3,9 @@
 Layers, outermost first:
 
 * :mod:`~kancollebot.observability.sink` - ``RunLogSink`` (a drop-in
-  ``event_sink``) and ``TeeEventSink`` (SQLite ledger + run log, unchanged
-  behaviour for every existing emitter).
+  ``event_sink``), ``TeeEventSink`` (SQLite ledger + run log, unchanged
+  behaviour for every existing emitter) and ``correlation_scope`` (how the
+  composition root stamps one dispatch attempt onto every row it causes).
 * :mod:`~kancollebot.observability.run_log` - JSONL storage, day rotation, file
   and directory caps, three-day retention, atomic current-state snapshot.
 * :mod:`~kancollebot.observability.event_envelope` - the one event format and
@@ -26,8 +27,11 @@ from kancollebot.observability.audit_policy import (
 )
 from kancollebot.observability.event_envelope import (
     CONTEXT_FIELDS,
+    DESCRIBED_FIELDS,
     ENVELOPE_FIELDS,
+    IDENTITY_ONLY_FIELDS,
     RESERVED_FIELDS,
+    SINK_OWNED_FIELDS,
     TRUSTED_ONLY_FIELDS,
     CorrelationContext,
     build_event_record,
@@ -38,6 +42,11 @@ from kancollebot.observability.event_envelope import (
     new_event_id,
     new_run_id,
     validate_event_name,
+)
+from kancollebot.observability.sink import (  # noqa: F401 - re-exported API
+    RunLogSink,
+    TeeEventSink,
+    correlation_scope,
 )
 from kancollebot.observability.run_log import (
     DEFAULT_MAX_FILE_BYTES,
@@ -56,6 +65,12 @@ from kancollebot.observability.run_log import (
 __all__ = [
     "CONTEXT_FIELDS",
     "CRITICAL_AUDIT_EVENTS",
+    "DESCRIBED_FIELDS",
+    "IDENTITY_ONLY_FIELDS",
+    "SINK_OWNED_FIELDS",
+    "RunLogSink",
+    "TeeEventSink",
+    "correlation_scope",
     "DEFAULT_MAX_FILE_BYTES",
     "DEFAULT_MAX_TOTAL_BYTES",
     "DEFAULT_RETENTION_DAYS",

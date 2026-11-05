@@ -42,13 +42,16 @@ KanColle-Agent，也未阅读其源码。
 
 三类字段，三种信任级别：
 
-1. **只可信**（`timestamp_utc` / `event` / `run_id` / `task_kind` / `event_id`）：
+1. **sink 独占**（`timestamp_utc` / `event` / `run_id` / `task_kind` / `event_id`）：
    由 sink 写入。emitter 传了也**直接丢弃**，无法伪造行身份。
-2. **上下文优先、可提升**（`dispatch_id` / `action_id` / `battle_id` / `fleet_id` /
-   `correlation_id` / `source` / `observed_at`）：上下文有值则上下文赢；上下文没有
-   值时把 emitter 的值**提升**到信封槽位，而不是丢弃。原因很实在：现有 57 个事件
-   里 `fleet_id` / `observed_at` 本来就在 body 里，直接丢弃是数据损失，不是安全收益。
-3. **诊断字段**：其余全部原样保留（经脱敏与截断）。
+2. **仅限上下文**（`dispatch_id` / `action_id` / `battle_id` / `correlation_id`）：
+   只有运行时能mint。emitter 传了**直接丢弃**（见第 9 节：这条在 P0.2 第一版里
+   是可提升的，属于可信边界缺口，已修）。
+3. **上下文优先、可提升**（`fleet_id` / `source` / `observed_at`）：上下文有值则
+   上下文赢；上下文没有值时把 emitter 的值**提升**到信封槽位，而不是丢弃。原因很
+   实在：现有 57 个事件里 `fleet_id` / `observed_at` 本来就在 body 里，直接丢弃是
+   数据损失，不是安全收益。提升值要过类型校验（`fleet_id` 必须正整数）。
+4. **诊断字段**：其余全部原样保留（经脱敏与截断）。
 
 `observed_at_origin`（`context` / `emitter`）显式标出"这个观察时间是谁说的"，
 避免把推断时间当成已验证的游戏状态时间。
@@ -178,14 +181,15 @@ settlement / resupply / visible_ui_refresh / UI driver 六处注入点都**不�
 3. **战斗日志只预留**：`battle_id` 槽位与 `new_battle_id()` 存在，无任何战斗事件类型
    定义、无战斗流程。
 4. **未做资源统计 / 收益账本**，未改 `action_journal`、未改 SQLite schema。
-5. `dispatch_id` 目前需要 composition root 用 `sink.correlation(...)` 绑定；生产入口
-   尚未包住派遣作用域，因此实机跑出来的 `dispatch_id` 会为空（`null` 合法，但不理想）。
+5. `dispatch_id` 的绑定点已在第 9 节补上（supervisor 派遣循环），但**尚未在真实客户端
+   上验证**：实机跑出来的 `dispatch_id` 是否真的落到每一行、是否真的逐队不同，仍属
+   未验证项。绑定失效时字段为 `null`（合法，且可见），不会阻断派遣。
 6. 现有 `logs/one_expedition_ui_loop.jsonl` 仍是单文件无上限，本轮未接管；它的容量
    问题独立存在。
 
 ---
 
-## 8. 测试矩阵（53 条新增）
+## 8. 测试矩阵（64 条新增）
 
 - `tests/test_run_log_envelope.py`（23）：信封字段与信任级别、伪造拒绝、提升规则、
   单行可独立解析、坏行不致整档不可读、同派遣共享 `dispatch_id`、两次相同派遣不合并、
@@ -200,3 +204,59 @@ settlement / resupply / visible_ui_refresh / UI driver 六处注入点都**不�
   关键行失败时不点且不重试、Drain 动作行失败时不推进、Drain 健康时一页一动作。
 - `tests/test_run_log_wiring.py`（4）：Supervisor 记录 tick / paused 与舰队相位、
   非可调用 sink 被容忍、决策真实落到磁盘。
+- `tests/test_dispatch_correlation.py`（11）：emitter 无法伪造四个关联 ID 且诊断字段
+  不受影响、上下文值仍胜出、畸形 `fleet_id` 不提升、一次尝试的五条事件共享同一
+  `dispatch_id`、同 tick 两舰队两个 ID、被拒尝试有 ID 但无 intent、tick 行不继承 ID、
+  异常路径关作用域、无关联能力的 sink 照常派遣、非可调用 sink 照常派遣、
+  真实 JSONL 上可重建一次派遣尝试。
+
+---
+
+## 9. dispatch_id 的可信边界与唯一绑定点（只读核查 + 最小接线）
+
+### 9.1 核查结论（只读，未改动任何代码前）
+
+| # | 结论 | 证据 |
+| --- | --- | --- |
+| F1 | `dispatch_id` **全项目零生产者**：`new_dispatch_id()` 只有定义与导出 | `grep -rn new_dispatch_id src tools` 仅命中 `observability/` 自身 |
+| F2 | 四个关联 ID（`dispatch_id` / `action_id` / `battle_id` / `correlation_id`）当时**可被 emitter 提升**，且提升值**无校验** | `CONTEXT_FIELDS` = 信封全集减去 5 个 sink 字段 |
+| F3 | 因此模块 docstring 的"调用方永远不能覆盖 composition root 注入的身份"在**上下文为空时并不成立** | 同上；`build_event_record` 直接 `record[field] = promoted` |
+| F4 | 三个真实派遣入口都不绑身份：`continuous_dispatch_controller.dispatch_one_ready` / `runner.py` / `tools/live_dispatch_expedition.py` | `grep -rn "\.dispatch_expedition(\|dispatch_one_ready("` |
+| F5 | **生产 composition root 共享同一个 sink 对象**——这是关联可行的前提 | `tools/one_expedition_ui_loop.py` 把 `runtime.monitor.event_sink` 传给 ui_driver / 派发 / 结算 / 补给；`ContinuousExpeditionSupervisor.__init__` 还强制身份相等 |
+| F6 | 唯一的"一次派遣"语义边界在 supervisor 派遣循环的单次迭代 | `continuous_supervisor.py` `for fleet_id in dispatch_order:` |
+| F7 | `TeeEventSink.correlation` 会把作用域推给所有支持者；SQLite sink 没有该接口，被跳过 | 主 sink 行为与 schema 均不变 |
+
+### 9.2 边界修正
+
+- `SINK_OWNED_FIELDS`（5 个）与 `IDENTITY_ONLY_FIELDS`（4 个）分开；`TRUSTED_ONLY_FIELDS`
+  是两者并集，语义变成"emitter 一律不得提供"。
+- `DESCRIBED_FIELDS = (fleet_id, source, observed_at)` 是**唯一**允许提升的集合——它们在
+  真实 payload 里本来就存在，拒绝是数据损失；四个关联 ID 则没有任何 emitter 在用，
+  拒绝是零成本的净收益。
+- 提升值过类型校验：`fleet_id` 必须是正整数（`True` / `"4"` / `0` / `-1` 一律丢弃），
+  避免同一列出现 int 与 str 混排这种静默的分析错误。
+
+### 9.3 唯一绑定点
+
+`ContinuousExpeditionSupervisor._dispatch_with_identity()`：每轮循环为一个舰队 mint 一个
+`dispatch_id`，用 `correlation_scope(...)` 包住**整个** `dispatch_one_ready()` 调用。
+
+- 用 `correlation_scope` 而不是 `sink.correlation` 直接调用：sink 不能表达关联时（测试
+  替身、纯 SQLite）退化成空作用域，派遣照常进行，`dispatch_id` 留空且**在日志里可见**，
+  而不是在六个调用点各写一次 `getattr`。
+- **身份属于"尝试"而不是"结果"**：id 在门禁之前 mint，所以被 REJECT/UNKNOWN 拦下的
+  舰队也有可辨识的尝试记录。代价是阅读者必须遵守一条硬规则——
+  **`dispatch_id` 存在不等于发生过派遣**；只有 `dispatch_intent_persisted` +
+  `dispatch_confirmed_by_poi` 才是。测试
+  `test_a_refused_attempt_is_identified_but_never_claims_a_dispatch` 锁定它。
+- 作用域只包住这一次调用：`supervisor_tick` / `supervisor_paused` 在作用域外发出，
+  `dispatch_id` 为空，不会被误挂到某次派遣上（`test_the_identity_does_not_leak_into_the_tick_row`）。
+- 异常路径同样关作用域（`test_the_scope_closes_even_when_the_attempt_raises`）。
+
+### 9.4 仍未做
+
+- `action_id` 未绑定：一次派遣内部的多次点击目前共享同一个 `dispatch_id`，但没有逐动作
+  的 `action_id`。要逐动作区分，得在 `_click` 层 mint，属于下一轮。
+- 结算 / 补给没有 `dispatch_id`（它们不属于任何一次派遣），也没有替代关联键。
+- `tools/live_dispatch_expedition.py` 直接调 `driver.dispatch_expedition`，绕过 supervisor，
+  仍然不产生 `dispatch_id`。它是单发工具，本轮刻意不动。

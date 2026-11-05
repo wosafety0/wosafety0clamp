@@ -30,8 +30,11 @@ from typing import Any
 
 __all__ = [
     "CONTEXT_FIELDS",
+    "DESCRIBED_FIELDS",
     "ENVELOPE_FIELDS",
+    "IDENTITY_ONLY_FIELDS",
     "RESERVED_FIELDS",
+    "SINK_OWNED_FIELDS",
     "TRUSTED_ONLY_FIELDS",
     "CorrelationContext",
     "build_event_record",
@@ -62,15 +65,35 @@ ENVELOPE_FIELDS: tuple[str, ...] = (
     "correlation_id",
 )
 
-#: Fields an emitter may never supply: they identify the row itself.
-TRUSTED_ONLY_FIELDS: frozenset[str] = frozenset(
+#: Fields the sink alone writes: they identify the row itself.
+SINK_OWNED_FIELDS: frozenset[str] = frozenset(
     {"timestamp_utc", "event", "run_id", "task_kind", "event_id"}
 )
 
-#: Fields whose value comes from the correlation context when it has one, and
-#: from the emitter (promoted, not duplicated) when it does not.
+#: Correlation identity: only the runtime may mint these. An emitter-supplied
+#: value is dropped, not promoted. No production emitter passes any of them
+#: (verified by search), so refusing them costs no compatibility and removes the
+#: one way a caller could claim "this row belongs to dispatch X" without the
+#: composition root having said so.
+IDENTITY_ONLY_FIELDS: frozenset[str] = frozenset(
+    {"dispatch_id", "action_id", "battle_id", "correlation_id"}
+)
+
+#: Fields an emitter may never supply. Kept as one name for readers that ask
+#: "what can I not forge"; the two subsets above explain *why* each is refused.
+TRUSTED_ONLY_FIELDS: frozenset[str] = SINK_OWNED_FIELDS | IDENTITY_ONLY_FIELDS
+
+#: Envelope slots the correlation context may fill (everything except the five
+#: the sink writes itself).
 CONTEXT_FIELDS: tuple[str, ...] = tuple(
-    field for field in ENVELOPE_FIELDS if field not in TRUSTED_ONLY_FIELDS
+    field for field in ENVELOPE_FIELDS if field not in SINK_OWNED_FIELDS
+)
+
+#: Slots an emitter may still *describe* when the context has none. Existing
+#: payloads already carry ``fleet_id`` and ``observed_at``, so dropping these
+#: would be data loss rather than a safety win.
+DESCRIBED_FIELDS: tuple[str, ...] = tuple(
+    field for field in CONTEXT_FIELDS if field not in IDENTITY_ONLY_FIELDS
 )
 
 RESERVED_FIELDS: frozenset[str] = frozenset(ENVELOPE_FIELDS)
@@ -160,6 +183,23 @@ def _isoformat(value: object) -> object:
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("observed_at must be timezone-aware")
         return value.astimezone(timezone.utc).isoformat()
+    return value
+
+
+#: Returned by :func:`_coerce_fleet_id` when a value must not enter the
+#: envelope. A distinct object (not ``None``) because ``None`` is a legal
+#: "this fleet is unknown" value elsewhere in the code base.
+_ABSENT = object()
+
+
+def _coerce_fleet_id(value: object) -> object:
+    """Return ``value`` when it is a positive int, else :data:`_ABSENT`.
+
+    ``bool`` is an ``int`` subclass and ``"4"`` is not ``4``; both would make
+    the envelope's ``fleet_id`` column disagree with itself across rows.
+    """
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return _ABSENT
     return value
 
 
@@ -256,12 +296,22 @@ def build_event_record(
                 origin["value"] = "context"
             record[field] = context_value
             continue
-        if field in fields:
-            promoted = fields[field]
-            if field == "observed_at":
-                promoted = _isoformat(promoted)
-                origin["value"] = "emitter"
-            record[field] = promoted
+        # Identity slots are context-only: an emitter that passes one has it
+        # dropped here, so the envelope can never claim a correlation the
+        # runtime did not mint.
+        if field not in DESCRIBED_FIELDS or field not in fields:
+            continue
+        promoted = fields[field]
+        if field == "observed_at":
+            promoted = _isoformat(promoted)
+            origin["value"] = "emitter"
+        elif field == "fleet_id":
+            promoted = _coerce_fleet_id(promoted)
+            if promoted is _ABSENT:
+                # A mixed-type identifier column is a silent analysis bug; a
+                # malformed fleet id is therefore dropped rather than stored.
+                continue
+        record[field] = promoted
 
     if "observed_at" in record:
         record[OBSERVED_AT_ORIGIN_FIELD] = origin["value"]

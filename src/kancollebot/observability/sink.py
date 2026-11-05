@@ -54,6 +54,7 @@ __all__ = [
     "RunLogSink",
     "TeeEventSink",
     "build_run_log_sink",
+    "correlation_scope",
 ]
 
 DEFAULT_PRUNE_INTERVAL_SECONDS = 3600.0
@@ -375,6 +376,31 @@ class TeeEventSink:
                 if callable(scope):
                     stack.enter_context(scope(**updates))
             yield
+
+
+@contextmanager
+def correlation_scope(
+    sink: Any, **updates: object
+) -> Iterator[None]:
+    """Bind correlation identity on ``sink`` for the duration of the block.
+
+    The composition root - not the emitter and not the business object - owns
+    the identity of *one attempt*, so this helper exists to be called from
+    exactly one place per attempt: the runtime that starts it.
+
+    A sink that cannot express correlation (a plain function, a test double, the
+    SQLite ledger) is left alone rather than rejected. That keeps every existing
+    call site and every offline test working unchanged, and it makes the
+    degraded case explicit in the code rather than hidden in a ``getattr`` at
+    each call site: no scope means the envelope's ``dispatch_id`` stays null,
+    which a reader can see.
+    """
+    scope = getattr(sink, "correlation", None)
+    if not callable(scope):
+        yield
+        return
+    with scope(**updates):
+        yield
 
 
 def build_run_log_sink(

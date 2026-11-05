@@ -23,7 +23,10 @@ from kancollebot.observability.audit_policy import (  # noqa: E402
     is_critical_event,
 )
 from kancollebot.observability.event_envelope import (  # noqa: E402
+    DESCRIBED_FIELDS,
     ENVELOPE_FIELDS,
+    IDENTITY_ONLY_FIELDS,
+    SINK_OWNED_FIELDS,
     TRUSTED_ONLY_FIELDS,
     CorrelationContext,
     build_event_record,
@@ -82,9 +85,19 @@ class EnvelopeTests(unittest.TestCase):
             ),
         )
         self.assertEqual(
-            TRUSTED_ONLY_FIELDS,
+            SINK_OWNED_FIELDS,
             frozenset({"timestamp_utc", "event", "run_id", "task_kind", "event_id"}),
         )
+        # Correlation identity is refused to emitters as well: only the runtime
+        # may say which dispatch/action/battle/correlation a row belongs to.
+        self.assertEqual(
+            IDENTITY_ONLY_FIELDS,
+            frozenset({"dispatch_id", "action_id", "battle_id", "correlation_id"}),
+        )
+        self.assertEqual(
+            TRUSTED_ONLY_FIELDS, SINK_OWNED_FIELDS | IDENTITY_ONLY_FIELDS
+        )
+        self.assertEqual(DESCRIBED_FIELDS, ("fleet_id", "source", "observed_at"))
 
     def test_trusted_identity_cannot_be_forged_by_an_emitter(self):
         context = self.make_context()

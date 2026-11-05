@@ -4,6 +4,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from kancollebot.observability.event_envelope import new_dispatch_id
+from kancollebot.observability.sink import correlation_scope
+
 
 @dataclass(frozen=True)
 class SupervisorTickResult:
@@ -347,9 +350,7 @@ class ContinuousExpeditionSupervisor:
             if self._phase_name(state) != "READY":
                 continue
 
-            result = self.dispatch_controller.dispatch_one_ready(
-                fleet_id
-            )
+            result = self._dispatch_with_identity(fleet_id)
             dispatches.append(result)
 
             updated_state = scheduler.fleet(fleet_id)
@@ -384,6 +385,36 @@ class ContinuousExpeditionSupervisor:
 
     # -- run-log integration ------------------------------------------------
 
+    def _sink(self) -> Any:
+        """The one sink every component of this process shares, or ``None``."""
+        sink = getattr(self.monitor, "event_sink", None)
+        return sink if callable(sink) else None
+
+    def _dispatch_with_identity(self, fleet_id: int) -> Any:
+        """Run one dispatch attempt under one freshly minted dispatch identity.
+
+        The **attempt** is the unit of identity, not its outcome: the id is
+        minted before the controller reads a baseline, so a fleet refused by the
+        R3-I requirement gate still yields an identifiable attempt whose
+        ``dispatch_requirement_evaluation`` / ``dispatch_blocked_*`` rows carry
+        the same ``dispatch_id`` the click rows would have carried.
+
+        A reader must therefore not treat "``dispatch_id`` is present" as
+        "a dispatch happened". Only ``dispatch_intent_persisted`` followed by
+        ``dispatch_confirmed_by_poi`` says that.
+
+        Binding happens on the shared sink the constructor already forces every
+        component to use, so the UI driver's ``continuous_ui_click_*`` rows (same
+        sink, emitted from inside the controller call) inherit the identity too.
+        A sink that cannot express correlation leaves ``dispatch_id`` null
+        rather than failing the dispatch: offline doubles keep working, and the
+        gap stays visible in the log instead of being papered over.
+        """
+        with correlation_scope(
+            self._sink(), dispatch_id=new_dispatch_id(), fleet_id=fleet_id
+        ):
+            return self.dispatch_controller.dispatch_one_ready(fleet_id)
+
     def _record_decision(self, result: SupervisorTickResult) -> None:
         """Emit one row describing this tick's scheduling decision.
 
@@ -392,8 +423,8 @@ class ContinuousExpeditionSupervisor:
         the caller acts on the result is what keeps the log honest when the
         process dies right afterwards.
         """
-        sink = getattr(self.monitor, "event_sink", None)
-        if not callable(sink):
+        sink = self._sink()
+        if sink is None:
             # Offline/test monitors may expose the attribute without a callable
             # (the supervisor contract only requires the *identity* to match).
             return
