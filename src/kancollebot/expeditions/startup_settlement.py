@@ -130,6 +130,7 @@ class StartupSettlementDecision:
     reason: str
     screen: str | None
     attribution: StartupAttribution | None = None
+    attribution_source: str | None = None
 
 
 def _refuse(reason: str, screen: str | None, attribution: StartupAttribution | None) -> StartupSettlementDecision:
@@ -146,11 +147,20 @@ def evaluate_startup_settlement(
     expected_ship_ids: tuple[int, ...] | None,
     expected_ship_ids_source: str | None,
     other_fleets_awaiting_result: tuple[int, ...] = (),
+    exclusive_pending_fleet: bool = False,
 ) -> StartupSettlementDecision:
     """Allow the startup chain only when the screen and the fleet are both proven.
 
     Every refusal is zero-click by construction: the caller raises on
     ``allowed is False`` before it asks the driver for anything.
+
+    ``exclusive_pending_fleet`` is a second, weaker attribution source for a
+    fleet that was dispatched by hand and therefore has no recorded composition
+    to compare against: a 帰航 notice exists only for a fleet whose result has
+    not been accepted, so when the full Poi snapshot shows exactly one such
+    fleet, the proven notice belongs to it. It is accepted only for the notice
+    itself - a result or bonus screen can still belong to a fleet whose result
+    was already accepted and whose screens were left open.
     """
     if not screen.is_reward_screen:
         return _refuse("no_proven_reward_screen", screen.state, None)
@@ -176,6 +186,20 @@ def evaluate_startup_settlement(
         # fleet, so one fleet's chain could be credited to the other.
         return _refuse("other_fleets_awaiting_result", screen.state, attribution)
     if not expected_ship_ids:
+        if (
+            screen.state == "HOME_PORT_RETURN_NOTICE"
+            and exclusive_pending_fleet
+            and snapshot.mission_status == 2
+        ):
+            # The notice itself is the attribution: it exists only for a fleet
+            # whose result is unaccepted, and this is the only such fleet.
+            return StartupSettlementDecision(
+                allowed=True,
+                reason="exclusive_pending_fleet_attribution",
+                screen=screen.state,
+                attribution=attribution,
+                attribution_source="exclusive_pending_fleet",
+            )
         return _refuse("recorded_composition_unavailable", screen.state, attribution)
     if set(observed) != set(expected_ship_ids):
         return _refuse("observed_composition_does_not_match_recorded", screen.state, attribution)
@@ -184,4 +208,5 @@ def evaluate_startup_settlement(
         reason="screen_proven_and_fleet_attributed",
         screen=screen.state,
         attribution=attribution,
+        attribution_source=expected_ship_ids_source,
     )

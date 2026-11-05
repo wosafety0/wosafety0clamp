@@ -190,5 +190,67 @@ class EvaluateStartupSettlementTests(unittest.TestCase):
         self.assertTrue(decision.allowed)
 
 
+class ExclusivePendingFleetTests(unittest.TestCase):
+    """A fleet sent by hand has no recorded composition to compare against.
+
+    The notice itself is then the attribution: a 帰航 notice exists only for a
+    fleet whose result has not been accepted, so when the full Poi snapshot
+    shows exactly one such fleet, the notice belongs to it. That proof is
+    accepted for the notice only - a result or bonus screen can still belong
+    to a fleet whose result was already accepted.
+    """
+
+    def allow(self, **overrides):
+        kwargs = dict(
+            fleet_id=FLEET,
+            screen=select_startup_screen(composited_state="HOME_PORT_RETURN_NOTICE"),
+            snapshot=snapshot(mission_status=2),
+            expected_ship_ids=None,
+            expected_ship_ids_source=None,
+            other_fleets_awaiting_result=(),
+            exclusive_pending_fleet=True,
+        )
+        kwargs.update(overrides)
+        return evaluate_startup_settlement(**kwargs)
+
+    def test_the_notice_is_attributed_to_the_only_pending_fleet(self):
+        decision = self.allow()
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.reason, "exclusive_pending_fleet_attribution")
+        self.assertEqual(decision.attribution_source, "exclusive_pending_fleet")
+
+    def test_without_the_exclusivity_the_fleet_is_refused(self):
+        decision = self.allow(exclusive_pending_fleet=False)
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason, "recorded_composition_unavailable")
+
+    def test_a_result_screen_is_not_attributed_by_exclusivity(self):
+        # A result or bonus screen can belong to a fleet whose result was
+        # already accepted and whose screens were left open.
+        decision = self.allow(
+            screen=select_startup_screen(composited_state="RETURN_RESULT")
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason, "recorded_composition_unavailable")
+
+    def test_a_second_pending_fleet_is_refused(self):
+        decision = self.allow(other_fleets_awaiting_result=(2,))
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason, "other_fleets_awaiting_result")
+
+    def test_an_idle_fleet_is_refused(self):
+        decision = self.allow(snapshot=snapshot(mission_status=0))
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason, "recorded_composition_unavailable")
+
+    def test_a_recorded_composition_still_cross_checks_the_ship_set(self):
+        decision = self.allow(
+            expected_ship_ids=(1, 2, 3, 4),
+            expected_ship_ids_source="dispatch_intent_mission_1",
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason, "observed_composition_does_not_match_recorded")
+
+
 if __name__ == "__main__":
     unittest.main()

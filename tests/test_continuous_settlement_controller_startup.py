@@ -436,5 +436,62 @@ class StartupChainDisabledTests(unittest.TestCase):
             )
 
 
+class StartupChainWithoutADispatchRecordTests(unittest.TestCase):
+    """A fleet sent by hand: no durable mission, attribution by exclusivity."""
+
+    def make(self, observation, ui):
+        scheduler = ContinuousExpeditionScheduler(dispatch_fleet_ids=(FLEET,))
+        controller = ContinuousSettlementController(
+            scheduler=scheduler,
+            state_reader=NoNavigationReader(observation),
+            ui_driver=ui,
+            ui_arbiter=UiOperationArbiter(),
+            event_sink=lambda event, fields: None,
+            allow_ui_actions=True,
+        )
+        return controller, scheduler
+
+    def test_the_chain_closes_and_the_fleet_state_is_rebuilt(self):
+        ui = SpySettlementUi(displayed_screen="HOME_PORT_RETURN_NOTICE")
+        poi = make_observation([fleet_snapshot(mission_status=2), fleet_snapshot(OTHER)])
+        controller, scheduler = self.make(poi, ui)
+        result = controller.settle_visible_reward_chain(
+            fleet_id=FLEET,
+            screen=select_startup_screen(composited_state="HOME_PORT_RETURN_NOTICE"),
+            expected_ship_ids=None,
+            expected_ship_ids_source=None,
+        )
+        state = scheduler.fleet(FLEET)
+        self.assertEqual(result.recovery_reason, None)
+        self.assertEqual(
+            [name for name, _ in ui.calls],
+            ["settlement_screen", "collect_return_result", "claim_bonus_items", "claim_reward"],
+        )
+        # The fleet state was rebuilt from the proven observation, so the
+        # settlement is credited instead of being dropped.
+        self.assertIs(state.phase, FleetPhase.RESUPPLY_REQUIRED)
+        self.assertIsNotNone(result.mission)
+
+    def test_a_second_pending_fleet_still_refuses(self):
+        ui = SpySettlementUi(displayed_screen="HOME_PORT_RETURN_NOTICE")
+        poi = make_observation([
+            fleet_snapshot(mission_status=2),
+            fleet_snapshot(OTHER, mission_status=2),
+        ])
+        controller, scheduler = self.make(poi, ui)
+        with self.assertRaises(StartupSettlementRefused) as caught:
+            controller.settle_visible_reward_chain(
+                fleet_id=FLEET,
+                screen=select_startup_screen(
+                    composited_state="HOME_PORT_RETURN_NOTICE"
+                ),
+                expected_ship_ids=None,
+                expected_ship_ids_source=None,
+            )
+        self.assertEqual(caught.exception.reason, "other_fleets_awaiting_result")
+        self.assertEqual([call for call in ui.calls if call[0] != "settlement_screen"], [])
+        self.assertIs(scheduler.fleet(FLEET).phase, FleetPhase.IDLE)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -375,6 +375,10 @@ class ContinuousSettlementController:
                         "game_api_requests": False,
                     })
 
+            # The exclusivity proof is computed from the full Poi snapshot,
+            # not from the scheduler's configured fleets: exactly one fleet
+            # with an unaccepted result, and this one.
+            exclusive_pending_fleet = (not others) and snapshot.mission_status == 2
             decision = evaluate_startup_settlement(
                 fleet_id=fleet_id,
                 screen=screen,
@@ -382,6 +386,7 @@ class ContinuousSettlementController:
                 expected_ship_ids=expected_ship_ids,
                 expected_ship_ids_source=expected_ship_ids_source,
                 other_fleets_awaiting_result=others,
+                exclusive_pending_fleet=exclusive_pending_fleet,
             )
             if not decision.allowed:
                 attribution = decision.attribution
@@ -459,6 +464,34 @@ class ContinuousSettlementController:
                     "game_api_requests": False,
                 })
 
+            # Rebuild the fleet state from the proven observation when the
+            # durable scheduler never learned this dispatch (a fleet sent by
+            # hand). The returned mission is Poi's own record and the
+            # attribution above has already decided which fleet it belongs to.
+            current = self.scheduler.fleet(fleet_id)
+            if (
+                current.mission is None
+                and current.phase in (
+                    FleetPhase.IDLE,
+                    FleetPhase.READY,
+                    FleetPhase.RESUPPLY_REQUIRED,
+                )
+                and snapshot.mission_status == 2
+            ):
+                rebuilt = self._require_returned_snapshot(fleet_id, snapshot)
+                self.scheduler.adopt_observed_mission(
+                    fleet_id, rebuilt, home_port_verified=False
+                )
+                self.event_sink("startup_settlement_fleet_state_rebuilt", {
+                    "fleet_id": fleet_id,
+                    "previous_phase": current.phase.value,
+                    "current_phase": self.scheduler.fleet(fleet_id).phase.value,
+                    "mission_id": rebuilt.mission_id,
+                    "final_time_ms": rebuilt.final_time_ms,
+                    "attribution_source": decision.attribution_source,
+                    "game_api_requests": False,
+                })
+
             probe = getattr(self.ui_driver, "settlement_screen", None)
             if not callable(probe):
                 self._refuse_startup(
@@ -491,6 +524,7 @@ class ContinuousSettlementController:
                 "default_surface_state": screen.default_surface_state,
                 "ship_ids": list(decision.attribution.observed_ship_ids if decision.attribution else ()),
                 "expected_ship_ids_source": expected_ship_ids_source,
+                "attribution_source": decision.attribution_source,
                 "game_api_requests": False,
             })
             # A restart can resume mid-chain: the durable phase may still say
