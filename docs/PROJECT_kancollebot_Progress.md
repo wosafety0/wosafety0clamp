@@ -4127,3 +4127,12 @@ The Hand plugin's read-only probe reported:
 - **FOLLOW-UP SOURCE_REVIEWED (battle loop):** `ActAutoKira` 的本次源码快照将地图变量初始化为 1 并选择 1-1；战斗后检查舰队所有现存舰船的观测 HP，任一不高于 25% 就走撤退 UI 并等待母港 session，否则继续 map-next。战斗队列明确选择 `Sortie_not_nightfight`；午夜战斗事件订阅仅能证明观察处理器存在，不能证明主动夜战。文件中的战斗计数器只见声明和递增，未发现它作为最大战斗次数的终止条件；不能据此声称固定两战或有最大次数保护。
 - **SOURCE BLOB EVIDENCE:** 本轮追加的精确 blob SHA 见 `docs/research/VCK_AUTO_KIRA_SOURCE_REVIEW_20261105.md` 第 16 节，包含第二份 `AutoKira.cs` / `ActAutoKira.cs`、`ActChangeOrganization.cs`、`ActChangeOneShip.cs`、`ActClearEquips.cs`、`ActRepair.cs` 与 `ActSupply.cs`。
 - **LIMITS:** `ActionHelper.NeedsSupply` / `NeedsUseBucket` 实现、Kira 候选 ID 到实际编成的完整调用链、原编成恢复、完整修理候选语义仍未核实。所有结论仅为反编译源码研究；未修改 KancolleBot 运行时代码、未运行测试、未做 Poi/游戏实机验证，R3 未触碰。
+
+
+- **FOLLOW-UP SOURCE_REVIEWED (helper semantics resolved):** 找到并读取 `ActionHelper.cs`。确认 `NeedsSupply` 在 `percent=1f` 时检查所选范围内舰船燃料和弹药是否全部满值；`flagShipOnly` 为 true 仅检查旗舰，为 false 检查全舰队。AutoKira 传入 `!AutoKiraSupplyFellows`，所以 true=全舰队满补给检查，false=旗舰满补给检查。注意 helper 对 null/空舰队返回 false，不能在 KancolleBot 中把它当作安全就绪。
+- **FOLLOW-UP SOURCE_REVIEWED (repair bucket exact rule):** `NeedsUseBucket` 最终比较为 `remainingRepairTime >= threshold`。默认 10 分钟意味着剩余修理时间达到或超过 10 分钟才使用高速修复；低于阈值不触发该桶策略。
+- **FOLLOW-UP SOURCE_REVIEWED (candidate-to-formation chain):** 进一步追踪 `KiraFleet`、`KiraShipsViewModel.Ships`、`JVjpi4cK7X`、`Update` 与 `ActChangeOrganization`。确认目标 ID 队列被实际用于编成：首个目标进旗舰位，UI 编成动作 force-clear 后应用临时阵容，再启动 `ActAutoKira`。原舰队 ID 在开始时保存，后续通过另一个 `ActChangeOrganization` 恢复，并清空快照/重置 CurrentFleet；错误中断路径仍需继续核验。
+- **FOLLOW-UP SOURCE_REVIEWED (actual fellow count and constraints):** KCV 临时编成数组只有 slot 0 和 slot 1 被赋值；`AutoKiraUseFellow=true` 时最多加入一艘陪练，且陪练必须是未编入任何舰队的驱逐舰。候选还受等级、修理状态、稀有度、HP、燃弹各至少 30%、与目标舰名排除、可配置锁定排除等条件约束；候选池未见显式排序，使用首个枚举项。无陪练时 slot 1 保持 -1，预检存在未完全还原的分支，不应将其视为可靠 fail-closed。
+- **CORRECTION TO EARLIER NOTE:** 此前记录的“尚未证明 Kira 候选 ID 应用到实际编成/原编成恢复”已由本轮调用链证据修正；通用动作本身不保存原编成，但 AutoKira 调度器保存 ID 快照并有恢复调用。清装备只恢复舰队成员，不恢复装备。
+- **SOURCE BLOB EVIDENCE:** `ActionHelper.cs` blob `8fc6c7a57831c627ef50b58aa2fea3c9095a671b`；`KiraShipsViewModel.cs` blob `02345550530dcabf4d583864a850391b6e6bcfeb`；其他调用链与设计影响见研究文档第 18–20 节。
+- **LIMITS:** 原编成恢复的所有中断/错误路径、无可用陪练时的完整状态转移、完整修理候选选择、是否存在更高层战斗次数上限仍待核验。仅源码研究；未改运行时代码、未测试、未做实机验证，R3 未触碰。
