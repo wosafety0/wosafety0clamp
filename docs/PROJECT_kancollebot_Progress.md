@@ -4136,3 +4136,9 @@ The Hand plugin's read-only probe reported:
 - **CORRECTION TO EARLIER NOTE:** 此前记录的“尚未证明 Kira 候选 ID 应用到实际编成/原编成恢复”已由本轮调用链证据修正；通用动作本身不保存原编成，但 AutoKira 调度器保存 ID 快照并有恢复调用。清装备只恢复舰队成员，不恢复装备。
 - **SOURCE BLOB EVIDENCE:** `ActionHelper.cs` blob `8fc6c7a57831c627ef50b58aa2fea3c9095a671b`；`KiraShipsViewModel.cs` blob `02345550530dcabf4d583864a850391b6e6bcfeb`；其他调用链与设计影响见研究文档第 18–20 节。
 - **LIMITS:** 原编成恢复的所有中断/错误路径、无可用陪练时的完整状态转移、完整修理候选选择、是否存在更高层战斗次数上限仍待核验。仅源码研究；未改运行时代码、未测试、未做实机验证，R3 未触碰。
+
+
+- **FOLLOW-UP SOURCE_REVIEWED (error recovery boundary):** 读取 `ActReset.cs` 并追踪 `GNMpkkXilJ` / `K1jp8Rwgts`。刷闪错误时先记录“自动刷闪执行失败”、设置 Error 并执行 ActReset；ActReset 负责 UI 复位/回到母港，不执行编成恢复。错误处理器没有清除原舰队快照 `uQFpLxEG9U` 或重置 `CurrentFleet`，也没有直接调用保存编成的 ActChangeOrganization。因此只有正常完成路径能确认有恢复动作；错误/中断路径不能保证原编成恢复。
+- **FOLLOW-UP SOURCE_REVIEWED (target completion):** AutoKira 读取 `Ship.Condition`，目标士气达到配置的 `AutoKiraTargetCond` 或达到 85 即从队列移除；有效完成阈值为两者较小值。85 是上限，不会因配置更高而继续刷到 86–100。
+- **SOURCE BLOB EVIDENCE:** `ActReset.cs` blob `61c583e14b59e4f19080b3a63a8de805cfcfdb9b`；士气读取器及队列判断位于已登记 blob 的 `AutoKira.cs`。
+- **LIMITS:** ActReset 完成后，保留的快照/CurrentFleet 如何影响后续调度仍待追踪；无可用陪练时的完整状态转移、完整修理候选选择、是否存在更高层战斗次数上限仍待核验。仅源码研究；未改运行时代码、未测试、未做实机验证，R3 未触碰。
