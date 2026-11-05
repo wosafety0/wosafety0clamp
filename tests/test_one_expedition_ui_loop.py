@@ -800,5 +800,67 @@ class LiveUiCoordinateEvidenceTests(unittest.TestCase):
                 controller.EXPEDITION_START,
             ],
         )
+class HiddenHomePortUiLayerTests(unittest.TestCase):
+    """A faded Home Port UI cannot be restored by the 母港 control inside it."""
+
+    def test_faded_port_is_woken_by_exactly_one_area_click(self):
+        game_session = MagicMock()
+        states = iter([
+            # One failed pre-check, then the three bounded 母港-button attempts,
+            # and only then the wake click's verification.
+            controller.LoopError("HOME_PORT was not confirmed"),
+            controller.LoopError("HOME_PORT was not confirmed"),
+            controller.LoopError("HOME_PORT was not confirmed"),
+            controller.LoopError("HOME_PORT was not confirmed"),
+            "two_consecutive_in_memory_ooi_fingerprints",
+        ])
+
+        def require_state(_session, _state):
+            outcome = next(states)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        with (
+            patch.object(controller, "_print_event") as events,
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_require_ui_state", side_effect=require_state),
+            patch.object(controller, "_home_port_ui_layer_is_hidden", return_value=True),
+        ):
+            controller._recover_home_port(game_session)
+
+        clicked = [call.args[0] for call in game_session.input.click.call_args_list]
+        # Three bounded 母港-button attempts, then one wake click on the port area.
+        self.assertEqual(len(clicked), 4)
+        self.assertEqual(clicked[:3], [
+            controller.home_port_candidates(controller.HOME_PORT)[0],
+            controller.home_port_candidates(controller.HOME_PORT)[1],
+            controller.home_port_candidates(controller.HOME_PORT)[2],
+        ])
+        self.assertEqual(clicked[3].label, "home-port-ui-wake")
+        events.assert_any_call(
+            "home_port_recovery_confirmed", attempt=4,
+            evidence="ui_layer_woken_by_area_click",
+        )
+
+    def test_a_non_faded_screen_never_gets_the_area_click(self):
+        # Every attempt fails and the frame is not a faded port, so the loop must
+        # stop without clicking the middle of an unknown screen.
+        game_session = MagicMock()
+        with (
+            patch.object(controller, "_print_event"),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_require_ui_state",
+                         side_effect=controller.LoopError("not HOME_PORT")),
+            patch.object(controller, "_home_port_ui_layer_is_hidden", return_value=False),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "bounded attempts"):
+                controller._recover_home_port(game_session)
+
+        clicked = [call.args[0] for call in game_session.input.click.call_args_list]
+        self.assertEqual(len(clicked), 3)
+        self.assertTrue(all(point.label == "home-port" for point in clicked))
+
+
 if __name__ == "__main__":
     unittest.main()

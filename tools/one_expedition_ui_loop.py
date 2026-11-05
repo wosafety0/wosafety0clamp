@@ -480,6 +480,40 @@ def _capture_home_reference(game_session) -> None:
     )
 
 
+def _home_port_ui_layer_is_hidden(game_session) -> bool:
+    """True when the port background is on screen but its UI layer has faded.
+
+    The Home Port fades its whole UI layer after a click on the 母港 control, and
+    the faded frame still classifies as *something* - every Home Port crop keeps
+    matching the unchanged background, so the scores flatten around 0.88-0.91 and
+    the gate correctly refuses to call it HOME_PORT. That refusal is right, but
+    it leaves the loop stranded: the 母港 button is part of the hidden layer, so
+    clicking it again cannot bring the UI back.
+
+    The test is deliberately narrow - the best-scoring state must be HOME_PORT
+    itself, so a sortie menu or expedition list can never be mistaken for a faded
+    port, and the caller may then use a single area click to wake the layer.
+    """
+    fingerprint_path = Path(
+        os.environ.get(
+            "KANCOLLEBOT_FINGERPRINTS_PATH",
+            ROOT / "src" / "kancollebot" / "adapters" / "poi" / "ooi_1200x720_fingerprints.json",
+        )
+    )
+    if not fingerprint_path.is_file():
+        return False
+    try:
+        document = _read_visual_document(fingerprint_path)
+        payload = game_session.input.capture_screenshot()
+        observed, scores = classify_screenshot_fingerprints(payload, document)
+    except Exception:
+        return False
+    if observed != "UNKNOWN" or not scores:
+        return False
+    best_name = max(scores, key=scores.get)
+    return best_name == UiState.HOME_PORT.value and scores[best_name] >= 0.85
+
+
 def _recover_home_port(game_session, attempts: int = 3, force_click: bool = False) -> None:
     """Use bounded top-left navigation retries, requiring state evidence after each click.
 
@@ -510,6 +544,26 @@ def _recover_home_port(game_session, attempts: int = 3, force_click: bool = Fals
             return
         except (UiStateGateError, LoopError) as exc:
             _print_event("home_port_recovery_retry", attempt=attempt, error=str(exc))
+    # The 母港 control is part of the UI layer it hides, so no number of retries
+    # on it can restore the layer. One click on the port background does - but
+    # only after the frame has been proven to be a faded port and nothing else.
+    if _home_port_ui_layer_is_hidden(game_session):
+        wake = RecordedPoint(600, 300, "home-port-ui-wake")
+        _print_event("ui_action_precondition", action="wake_home_port_ui_layer",
+                     attempt=1, force_click=False, point=wake.label)
+        game_session.input.click(wake)
+        _print_event("ui_click_sent", point=wake.label, attempt=1)
+        time.sleep(1.8)
+        _print_event("ui_action_wait_completed", point=wake.label, attempt=1,
+                     wait_seconds=1.8)
+        try:
+            _require_ui_state(game_session, UiState.HOME_PORT)
+        except (UiStateGateError, LoopError) as exc:
+            _print_event("home_port_ui_wake_failed", error=str(exc))
+        else:
+            _print_event("home_port_recovery_confirmed", attempt=attempts + 1,
+                         evidence="ui_layer_woken_by_area_click")
+            return
     raise LoopError(f"Home Port was not confirmed after {attempts} bounded attempts")
 
 
