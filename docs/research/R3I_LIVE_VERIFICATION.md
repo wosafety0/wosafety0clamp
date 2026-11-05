@@ -125,24 +125,27 @@ info.fleets / info.ships(witness投影) / masters
 
 ---
 
-## 5. 尚未闭环：真客户端完整 PASS 门禁
+## 5. 后续闭环：真客户端完整 PASS 门禁（R3-I.3，已补证）
 
-**如实说明：本轮没有在真客户端跑出一次完整 PASS 门禁。** 原因是两个真实前提都不满足，且补齐它们需要
-向游戏发送 UI 点击（有游戏内副作用），本轮在获得明确授权前没有执行：
+> **本节状态已被 `R3I_LIVE_PASS_VERIFICATION.md` 更新为「已闭环」。** 以下内容保留作为当时未授权状态的
+> 原始记录，不删改，便于追溯 gate 的演进。
+
+本轮（R3-I.2）当时**没有**在真客户端跑出一次完整 PASS 门禁。原因是两个真实前提都不满足，且补齐它们需要
+向游戏发送 UI 点击（有游戏内副作用），当时在获得明确授权前没有执行：
 
 1. 取得 `source_freshness_verified=True` 需要一次自然 `/kcsapi/api_port/port` 响应；客户端停在结算结果页时
    被动观察 20s / 45s 均无响应，必须靠**可见 UI 刷新导航**回到母港才可能触发。
 2. 目标舰队燃料 `8/15` 未满，`supply` 必然 REJECT；需要**补给**（会消耗游戏资源）。
 
-即使用户授权上述 UI 操作，本轮取证脚本也**不会发送派遣决定点击**——它停在 verdict，
-PASS 证明的是「门禁会放行」，不是「已经派遣」。完整派遣链属于另一类副作用，需单独授权。
+用户随后选择**授权可见 UI 刷新导航 + 补给、但不派遣**。`tools/verify_r3i_live_pass_gate.py` 在真客户端
+取得 `overall_result=PASS` / `allows_dispatch=true`、`source_freshness_verified=true`、
+`same_fresh_baseline=true`，13 项检查全部 PASS，取证停在 verdict、未派遣。证据与完整说明见
+`docs/research/R3I_LIVE_PASS_EVIDENCE_20261105.json` 与 `docs/research/R3I_LIVE_PASS_VERIFICATION.md`。
 
-> 因此按用户的 gate 条件，**R3-J 未启动**：「实机证据归档并完成 GitHub 远端回读后，再启动 R3-J」中的
-> 「真客户端完整 PASS 门禁」这一项尚未闭环。已在交付回复中把授权范围单独列出请用户裁决。
-
-离线的完整 PASS 门禁证据是充分的（`test_only_a_pass_verdict_reaches_the_existing_dispatch_flow`、
+取证脚本始终**不发送派遣决定点击**——PASS 证明的是「门禁会放行」，不是「已经派遣」。完整派遣链属于另一类
+副作用，仍需单独授权。离线的完整 PASS 门禁证据（`test_only_a_pass_verdict_reaches_the_existing_dispatch_flow`、
 `test_the_gate_and_the_intent_bind_the_same_fresh_baseline`、
-`test_equipment_and_stat_evidence_travel_with_the_same_baseline`），但它是确定性测试，不冒充实机结果。
+`test_equipment_and_stat_evidence_travel_with_the_same_baseline`）继续保留，与实机证据互为补充。
 
 ---
 

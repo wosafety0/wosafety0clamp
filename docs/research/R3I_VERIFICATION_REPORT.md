@@ -6,6 +6,10 @@
 > **R3-I.2 增量（2026-11-05）**：装备/属性可信只读观测、同一 fresh baseline 绑定、真客户端只读取证、
 > 延迟/动画/陈旧三类零点击验证，另见 `docs/research/R3I_LIVE_VERIFICATION.md` 与
 > `docs/research/R3I_LIVE_EVIDENCE_20261105.json`。下面的第 3、7、9 条限制与 NEXT 已按该增量更新。
+> **R3-I.3 增量（2026-11-05）**：用户授权「可见 UI 刷新导航 + 补给、不派遣」后，真客户端跑出一次完整
+> PASS 门禁（Fleet 3 / 远征 1，`source_freshness_verified=true`、`same_fresh_baseline=true`），见
+> `docs/research/R3I_LIVE_PASS_VERIFICATION.md` 与 `docs/research/R3I_LIVE_PASS_EVIDENCE_20261105.json`。
+> 第 7 条限制、测试数量与 NEXT 已按此增量再次更新。
 
 ---
 
@@ -83,7 +87,7 @@
 
 | 门禁命令 | 结果 |
 |---|---|
-| `PYTHONPATH=src python -m unittest discover -s tests` | R3-I 基线 **Ran 1473 tests — OK (skipped=2)**；R3-I.2 增量后 **Ran 1507 tests — OK (skipped=2)**（净增 34） |
+| `PYTHONPATH=src python -m unittest discover -s tests` | R3-I 基线 **Ran 1473 tests — OK (skipped=2)**；R3-I.2 增量后 **Ran 1507 tests — OK (skipped=2)**（净增 34）；R3-I.3 新增 `test_verify_r3i_live_pass_gate.py`(8) 后 **Ran 1515 tests — OK (skipped=2)** |
 | R3-G/R3-H 定向回归（9 个模块：`test_blocked_recovery`、`test_mission_result_witness*`、`test_mission_result_observer`、`test_startup_settlement_gate`、`test_dispatch_recovery`、`test_continuous_settlement_controller*`、`test_continuous_supervisor_settlement`） | **Ran 185 tests — OK** |
 | `python -m compileall -q src tests tools` | OK |
 | `git diff --check` | OK |
@@ -116,7 +120,7 @@
 4. **102–105 的多套等价编成未结构化**（`composition_unstructured=True`），判 UNKNOWN；不臆造一套。
 5. 41、43–46、B/D/E 系列、月次与交战型远征没有规则记录 → UNKNOWN。旗舰舰种限制只收录了 24/32/40。
 6. `(駆+海防)` 的 DE 代用只对 wiki 明确写出的 4/5/9/24/102–105 启用；其余 DD 组按 DD-only 处理，可能**过严**（只会误拒，不会误放）。「自由枠なし」只对 37 启用。
-7. **规则数值本身仍未做实机成功/失败回归**。R3-I.2 已在真客户端做了**只读**门禁取证（结算动画页、无 fresh witness → UNKNOWN 零点击拒绝，见 `R3I_LIVE_VERIFICATION.md`），但**没有在真客户端跑出一次完整 PASS 门禁**：需要可见 UI 刷新导航取得 port witness、且目标舰队燃料 `8/15` 需先补给，二者都会向游戏发送点击并消耗资源，本轮在获得明确授权前未执行。完整 PASS 与「放行到既有派遣流程」目前只有离线确定性测试证据。
+7. **规则数值本身仍未做实机成功/失败回归**。R3-I.2 的只读取证（结算动画页、无 fresh witness → UNKNOWN 零点击拒绝）见 `R3I_LIVE_VERIFICATION.md`；**R3-I.3 已在用户授权「UI 刷新导航 + 补给、不派遣」后跑出一次真客户端完整 PASS 门禁**（Fleet 3 / 远征 1，13 项全 PASS、`source_freshness_verified=true`、`same_fresh_baseline=true`），见 `R3I_LIVE_PASS_VERIFICATION.md`。但「PASS 之后放行到既有派遣流程」的实机链仍未验证（用户未授权派遣）；本项剩余的只是规则数值回归与完整派遣链，不再是「没有实机 PASS」。
 8. 判定优先级：state_trust / rule_source / fleet_identity 属 blocking UNKNOWN，会盖过可见的 REJECT；其它 UNKNOWN（装备/属性/补给/HP 证据）不盖过已确证的 REJECT，但两者都不能 PASS，且都记录在 `rejection_reasons`。
 9. **未提前实现**自动换船、自动装鼓桶、舰船池、动态舰队与资源调度（R3-J）。`in_dock_ship_ids` 现由 R3-I.2 的 `api_ndock_time` 证据投影提供（>0 视为入渠），但真客户端当前无入渠舰船，尚未实机验证该分支。
 10. 闪 / 大成功只做只读评估（`SparkleAssessment`，阈值 `api_cond>=50`），**不是派遣门禁**。
@@ -128,4 +132,7 @@
 - **功能验收：通过。** 规则有来源与版本、检查器可独立测试且零 I/O、关键条件可解释、未知数据不放行、拒绝路径零点击、只有 PASS 进入既有派遣流程、R3-G/R3-H 定向回归无退化、测试报告与实现一致。
 - **归档验收：不由本报告判定。** 需按项目规则完成本地提交 → 推送独立功能分支 → 从 GitHub 权威远端回读提交 SHA / 分支名 / 文件内容，并在交付回复中分别报告「本地保存 / 本地提交 / 远程推送 / 远程回读 / 测试验证」五项状态。
 
-> NEXT：装备/属性可信只读观测已补齐并归档（R3-I.2）。**R3-J 动态舰队与资源调度仍未启动**：用户设定的 gate 要求「在真客户端验证一次完整的 PASS 门禁 + 实机证据归档 + GitHub 远端回读」，其中真客户端完整 PASS 需要 UI 导航刷新与补给（有游戏副作用），本轮在获得明确授权前未执行，故 gate 未满足。授权范围见交付回复与 `R3I_LIVE_VERIFICATION.md` 第 5 节。
+> NEXT：装备/属性可信只读观测（R3-I.2）与真客户端完整 PASS 门禁（R3-I.3）均已补齐并归档。用户设定的
+> R3-J gate（真客户端完整 PASS + 实机证据归档 + GitHub 远端回读）已满足，**R3-J 在本轮启动阶段一**
+> （规格核查与实施规划），不提前实现自动换船或动态舰队调度。仍未验证的是「PASS 之后放行到既有派遣
+> 流程」的实机链与规则数值回归，二者需另行授权，详见 `R3I_LIVE_PASS_VERIFICATION.md` 第 6 节。
