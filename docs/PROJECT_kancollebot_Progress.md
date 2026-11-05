@@ -4151,3 +4151,9 @@ The Hand plugin's read-only probe reported:
 
 - **FOLLOW-UP SOURCE_REVIEWED (settings defaults):** 读取第二份反编译输出 `AutoExpeditionSettings.cs`。默认 AutoKiraOpen 关闭 Fleet 1、开启 Fleets 2–4；KiraForSupport 仅 Fleet 1 为 true；AutoKiraSupplyFellows backing bool 未在构造器/字段写入点赋值，默认 false。结合 NeedsSupply/ActSupply 调用，默认只检查并补给旗舰，陪练候选只要求燃弹各至少 30%，不会因默认补给流程而保证满补给。另确认 target queue count=6、目标士气=75、等级排序、UseFellow/ClearEquips/ExcludeLockedShip 默认 true、陪练等级阈值5、HP阈值60、稀有度金色、旗舰HP阈值60、修理桶阈值10分钟。均为构造器默认值，持久化设置可能覆盖。
 - **SOURCE BLOB EVIDENCE:** 第二份 `AutoExpeditionSettings.cs` blob `8aa102bdaf2674c491820c82906fd0fe1e81a288`。
+
+
+- **FOLLOW-UP SOURCE_REVIEWED (modern Poi adapter boundary):** 远程读取 Yukikaze030/KanColle-Agent main（commit `835de05a836061f9f57c484edd2455e299ff63fd`）的 shared types、Poi store bridge、services、snapshot 和 tools。标准 ShipRecord 没有单舰 fuel/ammo；缺失 api_cond 被填 49、api_locked 被 Boolean() 转成 false、max_hp 可回退 current_hp、level 缺失回退 0、repair store 缺失时 dock 可能表现为 false。fleet_id=null 也只有在 fleets coverage complete 时才能解释为未编队。
+- **REPAIRS FRESHNESS GAP:** KanColle-Agent SnapshotStore 没有独立 repairs freshness domain；setRepairs 只更新 operations=partial，getOperations 返回 repairs 但不提供 repairs coverage，getFleets coverage 也不含 repairs。因此不能把 dock=false 直接当作已确认未入渠。
+- **ADAPTER DESIGN:** KancolleBot 必须保留 condition/locked/HP/maxHP/fuel/ammo/dock 的 unknown 状态，并核验 fleet/repairs coverage；在标准 Poi MCP schema 补齐前，只能从只读 raw Poi store 取缺失字段或拒绝候选。没有修改 KanColle-Agent 或 KancolleBot 代码。
+- **SOURCE BLOB EVIDENCE:** 相关 KanColle-Agent 文件 blob SHA 见研究文档第 24.5 节；其 main commit 为 `835de05a836061f9f57c484edd2455e299ff63fd`。
