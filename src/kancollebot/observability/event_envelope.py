@@ -56,6 +56,7 @@ ENVELOPE_FIELDS: tuple[str, ...] = (
     "run_id",
     "task_kind",
     "event_id",
+    "sqlite_event_id",
     "dispatch_id",
     "action_id",
     "battle_id",
@@ -67,7 +68,7 @@ ENVELOPE_FIELDS: tuple[str, ...] = (
 
 #: Fields the sink alone writes: they identify the row itself.
 SINK_OWNED_FIELDS: frozenset[str] = frozenset(
-    {"timestamp_utc", "event", "run_id", "task_kind", "event_id"}
+    {"timestamp_utc", "event", "run_id", "task_kind", "event_id", "sqlite_event_id"}
 )
 
 #: Correlation identity: only the runtime may mint these. An emitter-supplied
@@ -266,6 +267,7 @@ def build_event_record(
     context: CorrelationContext,
     event_id: str,
     timestamp_utc: str,
+    sqlite_event_id: int | None = None,
 ) -> dict[str, Any]:
     """Build one flat event record: envelope first, diagnostics after.
 
@@ -275,6 +277,10 @@ def build_event_record(
     name = validate_event_name(event)
     _validate_id("timestamp_utc", timestamp_utc)
     _validate_id("event_id", event_id)
+    if sqlite_event_id is not None and (
+        type(sqlite_event_id) is not int or sqlite_event_id < 1
+    ):
+        raise ValueError("sqlite_event_id must be a positive int or None")
     if not isinstance(fields, Mapping):
         raise TypeError("event fields must be a mapping")
 
@@ -284,6 +290,7 @@ def build_event_record(
         "run_id": context.run_id,
         "task_kind": context.task_kind,
         "event_id": event_id,
+        "sqlite_event_id": sqlite_event_id,
     }
 
     origin = {"value": None}

@@ -77,6 +77,7 @@ class EnvelopeTests(unittest.TestCase):
                 "run_id",
                 "task_kind",
                 "event_id",
+                "sqlite_event_id",
                 "dispatch_id",
                 "action_id",
                 "battle_id",
@@ -88,7 +89,7 @@ class EnvelopeTests(unittest.TestCase):
         )
         self.assertEqual(
             SINK_OWNED_FIELDS,
-            frozenset({"timestamp_utc", "event", "run_id", "task_kind", "event_id"}),
+            frozenset({"timestamp_utc", "event", "run_id", "task_kind", "event_id", "sqlite_event_id"}),
         )
         # Correlation identity is refused to emitters as well: only the runtime
         # may say which dispatch/action/battle/correlation a row belongs to.
@@ -110,6 +111,7 @@ class EnvelopeTests(unittest.TestCase):
                 "event": "forged_event",
                 "task_kind": "combat",
                 "event_id": "event-forged",
+                "sqlite_event_id": 999,
                 "timestamp_utc": "1999-01-01T00:00:00+00:00",
                 "mission_id": 1,
             },
@@ -121,6 +123,7 @@ class EnvelopeTests(unittest.TestCase):
         self.assertEqual(record["event"], "dispatch_confirmed_by_poi")
         self.assertEqual(record["task_kind"], "expedition")
         self.assertEqual(record["event_id"], "event-real")
+        self.assertIsNone(record["sqlite_event_id"], "emitters cannot forge the SQLite row link")
         self.assertEqual(record["timestamp_utc"], "2026-11-06T12:00:00+00:00")
         self.assertEqual(record["mission_id"], 1)
 
@@ -167,6 +170,20 @@ class EnvelopeTests(unittest.TestCase):
         )
         self.assertEqual(record["source"], "poi-redux:info.fleets")
         self.assertEqual(record["observed_at_origin"], "context")
+
+    def test_sqlite_event_id_requires_a_positive_exact_integer(self):
+        context = self.make_context()
+        for bad in (True, 0, -1, 1.0, "1"):
+            with self.subTest(value=bad):
+                with self.assertRaises(ValueError):
+                    build_event_record(
+                        event="diagnostic_event",
+                        fields={},
+                        context=context,
+                        event_id="event-1",
+                        timestamp_utc="2026-11-06T12:00:00+00:00",
+                        sqlite_event_id=bad,
+                    )
 
     def test_event_names_must_be_single_tokens(self):
         for bad in ("", "   ", "has space", "line\nbreak", "nul\x00byte"):
@@ -347,6 +364,41 @@ class SinkFormatTests(unittest.TestCase):
         self.assertEqual(primary[0][1], {"fleet_id": 3, "mission_id": 3})
         self.assertEqual(len(read_all_records(self.directory)), 1)
         self.assertEqual(tee.run_id, sink.run_id)
+
+    def test_tee_links_sqlite_event_id_to_jsonl_without_conflating_event_id(self):
+        from kancollebot.expeditions.continuous_dispatch_controller import SqliteDispatchEventLog
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = root / "events.sqlite3"
+            log_dir = root / "run-log"
+            primary = SqliteDispatchEventLog(str(database), task_kind="expedition")
+            run_id = "run-20261106T120000Z-0000000000a1"
+            secondary = build_run_log_sink(
+                directory=log_dir, task_kind="expedition", run_id=run_id,
+                prune_interval_seconds=0,
+            )
+            tee = TeeEventSink(primary, secondary)
+            tee("dispatch_intent_persisted", {"fleet_id": 4, "mission_id": 1})
+            tee("dispatch_confirmed_by_poi", {"fleet_id": 4, "mission_id": 1})
+
+            sqlite_rows = primary.load_all()
+            jsonl_rows = RunLogStore(RunLogPolicy(directory=log_dir)).read_events(run_id=run_id)
+            self.assertEqual([row["event_id"] for row in sqlite_rows], [1, 2])
+            self.assertEqual([row["sqlite_event_id"] for row in jsonl_rows], [1, 2])
+            self.assertEqual(len({row["event_id"] for row in jsonl_rows}), 2)
+            self.assertTrue(all(isinstance(row["event_id"], str) for row in jsonl_rows))
+            self.assertEqual([row["event"] for row in sqlite_rows], [row["event"] for row in jsonl_rows])
+
+    def test_tee_rejects_invalid_primary_event_id_receipt(self):
+        calls = []
+        def primary(event, fields):
+            return True
+        def secondary(event, fields):
+            calls.append(event)
+        with self.assertRaisesRegex(TypeError, "positive int event ID"):
+            TeeEventSink(primary, secondary)("diagnostic_event", {})
+        self.assertEqual(calls, [])
 
     def test_snapshot_is_replaced_atomically_and_leaves_no_temp_file(self):
         sink = self.make_sink()
