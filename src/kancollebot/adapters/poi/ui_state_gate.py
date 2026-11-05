@@ -38,6 +38,13 @@ class UiState(str, Enum):
     MISSION_SELECTED = "MISSION_SELECTED"
     FLEET_3_SELECTED = "FLEET_3_SELECTED"
     FLEET_2_SELECTED = "FLEET_2_SELECTED"
+    # Fleet 4 has a dispatch tab like Fleets 2 and 3, so the post-dispatch
+    # checkpoint enumerates FLEET_4_SELECTED as a candidate page. It has no
+    # fingerprint template and no accessible marker yet, which is fine: the
+    # state simply never matches and the caller refuses to click. Leaving it
+    # out of the enum instead turned that refusal into a ValueError that
+    # bypassed the caller's "not this screen" handling (live 2026-11-05).
+    FLEET_4_SELECTED = "FLEET_4_SELECTED"
     RETURN_RESULT = "RETURN_RESULT"
     BONUS_ITEMS = "BONUS_ITEMS"
     ERROR_DIALOG = "ERROR_DIALOG"

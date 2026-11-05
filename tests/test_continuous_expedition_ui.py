@@ -8,6 +8,7 @@ from kancollebot.adapters.poi.continuous_expedition_ui import (
     CdpContinuousExpeditionUiDriver,
     ContinuousUiDriverError,
 )
+from kancollebot.adapters.poi.ui_state_gate import UiState
 from kancollebot.calibration import DetailMatch, MarkMatch, RowLocation
 from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
 
@@ -156,6 +157,21 @@ class HomePortReturnPreconditionTests(unittest.TestCase):
                 fleet_id=3, expected_current_state="EXPEDITION_LIST"
             )
         self.assertEqual(screen.clicks, [])
+
+    def test_every_candidate_page_is_a_declared_ui_state(self):
+        """The candidates are strings here but become UiState in production.
+
+        A fleet tab with no enum member raised ValueError inside the verifier,
+        which is not in the driver's "not this screen" set: a refusal to click
+        turned into a crash. Live 2026-11-05 that is exactly what
+        FLEET_4_SELECTED did, one second after a dispatch had already
+        succeeded. Every supported fleet must therefore have a real state.
+        """
+        driver, _ = self.build("EXPEDITION_LIST")
+        for fleet_id in driver._supported_fleets:
+            with self.subTest(fleet_id=fleet_id):
+                name = f"FLEET_{fleet_id}_SELECTED"
+                self.assertEqual(UiState(name).value, name)
 
 
 class ContinuousExpeditionUiDriverTests(unittest.TestCase):

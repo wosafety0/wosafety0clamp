@@ -945,6 +945,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
         ContinuousDispatchController,
         UiStateEvidence,
     )
+    from kancollebot.expeditions.continuous_monitor import ContinuousMonitorError
     from kancollebot.expeditions.continuous_resupply_controller import (
         ContinuousResupplyController,
     )
@@ -1231,6 +1232,22 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 game_api_requests=False,
                 ui_refresh_enabled=args.enable_ui_refresh,
             )
+            # One explicit bootstrap refresh before the first tick.
+            #
+            # The monitor no longer navigates as a side effect of reading, and
+            # it refuses to navigate when the durable phase says nothing is
+            # pending. At start-up both halves of that rule deadlock: the phase
+            # says BLOCKED or "out for hours", so nothing counts as pending,
+            # so the observation can never be refreshed, so the phase can never
+            # change. Live 2026-11-05 an adopted run stopped before its first
+            # tick for exactly this reason. The caller that needs the state is
+            # this entry point, so it says so once, by name.
+            bootstrap_refresh = getattr(
+                runtime.monitor.state_reader, "ensure_fresh", None
+            )
+            if callable(bootstrap_refresh):
+                bootstrap_refresh(origin="run_bootstrap")
+
             def report_actions(tick_index: int, result) -> None:
                 if result.settlements or result.resupplies:
                     _print_event(
@@ -1265,7 +1282,39 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
             # process instead of requiring a human to re-run the tool later.
             max_ticks = args.max_ticks if args.wait_for_return else 1
             for tick_index in range(1, max_ticks + 1):
-                result = supervisor.tick()
+                try:
+                    result = supervisor.tick()
+                except ContinuousMonitorError as exc:
+                    # Waiting for a return means most ticks legitimately have
+                    # no trusted observation: the witness is 30s old and the
+                    # monitor will not navigate until the return is inside the
+                    # lead window. Refusing to act is the correct answer, and
+                    # killing the wait because of it would guarantee the return
+                    # is never observed. Only the wait mode tolerates this; a
+                    # single-shot run still stops on the first refusal.
+                    if not args.wait_for_return:
+                        raise
+                    _print_event(
+                        "PRODUCTION_TICK_OBSERVATION_UNAVAILABLE",
+                        tick=tick_index,
+                        of=max_ticks,
+                        error=str(exc),
+                        game_actions_sent=0,
+                    )
+                    if tick_index == max_ticks:
+                        _print_event(
+                            "PRODUCTION_SUPERVISOR_PAUSED",
+                            reason=(
+                                f"fleet_{target_fleet_id}_no_trusted_observation_"
+                                "within_max_ticks"
+                            ),
+                            dispatch_count=0,
+                            game_actions_sent=0,
+                            tick=tick_index,
+                        )
+                        return 2
+                    time.sleep(args.tick_interval_seconds)
+                    continue
                 report_actions(tick_index, result)
                 if result.paused_reason is not None:
                     return pause(result, "", tick_index)
