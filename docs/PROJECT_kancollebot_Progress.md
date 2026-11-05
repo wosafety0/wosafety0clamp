@@ -4147,3 +4147,7 @@ The Hand plugin's read-only probe reported:
 - **FOLLOW-UP SOURCE_REVIEWED (error re-entry risk):** 继续追踪 `GNMpkkXilJ`、`xlTpvgtV0K`、`NeedAction` 与 `CanAction`。错误处理会执行 ActReset 并在完成后把状态设回 Idle，但不调用清理函数 `xlTpvgtV0K`（该函数才会清空 CurrentFleet、目标队列和原舰队 ID 快照）。`NeedAction` 在 CurrentFleet != -1 时返回 true，因此 CanAction 在复位后可能再次将同一任务视为可执行；未发现该路径有明确 retry budget/backoff。此为静态控制流风险，尚未实机验证是否必然重复。
 - **DESIGN CONSEQUENCE:** KancolleBot 的错误恢复必须进入暂停/对账状态，重新读取屏幕、舰队成员、士气、补给及原编成后才能决定恢复；不能把 ActReset 或回到母港视为任务恢复完成。
 - **SOURCE BLOB EVIDENCE:** `ActReset.cs` blob `61c583e14b59e4f19080b3a63a8de805cfcfdb9b`；错误处理、清理与调度入口位于已登记的 `AutoKira.cs` blob。
+
+
+- **FOLLOW-UP SOURCE_REVIEWED (settings defaults):** 读取第二份反编译输出 `AutoExpeditionSettings.cs`。默认 AutoKiraOpen 关闭 Fleet 1、开启 Fleets 2–4；KiraForSupport 仅 Fleet 1 为 true；AutoKiraSupplyFellows backing bool 未在构造器/字段写入点赋值，默认 false。结合 NeedsSupply/ActSupply 调用，默认只检查并补给旗舰，陪练候选只要求燃弹各至少 30%，不会因默认补给流程而保证满补给。另确认 target queue count=6、目标士气=75、等级排序、UseFellow/ClearEquips/ExcludeLockedShip 默认 true、陪练等级阈值5、HP阈值60、稀有度金色、旗舰HP阈值60、修理桶阈值10分钟。均为构造器默认值，持久化设置可能覆盖。
+- **SOURCE BLOB EVIDENCE:** 第二份 `AutoExpeditionSettings.cs` blob `8aa102bdaf2674c491820c82906fd0fe1e81a288`。
