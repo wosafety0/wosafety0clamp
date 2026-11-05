@@ -80,6 +80,40 @@ class ProductionStartupSafetyGateTests(unittest.TestCase):
         compose.assert_called_once_with(args)
 
 
+class SettleOnlyDispatcherTests(unittest.TestCase):
+    """``--settle-only`` closes out a returned fleet and can never dispatch.
+
+    Fleets whose expedition has no verified composition requirement cannot go
+    through the production entry at all, because that gate runs before anything
+    is observed. Settling them needs no composition, so the gate is skipped - and
+    the dispatcher handed to the supervisor refuses the one thing that gate
+    exists to protect.
+    """
+
+    def test_a_ready_fleet_is_never_dispatched(self):
+        dispatcher = controller.SettleOnlyDispatcher(
+            scheduler=object(),
+            state_reader=object(),
+            event_sink=lambda event, payload: None,
+            mission_requirements=None,
+        )
+        with self.assertRaisesRegex(controller.LoopError, "settle-only run"):
+            dispatcher.dispatch_one_ready(3)
+
+    def test_it_wires_the_shared_objects_the_supervisor_compares(self):
+        scheduler, reader, sink = object(), object(), lambda event, payload: None
+        dispatcher = controller.SettleOnlyDispatcher(
+            scheduler=scheduler,
+            state_reader=reader,
+            event_sink=sink,
+            mission_requirements={},
+        )
+        self.assertIs(dispatcher.scheduler, scheduler)
+        self.assertIs(dispatcher.state_reader, reader)
+        self.assertIs(dispatcher.event_sink, sink)
+        self.assertEqual(dispatcher.mission_requirements, {})
+
+
 class WaitForReturnArgumentTests(unittest.TestCase):
     """--wait-for-return turns one tick into a bounded wait; the bound is checked."""
 

@@ -228,6 +228,7 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
         args.max_ticks = 60
         args.tick_interval_seconds = 10.0
         args.adopt_observed_mission = False
+        args.settle_only = False
         # The dispatch target is now an argument rather than a constant, so the
         # stub has to carry a real master-data id: an unset MagicMock attribute
         # is deliberately refused rather than coerced.

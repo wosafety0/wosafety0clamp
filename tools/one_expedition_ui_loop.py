@@ -130,6 +130,34 @@ class LoopError(RuntimeError):
     """The observed state or UI sequence no longer matches the fixed loop."""
 
 
+class SettleOnlyDispatcher:
+    """A dispatch controller that can never dispatch.
+
+    ``--settle-only`` exists to close out a fleet that is already on an
+    expedition: settle the reward chain, resupply, stop. It still runs inside the
+    supervisor, which only knows one dispatch contract, so it is handed this
+    instead - one that satisfies the shared-scheduler/shared-reader wiring checks
+    and refuses the one thing a settle-only run must never do.
+    """
+
+    def __init__(
+        self, *, scheduler, state_reader, event_sink, mission_requirements, ui_arbiter=None
+    ):
+        self.scheduler = scheduler
+        self.state_reader = state_reader
+        self.event_sink = event_sink
+        self.mission_requirements = mission_requirements
+        # Carried only so the entry's single-arbiter assertion can compare it:
+        # this controller sends no clicks, so it never asks the arbiter.
+        self.ui_arbiter = ui_arbiter
+
+    def dispatch_one_ready(self, fleet_id: int) -> None:
+        raise LoopError(
+            "settle-only run: the fleet is ready, and this entry closes out a "
+            "returned fleet without ever sending a start click"
+        )
+
+
 def _mission_requirement(args, fleet_id: int, mission_id: int):
     """The composition gate's numbers for this fleet and mission.
 
@@ -974,7 +1002,11 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
             source="poi-cdp-fleet-snapshot",
         )
         with connect_game_webview(timeout=3.0) as game_session:
-            requirement = _mission_requirement(args, target_fleet_id, target_mission_id)
+            requirement = (
+                None
+                if args.settle_only
+                else _mission_requirement(args, target_fleet_id, target_mission_id)
+            )
             _recover_home_port(game_session)
             _capture_home_reference(game_session)
 
@@ -1010,7 +1042,9 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 observer_timeout_seconds=args.observer_timeout_seconds,
                 max_state_age_seconds=args.max_state_age_seconds,
                 dispatch_fleet_ids=(target_fleet_id,),
-                mission_requirements={target_fleet_id: requirement},
+                mission_requirements=(
+                    None if requirement is None else {target_fleet_id: requirement}
+                ),
                 unlocked_fleet_ids=unlocked_fleet_ids,
                 fleet_availability_strict=True,
                 task_kind=TaskKind.EXPEDITION,
@@ -1067,17 +1101,26 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
             # resupply controller must exclude one another, or two of them could
             # interleave clicks on the same screen.
             ui_arbiter = runtime.ui_arbiter or UiOperationArbiter()
-            dispatch_controller = ContinuousDispatchController(
-                scheduler=runtime.scheduler,
-                dispatch_coordinator=dispatch_coordinator,
-                state_reader=runtime.monitor.state_reader,
-                ui_driver=ui_driver,
-                ui_arbiter=ui_arbiter,
-                mission_requirements=runtime.monitor.mission_requirements,
-                event_sink=runtime.monitor.event_sink,
-                allow_ui_actions=True,
-                max_state_age=timedelta(seconds=args.max_state_age_seconds),
-            )
+            if args.settle_only:
+                dispatch_controller = SettleOnlyDispatcher(
+                    scheduler=runtime.scheduler,
+                    state_reader=runtime.monitor.state_reader,
+                    event_sink=runtime.monitor.event_sink,
+                    mission_requirements=runtime.monitor.mission_requirements,
+                    ui_arbiter=ui_arbiter,
+                )
+            else:
+                dispatch_controller = ContinuousDispatchController(
+                    scheduler=runtime.scheduler,
+                    dispatch_coordinator=dispatch_coordinator,
+                    state_reader=runtime.monitor.state_reader,
+                    ui_driver=ui_driver,
+                    ui_arbiter=ui_arbiter,
+                    mission_requirements=runtime.monitor.mission_requirements,
+                    event_sink=runtime.monitor.event_sink,
+                    allow_ui_actions=True,
+                    max_state_age=timedelta(seconds=args.max_state_age_seconds),
+                )
             # R3: the settlement and resupply controllers are the two branches
             # supervisor.tick() could never reach while they were absent. They
             # share the SAME ui_driver and the SAME arbiter as dispatch. The
@@ -1296,6 +1339,16 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
 def run(args: argparse.Namespace) -> int:
     if not args.authorize_ui_actions:
         raise LoopError("Missing explicit --authorize-ui-actions flag")
+    if args.settle_only and not args.adopt_observed_mission:
+        # Without adoption the durable state has to already say this fleet is
+        # waiting for its result. Adopting is what lets a settle-only run pick up
+        # an expedition that is still out and close it out when it lands.
+        allowed = (
+            "a durable state that already has this fleet returned or awaiting "
+            "resupply; pass --adopt-observed-mission to close out one that is "
+            "still on expedition"
+        )
+        _print_event("settle_only_without_adoption", note=allowed)
     if args.wait_for_return:
         if isinstance(args.max_ticks, bool) or not isinstance(args.max_ticks, int) or args.max_ticks < 1:
             raise LoopError("--max-ticks must be a positive integer")
@@ -1394,6 +1447,13 @@ def _main_impl(argv: list[str] | None = None) -> int:
         type=Path,
         default=RUNTIME_CONFIG.dispatch_log_path,
         help="The sole permitted local output file; defaults to logs/one_expedition_ui_loop.jsonl",
+    )
+    parser.add_argument(
+        "--settle-only",
+        action="store_true",
+        help="Close out a fleet that is already out and never dispatch. The "
+             "composition gate is skipped because no start click can be sent, and "
+             "a fleet that becomes ready stops the run instead of being dispatched.",
     )
     parser.add_argument(
         "--adopt-observed-mission",
