@@ -4165,3 +4165,7 @@ The Hand plugin's read-only probe reported:
 - **FOLLOW-UP SOURCE_REVIEWED (Poi event/freshness limits):** 读取 Poi 插件 `index.cjs`、README 与 `plugin.ts`。真实插件监听 `game.response` 后处理少量事件并同步 Redux；另每 15 秒全量同步。显式事件处理目前仅覆盖 port/资源/舰船/装备和任务领取，不处理战斗结果、地图推进事件。syncFromPoi 更新 sortie，但不设置 last_battle；readSortie 只返回 active/map_ref，fleet_ids 固定空数组、node 固定 null。SnapshotStore 的 updated_at 在每次 setter 时写当前本地时间，15 秒轮询也会刷新，因此它是桥接同步时间，不是游戏事件时间。
 - **ADAPTER DESIGN:** 不得把 Poi MCP 的 last_battle、sortie.node、sortie.fleet_ids 或定时刷新后的 updated_at 当成战斗完成、舰队身份、地图节点或动作后新鲜度的证据。KancolleBot 需要只读 game.response/CDP 事件观察与相关联的序列/时间戳，覆盖战斗开始、战斗结果、map-next、port 等转移；游戏变更仍只走可见 UI。
 - **SOURCE BLOB EVIDENCE:** `poi/index.cjs` blob `330da2f15c9fd679c738c366082ce9cbd3a05769`；`poi/README.md` blob `4dd7cab7528b1348773ef2919b2f123ee1915be3`；`src/plugin.ts` blob `2ea3ae39aac1aa992fcb65a0eb69c2658fd9d793`。
+
+
+- **FOLLOW-UP SOURCE_REVIEWED (repair gate boundary):** 继续读取 AutoKira 的旗舰 HP 检查和 ActRepair 调用。低于 AutoKiraHPPercent/25% 时只在存在空闲修理渠，或占用修理渠剩余时间不超过 OperationAdvanceTime 时创建 ActRepair；未发现没有合适修理渠时强制停止的分支，控制流会继续后续补给/出击判断。因此该设置是 best-effort repair trigger，不是可靠 fail-closed 派遣门。ActRepair 通过可见 UI 进入修理、选渠/选舰、确认，并按剩余时间阈值决定是否使用修复桶。
+- **DESIGN CONSEQUENCE:** KancolleBot 若参与舰船低于 HP 安全阈值，修理不可用/未确认必须阻塞出击，不能因无空闲修理渠而继续派遣。
