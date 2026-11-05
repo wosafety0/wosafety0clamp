@@ -52,6 +52,11 @@ class ProductionStartupSafetyGateTests(unittest.TestCase):
         args.poll_seconds = 5.0
         args.timeout_seconds = 1800.0
         args.grace_delay_seconds = 10.0
+        # A MagicMock is truthy for every attribute, so the wait-mode defaults
+        # have to be real values here or run() would validate a mock.
+        args.wait_for_return = False
+        args.max_ticks = 60
+        args.tick_interval_seconds = 10.0
         return args
 
     def test_run_requires_explicit_authorization_before_composition(self):
@@ -75,6 +80,50 @@ class ProductionStartupSafetyGateTests(unittest.TestCase):
         compose.assert_called_once_with(args)
 
 
+class WaitForReturnArgumentTests(unittest.TestCase):
+    """--wait-for-return turns one tick into a bounded wait; the bound is checked."""
+
+    def make_args(self, **overrides):
+        args = MagicMock()
+        args.authorize_ui_actions = True
+        args.wait_for_return = True
+        args.max_ticks = 60
+        args.tick_interval_seconds = 10.0
+        for name, value in overrides.items():
+            setattr(args, name, value)
+        return args
+
+    def run_with_visual_dependencies(self, args):
+        with patch("kancollebot.adapters.poi.visual_target.require_visual_dependencies"):
+            with patch.object(controller, "_run_production_supervisor_once", return_value=0):
+                return controller.run(args)
+
+    def test_a_positive_tick_budget_is_accepted(self):
+        self.assertEqual(self.run_with_visual_dependencies(self.make_args()), 0)
+
+    def test_a_zero_tick_budget_is_refused(self):
+        with self.assertRaisesRegex(controller.LoopError, "max-ticks"):
+            self.run_with_visual_dependencies(self.make_args(max_ticks=0))
+
+    def test_a_boolean_tick_budget_is_refused(self):
+        # bool is an int in Python; a True budget would silently mean "one tick".
+        with self.assertRaisesRegex(controller.LoopError, "max-ticks"):
+            self.run_with_visual_dependencies(self.make_args(max_ticks=True))
+
+    def test_a_non_positive_interval_is_refused(self):
+        with self.assertRaisesRegex(controller.LoopError, "tick-interval-seconds"):
+            self.run_with_visual_dependencies(self.make_args(tick_interval_seconds=0))
+
+    def test_the_budget_is_ignored_without_wait_mode(self):
+        # Single-tick runs keep their historical contract regardless of --max-ticks.
+        self.assertEqual(
+            self.run_with_visual_dependencies(
+                self.make_args(wait_for_return=False, max_ticks=0)
+            ),
+            0,
+        )
+
+
 try:
     import cv2  # noqa: F401
     import numpy  # noqa: F401
@@ -88,6 +137,9 @@ class ProductionStartupVisualDependencyTests(unittest.TestCase):
     def make_args(self, *, authorized=True):
         args = MagicMock()
         args.authorize_ui_actions = authorized
+        args.wait_for_return = False
+        args.max_ticks = 60
+        args.tick_interval_seconds = 10.0
         args.poll_seconds = 5.0
         args.timeout_seconds = 1800.0
         args.grace_delay_seconds = 10.0
@@ -312,6 +364,55 @@ class LiveCheckpointVerifierTests(unittest.TestCase):
             self.assertEqual(written.read_bytes(), png)
         events = [call.args[0] for call in event_log.call_args_list]
         self.assertIn("diagnostic_capture_written", events)
+
+    def test_the_return_notice_may_ask_for_the_composited_surface(self):
+        # fromSurface=True drops the notice bubble (2026-11-05 live: the notice
+        # scored 0.8332 there and 0.9994 on the composited surface), so the one
+        # state that lives on that overlay has to be able to request it.
+        scores = {"HOME_PORT_RETURN_NOTICE": 1.0}
+        self.game_session.transport.send.return_value = {"nodes": []}
+        self.game_session.input.capture_screenshot.return_value = "in-memory-payload"
+        with (
+            patch.object(
+                controller,
+                "classify_screenshot_fingerprints",
+                side_effect=[("HOME_PORT_RETURN_NOTICE", scores)] * 2,
+            ),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_print_event"),
+        ):
+            controller._require_ui_state(
+                self.game_session,
+                controller.UiState.HOME_PORT_RETURN_NOTICE,
+                from_surface=False,
+            )
+        for call in self.game_session.input.capture_screenshot.call_args_list:
+            self.assertIs(call.kwargs.get("from_surface"), False)
+
+    def test_the_default_surface_stays_the_calibrated_one(self):
+        scores = {"HOME_PORT": 1.0}
+        self.game_session.transport.send.return_value = {"nodes": []}
+        self.game_session.input.capture_screenshot.return_value = "in-memory-payload"
+        with (
+            patch.object(
+                controller,
+                "classify_screenshot_fingerprints",
+                side_effect=[("HOME_PORT", scores)] * 2,
+            ),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_print_event"),
+        ):
+            controller._require_ui_state(self.game_session, controller.UiState.HOME_PORT)
+        for call in self.game_session.input.capture_screenshot.call_args_list:
+            self.assertIs(call.kwargs.get("from_surface"), True)
+
+    def test_a_non_bool_surface_choice_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "from_surface"):
+            controller._require_ui_state(
+                self.game_session,
+                controller.UiState.HOME_PORT,
+                from_surface="composited",
+            )
 
     def test_no_diagnostic_capture_without_a_directory(self):
         scores = {"HOME_PORT": 1.0}

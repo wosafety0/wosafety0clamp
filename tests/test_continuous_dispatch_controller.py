@@ -346,6 +346,7 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
                 BASE,
                 BASE + timedelta(seconds=2),
                 BASE + timedelta(seconds=3),
+                BASE + timedelta(seconds=4),
             )
             controller, scheduler, intents, _ = self.make_controller(
                 directory, reader, ui, clock=clock
@@ -354,7 +355,11 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
                 controller.dispatch_one_ready(2)
             self.assertEqual(scheduler.fleet(2).phase, FleetPhase.BLOCKED)
             self.assertIsNotNone(intents.get(2))
-            self.assertEqual(ui.home_calls, [])
+            # The 母港 click comes first now: it is what makes the client
+            # request the port payload the freshness gate needs, so a stale
+            # observation is detected *after* navigating home - the click is
+            # still the only game input the postcondition check may cause.
+            self.assertEqual(len(ui.home_calls), 1)
 
     def test_poi_return_time_must_be_later_than_dispatch_completion(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -369,6 +374,7 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
                 BASE,
                 BASE + timedelta(seconds=2),
                 BASE + timedelta(seconds=3),
+                BASE + timedelta(seconds=4),
             )
             controller, scheduler, intents, _ = self.make_controller(
                 directory, reader, ui, clock=clock
@@ -377,7 +383,11 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
                 controller.dispatch_one_ready(2)
             self.assertEqual(scheduler.fleet(2).phase, FleetPhase.BLOCKED)
             self.assertIsNotNone(intents.get(2))
-            self.assertEqual(ui.home_calls, [])
+            # The 母港 click comes first now: it is what makes the client
+            # request the port payload the freshness gate needs, so a stale
+            # observation is detected *after* navigating home - the click is
+            # still the only game input the postcondition check may cause.
+            self.assertEqual(len(ui.home_calls), 1)
     def test_mission_identity_mismatch_blocks_and_preserves_pending_intent(self):
         with tempfile.TemporaryDirectory() as directory:
             baseline, _, home = self.valid_observations()
@@ -391,6 +401,7 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
                 BASE,
                 BASE + timedelta(seconds=2),
                 BASE + timedelta(seconds=3),
+                BASE + timedelta(seconds=4),
             )
             controller, scheduler, intents, _ = self.make_controller(
                 directory, reader, ui, clock=clock
@@ -399,7 +410,11 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
                 controller.dispatch_one_ready(2)
             self.assertEqual(scheduler.fleet(2).phase, FleetPhase.BLOCKED)
             self.assertIsNotNone(intents.get(2))
-            self.assertEqual(ui.home_calls, [])
+            # The 母港 click comes first now: it is what makes the client
+            # request the port payload the freshness gate needs, so a stale
+            # observation is detected *after* navigating home - the click is
+            # still the only game input the postcondition check may cause.
+            self.assertEqual(len(ui.home_calls), 1)
 
     def test_home_port_requires_two_consecutive_matching_states(self):
         with tempfile.TemporaryDirectory() as directory:

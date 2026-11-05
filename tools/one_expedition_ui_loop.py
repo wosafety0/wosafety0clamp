@@ -263,8 +263,17 @@ def _require_ui_state(
     *,
     visual_attempts: int = 3,
     capture_dir: str | Path | None = None,
+    from_surface: bool = True,
 ) -> str:
-    """Require accessible labels or two consecutive in-memory visual matches."""
+    """Require accessible labels or two consecutive in-memory visual matches.
+
+    ``from_surface`` is forwarded to the capture call. Only a state that lives
+    on a composited overlay layer - today just the Home Port return notice -
+    may ask for the slower composited surface; every other state keeps the
+    surface its calibrated fingerprint was recorded with.
+    """
+    if not isinstance(from_surface, bool):
+        raise ValueError("from_surface must be a bool")
     if (
         isinstance(visual_attempts, bool)
         or not isinstance(visual_attempts, int)
@@ -326,7 +335,7 @@ def _require_ui_state(
                         {"type": "mouseMoved", "x": 1195, "y": 715},
                     )
                     time.sleep(0.15)
-                    payload = game_session.input.capture_screenshot()
+                    payload = game_session.input.capture_screenshot(from_surface=from_surface)
                     observed, scores = classify_supply_checkbox_state(
                         payload, document, checkbox_document,
                         fleet_index=fleet_index, ship_index=ship_index
@@ -369,7 +378,7 @@ def _require_ui_state(
                         {"type": "mouseMoved", "x": 1195, "y": 715},
                     )
                     time.sleep(0.15)
-                    payload = game_session.input.capture_screenshot()
+                    payload = game_session.input.capture_screenshot(from_surface=from_surface)
                     observed, scores = classify_screenshot_fingerprints(payload, document)
                     _print_event(
                         "ui_fingerprint_state_check",
@@ -421,7 +430,7 @@ def _require_ui_state(
                     {"type": "mouseMoved", "x": 1195, "y": 715},
                 )
                 time.sleep(0.15)
-                payload = game_session.input.capture_screenshot()
+                payload = game_session.input.capture_screenshot(from_surface=from_surface)
                 visual_state, scores = classify_screenshot_png(payload, template_path)
                 if HOME_REFERENCE_BASE64:
                     scores["home_reference_similarity"] = home_reference_similarity(
@@ -922,8 +931,17 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
 
             def verify_state(expected: str, *, visual_attempts: int = 3) -> UiStateEvidence:
                 state = UiState(expected)
+                # The return notice is drawn on a composited overlay layer that
+                # Page.captureScreenshot(fromSurface=True) drops: on 2026-11-05
+                # the same screen scored HOME_PORT 0.9985 / notice 0.8332 on the
+                # default surface and notice 0.9994 on the composited one, which
+                # made a real return look unsettleable. Ask for the composited
+                # surface only for the state that actually lives there.
                 evidence = _require_ui_state(
-                    game_session, state, visual_attempts=visual_attempts
+                    game_session,
+                    state,
+                    visual_attempts=visual_attempts,
+                    from_surface=state is not UiState.HOME_PORT_RETURN_NOTICE,
                 )
                 return UiStateEvidence(
                     state=state.value,
@@ -950,6 +968,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 enable_ui_refresh=args.enable_ui_refresh,
                 ui_input=game_session.input if args.enable_ui_refresh else None,
                 ui_state_verifier=refresh_verify_state if args.enable_ui_refresh else None,
+                adopt_unplanned_missions=args.adopt_observed_mission,
             )
 
             def capture_frame() -> str:
@@ -1102,57 +1121,109 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 game_api_requests=False,
                 ui_refresh_enabled=args.enable_ui_refresh,
             )
-            result = supervisor.tick()
-            if result.settlements or result.resupplies:
-                _print_event(
-                    "PRODUCTION_CLOSED_LOOP_ACTIONS",
-                    settlement_fleet_ids=[
-                        execution.fleet_id for execution in result.settlements
-                    ],
-                    resupply_fleet_ids=[
-                        execution.fleet_id for execution in result.resupplies
-                    ],
-                    resupply_already_supplied=[
-                        bool(execution.already_supplied)
-                        for execution in result.resupplies
-                    ],
-                    game_api_requests=False,
-                )
-            if result.paused_reason is not None or not result.dispatches:
+            def report_actions(tick_index: int, result) -> None:
+                if result.settlements or result.resupplies:
+                    _print_event(
+                        "PRODUCTION_CLOSED_LOOP_ACTIONS",
+                        tick=tick_index,
+                        settlement_fleet_ids=[
+                            execution.fleet_id for execution in result.settlements
+                        ],
+                        resupply_fleet_ids=[
+                            execution.fleet_id for execution in result.resupplies
+                        ],
+                        resupply_already_supplied=[
+                            bool(execution.already_supplied)
+                            for execution in result.resupplies
+                        ],
+                        game_api_requests=False,
+                    )
+
+            def pause(result, reason: str, tick_index: int) -> int:
                 _print_event(
                     "PRODUCTION_SUPERVISOR_PAUSED",
-                    reason=result.paused_reason or f"fleet_{target_fleet_id}_not_ready",
+                    reason=result.paused_reason or reason,
                     dispatch_count=len(result.dispatches),
                     game_actions_sent=0,
+                    tick=tick_index,
                 )
                 return 2
 
-            if len(result.dispatches) != 1:
-                raise LoopError(
-                    f"Expected exactly one Fleet {target_fleet_id} dispatch, observed {len(result.dispatches)}"
+            # One tick is the historical contract: dispatch (or explain why not)
+            # and exit. --wait-for-return turns the same tick into a bounded
+            # wait, which is what makes a full round trip observable in one
+            # process instead of requiring a human to re-run the tool later.
+            max_ticks = args.max_ticks if args.wait_for_return else 1
+            for tick_index in range(1, max_ticks + 1):
+                result = supervisor.tick()
+                report_actions(tick_index, result)
+                if result.paused_reason is not None:
+                    return pause(result, "", tick_index)
+                if not result.dispatches:
+                    if not args.wait_for_return:
+                        return pause(
+                            result, f"fleet_{target_fleet_id}_not_ready", tick_index
+                        )
+                    # Nothing to do and nothing wrong: the fleet is out and the
+                    # return has not been observed yet. Keep waiting, but only
+                    # while the scheduler itself says that is the truth.
+                    waiting = runtime.scheduler.fleet(target_fleet_id)
+                    if not (
+                        waiting.phase is FleetPhase.EXPEDITION_ACTIVE
+                        and waiting.home_port_verified
+                    ):
+                        return pause(
+                            result,
+                            f"fleet_{target_fleet_id}_not_dispatchable_in_phase_"
+                            f"{waiting.phase.value}",
+                            tick_index,
+                        )
+                    if tick_index == max_ticks:
+                        return pause(
+                            result,
+                            f"fleet_{target_fleet_id}_return_not_observed_within_max_ticks",
+                            tick_index,
+                        )
+                    _print_event(
+                        "production_waiting_for_return",
+                        tick=tick_index,
+                        fleet_id=target_fleet_id,
+                        mission_id=waiting.mission.mission_id,
+                        final_time_ms=waiting.mission.final_time_ms,
+                        next_tick_seconds=args.tick_interval_seconds,
+                    )
+                    time.sleep(args.tick_interval_seconds)
+                    continue
+
+                if len(result.dispatches) != 1:
+                    raise LoopError(
+                        f"Expected exactly one Fleet {target_fleet_id} dispatch, "
+                        f"observed {len(result.dispatches)}"
+                    )
+                dispatch = result.dispatches[0]
+                state = runtime.scheduler.fleet(target_fleet_id)
+                if (
+                    dispatch.fleet_id != target_fleet_id
+                    or dispatch.mission_id != target_mission_id
+                    or state.phase is not FleetPhase.EXPEDITION_ACTIVE
+                    or not state.home_port_verified
+                ):
+                    raise LoopError(
+                        f"Supervisor returned without the exact Fleet {target_fleet_id} / "
+                        f"mission {target_mission_id} active tuple and verified Home Port state"
+                    )
+                _print_event(
+                    "PRODUCTION_UI_CONTROLLER_INTEGRATION_VERIFIED",
+                    fleet_id=target_fleet_id,
+                    mission_id=target_mission_id,
+                    final_time_ms=dispatch.mission.final_time_ms,
+                    ship_ids=list(dispatch.mission.ship_ids),
+                    home_port_verified=True,
+                    tick=tick_index,
+                    closed_loop=bool(result.settlements),
+                    evidence="fresh_poi_before_after_and_two_frame_home_port",
                 )
-            dispatch = result.dispatches[0]
-            state = runtime.scheduler.fleet(target_fleet_id)
-            if (
-                dispatch.fleet_id != target_fleet_id
-                or dispatch.mission_id != target_mission_id
-                or state.phase is not FleetPhase.EXPEDITION_ACTIVE
-                or not state.home_port_verified
-            ):
-                raise LoopError(
-                    f"Supervisor returned without the exact Fleet {target_fleet_id} / "
-                    f"mission {target_mission_id} active tuple and verified Home Port state"
-                )
-            _print_event(
-                "PRODUCTION_UI_CONTROLLER_INTEGRATION_VERIFIED",
-                fleet_id=target_fleet_id,
-                mission_id=target_mission_id,
-                final_time_ms=dispatch.mission.final_time_ms,
-                ship_ids=list(dispatch.mission.ship_ids),
-                home_port_verified=True,
-                evidence="fresh_poi_before_after_and_two_frame_home_port",
-            )
-            return 0
+                return 0
     except Exception as exc:
         try:
             _print_event(
@@ -1176,6 +1247,12 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
 def run(args: argparse.Namespace) -> int:
     if not args.authorize_ui_actions:
         raise LoopError("Missing explicit --authorize-ui-actions flag")
+    if args.wait_for_return:
+        if isinstance(args.max_ticks, bool) or not isinstance(args.max_ticks, int) or args.max_ticks < 1:
+            raise LoopError("--max-ticks must be a positive integer")
+        interval = args.tick_interval_seconds
+        if not isinstance(interval, (int, float)) or isinstance(interval, bool) or not (interval > 0):
+            raise LoopError("--tick-interval-seconds must be positive")
     from kancollebot.adapters.poi.visual_target import (
         VisualTargetError,
         require_visual_dependencies,
@@ -1268,6 +1345,34 @@ def _main_impl(argv: list[str] | None = None) -> int:
         type=Path,
         default=RUNTIME_CONFIG.dispatch_log_path,
         help="The sole permitted local output file; defaults to logs/one_expedition_ui_loop.jsonl",
+    )
+    parser.add_argument(
+        "--adopt-observed-mission",
+        action="store_true",
+        help="Resume a target fleet that is already on the configured mission "
+             "(bot restart, or an expedition started by hand) instead of pausing "
+             "with fleet_N_blocked. Requires the same mission and composition; "
+             "Home Port is confirmed before the first tick either way",
+    )
+    parser.add_argument(
+        "--wait-for-return",
+        action="store_true",
+        help="Keep ticking while the target fleet is out, so its return, reward "
+             "screens, resupply and re-dispatch happen in this process instead of "
+             "requiring a second run. Bounded by --max-ticks",
+    )
+    parser.add_argument(
+        "--max-ticks",
+        type=int,
+        default=60,
+        help="Upper bound on supervisor ticks in --wait-for-return mode; each tick "
+             "is one fresh observation, not one click",
+    )
+    parser.add_argument(
+        "--tick-interval-seconds",
+        type=float,
+        default=10.0,
+        help="Pause between ticks while waiting for a return",
     )
     args = parser.parse_args(argv)
     global LOG_PATH, RUN_ID, HOME_REFERENCE_BASE64

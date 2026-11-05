@@ -163,9 +163,34 @@ class VisibleUiPortRefreshDriver:
                         "action": action,
                         "wait_seconds": self._settle_seconds,
                     })
-                    final_evidence = self._confirm(
-                        expected_after, phase=f"after {action}"
-                    )
+                    try:
+                        final_evidence = self._confirm(
+                            expected_after, phase=f"after {action}"
+                        )
+                    except VisibleUiRefreshError:
+                        # A click whose precondition is *re-proven* afterwards
+                        # demonstrably did nothing - the client is still on the
+                        # screen we started from. That is not an ambiguous
+                        # outcome, so one repeat is safe; anything else is
+                        # ambiguous and stays forbidden (live 2026-11-05: a
+                        # 出撃 click was swallowed during a transition and ended
+                        # a run that had nothing else wrong with it).
+                        self._confirm(current_state, phase=f"{action} had no effect")
+                        self._event_sink("ui_refresh_click_repeated", {
+                            "step": index,
+                            "action": action,
+                            "target": point.label,
+                            "state_after_first_click": current_state,
+                            "reason": "precondition re-proven after the click",
+                        })
+                        clicks_attempted += 1
+                        self._input.click(point)
+                        clicks_completed += 1
+                        if self._settle_seconds:
+                            self._sleep(self._settle_seconds)
+                        final_evidence = self._confirm(
+                            expected_after, phase=f"after repeated {action}"
+                        )
                     current_state = final_evidence.state
                     self._event_sink("ui_refresh_state_confirmed", {
                         "step": index,

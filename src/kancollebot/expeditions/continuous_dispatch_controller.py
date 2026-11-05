@@ -267,6 +267,17 @@ class ContinuousDispatchController:
                     fleet_id, completed_at=action_completed_at
                 )
 
+                # Return home BEFORE asking for a new observation. The 母港
+                # click is what makes the client request a fresh port payload,
+                # so reading first leaves the freshness reader no option but to
+                # navigate on its own - and that navigation starts from whatever
+                # screen the dispatch just left, where its HOME_PORT
+                # precondition cannot hold. Live 2026-11-05: that ordering
+                # marked a successful dispatch BLOCKED at 03:24:18 even though
+                # Poi had already reported the new mission at 03:24:08.
+                home_navigation_started_at = self.clock()
+                home_evidence = self.ui_driver.return_to_home_port(fleet_id=fleet_id)
+
                 after_dispatch, _ = self._read_observation(newer_than=action_completed_at)
                 active_snapshot = self._snapshot_for(after_dispatch, fleet_id)
                 mission = self._mission_from_snapshot(
@@ -287,10 +298,14 @@ class ContinuousDispatchController:
                     "observed_at": after_dispatch.observed_at.isoformat(),
                 })
 
-                home_navigation_started_at = self.clock()
-                home_evidence = self.ui_driver.return_to_home_port(fleet_id=fleet_id)
+                # Evidence is judged only after the mission is on record: a
+                # dispatch that Poi confirms is never re-labelled "unconfirmed"
+                # just because the port frame was still animating.
                 self._require_home_port_evidence(home_evidence)
-                after_home, _ = self._read_observation(newer_than=home_navigation_started_at)
+
+                after_home, _ = self._read_observation(newer_than=max(
+                    home_navigation_started_at, action_completed_at
+                ))
                 home_snapshot = self._snapshot_for(after_home, fleet_id)
                 home_mission = self._mission_from_snapshot(
                     home_snapshot,

@@ -128,6 +128,49 @@ class VisibleUiPortRefreshDriverTests(unittest.TestCase):
         self.assertEqual(events[-1][1]["clicks_completed"], 1)
         self.assertFalse(events[-1][1]["outcome_ambiguous"])
 
+    def test_a_click_that_provably_did_nothing_is_repeated_once(self):
+        # Live 2026-11-05: a 出撃 click landed during a transition and the client
+        # stayed on HOME_PORT. The precondition being re-proven afterwards makes
+        # that a *known* no-op, not an ambiguous outcome, so one repeat is safe.
+        driver, game_input, events, _ = self.make_driver(
+            [
+                "HOME_PORT",       # initial precondition
+                "HOME_PORT",       # after the click: nothing happened
+                "HOME_PORT",       # precondition re-proven
+                "SORTIE_MENU",     # after the repeat
+                "EXPEDITION_LIST",
+                "HOME_PORT",
+            ]
+        )
+
+        result = driver.refresh_port_state()
+
+        self.assertEqual(
+            game_input.clicks, [SORTIE, SORTIE, EXPEDITION_MODE, HOME_PORT]
+        )
+        self.assertEqual(result.state, "HOME_PORT")
+        names = [name for name, _ in events]
+        self.assertIn("ui_refresh_click_repeated", names)
+        repeated = next(fields for name, fields in events if name == "ui_refresh_click_repeated")
+        self.assertEqual(repeated["target"], SORTIE.label)
+        self.assertEqual(repeated["state_after_first_click"], "HOME_PORT")
+        self.assertEqual(events[-1][0], "ui_refresh_completed")
+        self.assertEqual(events[-1][1]["clicks_sent"], 4)
+
+    def test_a_click_that_changed_the_screen_is_never_repeated(self):
+        # The screen moved, so the outcome is ambiguous: no second click, by
+        # design. This is the line the repeat must not cross.
+        driver, game_input, events, _ = self.make_driver(
+            ["HOME_PORT", "UNKNOWN", "EXPEDITION_LIST"]
+        )
+
+        with self.assertRaises(VisibleUiRefreshError):
+            driver.refresh_port_state()
+
+        self.assertEqual(game_input.clicks, [SORTIE])
+        self.assertEqual(events[-1][0], "ui_refresh_blocked")
+        self.assertNotIn("ui_refresh_click_repeated", [name for name, _ in events])
+
     def test_ambiguous_click_is_not_replayed(self):
         driver, game_input, events, _ = self.make_driver(
             ["HOME_PORT"], fail_click_at=1

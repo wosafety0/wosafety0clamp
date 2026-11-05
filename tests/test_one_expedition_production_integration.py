@@ -222,6 +222,12 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
         args.observer_timeout_seconds = 5.0
         args.max_state_age_seconds = 30.0
         args.enable_ui_refresh = True
+        # Real values, not MagicMock truthiness: the wait-mode bounds are
+        # validated before composition.
+        args.wait_for_return = False
+        args.max_ticks = 60
+        args.tick_interval_seconds = 10.0
+        args.adopt_observed_mission = False
         # The dispatch target is now an argument rather than a constant, so the
         # stub has to carry a real master-data id: an unset MagicMock attribute
         # is deliberately refused rather than coerced.
