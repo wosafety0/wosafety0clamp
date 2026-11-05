@@ -11,7 +11,12 @@ const observerPath = path.resolve(
   __dirname,
   '../tools/hand_sandbox/poi_port_response_observer_20261029.js',
 );
+const corePath = path.resolve(
+  __dirname,
+  '../tools/hand_sandbox/poi_cdp_capture_core.js',
+);
 const observerSource = fs.readFileSync(observerPath, 'utf8');
+const coreSource = fs.readFileSync(corePath, 'utf8');
 
 async function runObserver({ stdoutWitness }) {
   const logs = [];
@@ -93,6 +98,13 @@ async function runObserver({ stdoutWitness }) {
       if (name === 'path') return path;
       if (name === 'os') return require('node:os');
       if (name === 'crypto') return require('node:crypto');
+      if (name === './poi_cdp_capture_core.js') {
+        // The shared core is loaded in the same sandbox so its own require
+        // calls resolve to the fakes above.
+        const coreSandbox = { ...sandbox, module: { exports: {} } };
+        vm.runInNewContext(coreSource, coreSandbox, { filename: corePath });
+        return coreSandbox.module.exports;
+      }
       throw new Error('Unexpected module: ' + name);
     },
     console: { log(...args) { logs.push(args.join(' ')); } },

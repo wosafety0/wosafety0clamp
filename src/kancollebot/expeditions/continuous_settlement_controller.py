@@ -33,6 +33,13 @@ from kancollebot.expeditions.continuous_scheduler import (
     MissionTuple,
     UiOperationArbiter,
 )
+from kancollebot.expeditions.mission_result_witness import (
+    DispatchRecord,
+    MissionResultWitness,
+    WitnessVerdict,
+    cross_check_with_dispatch,
+    evaluate_witness,
+)
 from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
 from kancollebot.expeditions.blocked_recovery import (
     DispatchEvidence,
@@ -66,6 +73,8 @@ class VisibleRewardSettlement:
     ship_ids: tuple[int, ...]
     scheduler_phase_after: str
     recovered_from_blocked: bool = False
+    #: The verdict of the expedition-result witness, when one was checked.
+    witness_verdict: WitnessVerdict | None = None
     recovery_reason: str | None = None
 
 
@@ -297,6 +306,7 @@ class ContinuousSettlementController:
         blocked_evidence: DispatchEvidence | None = None,
         blocked_evidence_rejection: str | None = None,
         settlement_completed_at: datetime | None = None,
+        mission_result_witness: MissionResultWitness | None = None,
     ) -> VisibleRewardSettlement:
         """Close a reward chain that is already on display at process start.
 
@@ -374,6 +384,66 @@ class ContinuousSettlementController:
                         "final_time_ms": returned.final_time_ms,
                         "game_api_requests": False,
                     })
+
+            # The expedition-result witness is the game's own statement of
+            # which fleet completed which expedition. It is checked before
+            # the attribution gate and it may only agree: a witness that
+            # names another fleet, or a set of ships that is not this
+            # fleet's, refuses the chain outright rather than being
+            # weighed against the screen. It never stands in for the
+            # dispatch confirmation - it appears only when the result is
+            # settled, long after the dispatch was accepted.
+            witness_verdict: WitnessVerdict | None = None
+            if mission_result_witness is not None:
+                witness_verdict = evaluate_witness(
+                    witness=mission_result_witness,
+                    expected_fleet_id=fleet_id,
+                    expected_ship_ids=expected_ship_ids,
+                    observed_at=self.clock(),
+                )
+                if not witness_verdict.allowed:
+                    self._refuse_startup(
+                        fleet_id,
+                        witness_verdict.reason,
+                        screen.state,
+                        failed_check="mission_result_witness",
+                        witness_fleet_id=(
+                            mission_result_witness.fleet_id
+                            if mission_result_witness is not None
+                            else None
+                        ),
+                        witness_ship_ids=list(
+                            mission_result_witness.ship_ids
+                            if mission_result_witness is not None
+                            else ()
+                        ),
+                        game_actions_sent=0,
+                    )
+                    raise StartupSettlementRefused(witness_verdict.reason)
+                dispatch_record = None
+                if blocked_evidence is not None:
+                    dispatch_record = DispatchRecord(
+                        fleet_id=blocked_evidence.fleet_id,
+                        mission_id=blocked_evidence.mission_id,
+                        ship_ids=blocked_evidence.ship_ids,
+                        observed_at=blocked_evidence.confirmed_at,
+                    )
+                conflict = cross_check_with_dispatch(
+                    witness=mission_result_witness, record=dispatch_record
+                )
+                if not conflict.allowed:
+                    self._refuse_startup(
+                        fleet_id,
+                        conflict.reason,
+                        screen.state,
+                        failed_check="mission_result_witness_dispatch_cross_check",
+                        witness_fleet_id=mission_result_witness.fleet_id,
+                        witness_ship_ids=list(mission_result_witness.ship_ids),
+                        witness_quest_name=mission_result_witness.quest_name,
+                        game_actions_sent=0,
+                    )
+                    raise StartupSettlementRefused(conflict.reason)
+                witness_verdict = conflict
 
             # The exclusivity proof is computed from the full Poi snapshot,
             # not from the scheduler's configured fleets: exactly one fleet
@@ -617,6 +687,7 @@ class ContinuousSettlementController:
                 scheduler_phase_after=updated.phase.value,
                 recovered_from_blocked=recovered,
                 recovery_reason=recovery_reason,
+                witness_verdict=witness_verdict,
             )
 
     def _confirm_phase(

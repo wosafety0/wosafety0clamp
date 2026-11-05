@@ -694,7 +694,8 @@ def _probe_startup_attribution(args, runtime, target_fleet_id):
     Three sources, in order of directness: the scheduler's own mission, the
     dispatch Poi confirmed (durable event log), and the dispatch intent. The
     event log is read once and also yields the evidence a blocked fleet needs
-    to be recovered, plus the proof that a reward chain was ever closed.
+    to be recovered, plus the proof that a reward chain was ever closed, plus
+    the expedition-result witness the game itself stated.
     """
     from kancollebot.expeditions.blocked_recovery import (
         read_dispatch_evidence,
@@ -704,11 +705,15 @@ def _probe_startup_attribution(args, runtime, target_fleet_id):
         SqliteDispatchEventLog,
     )
     from kancollebot.expeditions.dispatch_recovery import SqliteDispatchIntentStore
+    from kancollebot.expeditions.mission_result_witness import (
+        latest_witness_for_fleet,
+    )
     from kancollebot.expeditions.startup_settlement import resolve_recorded_composition
 
     events = SqliteDispatchEventLog(str(args.database)).load_all()
     lookup = read_dispatch_evidence(events, target_fleet_id)
     settlement_completed_at = read_settlement_completion(events, target_fleet_id)
+    witness = latest_witness_for_fleet(events, target_fleet_id)
     recorded = resolve_recorded_composition(
         mission=runtime.scheduler.fleet(target_fleet_id).mission,
         intent=SqliteDispatchIntentStore(args.database).get(target_fleet_id),
@@ -716,7 +721,7 @@ def _probe_startup_attribution(args, runtime, target_fleet_id):
     if recorded is None and lookup.evidence is not None:
         recorded = (lookup.evidence.ship_ids, "dispatch_confirmed_by_poi")
     attribution = recorded if recorded is not None else (None, None)
-    return attribution, lookup, settlement_completed_at
+    return attribution, lookup, settlement_completed_at, witness
 
 
 def _recover_home_port(game_session, attempts: int = 3, force_click: bool = False) -> None:
@@ -1428,9 +1433,12 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                         "startup reward screen detected but no settlement controller "
                         "is wired; refusing to click the chain"
                     )
-                (expected_ship_ids, expected_source), evidence_lookup, settled_at = (
-                    _probe_startup_attribution(args, runtime, target_fleet_id)
-                )
+                (
+                    (expected_ship_ids, expected_source),
+                    evidence_lookup,
+                    settled_at,
+                    mission_witness,
+                ) = _probe_startup_attribution(args, runtime, target_fleet_id)
                 try:
                     startup_settlement = settlement_controller.settle_visible_reward_chain(
                         fleet_id=target_fleet_id,
@@ -1440,6 +1448,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                         blocked_evidence=evidence_lookup.evidence,
                         blocked_evidence_rejection=evidence_lookup.rejection,
                         settlement_completed_at=settled_at,
+                        mission_result_witness=mission_witness,
                     )
                 except StartupSettlementRefused as exc:
                     raise LoopError(
@@ -1455,6 +1464,12 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     recovered_from_blocked=startup_settlement.recovered_from_blocked,
                     recovery_reason=startup_settlement.recovery_reason,
                     scheduler_phase_after=startup_settlement.scheduler_phase_after,
+                    mission_result_witness_used=(startup_settlement.witness_verdict is not None),
+                    mission_result_witness_reason=(
+                        startup_settlement.witness_verdict.reason
+                        if startup_settlement.witness_verdict is not None
+                        else None
+                    ),
                     game_api_requests=False,
                 )
             # One explicit bootstrap refresh before the first tick.
