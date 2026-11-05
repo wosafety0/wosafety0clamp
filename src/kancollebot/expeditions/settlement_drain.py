@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
@@ -250,9 +251,23 @@ class SettlementDrainSession:
     One session is bound to one UI observer/driver pair and keeps no state
     between :meth:`drain` calls, so a caller may run a fresh bounded attempt
     after a deliberate ``MAX_ACTIONS_REACHED`` stop.
+
+    ``event_sink`` is optional and purely observational. When supplied it
+    receives the drain's own lifecycle (started / one row per action / page
+    change / finished) so a run can be rebuilt from the log alone. A sink
+    failure is **not** swallowed: the row describing an action is written
+    before :meth:`DrainUiDriver.advance`, so an unwritable audit log stops the
+    drain instead of clicking unlogged.
     """
 
-    __slots__ = ("_observer", "_driver", "_clock", "_frame_poll_interval")
+    __slots__ = (
+        "_observer",
+        "_driver",
+        "_clock",
+        "_frame_poll_interval",
+        "_event_sink",
+        "_started_at",
+    )
 
     def __init__(
         self,
@@ -261,17 +276,29 @@ class SettlementDrainSession:
         *,
         clock: DrainClock | None = None,
         frame_poll_interval_seconds: float = DEFAULT_FRAME_POLL_INTERVAL_SECONDS,
+        event_sink: Callable[[str, Mapping[str, object]], None] | None = None,
     ) -> None:
         if not callable(getattr(observer, "observe", None)):
             raise ValueError("observer must expose a callable observe()")
         if not callable(getattr(driver, "advance", None)):
             raise ValueError("driver must expose a callable advance(page)")
+        if event_sink is not None and not callable(event_sink):
+            raise ValueError("event_sink must be callable when given")
         self._observer = observer
         self._driver = driver
         self._clock: DrainClock = clock if clock is not None else _SystemClock()
         self._frame_poll_interval = _require_finite_float(
             "frame_poll_interval_seconds", frame_poll_interval_seconds, allow_zero=False
         )
+        self._event_sink = event_sink
+        self._started_at: float | None = None
+
+    # -- logging ------------------------------------------------------------
+
+    def _emit(self, event: str, fields: Mapping[str, object]) -> None:
+        if self._event_sink is None:
+            return
+        self._event_sink(event, dict(fields))
 
     # -- public API ---------------------------------------------------------
 
@@ -282,6 +309,14 @@ class SettlementDrainSession:
         request.validate()
 
         deadline = self._clock.monotonic() + float(request.timeout_seconds)
+        started_at = self._clock.monotonic()
+        self._started_at = started_at
+        self._emit("settlement_drain_started", {
+            "max_actions": request.max_actions,
+            "timeout_seconds": request.timeout_seconds,
+            "action_interval_seconds": request.action_interval_seconds,
+            "stable_frame_count": request.stable_frame_count,
+        })
 
         initial = self._wait_for_stable(request, deadline=deadline)
         if initial.error is not None:
@@ -333,6 +368,14 @@ class SettlementDrainSession:
                     error=DrainErrorType.TIMEOUT,
                 )
 
+            # The row describing the action is written BEFORE the input, so an
+            # unwritable audit log stops the drain here instead of clicking.
+            self._emit("settlement_drain_action", {
+                "page": page.value,
+                "action_index": actions_performed + 1,
+                "max_actions": request.max_actions,
+                "elapsed_seconds": round(self._clock.monotonic() - started_at, 3),
+            })
             self._driver.advance(page)
             actions_performed += 1
 
@@ -352,6 +395,11 @@ class SettlementDrainSession:
 
             next_page = waited.page
             assert next_page is not None  # guaranteed when error is None
+            self._emit("settlement_drain_page_changed", {
+                "from_page": page.value,
+                "to_page": next_page.value,
+                "elapsed_seconds": round(self._clock.monotonic() - started_at, 3),
+            })
             if (
                 next_page in _ADVANCEABLE_PAGES
                 or next_page is DrainPageState.HOME_PORT
@@ -372,7 +420,7 @@ class SettlementDrainSession:
         error: DrainErrorType | None,
         reached_home: bool = False,
     ) -> DrainResult:
-        return DrainResult(
+        result = DrainResult(
             reached_home=reached_home,
             completed_pages=completed_pages,
             actions_performed=actions_performed,
@@ -382,6 +430,21 @@ class SettlementDrainSession:
                 error is not None and error in _MANUAL_INTERVENTION_ERRORS
             ),
         )
+        elapsed = (
+            None
+            if self._started_at is None
+            else round(self._clock.monotonic() - self._started_at, 3)
+        )
+        self._emit("settlement_drain_finished", {
+            "reached_home": result.reached_home,
+            "completed_pages": result.completed_pages,
+            "actions_performed": result.actions_performed,
+            "final_page": result.final_page.value,
+            "error": None if error is None else error.value,
+            "requires_manual_intervention": result.requires_manual_intervention,
+            "elapsed_seconds": elapsed,
+        })
+        return result
 
     def _wait_for_stable(
         self, request: SettlementDrainRequest, *, deadline: float

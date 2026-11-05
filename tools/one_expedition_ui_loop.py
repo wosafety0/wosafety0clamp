@@ -76,6 +76,7 @@ from kancollebot.calibration import (  # noqa: E402
     scan_page,
 )
 from kancollebot.core.task_attribution import merge_trusted_event_fields  # noqa: E402
+from kancollebot.observability.audit_policy import audit_gate  # noqa: E402
 from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
 
 # Long enough for the Home Port scene to finish settling before a frame is
@@ -1279,6 +1280,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 ui_input=game_session.input if args.enable_ui_refresh else None,
                 ui_state_verifier=refresh_verify_state if args.enable_ui_refresh else None,
                 adopt_unplanned_missions=args.adopt_observed_mission,
+                run_log_dir=args.run_log_dir,
             )
 
             def capture_frame() -> str:
@@ -1369,6 +1371,11 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     requirement_checker=requirement_checker,
                     unlocked_fleet_ids=unlocked_fleet_ids,
                     dispatchable_fleet_ids=dispatchable_fleet_ids,
+                    # Only present when the unified run log is enabled: the gate
+                    # proves the log is writable before an intent is persisted or
+                    # a control is clicked. A sink without a probe yields None,
+                    # which restores the historical behaviour exactly.
+                    audit_gate=audit_gate(runtime.monitor.event_sink),
                 )
             # R3: the settlement and resupply controllers are the two branches
             # supervisor.tick() could never reach while they were absent. They
@@ -1733,6 +1740,18 @@ def _main_impl(argv: list[str] | None = None) -> int:
         "--observer-script",
         type=Path,
         default=RUNTIME_CONFIG.observer_script,
+    )
+    parser.add_argument(
+        "--run-log-dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help=(
+            "Also write the unified three-day rolling JSONL run log to DIR "
+            "(default off, so an already-verified run behaves exactly as before). "
+            "When enabled, a critical audit row that cannot be written aborts the "
+            "action it describes instead of letting it happen unlogged."
+        ),
     )
     parser.add_argument("--observer-timeout-seconds", type=float, default=RUNTIME_CONFIG.observer_timeout_seconds)
     parser.add_argument("--max-state-age-seconds", type=float, default=RUNTIME_CONFIG.max_state_age_seconds)

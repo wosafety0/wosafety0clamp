@@ -193,6 +193,7 @@ class ContinuousDispatchController:
         requirement_checker: ExpeditionRequirementChecker | None = None,
         unlocked_fleet_ids: tuple[int, ...] | None = None,
         dispatchable_fleet_ids: tuple[int, ...] | None = None,
+        audit_gate: Callable[[], None] | None = None,
     ) -> None:
         if set(mission_requirements) != set(scheduler.dispatch_fleet_ids):
             raise ValueError("mission_requirements must configure every and only dispatchable fleet")
@@ -221,6 +222,8 @@ class ContinuousDispatchController:
             requirement_checker, ExpeditionRequirementChecker
         ):
             raise ValueError("requirement_checker must be an ExpeditionRequirementChecker")
+        if audit_gate is not None and not callable(audit_gate):
+            raise ValueError("audit_gate must be callable or None")
         for label, value in (
             ("unlocked_fleet_ids", unlocked_fleet_ids),
             ("dispatchable_fleet_ids", dispatchable_fleet_ids),
@@ -244,6 +247,7 @@ class ContinuousDispatchController:
         self.max_state_age = max_state_age
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.passive_witness_wait_seconds = float(passive_witness_wait_seconds)
+        self.audit_gate = audit_gate
 
     def dispatch_one_ready(self, fleet_id: int) -> DispatchExecution:
         """Dispatch one ready fleet, confirm the new mission, and verify Home Port."""
@@ -251,6 +255,12 @@ class ContinuousDispatchController:
             raise ContinuousDispatchError("UI actions are disabled; explicit enablement is required")
         if fleet_id not in self.mission_requirements:
             raise ContinuousDispatchError(f"Fleet {fleet_id} has no configured expedition assignment")
+        # The audit log must be provably writable BEFORE an intent is persisted
+        # or a control is clicked. Checking here (not only at the click) keeps a
+        # broken log from leaving an unresolved intent behind, which is exactly
+        # the state that needs the log to reconcile later.
+        if self.audit_gate is not None:
+            self.audit_gate()
 
         with self.ui_arbiter.operation(f"continuous-dispatch-fleet-{fleet_id}"):
             baseline, baseline_now = self._read_observation(

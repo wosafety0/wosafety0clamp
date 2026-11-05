@@ -238,6 +238,20 @@ class ContinuousExpeditionSupervisor:
         )
 
     def tick(self) -> SupervisorTickResult:
+        """Run one scheduling decision and record what it decided.
+
+        The supervisor used to make the single most important decision of the
+        loop - "may anything be dispatched this tick, and if not, why" - without
+        emitting a single event. The decision is now written through the shared
+        sink (the same object every component already had to share), so a run
+        can be reconstructed after the fact. A monitor double that exposes no
+        callable sink is left alone rather than crashed on.
+        """
+        result = self._tick_once()
+        self._record_decision(result)
+        return result
+
+    def _tick_once(self) -> SupervisorTickResult:
         monitor_result = self.monitor.tick()
 
         settlements: tuple[Any, ...] = ()
@@ -367,3 +381,43 @@ class ContinuousExpeditionSupervisor:
             settlements=settlements,
             resupplies=resupplies,
         )
+
+    # -- run-log integration ------------------------------------------------
+
+    def _record_decision(self, result: SupervisorTickResult) -> None:
+        """Emit one row describing this tick's scheduling decision.
+
+        ``supervisor_paused`` is a safety-critical event: a deliberate stop is
+        the one thing a recovery reader must be able to find. Emitting it before
+        the caller acts on the result is what keeps the log honest when the
+        process dies right afterwards.
+        """
+        sink = getattr(self.monitor, "event_sink", None)
+        if not callable(sink):
+            # Offline/test monitors may expose the attribute without a callable
+            # (the supervisor contract only requires the *identity* to match).
+            return
+        fields = {
+            "paused_reason": result.paused_reason,
+            "dispatch_fleet_ids": [
+                getattr(item, "fleet_id", None) for item in result.dispatches
+            ],
+            "dispatch_count": len(result.dispatches),
+            "settlement_fleet_ids": [
+                getattr(item, "fleet_id", None) for item in result.settlements
+            ],
+            "settlement_count": len(result.settlements),
+            "resupply_fleet_ids": [
+                getattr(item, "fleet_id", None) for item in result.resupplies
+            ],
+            "resupply_count": len(result.resupplies),
+            "fleet_phases": self._fleet_phases(),
+        }
+        event = "supervisor_paused" if result.paused_reason else "supervisor_tick"
+        sink(event, fields)
+
+    def _fleet_phases(self) -> dict[str, str]:
+        phases: dict[str, str] = {}
+        for fleet_id, state in self._fleet_states():
+            phases[str(fleet_id)] = self._phase_name(state)
+        return phases

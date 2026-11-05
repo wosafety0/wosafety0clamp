@@ -73,6 +73,12 @@ from kancollebot.core.fleet_availability import (  # noqa: E402
     parse_unlocked_fleet_ids,
 )
 from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
+from kancollebot.observability.run_log import RunLogPolicy  # noqa: E402
+from kancollebot.observability.sink import (  # noqa: E402
+    RunLogSink,
+    TeeEventSink,
+    build_run_log_sink,
+)
 from kancollebot.task_scope import (  # noqa: E402
     TaskKind,
     require_task_enabled,
@@ -102,6 +108,10 @@ class MonitorRuntime:
     # stores are expedition-specific today; recording the task makes mixed
     # event logs attributable and stops a future task from silently reusing it.
     task_kind: str = TaskKind.EXPEDITION.value
+    # Identity of the unified run log for this process, when one is enabled.
+    # Empty means "no run log": the SQLite ledger is still the durable record.
+    run_id: str = ""
+    run_log_sink: RunLogSink | None = None
 
 
 def build_runtime(
@@ -142,6 +152,13 @@ def build_runtime(
     # caller confirmed HOME_PORT in the same observation window, and the monitor
     # still requires the observed mission identity and composition to match.
     adopt_unplanned_missions: bool = False,
+    # Opt-in unified run log. When a directory is given, every event that used to
+    # land only in SQLite is ALSO written to the three-day rolling JSONL there,
+    # through one tee object so the supervisor's "shared sink" identity check
+    # still holds. None keeps the historical behaviour exactly as it was.
+    run_log_dir: str | Path | None = None,
+    run_log_run_id: str | None = None,
+    run_log_policy: RunLogPolicy | None = None,
 ) -> MonitorRuntime:
     """Compose one read-only monitor with shared durable stores and witness source."""
     policy = require_task_enabled(task_kind)
@@ -208,6 +225,17 @@ def build_runtime(
     event_sink = SqliteDispatchEventLog(
         str(database), task_kind=policy.task_kind.value
     )
+    run_log_sink: RunLogSink | None = None
+    if run_log_dir is not None or run_log_policy is not None:
+        # One tee, not a second scheduler: the SQLite append-only ledger stays
+        # the authoritative durable record and the run log is added beside it.
+        run_log_sink = build_run_log_sink(
+            directory=run_log_dir,
+            policy=run_log_policy,
+            task_kind=policy.task_kind.value,
+            run_id=run_log_run_id,
+        )
+        event_sink = TeeEventSink(event_sink, run_log_sink)  # type: ignore[assignment]
     state_store = SqliteFleetStateStore(database)
     intent_store = SqliteDispatchIntentStore(database)
     # The three scheduler roles must be disjoint. Fleets the account has not
@@ -302,6 +330,8 @@ def build_runtime(
         unlocked_fleet_ids=observed_unlocked,
         fleet_availability_verified=availability_verified,
         task_kind=policy.task_kind.value,
+        run_id=run_log_sink.run_id if run_log_sink is not None else "",
+        run_log_sink=run_log_sink,
     )
 
 
@@ -606,6 +636,7 @@ def _run_monitor_with_session(
                 getattr(args, "fleet_availability_strict", False)
             ),
             task_kind=TaskKind.EXPEDITION,
+            run_log_dir=getattr(args, "run_log_dir", None),
         )
     except (OSError, ValueError) as exc:
         _emit(
@@ -641,9 +672,23 @@ def _run_monitor_with_session(
             "fleet_availability_verified": runtime.fleet_availability_verified,
             "game_actions_enabled": False,
             "ui_navigation_enabled": runtime.ui_refresh_enabled,
+            "run_id": getattr(runtime, "run_id", "") or None,
+            "run_log_directory": (
+                str(getattr(runtime, "run_log_sink").directory)
+                if getattr(runtime, "run_log_sink", None) is not None
+                else None
+            ),
         },
         _stdout,
     )
+    run_log_sink = getattr(runtime, "run_log_sink", None)
+    if run_log_sink is not None:
+        run_log_sink.start({
+            "database": str(args.database),
+            "dispatch_fleets": list(runtime.scheduler.dispatch_fleet_ids),
+            "ui_navigation_enabled": runtime.ui_refresh_enabled,
+            "game_actions_enabled": False,
+        })
     try:
         return run_monitor(
             runtime,
@@ -664,6 +709,10 @@ def _run_monitor_with_session(
         )
         return 130
     finally:
+        # Lifecycle rows are diagnostics, not a gate: a stop record that fails to
+        # write must never replace the exception that actually ended the run.
+        if run_log_sink is not None:
+            run_log_sink.stop("monitor_exited")
         runtime.provider.close(join_timeout_seconds=1.0)
 
 
@@ -671,6 +720,17 @@ def _main_impl(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--poi-endpoint", default=DEFAULT_POI_ENDPOINT)
     parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
+    parser.add_argument(
+        "--run-log-dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help=(
+            "Also write the unified three-day rolling JSONL run log to DIR "
+            "(default off). The SQLite append-only ledger is always written; "
+            "this adds the correlation envelope used to rebuild a run."
+        ),
+    )
     parser.add_argument("--observer-script", type=Path, default=DEFAULT_OBSERVER_SCRIPT)
     parser.add_argument("--observer-timeout-seconds", type=float, default=RUNTIME_CONFIG.observer_timeout_seconds)
     parser.add_argument("--max-state-age-seconds", type=float, default=RUNTIME_CONFIG.max_state_age_seconds)

@@ -12,6 +12,22 @@ def _safe_text(value: Any, *, limit: int = _MAX_TEXT_LENGTH) -> str:
     text = str(value)[:limit]
     return _TEXT.sub(r'\1[REDACTED]', _QUERY.sub(r'\1[REDACTED]', text))
 
+
+def redact_sensitive_text(value: Any, *, limit: int = _MAX_TEXT_LENGTH) -> str:
+    """Redact credentials in one string and truncate it.
+
+    Public wrapper over the same rules this module already applies to passive
+    CDP events, so the run log and the network observer cannot drift into two
+    different ideas of "sensitive". Additive only: the projection above is
+    unchanged.
+    """
+    return _safe_text(value, limit=limit)
+
+
+def is_sensitive_field_name(name: str) -> bool:
+    """True when a field *name* itself declares a credential."""
+    return bool(_SENSITIVE.search(name))
+
 def _request_summary(request: Any) -> dict[str, Any]:
     if not isinstance(request, dict):
         return {}
