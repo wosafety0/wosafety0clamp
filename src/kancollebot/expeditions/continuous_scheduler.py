@@ -305,6 +305,36 @@ class ContinuousExpeditionScheduler:
         return self._set(replace(current, phase=FleetPhase.RESUPPLY_REQUIRED,
                                  mission=None, home_port_verified=False))
 
+    def confirm_active_fleet_settled(
+        self, fleet_id: int, *, evidence: str
+    ) -> FleetRuntime:
+        """Move an active fleet whose expedition is over to ``RESUPPLY_REQUIRED``.
+
+        The game clears ``api_mission`` when the expedition result is accepted,
+        so a fleet that was out on an expedition reads idle from then on - even
+        while the reward screens are still open. Once those screens are closed,
+        the fleet has nothing left to do but refuel, and this transition says so.
+
+        It is deliberately narrow: the phase must be an active expedition (or
+        an idle fleet with a mission), the fleet must still carry that mission,
+        and the caller must name the evidence that closed the chain.
+        """
+        current = self.fleet(fleet_id)
+        if current.phase not in (FleetPhase.EXPEDITION_ACTIVE, FleetPhase.IDLE):
+            raise SchedulerInvariantError(
+                "only an active or idle fleet can be recorded as settled"
+            )
+        if current.mission is None:
+            raise SchedulerInvariantError(
+                "a settled fleet must still carry the expedition it was on"
+            )
+        if not isinstance(evidence, str) or not evidence.strip():
+            raise SchedulerInvariantError("recording a settlement requires named evidence")
+        return self._set(replace(
+            current, phase=FleetPhase.RESUPPLY_REQUIRED, mission=None,
+            home_port_verified=False, blocked_reason=None,
+        ))
+
     def confirm_resupply(self, fleet_id: int, *, fully_supplied: bool) -> FleetRuntime:
         current = self.fleet(fleet_id)
         if current.phase is not FleetPhase.RESUPPLY_REQUIRED or not fully_supplied:

@@ -653,8 +653,24 @@ def _probe_startup_screen(game_session):
         # The default layer is audit data; a broken second capture must not
         # turn a proven composited screen into an unproven one.
         default_state = None
+    # The two layers carry different reward screens. The notice is drawn
+    # on the composited overlay and is invisible in the default capture;
+    # the result and bonus screens are ordinary page content and were
+    # calibrated on the default surface. A reward screen proven on
+    # *either* layer is the startup screen, and the composited layer keeps
+    # priority when both prove one. Live 2026-11-05 a result screen
+    # classified 1.0000 on the default layer while the composited one said
+    # UNKNOWN - a composited-only probe walked straight past it.
+    composited_reward = composited_state in REWARD_SCREEN_STATES
+    default_reward = default_state in REWARD_SCREEN_STATES
+    if composited_reward:
+        proven_state, proven_layer = composited_state, "composited"
+    elif default_reward:
+        proven_state, proven_layer = default_state, "default_surface"
+    else:
+        proven_state, proven_layer = composited_state, "composited"
     screen = select_startup_screen(
-        composited_state=composited_state, default_surface_state=default_state
+        composited_state=proven_state, default_surface_state=default_state
     )
     score = composited_scores.get(composited_state) if composited_scores else None
     _print_event(
@@ -663,6 +679,7 @@ def _probe_startup_screen(game_session):
         composited_state_score=None if score is None else round(float(score), 4),
         default_surface_state=default_state,
         startup_screen=screen.state,
+        proven_layer=proven_layer,
         layers_disagree=screen.layers_disagree,
         evidence=screen.evidence,
         clicks_sent=0,

@@ -219,6 +219,20 @@ class VisibleUiPortRefreshDriver:
                         # ambiguous and stays forbidden (live 2026-11-05: a
                         # 出撃 click was swallowed during a transition and ended
                         # a run that had nothing else wrong with it).
+                        # The wait matters: a click sent while the client is
+                        # still fading between screens is swallowed, and the
+                        # proof window is shorter than the fade. Live
+                        # 2026-11-05 the port's fade outlasted the proof, the
+                        # re-proof then failed on a half-rendered frame, and
+                        # the whole refresh was declared ambiguous.
+                        if self._settle_seconds:
+                            self._sleep(self._settle_seconds * 2)
+                            self._emit("ui_refresh_transition_settle_wait", {
+                                "step": index,
+                                "action": action,
+                                "wait_seconds": self._settle_seconds * 2,
+                                "clicks_sent": 0,
+                            })
                         self._confirm(current_state, phase=f"{action} had no effect")
                         self._emit("ui_refresh_click_repeated", {
                             "step": index,

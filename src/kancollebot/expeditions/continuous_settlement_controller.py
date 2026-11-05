@@ -581,6 +581,16 @@ class ContinuousSettlementController:
             ) and current.mission is not None:
                 updated = self.scheduler.confirm_reward_claimed(fleet_id, claimed=True)
                 credited = current.mission
+            elif current.phase is FleetPhase.EXPEDITION_ACTIVE and current.mission is not None:
+                # The expedition is over and the reward chain is closed, but the
+                # durable state still says the fleet is at sea: the game
+                # clears api_mission when it accepts the result, so the fleet
+                # reads idle while the scheduler still holds the active
+                # mission. The fleet has nothing left to do but refuel.
+                updated = self.scheduler.confirm_active_fleet_settled(
+                    fleet_id, evidence="startup_settlement_chain_closed"
+                )
+                credited = current.mission
             else:
                 # No durable returned identity: the chain is provably closed,
                 # but there is nothing to credit. Recording a fabricated

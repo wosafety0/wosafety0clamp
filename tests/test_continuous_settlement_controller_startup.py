@@ -493,5 +493,56 @@ class StartupChainWithoutADispatchRecordTests(unittest.TestCase):
         self.assertIs(scheduler.fleet(FLEET).phase, FleetPhase.IDLE)
 
 
+class ActiveFleetSettledTests(unittest.TestCase):
+    """An active fleet whose result was accepted reads idle from then on.
+
+    The game clears api_mission when it accepts the expedition result, so the
+    fleet reads idle while the scheduler still holds the active mission. Once
+    the reward chain is closed the fleet has nothing left to do but refuel, and
+    the durable state must say so - otherwise the next monitor tick reads
+    "active mission tuple is missing" and blocks the fleet.
+    """
+
+    def test_an_active_fleet_is_recorded_as_settled_after_the_chain(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ui = SpySettlementUi(displayed_screen="HOME_PORT_RETURN_NOTICE")
+            poi = make_observation([fleet_snapshot(mission_status=0), fleet_snapshot(OTHER)])
+            scheduler = ContinuousExpeditionScheduler(dispatch_fleet_ids=(FLEET,))
+            scheduler.mark_ready(FLEET)
+            scheduler.begin_dispatch(FLEET)
+            scheduler.confirm_dispatch(
+                FLEET,
+                MissionTuple(
+                    mission_status=1, mission_id=3, final_time_ms=FINAL_MS,
+                    reserved=0, ship_ids=SHIPS,
+                ),
+            )
+            controller = ContinuousSettlementController(
+                scheduler=scheduler,
+                state_reader=NoNavigationReader(poi),
+                ui_driver=ui,
+                ui_arbiter=UiOperationArbiter(),
+                event_sink=lambda event, fields: None,
+                allow_ui_actions=True,
+            )
+            result = controller.settle_visible_reward_chain(
+                fleet_id=FLEET,
+                screen=select_startup_screen(
+                    composited_state="HOME_PORT_RETURN_NOTICE"
+                ),
+                expected_ship_ids=SHIPS,
+                expected_ship_ids_source="scheduler_mission",
+            )
+            state = scheduler.fleet(FLEET)
+        self.assertIs(state.phase, FleetPhase.RESUPPLY_REQUIRED)
+        self.assertIsNone(state.mission)
+        self.assertIsNotNone(result.mission)
+
+    def test_the_scheduler_refuses_to_settle_a_fleet_without_a_mission(self):
+        scheduler = ContinuousExpeditionScheduler(dispatch_fleet_ids=(FLEET,))
+        with self.assertRaisesRegex(RuntimeError, "still carry the expedition"):
+            scheduler.confirm_active_fleet_settled(FLEET, evidence="chain closed")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1110,11 +1110,22 @@ class StartupScreenProbeTests(unittest.TestCase):
         self.assertTrue(screen.layers_disagree)
         self.assertEqual(screen.default_surface_state, "HOME_PORT")
 
-    def test_the_default_layer_cannot_open_the_startup_path(self):
-        read_doc, classify, _event = self.probe("HOME_PORT", "BONUS_ITEMS")
+    def test_the_default_layer_proves_a_result_screen(self):
+        # Live 2026-11-05: the result screen classified 1.0000 on the
+        # default surface while the composited capture said UNKNOWN. A
+        # composited-only probe walked straight past a live reward chain.
+        read_doc, classify, _event = self.probe("UNKNOWN", "RETURN_RESULT")
         with read_doc, classify, _event:
             screen = controller._probe_startup_screen(self.session())
-        self.assertIsNone(screen.state)
+        self.assertEqual(screen.state, "RETURN_RESULT")
+
+    def test_the_composited_layer_wins_when_both_prove_one(self):
+        read_doc, classify, _event = self.probe(
+            "HOME_PORT_RETURN_NOTICE", "BONUS_ITEMS"
+        )
+        with read_doc, classify, _event:
+            screen = controller._probe_startup_screen(self.session())
+        self.assertEqual(screen.state, "HOME_PORT_RETURN_NOTICE")
 
     def test_a_cdp_failure_propagates_without_any_click(self):
         with (

@@ -4350,3 +4350,32 @@ The Hand plugin's read-only probe reported:
 - **SAFETY:** 未改 freshness 判据、`max_state_age`、cooldown、导航序列、其他舰队待领取保护；独占归属只补「没有派遣记录」这一种情形，且只认返航提示；结果页与奖励页仍必须有编成记录或结算完成证据。
 - **LIMITS:** ① Fleet 4 的**补给**没有闭环——补给视觉门只标定了 2/3 队，补给控制器按设计拒绝（`Fleet 4 has no verified supply visual gate`），因此止步于 `RESUPPLY_REQUIRED`；② 独占归属比「编成集合交叉核对」弱（它是「唯一候选」而非「与记录吻合」），只在本条实机场景成立；③ Fleet 3 的 R3-G 实机验收仍未做——它需要一次**完整成功**的派遣来写下两个持久确认事件（见 NEXT）。
 - **NEXT:** ① 用新库给 Fleet 3 做一次完整派遣（远征 1，15 分钟），核验 `dispatch_confirmed_by_poi` 与 `dispatch_home_port_verified` 确实写入 SQLite；② Fleet 3 返航并停在奖励页后，跑 R3-G 实机验收（恢复 → 结算 → 补给 → READY）；③ 之后才进 R3-H。
+
+## 2026-11-05 — R3-E/F/G 实机取证：首次写下持久派遣证据，启动结算链两轮跑通，闭环到「再派遣」
+
+- **用户指令:** 用 Fleet 3 做一次完整派遣验证；随后按计划做 R3-G 实机验收（归属、结算、补给、READY），再进 R3-H。
+- **里程碑 1（FINDING 4 修复实机验证，08:36-08:38）:** Fleet 3 出远征 1（15 分钟）。**`dispatch_confirmed_by_poi` 与 `dispatch_home_port_verified` 首次真的写进 SQLite**（此前三个库都没有）：
+  ```
+  08:36:12 dispatch_intent_persisted            fleet 3 / mission 1 / ships[16374,13350,6,5747]
+  08:36:57 continuous_ui_dispatch_input_completed
+  08:37:56 continuous_ui_return_by_observation_wait      ← 先等待 3s，零点击
+  08:38:26 continuous_ui_return_by_observation_attempt    ← 再点母港
+  08:38:34 dispatch_confirmed_by_poi            final_time_ms=1793868719133
+  08:38:34 dispatch_home_port_verified          consecutive_states=[HOME_PORT,HOME_PORT]
+  ```
+  `fleet_runtime`：Fleet 3 = `EXPEDITION_ACTIVE`、**`home_port_verified=1`（不再是 BLOCKED）**；确认事件时间**早于**母港验证事件——正是 R3-G 恢复所要求的顺序。派遣后母港确认此前从未成功过。
+- **里程碑 2（实机事实：遠征消耗 4 点燃料）:** Fleet 3/4 的燃料都是 15→11、Fleet 2 是 12→8，弹药不变 → **每轮远征返航后都必须补给**。这解释了闭环里为什么必须有补给环节，也暴露一个状态机缺口：**空闲但燃料不足的舰队永远进不了 `RESUPPLY_REQUIRED`**（monitor 判 `needs_resupply` 后只报 not_ready，相位留在 IDLE，而补给控制器只处理 `RESUPPLY_REQUIRED`）。本轮用既有受保护工具 `tools/full_supply_ui_action.py`（Fleet 3-only、需新鲜 witness、歧义点击不重试）补满，事件 `fleet_full_supply_completed`（1 次点击、燃料消耗 16、非目标舰队未动、未发起游戏 API 请求）。
+- **IMPLEMENTED（启动探测改为两层并集）:** `_probe_startup_screen` 原来只看合成层。实机证明**结果页/奖励页只在默认层可见**（`RETURN_RESULT` 默认层 1.0000、合成层 UNKNOWN），只看合成层会直接走过一条活着的奖励链。现在两层都判：**任一层证明出奖励页即是启动屏幕**，两层都证明时以合成层优先，事件新增 `proven_layer`。守卫 `_reward_screen_on_any_layer` 本来就是两层检查，保持不变。
+- **IMPLEMENTED（新增「已结算的在航舰队」转换与记账）:** 游戏在接受结算结果时清掉 `api_mission`，所以一条链走完后舰队读起来是 idle，而调度器仍持有 active mission——既有记账只认结算相位，于是这类链会被白跑。新增 `ContinuousExpeditionScheduler.confirm_active_fleet_settled()`（窄：相位必须是 `EXPEDITION_ACTIVE`/`IDLE`、必须仍持有该 mission、必须给出证据）与控制器的对应记账分支：链关完 → `RESUPPLY_REQUIRED`。
+- **IMPLEMENTED（刷新增加转场等待）:** 实机测得**客户端在页面转场期间会吞掉点击**，而证明窗口比淡入淡出短：出撃点击被吞 → 期望页永不出现 → 既有「点击无效可重试」分支去复证当前页时又撞上半渲染帧 → 整个刷新被判为歧义。现在复证前先等 `2 × settle_seconds`（事件 `ui_refresh_transition_settle_wait`），把「被吞掉的点击」与「真正歧义」分开。
+- **VERIFIED（R3-G 实机验收，两轮）:**
+  - 归属：合成层 `HOME_PORT_RETURN_NOTICE` **0.9986**、默认层同帧 `HOME_PORT` 0.9981（分层差异成立）；归属由**调度器记录的编成** `[16374,13350,6,5747]` 与实测编成逐位一致 + 完整快照里无第二支待领取舰队共同证明。
+  - 结算（第一轮，Fleet 4 的返航提示）：`steps=[RETURN_RESULT, BONUS_ITEMS, HOME_PORT]`、`mission_credited=True`、相位 `RESUPPLY_REQUIRED`。
+  - 结算（第二轮，Fleet 3 的遠征結果页）：`startup_screen=RETURN_RESULT`（**由默认层证明**）、`steps=[BONUS_ITEMS, HOME_PORT]`、`mission_credited=True`、相位 `RESUPPLY_REQUIRED`。
+  - 补给：`fleet_full_supply_completed`（1 次点击、材料增量已验证、非目标舰队未动）。
+  - **READY**：`fleet_monitor_transition` `RESUPPLY_REQUIRED → READY`，理由 `Poi confirms full supply`。
+  - 再派遣：派遣点击已发出，**实机确认 Fleet 3 再次出航**（`api_mission [1,1,…]`）。
+- **TESTED:** `PYTHONPATH=src python -m unittest discover -s tests` → **1344 tests OK / 2 skip**（本轮前 1333，新增 11 条：两层并集 2 条、已结算在航舰队 2 条、其余为随实现同步的用例）；`compileall -q src tests tools` OK；`git diff --check` OK；`node --test tests/*.test.cjs` → **19/19**。
+- **SAFETY:** 未改 freshness 判据、`max_state_age`、cooldown、导航三步序列、其他舰队待领取保护；奖励页在场时母港恢复与刷新都不点击；两层并集只扩大「认出奖励页」的范围，不放宽任何归属判据。
+- **LIMITS:** ① **派遣后的 port witness 仍会间歇性超时**（09:14 那次等了 71.75s 仍未验证 → 持久化侧判 `dispatch_blocked`，虽然游戏侧舰队确实出航）。这属于 witness 可靠性，不是 R3-G 的恢复机制；结果就是「游戏侧闭环成功、持久化侧 BLOCKED」。② 出撃菜单（径向齿轮）的指纹在「点击后高亮态」与常态之间不稳定（同一页有时 1.0000、有时 UNKNOWN），本轮靠刷新转场等待绕过，未重采指纹。③ 「空闲但燃料不足 → 进不了 `RESUPPLY_REQUIRED`」这一状态机缺口仍未修（本轮用受保护工具人工补上），应由 R3-I 的条件检查器收口。
+- **NEXT:** ① 派遣后 witness 的间歇性超时（需要 R3-H 的 `MissionResultWitness` 用游戏自己的结算响应做归属与确认，或给 port witness 增加重试/降级路径）；② 出撃菜单指纹重采（高亮态 vs 常态）；③ 「空闲 + 燃料不足 → `RESUPPLY_REQUIRED`」的调度器转换；④ 然后才是 R3-H / R3-I / R3-J。
