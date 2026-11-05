@@ -127,6 +127,14 @@ class WitnessAwareReader(FakeReader):
         super().__init__(*observations)
         self.ui = ui
         self.waits = []
+        self.origins = []
+
+    def ensure_fresh(self, *, origin):
+        self.origins.append(origin)
+        if not self.observations:
+            raise AssertionError("unexpected extra Poi read")
+        self.read_count += 1
+        return self.observations.pop(0)
 
     def await_passive_witness(self, *, timeout_seconds, newer_than):
         if not self.ui.home_calls:
@@ -231,6 +239,14 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
 
             self.assertEqual(result.fleet_id, 2)
             self.assertEqual(ui.home_calls, [2])
+            self.assertEqual(
+                reader.origins,
+                [
+                    "dispatch_preflight",
+                    "dispatch_post_action",
+                    "dispatch_home_verification",
+                ],
+            )
             self.assertEqual(len(reader.waits), 1)
             self.assertEqual(reader.waits[0]["timeout_seconds"], 10.0)
             names = [name for name, _ in events]

@@ -280,6 +280,9 @@ def build_runtime(
             max_wait_seconds=refresh_wait_seconds,
             poll_interval_seconds=refresh_poll_seconds,
             refresh_cooldown_seconds=refresh_cooldown_seconds,
+            # Every refresh is attributed to the caller that asked for it, so
+            # the audit trail says why the client was navigated.
+            event_sink=event_sink,
         )
 
     monitor = ContinuousExpeditionMonitor(

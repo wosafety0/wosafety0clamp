@@ -121,7 +121,7 @@ class ContinuousSettlementController:
             )
 
         with self.ui_arbiter.operation(f"continuous-settlement-fleet-{fleet_id}"):
-            baseline, _ = self._read_observation()
+            baseline, _ = self._read_observation(origin="settlement_baseline")
             snapshot = self._snapshot_for(baseline, fleet_id)
             returned = self._observed_return_state(fleet_id, snapshot)
 
@@ -272,7 +272,9 @@ class ContinuousSettlementController:
         evidence = ui_call()
         self._require_settlement_evidence(evidence, expected_state)
         action_at = self.clock()
-        after, _ = self._read_observation(newer_than=action_at)
+        after, _ = self._read_observation(
+            newer_than=action_at, origin="settlement_advance"
+        )
         after_snapshot = self._snapshot_for(after, fleet_id)
         if idle_after:
             if not self._is_idle(after_snapshot):
@@ -292,9 +294,16 @@ class ContinuousSettlementController:
         return evidence.evidence
 
     def _read_observation(
-        self, *, newer_than: datetime | None = None
+        self,
+        *,
+        newer_than: datetime | None = None,
+        origin: str = "settlement_read",
     ) -> tuple[ObservedState[tuple[ExpeditionFleetSnapshot, ...]], datetime]:
-        observation = self.state_reader.read_fleets()
+        ensure_fresh = getattr(self.state_reader, "ensure_fresh", None)
+        if callable(ensure_fresh):
+            observation = ensure_fresh(origin=origin)
+        else:
+            observation = self.state_reader.read_fleets()
         now = self.clock()
         try:
             observation.require_fresh(now=now, max_age=self.max_state_age)

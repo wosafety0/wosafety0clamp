@@ -71,13 +71,26 @@ class FakeReader:
         return self.state
 
 
+class AttributingReader(FakeReader):
+    """A reader that records which caller asked for a fresh observation."""
+
+    def __init__(self, state):
+        super().__init__(state)
+        self.origins = []
+
+    def ensure_fresh(self, *, origin):
+        self.origins.append(origin)
+        self.read_count += 1
+        return self.state
+
+
 class ContinuousExpeditionMonitorTests(unittest.TestCase):
-    def make_monitor(self, directory, state, *, clock=None, events=None):
+    def make_monitor(self, directory, state, *, clock=None, events=None, reader=None):
         db = Path(directory) / "scheduler.sqlite3"
         scheduler = ContinuousExpeditionScheduler(state_store=SqliteFleetStateStore(db))
         SqliteDispatchIntentStore(db)
         events = events if events is not None else []
-        reader = FakeReader(state)
+        reader = reader if reader is not None else FakeReader(state)
         monitor = ContinuousExpeditionMonitor(
             scheduler=scheduler,
             state_reader=reader,
@@ -119,6 +132,16 @@ class ContinuousExpeditionMonitorTests(unittest.TestCase):
             self.assertEqual(report.fleets[0].current_phase, FleetPhase.READY)
             self.assertEqual(report.fleets[1].current_phase, FleetPhase.READY)
             self.assertEqual(len(events), 2)
+
+    def test_a_tick_names_itself_as_the_refresh_caller(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = observed([make_snapshot(2), make_snapshot(3)], fresh=True)
+            reader = AttributingReader(state)
+            monitor, _, _, _ = self.make_monitor(directory, state, reader=reader)
+
+            monitor.tick()
+
+            self.assertEqual(reader.origins, ["monitor_tick"])
 
     def test_report_carries_source_freshness_verified_when_trusted(self):
         with tempfile.TemporaryDirectory() as directory:

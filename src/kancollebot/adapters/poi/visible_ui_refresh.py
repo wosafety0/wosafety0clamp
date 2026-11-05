@@ -7,12 +7,14 @@ single-shot and requires two-frame state evidence before the next click.
 """
 from __future__ import annotations
 
+import inspect
 import math
 import re
 import threading
 import time
+import uuid
 from collections.abc import Callable, Mapping
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from kancollebot.adapters.poi.cdp_input import RecordedPoint, home_port_point
@@ -103,6 +105,11 @@ class VisibleUiPortRefreshDriver:
         self._event_sink = event_sink
         self._sleep = sleep
         self._settle_seconds = settle_seconds
+        # Audit context for the navigation currently in flight. Set only for the
+        # duration of refresh_port_state so every step it emits can be joined to
+        # the refresh_id and origin of the caller that asked for it.
+        self._refresh_context: dict[str, object] | None = None
+        self.last_refresh_stats: dict[str, object] | None = None
 
     def _confirm(self, expected: str, *, phase: str) -> UiStateEvidence:
         evidence = self._verify_state(expected)
@@ -118,23 +125,59 @@ class VisibleUiPortRefreshDriver:
             )
         return evidence
 
-    def refresh_port_state(self) -> UiStateEvidence:
-        """Perform the exact three-click navigation once; never retry an ambiguous click."""
+    def _emit(self, event: str, fields: Mapping[str, object]) -> None:
+        """Emit one refresh event, stamped with the in-flight audit context."""
+        if self._refresh_context:
+            fields = {**fields, **self._refresh_context}
+        self._event_sink(event, fields)
+
+    def refresh_port_state(
+        self,
+        *,
+        refresh_id: str | None = None,
+        origin: str | None = None,
+    ) -> UiStateEvidence:
+        """Perform the exact three-click navigation once; never retry an ambiguous click.
+
+        ``refresh_id`` and ``origin`` are audit-only: they never change what is
+        clicked, how often, or what counts as a verified screen. They exist so a
+        single refresh can be traced back to the caller that asked for it -
+        without them every navigation looks identical in the event log, which is
+        how 27 navigations once hid behind two dispatches.
+        """
+        if refresh_id is not None and (not isinstance(refresh_id, str) or not refresh_id.strip()):
+            raise ValueError("refresh_id must be a non-empty string when given")
+        if origin is not None and (not isinstance(origin, str) or not origin.strip()):
+            raise ValueError("origin must be a non-empty string when given")
         clicks_attempted = 0
         clicks_completed = 0
         current_state = "UNKNOWN"
+        self._refresh_context = {
+            key: value
+            for key, value in (("refresh_id", refresh_id), ("refresh_origin", origin))
+            if value
+        }
+        self.last_refresh_stats = {
+            "refresh_id": refresh_id,
+            "origin": origin,
+            "clicks_attempted": 0,
+            "clicks_completed": 0,
+            "final_state": "UNKNOWN",
+            "steps": [action for action, _, _ in self._STEPS],
+            "outcome": "started",
+        }
         try:
             with self._arbiter.operation("visible-poi-port-refresh"):
                 initial = self._confirm("HOME_PORT", phase="refresh precondition")
                 current_state = initial.state
-                self._event_sink("ui_refresh_started", {
+                self._emit("ui_refresh_started", {
                     "initial_state": current_state,
                     "evidence": initial.evidence,
                     "game_actions_enabled": False,
                 })
                 final_evidence = initial
                 for index, (action, point, expected_after) in enumerate(self._STEPS, start=1):
-                    self._event_sink("ui_refresh_action_precondition", {
+                    self._emit("ui_refresh_action_precondition", {
                         "step": index,
                         "action": action,
                         "target": point.label,
@@ -143,7 +186,7 @@ class VisibleUiPortRefreshDriver:
                         "clicks_completed": clicks_completed,
                     })
                     clicks_attempted += 1
-                    self._event_sink("ui_refresh_click_attempted", {
+                    self._emit("ui_refresh_click_attempted", {
                         "step": index,
                         "action": action,
                         "target": point.label,
@@ -151,7 +194,7 @@ class VisibleUiPortRefreshDriver:
                     })
                     self._input.click(point)
                     clicks_completed += 1
-                    self._event_sink("ui_refresh_click_sent", {
+                    self._emit("ui_refresh_click_sent", {
                         "step": index,
                         "action": action,
                         "target": point.label,
@@ -159,7 +202,7 @@ class VisibleUiPortRefreshDriver:
                     })
                     if self._settle_seconds:
                         self._sleep(self._settle_seconds)
-                    self._event_sink("ui_refresh_wait_completed", {
+                    self._emit("ui_refresh_wait_completed", {
                         "step": index,
                         "action": action,
                         "wait_seconds": self._settle_seconds,
@@ -177,7 +220,7 @@ class VisibleUiPortRefreshDriver:
                         # 出撃 click was swallowed during a transition and ended
                         # a run that had nothing else wrong with it).
                         self._confirm(current_state, phase=f"{action} had no effect")
-                        self._event_sink("ui_refresh_click_repeated", {
+                        self._emit("ui_refresh_click_repeated", {
                             "step": index,
                             "action": action,
                             "target": point.label,
@@ -193,22 +236,31 @@ class VisibleUiPortRefreshDriver:
                             expected_after, phase=f"after repeated {action}"
                         )
                     current_state = final_evidence.state
-                    self._event_sink("ui_refresh_state_confirmed", {
+                    self._emit("ui_refresh_state_confirmed", {
                         "step": index,
                         "action": action,
                         "state": current_state,
                         "consecutive_states": final_evidence.consecutive_states,
                         "evidence": final_evidence.evidence,
                     })
-                self._event_sink("ui_refresh_completed", {
+                self._emit("ui_refresh_completed", {
                     "sequence": ["HOME_PORT", "SORTIE_MENU", "EXPEDITION_LIST", "HOME_PORT"],
                     "clicks_sent": clicks_completed,
                     "final_state": current_state,
                 })
+                self.last_refresh_stats = {
+                    "refresh_id": refresh_id,
+                    "origin": origin,
+                    "clicks_attempted": clicks_attempted,
+                    "clicks_completed": clicks_completed,
+                    "final_state": current_state,
+                    "steps": [action for action, _, _ in self._STEPS],
+                    "outcome": "completed",
+                }
                 return final_evidence
         except Exception as exc:
             try:
-                self._event_sink("ui_refresh_blocked", {
+                self._emit("ui_refresh_blocked", {
                     "clicks_attempted": clicks_attempted,
                     "clicks_completed": clicks_completed,
                     "outcome_ambiguous": clicks_attempted > clicks_completed,
@@ -219,11 +271,23 @@ class VisibleUiPortRefreshDriver:
                 })
             except Exception:
                 pass
+            self.last_refresh_stats = {
+                "refresh_id": refresh_id,
+                "origin": origin,
+                "clicks_attempted": clicks_attempted,
+                "clicks_completed": clicks_completed,
+                "final_state": current_state,
+                "steps": [action for action, _, _ in self._STEPS],
+                "outcome": "blocked",
+                "error_type": type(exc).__name__,
+            }
             if isinstance(exc, VisibleUiRefreshError):
                 raise
             raise VisibleUiRefreshError(
                 f"Visible Poi refresh stopped after {clicks_attempted} click attempt(s): {type(exc).__name__}"
             ) from exc
+        finally:
+            self._refresh_context = None
 
 
 class FreshnessRefreshingStateReader:
@@ -243,6 +307,9 @@ class FreshnessRefreshingStateReader:
         max_wait_seconds: float = 45.0,
         poll_interval_seconds: float = 0.5,
         refresh_cooldown_seconds: float = 30.0,
+        event_sink: Callable[[str, Mapping[str, object]], None] | None = None,
+        refresh_id_factory: Callable[[], str] | None = None,
+        clock: Callable[[], datetime] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
@@ -257,6 +324,12 @@ class FreshnessRefreshingStateReader:
             raise ValueError("refresh_driver must provide refresh_port_state()")
         if not callable(monotonic) or not callable(sleep):
             raise ValueError("monotonic and sleep must be callable")
+        if event_sink is not None and not callable(event_sink):
+            raise ValueError("event_sink must be callable when given")
+        if refresh_id_factory is not None and not callable(refresh_id_factory):
+            raise ValueError("refresh_id_factory must be callable when given")
+        if clock is not None and not callable(clock):
+            raise ValueError("clock must be callable when given")
         self._reader = reader
         self._refresh_driver = refresh_driver
         self._max_wait_seconds = max_wait_seconds
@@ -266,6 +339,63 @@ class FreshnessRefreshingStateReader:
         self._sleep = sleep
         self._refresh_lock = threading.Lock()
         self._last_refresh_at: float | None = None
+        self._event_sink = event_sink
+        self._refresh_id_factory = refresh_id_factory or (
+            lambda: f"rfr-{uuid.uuid4().hex[:12]}"
+        )
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        # A driver built before the audit fields existed still takes no keyword
+        # arguments; asking it for audit fields would break a caller that only
+        # wants the navigation.
+        self._driver_takes_audit = FreshnessRefreshingStateReader._accepts_audit(
+            refresh_driver.refresh_port_state
+        )
+
+    @staticmethod
+    def _accepts_audit(method: Callable[..., Any]) -> bool:
+        try:
+            parameters = inspect.signature(method).parameters
+        except (TypeError, ValueError):
+            return False
+        if "refresh_id" in parameters or "origin" in parameters:
+            return True
+        return any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters.values()
+        )
+
+    def _audit(
+        self,
+        *,
+        refresh_id: str | None,
+        origin: str,
+        outcome: str,
+        witness_verified: bool,
+        triggered_at: datetime,
+        waited_seconds: float = 0.0,
+        error_type: str | None = None,
+    ) -> None:
+        """Record one refresh attempt, whether or not a navigation was sent."""
+        if self._event_sink is None:
+            return
+        stats = getattr(self._refresh_driver, "last_refresh_stats", None) or {}
+        fields: dict[str, object] = {
+            "refresh_id": refresh_id,
+            "origin": origin,
+            "outcome": outcome,
+            "witness_verified": bool(witness_verified),
+            "clicks_sent": int(stats.get("clicks_completed", 0) or 0),
+            "navigation_steps": list(stats.get("steps") or ()),
+            "triggered_at": triggered_at.isoformat(),
+            "waited_seconds": round(max(waited_seconds, 0.0), 3),
+        }
+        if error_type is not None:
+            fields["error_type"] = error_type
+        try:
+            self._event_sink("ui_refresh_audit", fields)
+        except Exception:
+            # Audit is diagnostic: a broken sink must not change refresh policy.
+            pass
 
     @staticmethod
     def _is_trusted(observation: Any, newer_than: datetime | None) -> bool:
@@ -310,9 +440,39 @@ class FreshnessRefreshingStateReader:
             return observation
 
     def read_fleets(self) -> Any:
+        """Legacy implicit entry point: read, and refresh if no witness is held.
+
+        Kept so existing callers keep working unchanged. Every refresh it does
+        trigger is stamped ``origin="implicit_read"``, which is exactly the
+        attribution that makes an implicit side effect visible in the log.
+        New callers should name themselves through :meth:`ensure_fresh`.
+        """
+        return self.ensure_fresh(origin="implicit_read")
+
+    def ensure_fresh(self, *, origin: str) -> Any:
+        """Read once, refreshing only when the caller asked for a fresh state.
+
+        ``origin`` names the caller (``monitor_tick``, ``dispatch_preflight``,
+        ``dispatch_post_action``, ``settlement_read`` ...). It never changes
+        what is clicked or what counts as trustworthy; it only makes each
+        refresh joinable to a reason. Fail-closed semantics are untouched: an
+        observation that still has no witness is returned as-is and the caller's
+        own ``require_fresh`` gate decides what to do.
+        """
+        if not isinstance(origin, str) or not origin.strip():
+            raise ValueError("origin must name the caller that wants a fresh observation")
+        origin = origin.strip()
+        triggered_at = self._clock()
         with self._refresh_lock:
             observation = self._reader.read_fleets()
-            if bool(getattr(observation, "source_freshness_verified", False)):
+            if self._is_trusted(observation, None):
+                self._audit(
+                    refresh_id=None,
+                    origin=origin,
+                    outcome="already_fresh",
+                    witness_verified=True,
+                    triggered_at=triggered_at,
+                )
                 return observation
 
             now = self._monotonic()
@@ -320,24 +480,65 @@ class FreshnessRefreshingStateReader:
                 self._last_refresh_at is not None
                 and now - self._last_refresh_at < self._refresh_cooldown_seconds
             ):
+                self._audit(
+                    refresh_id=None,
+                    origin=origin,
+                    outcome="cooldown_suppressed",
+                    witness_verified=False,
+                    triggered_at=triggered_at,
+                )
                 return observation
 
+            refresh_id = self._refresh_id_factory()
             # Set the cooldown before touching the UI. Even an ambiguous click
             # must not be replayed automatically by the next monitor tick.
             self._last_refresh_at = now
+            started_at = self._monotonic()
             try:
-                self._refresh_driver.refresh_port_state()
+                if self._driver_takes_audit:
+                    self._refresh_driver.refresh_port_state(
+                        refresh_id=refresh_id, origin=origin
+                    )
+                else:
+                    self._refresh_driver.refresh_port_state()
 
                 deadline = self._monotonic() + self._max_wait_seconds
                 while self._monotonic() < deadline:
                     observation = self._reader.read_fleets()
-                    if bool(getattr(observation, "source_freshness_verified", False)):
+                    if self._is_trusted(observation, None):
+                        self._audit(
+                            refresh_id=refresh_id,
+                            origin=origin,
+                            outcome="refreshed",
+                            witness_verified=True,
+                            triggered_at=triggered_at,
+                            waited_seconds=self._monotonic() - started_at,
+                        )
                         return observation
                     remaining = deadline - self._monotonic()
                     if remaining <= 0:
                         break
                     self._sleep(min(self._poll_interval_seconds, remaining))
+                self._audit(
+                    refresh_id=refresh_id,
+                    origin=origin,
+                    outcome="witness_timeout",
+                    witness_verified=False,
+                    triggered_at=triggered_at,
+                    waited_seconds=self._monotonic() - started_at,
+                )
                 return observation
+            except Exception as exc:
+                self._audit(
+                    refresh_id=refresh_id,
+                    origin=origin,
+                    outcome="blocked",
+                    witness_verified=False,
+                    triggered_at=triggered_at,
+                    waited_seconds=self._monotonic() - started_at,
+                    error_type=type(exc).__name__,
+                )
+                raise
             finally:
                 # Cooldown begins after the full navigation/witness wait, not
                 # before it; otherwise a long timeout could expire the guard.

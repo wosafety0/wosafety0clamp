@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Protocol
+from typing import Any, Protocol
 
 from kancollebot.core.observed_state import ObservedState
 from kancollebot.expeditions.continuous_scheduler import (
@@ -28,6 +28,19 @@ from kancollebot.expeditions.planner import (
 
 class ContinuousMonitorError(RuntimeError):
     """A fleet observation cannot be safely reconciled."""
+
+
+def _read_observation(state_reader: Any, *, origin: str) -> Any:
+    """Read once, naming this caller when the reader can attribute a refresh.
+
+    A plain reader (offline fake, or a runtime without UI refresh) is read
+    exactly as before. Only the refreshing reader records who asked, and this
+    module never asks for a refresh it cannot attribute.
+    """
+    ensure_fresh = getattr(state_reader, "ensure_fresh", None)
+    if callable(ensure_fresh):
+        return ensure_fresh(origin=origin)
+    return state_reader.read_fleets()
 
 
 class PoiFleetStateReader(Protocol):
@@ -96,7 +109,7 @@ class ContinuousExpeditionMonitor:
 
     def tick(self) -> ContinuousMonitorReport:
         """Read once, validate the whole fleet set, then reconcile each fleet."""
-        observation = self.state_reader.read_fleets()
+        observation = _read_observation(self.state_reader, origin="monitor_tick")
         now = self.clock()
         try:
             observation.require_fresh(now=now, max_age=self.max_state_age)

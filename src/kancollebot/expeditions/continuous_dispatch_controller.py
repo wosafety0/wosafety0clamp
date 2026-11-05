@@ -230,7 +230,9 @@ class ContinuousDispatchController:
             raise ContinuousDispatchError(f"Fleet {fleet_id} has no configured expedition assignment")
 
         with self.ui_arbiter.operation(f"continuous-dispatch-fleet-{fleet_id}"):
-            baseline, baseline_now = self._read_observation()
+            baseline, baseline_now = self._read_observation(
+                origin="dispatch_preflight"
+            )
             snapshot = self._snapshot_for(baseline, fleet_id)
             requirement = self.mission_requirements[fleet_id]
             if snapshot.heavy_damage_ship_ids:
@@ -301,7 +303,10 @@ class ContinuousDispatchController:
                     fleet_id=fleet_id,
                     newer_than=max(home_navigation_started_at, action_completed_at),
                 )
-                after_dispatch, _ = self._read_observation(newer_than=action_completed_at)
+                after_dispatch, _ = self._read_observation(
+                    newer_than=action_completed_at,
+                    origin="dispatch_post_action",
+                )
                 active_snapshot = self._snapshot_for(after_dispatch, fleet_id)
                 mission = self._mission_from_snapshot(
                     active_snapshot,
@@ -326,9 +331,10 @@ class ContinuousDispatchController:
                 # just because the port frame was still animating.
                 self._require_home_port_evidence(home_evidence)
 
-                after_home, _ = self._read_observation(newer_than=max(
-                    home_navigation_started_at, action_completed_at
-                ))
+                after_home, _ = self._read_observation(
+                    newer_than=max(home_navigation_started_at, action_completed_at),
+                    origin="dispatch_home_verification",
+                )
                 home_snapshot = self._snapshot_for(after_home, fleet_id)
                 home_mission = self._mission_from_snapshot(
                     home_snapshot,
@@ -388,9 +394,16 @@ class ContinuousDispatchController:
         )
 
     def _read_observation(
-        self, *, newer_than: datetime | None = None
+        self,
+        *,
+        newer_than: datetime | None = None,
+        origin: str = "dispatch_read",
     ) -> tuple[ObservedState[tuple[ExpeditionFleetSnapshot, ...]], datetime]:
-        observation = self.state_reader.read_fleets()
+        ensure_fresh = getattr(self.state_reader, "ensure_fresh", None)
+        if callable(ensure_fresh):
+            observation = ensure_fresh(origin=origin)
+        else:
+            observation = self.state_reader.read_fleets()
         now = self.clock()
         try:
             observation.require_fresh(now=now, max_age=self.max_state_age)
