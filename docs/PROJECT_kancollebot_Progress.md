@@ -4142,3 +4142,8 @@ The Hand plugin's read-only probe reported:
 - **FOLLOW-UP SOURCE_REVIEWED (target completion):** AutoKira 读取 `Ship.Condition`，目标士气达到配置的 `AutoKiraTargetCond` 或达到 85 即从队列移除；有效完成阈值为两者较小值。85 是上限，不会因配置更高而继续刷到 86–100。
 - **SOURCE BLOB EVIDENCE:** `ActReset.cs` blob `61c583e14b59e4f19080b3a63a8de805cfcfdb9b`；士气读取器及队列判断位于已登记 blob 的 `AutoKira.cs`。
 - **LIMITS:** ActReset 完成后，保留的快照/CurrentFleet 如何影响后续调度仍待追踪；无可用陪练时的完整状态转移、完整修理候选选择、是否存在更高层战斗次数上限仍待核验。仅源码研究；未改运行时代码、未测试、未做实机验证，R3 未触碰。
+
+
+- **FOLLOW-UP SOURCE_REVIEWED (error re-entry risk):** 继续追踪 `GNMpkkXilJ`、`xlTpvgtV0K`、`NeedAction` 与 `CanAction`。错误处理会执行 ActReset 并在完成后把状态设回 Idle，但不调用清理函数 `xlTpvgtV0K`（该函数才会清空 CurrentFleet、目标队列和原舰队 ID 快照）。`NeedAction` 在 CurrentFleet != -1 时返回 true，因此 CanAction 在复位后可能再次将同一任务视为可执行；未发现该路径有明确 retry budget/backoff。此为静态控制流风险，尚未实机验证是否必然重复。
+- **DESIGN CONSEQUENCE:** KancolleBot 的错误恢复必须进入暂停/对账状态，重新读取屏幕、舰队成员、士气、补给及原编成后才能决定恢复；不能把 ActReset 或回到母港视为任务恢复完成。
+- **SOURCE BLOB EVIDENCE:** `ActReset.cs` blob `61c583e14b59e4f19080b3a63a8de805cfcfdb9b`；错误处理、清理与调度入口位于已登记的 `AutoKira.cs` blob。
