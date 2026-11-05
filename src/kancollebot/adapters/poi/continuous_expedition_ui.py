@@ -477,6 +477,111 @@ class CdpContinuousExpeditionUiDriver:
                 pass
             raise
 
+    def _confirm_fleet_page(
+        self, fleet_id: int, *, phase: str
+    ) -> tuple[str, UiStateEvidence]:
+        """Prove the fleet-selection page with this fleet's tab selected.
+
+        The ``FLEET_*_SELECTED`` fingerprints crop a 50x60 window of the fleet
+        tab row that does not cover the tab label, so they cannot separate the
+        fleets: live 2026-11-05 the same frame scored Fleet 3 at 0.8441 and
+        Fleet 2 at 0.8149, a difference of 0.03 that the classifier's 0.04
+        margin rejects, and the dispatch was registered as BLOCKED because the
+        post-start page could not be named at all.
+
+        The calibrated marks carry the tab label and are page specific on this
+        account: measured from real frames, the same crop scores 0.86 on the
+        port, 0.79 on the mission-selection page and 0.57 on the expedition
+        list - all below the 0.95 threshold - and only the fleet-selection page
+        reaches it. Two consecutive matches are required, like every other
+        state proof here.
+        """
+        state = f"FLEET_{fleet_id}_SELECTED"
+        last_error: Exception | None = None
+        for attempt in range(2):
+            frame = self._frame()
+            try:
+                match = self._marks.require_fleet(fleet_id, frame)
+            except Exception as exc:
+                last_error = exc
+                continue
+            self._event_sink("continuous_ui_fleet_page_confirmed", {
+                "phase": phase,
+                "fleet_id": fleet_id,
+                "attempt": attempt + 1,
+                **match.to_dict(),
+            })
+            return state, UiStateEvidence(
+                state=state,
+                consecutive_states=(state, state),
+                evidence="two_consecutive_calibrated_fleet_tab_matches",
+            )
+        raise ContinuousUiDriverError(
+            f"{phase}: the fleet-selection page with Fleet {fleet_id} selected "
+            f"cannot be proven: {last_error}"
+        )
+
+    def _reward_screen_is_displayed(self) -> bool:
+        """True when one of the reward screens is on display.
+
+        Those three screens advance on a click anywhere, so a click-until-observed
+        loop must never run while one of them is up: the chain belongs to the
+        settlement controller, which proves every screen it advances.
+        """
+        for state in ("HOME_PORT_RETURN_NOTICE", "RETURN_RESULT", "BONUS_ITEMS"):
+            if self._probe_state(state, phase=f"guard before a return-to-port click ({state})") is not None:
+                self._event_sink("continuous_ui_reward_screen_blocks_return", {
+                    "state": state,
+                    "clicks_sent": 0,
+                })
+                return True
+        return False
+
+    def return_to_home_port_by_observation(
+        self,
+        *,
+        fleet_id: int,
+        max_attempts: int = 6,
+        interval_seconds: float = 3.0,
+    ) -> UiStateEvidence:
+        """Return to the port by clicking and observing, not by naming the page.
+
+        Some pages cannot be named - the fleet-selection page has no usable
+        fingerprint - and a proof that never succeeds is a proof that never
+        sends the click that would fix it. This loop instead clicks the 母港
+        control, waits, and looks again: a recognised Home Port ends it.
+
+        Two rules keep it safe. A reward screen stops the loop outright,
+        because those advance on a click anywhere and belong to the settlement
+        controller. And every attempt is bounded: an unrecognised screen never
+        turns into an unbounded click sequence.
+        """
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return self._confirm(
+                    "HOME_PORT", phase="Home Port reached by observation", samples=None
+                )
+            except Exception:
+                pass
+            if self._reward_screen_is_displayed():
+                raise ContinuousUiDriverError(
+                    "a reward screen is on display; the settlement controller owns "
+                    "that chain, so no return-to-port click is sent"
+                )
+            self._event_sink("continuous_ui_return_by_observation_attempt", {
+                "fleet_id": fleet_id,
+                "attempt": attempt,
+                "of": max_attempts,
+                "interval_seconds": interval_seconds,
+                "target": HOME_PORT.label,
+            })
+            self._click(HOME_PORT, action="return_home_port_by_observation", step=attempt)
+            self._sleep(interval_seconds)
+        raise ContinuousUiDriverError(
+            f"the Home Port was not reached after {max_attempts} observed "
+            "return attempts; refusing to keep clicking"
+        )
+
     def return_to_home_port(
         self,
         *,
@@ -503,9 +608,24 @@ class CdpContinuousExpeditionUiDriver:
         allowed = ["EXPEDITION_LIST", "MISSION_SELECTED"]
         allowed.extend(f"FLEET_{candidate}_SELECTED" for candidate in self._supported_fleets)
         if expected_current_state is None:
-            current, _evidence = self._confirm_any(
-                allowed, phase="precondition for return_home_port"
-            )
+            try:
+                current, _evidence = self._confirm_any(
+                    allowed, phase="precondition for return_home_port"
+                )
+            except ContinuousUiDriverError as visual_error:
+                # The fleet-selection page has no usable fingerprint, so the
+                # calibrated fleet tab is the fallback proof of that page. It
+                # is not a weaker gate: the tab crop only reaches the threshold
+                # on that page, and both frames must match.
+                try:
+                    current, _evidence = self._confirm_fleet_page(
+                        fleet_id, phase="precondition for return_home_port"
+                    )
+                except ContinuousUiDriverError:
+                    # Still unnamed. Rather than refuse forever, click the
+                    # 母港 control and look again - bounded, and never while a
+                    # reward screen is up.
+                    return self.return_to_home_port_by_observation(fleet_id=fleet_id)
             self._event_sink("continuous_ui_home_port_precondition", {
                 "fleet_id": fleet_id,
                 "state": current,

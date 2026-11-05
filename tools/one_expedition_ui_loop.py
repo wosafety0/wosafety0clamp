@@ -759,7 +759,53 @@ def _recover_home_port(game_session, attempts: int = 3, force_click: bool = Fals
             _print_event("home_port_recovery_confirmed", attempt=attempts + 1,
                          evidence="ui_layer_woken_by_area_click")
             return
-    raise LoopError(f"Home Port was not confirmed after {attempts} bounded attempts")
+    # The named-page proof failed on a page it cannot name. Click and observe
+    # instead - bounded, and never while a reward screen is up.
+    _recover_home_port_by_observation(game_session)
+
+
+def _recover_home_port_by_observation(
+    game_session, attempts: int = 6, interval_seconds: float = 3.0
+) -> None:
+    """Click the 母港 control and look again, instead of naming the page.
+
+    Some screens cannot be named (the fleet-selection page has no usable
+    fingerprint), and a proof that never succeeds is a proof that never sends
+    the click that would fix it. Each round proves the port, refuses to click
+    while a reward screen is up - those advance on a click anywhere and belong
+    to the settlement controller - clicks once, and looks again.
+
+    Live 2026-11-05 the named-page recovery failed twice in a row on the sortie
+    menu, and both times the client had to be walked back by hand.
+    """
+    candidates = home_port_candidates(HOME_PORT)
+    for attempt in range(1, attempts + 1):
+        try:
+            _require_ui_state(game_session, UiState.HOME_PORT)
+            _print_event("home_port_recovery_confirmed", attempt=attempt,
+                         evidence="observed_after_return_click")
+            return
+        except (UiStateGateError, LoopError):
+            pass
+        reward_screen = _reward_screen_on_any_layer(game_session)
+        if reward_screen is not None:
+            raise LoopError(
+                f"The account is showing {reward_screen}, a reward screen that advances "
+                "on a click anywhere. The observed recovery will not send that click: "
+                "the settlement controller owns the reward chain."
+            )
+        point = candidates[(attempt - 1) % len(candidates)]
+        _print_event("ui_action_precondition", action="click_home_port_observed",
+                     attempt=attempt, force_click=False, point=point.label)
+        game_session.input.click(point)
+        _print_event("ui_click_sent", point=point.label, attempt=attempt)
+        time.sleep(interval_seconds)
+        _print_event("ui_action_wait_completed", point=point.label,
+                     attempt=attempt, wait_seconds=interval_seconds)
+    raise LoopError(
+        f"Home Port was not reached after {attempts} observed return attempts; "
+        "refusing to keep clicking"
+    )
 
 
 def _wait_for_return(

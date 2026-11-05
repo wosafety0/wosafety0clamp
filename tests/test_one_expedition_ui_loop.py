@@ -981,7 +981,9 @@ class HiddenHomePortUiLayerTests(unittest.TestCase):
 
     def test_a_non_faded_screen_never_gets_the_area_click(self):
         # Every attempt fails and the frame is not a faded port, so the loop must
-        # stop without clicking the middle of an unknown screen.
+        # stop without clicking the middle of an unknown screen. The observed
+        # fallback that follows may click the 母港 control - that is the point
+        # of the fallback - but never the middle of the screen.
         game_session = MagicMock()
         with (
             patch.object(controller, "_print_event"),
@@ -990,12 +992,12 @@ class HiddenHomePortUiLayerTests(unittest.TestCase):
                          side_effect=controller.LoopError("not HOME_PORT")),
             patch.object(controller, "_home_port_ui_layer_is_hidden", return_value=False),
             patch.object(controller, "_visible_settlement_screen", return_value=None),
+            patch.object(controller, "_reward_screen_on_any_layer", return_value=None),
         ):
-            with self.assertRaisesRegex(controller.LoopError, "bounded attempts"):
+            with self.assertRaisesRegex(controller.LoopError, "not reached after"):
                 controller._recover_home_port(game_session)
 
         clicked = [call.args[0] for call in game_session.input.click.call_args_list]
-        self.assertEqual(len(clicked), 3)
         self.assertTrue(all(point.label == "home-port" for point in clicked))
 
 
@@ -1152,6 +1154,84 @@ class RewardScreenAnyLayerGuardTests(unittest.TestCase):
             with self.assertRaisesRegex(controller.LoopError, "BONUS_ITEMS"):
                 controller._recover_home_port(game_session)
         self.assertEqual(game_session.input.click.call_count, 0)
+
+
+class ObservedHomePortRecoveryTests(unittest.TestCase):
+    """The start-up recovery clicks and observes when it cannot name the page.
+
+    Live 2026-11-05 the named-page recovery failed twice in a row on the sortie
+    menu and the client had to be walked back by hand. The observed loop
+    clicks the 母港 control, looks again, and stops at a recognised port - but
+    it never clicks while a reward screen is up, because those advance on a
+    click anywhere and belong to the settlement controller.
+    """
+
+    def test_the_observed_loop_clicks_until_the_port_is_proven(self):
+        game_session = MagicMock()
+        checks = {"count": 0}
+
+        def require_state(_session, state, **kwargs):
+            checks["count"] += 1
+            if checks["count"] < 3:
+                raise controller.LoopError("not HOME_PORT")
+            return "two_consecutive_in_memory_ooi_fingerprints"
+
+        with (
+            patch.object(controller, "_print_event"),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_require_ui_state", side_effect=require_state),
+            patch.object(controller, "_visible_settlement_screen", return_value=None),
+            patch.object(controller, "_reward_screen_on_any_layer", return_value=None),
+        ):
+            controller._recover_home_port_by_observation(game_session)
+
+        clicked = [call.args[0] for call in game_session.input.click.call_args_list]
+        self.assertTrue(clicked)
+        self.assertTrue(all(point.label == "home-port" for point in clicked))
+
+    def test_the_observed_loop_refuses_while_a_reward_screen_is_up(self):
+        game_session = MagicMock()
+        with (
+            patch.object(controller, "_print_event"),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_require_ui_state",
+                         side_effect=controller.LoopError("not HOME_PORT")),
+            patch.object(controller, "_reward_screen_on_any_layer",
+                         return_value="RETURN_RESULT"),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "RETURN_RESULT"):
+                controller._recover_home_port_by_observation(game_session)
+        self.assertEqual(game_session.input.click.call_count, 0)
+
+    def test_the_observed_loop_is_bounded(self):
+        game_session = MagicMock()
+        with (
+            patch.object(controller, "_print_event"),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_require_ui_state",
+                         side_effect=controller.LoopError("not HOME_PORT")),
+            patch.object(controller, "_reward_screen_on_any_layer", return_value=None),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "not reached after"):
+                controller._recover_home_port_by_observation(
+                    game_session, attempts=3
+                )
+        self.assertLessEqual(game_session.input.click.call_count, 3)
+
+    def test_the_named_recovery_falls_back_to_the_observed_loop(self):
+        game_session = MagicMock()
+        with (
+            patch.object(controller, "_print_event"),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_require_ui_state",
+                         side_effect=controller.LoopError("not HOME_PORT")),
+            patch.object(controller, "_home_port_ui_layer_is_hidden", return_value=False),
+            patch.object(controller, "_visible_settlement_screen", return_value=None),
+            patch.object(controller, "_reward_screen_on_any_layer", return_value=None),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "not reached after"):
+                controller._recover_home_port(game_session)
+        self.assertGreaterEqual(game_session.input.click.call_count, 4)
 
 
 if __name__ == "__main__":
