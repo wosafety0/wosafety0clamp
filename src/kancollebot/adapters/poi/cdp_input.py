@@ -252,12 +252,22 @@ class CdpInput:
             raise CdpInputError("visual target is stale or belongs to a different screenshot frame")
         self.click(RecordedPoint(point.x, point.y, point.label), button=button)
 
-    def capture_screenshot(self) -> str:
-        """Return CDP's base64 PNG payload for diagnostics; does not prove success."""
+    def capture_screenshot(self, *, from_surface: bool = True) -> str:
+        """Return CDP's base64 PNG payload for diagnostics; does not prove success.
+
+        ``from_surface=True`` is the fast path and the one every calibrated
+        fingerprint was recorded with, but it can drop composited overlay
+        layers: the Home Port return notice (2026-11-05) is invisible to it
+        while the same frame captured with ``from_surface=False`` carries the
+        bubble at a 0.999 score. A caller that is looking for such an overlay
+        must ask for the composited surface explicitly.
+        """
+        if not isinstance(from_surface, bool):
+            raise CdpInputError("from_surface must be a bool")
         try:
             result = self._transport.send(
                 "Page.captureScreenshot",
-                {"format": "png", "fromSurface": True, "captureBeyondViewport": False},
+                {"format": "png", "fromSurface": from_surface, "captureBeyondViewport": False},
             )
         except Exception as exc:
             raise CdpInputError("CDP screenshot capture failed") from exc

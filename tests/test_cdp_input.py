@@ -191,6 +191,27 @@ class CdpInputTests(unittest.TestCase):
         transport = FakeTransport()
         self.assertEqual(CdpInput(transport).capture_screenshot(), "cG5n")
 
+    def test_screenshot_defaults_to_the_uncomposited_surface(self):
+        # Every calibrated fingerprint except the return notice was recorded
+        # with fromSurface=True; the default must not drift away from that.
+        transport = FakeTransport()
+        CdpInput(transport).capture_screenshot()
+        self.assertIs(transport.calls[-1][1]["fromSurface"], True)
+
+    def test_screenshot_can_ask_for_the_composited_surface(self):
+        # fromSurface=True drops the Home Port return notice bubble entirely
+        # (2026-11-05: notice 0.8332 vs 0.9994 on the same frame), so the
+        # settlement chain has to request the composited surface by name.
+        transport = FakeTransport()
+        CdpInput(transport).capture_screenshot(from_surface=False)
+        self.assertIs(transport.calls[-1][1]["fromSurface"], False)
+
+    def test_screenshot_rejects_a_non_bool_surface_choice(self):
+        transport = FakeTransport()
+        with self.assertRaisesRegex(CdpInputError, "from_surface"):
+            CdpInput(transport).capture_screenshot(from_surface="yes")
+        self.assertEqual(transport.calls, [])
+
     def test_invalid_coordinates_are_rejected(self):
         with self.assertRaises(ValueError):
             RecordedPoint(float("nan"), 20, "bad")
