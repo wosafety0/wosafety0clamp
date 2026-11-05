@@ -13,6 +13,7 @@ The GitHub default branch **main** still contains only `.github`; it is not the 
 | Current MVP base | `dev/dispatch-observer-safety-current-mvp-20261103` | `ba8884466f2bb1d568cc46b76034711df81bb50c` | Current remote base |
 | Settlement + run-log review candidate | `dev/run-log-safety-hardening-20261106` / [Draft PR #40](https://github.com/wosafety0/wosafety0clamp/pull/40) | `1bf11856356f9bd3b0fd7a615567a1ac9c4b9fed` (code commit; see PR for current head) | Open, unmerged |
 | SQLite event-id readback candidate | `dev/event-id-readback-20261106` / [Draft PR #39](https://github.com/wosafety0/wosafety0clamp/pull/39) | `6048b918632ffea1510e4b038b82cd30c53a4384` | Separate, open, unmerged |
+| SQLite/JSONL row-link follow-up | `dev/identity-contract-and-event-link-20261106` / PR pending | `5d514d4a50572966334aaaa9c16b1e700547aa78` | Stacked on #40; CI pending |
 
 PR #40 is a broad staging candidate (42 commits / 105 changed files), not a merge recommendation. Its exact HEAD passed:
 - [Push CI #42128797363](https://github.com/wosafety0/wosafety0clamp/actions/runs/42128797363): 1,634 Python tests, 21 optional vision tests skipped; Node 17/17; compile and CLI smoke passed.
@@ -20,15 +21,15 @@ PR #40 is a broad staging candidate (42 commits / 105 changed files), not a merg
 
 The branch contains historical Fleet 2 / Fleet 4 evidence from earlier operator-authorized work. The current scheduled development run performed **no Poi connection, game input, dispatch, settlement, resupply, or account operation**. The one recorded Fleet 4 loop is not proof of unattended multi-cycle operation.
 
-PR #40 keeps run-log production wiring optional; `--run-log-dir` remains explicit and default-off. Its current `dispatch_id` is a per-attempt identifier, not a persisted expedition-lifecycle identifier. The separate PR #39 exposes the existing SQLite integer event ID; it is not yet joined to the JSONL UUID event ID in PR #40.
+PR #40 keeps run-log production wiring optional; `--run-log-dir` remains explicit and default-off. The follow-up branch returns the existing SQLite integer event ID and writes it into the JSONL envelope as `sqlite_event_id`; the JSONL UUID `event_id` remains distinct. This is a row-level join only, not semantic deduplication. The current `dispatch_id` still has per-attempt semantics in PR #40, while a durable expedition-lifecycle ID remains unresolved and must not be inferred.
 
 The branch `dev/expedition-closed-loop-mvp` remains historical. Re-read the handoff and progress record before choosing a branch; do not infer application state from `main`.
 
 ## Current development priorities
 
-1. Review Draft PR #40 as a broad integration candidate; do not merge it without a per-file review and a decision on the event identity contract.
-2. Resolve the semantic difference between a dispatch-attempt ID and an expedition-lifecycle ID. Do not use the current per-attempt `dispatch_id` to attribute later settlement/resupply events.
-3. Define how the JSONL UUID `event_id` joins the SQLite integer `event_id` from PR #39; do not silently treat them as the same identifier.
+1. Review Draft PR #40 as a broad integration candidate; do not merge it without a per-file review.
+2. Resolve the semantic difference between the current per-attempt `dispatch_id` and a durable expedition-lifecycle ID. Do not use the attempt ID to attribute later settlement/resupply events.
+3. Verify the SQLite-to-JSONL `sqlite_event_id` row link, including partial-write failure behavior; it must not be treated as semantic deduplication.
 4. Keep run-log production wiring default-off until a separately authorized live validation proves the full event chain and failure behavior.
 5. Continue offline review of multi-fleet settlement/resupply, interruption recovery, scanner boundaries, and the unresolved 7-ship versus 6-slot design constraint.
 6. Keep missing, stale, ambiguous, malformed, or conflicting observations fail-closed. A green CI run is not live-client acceptance.
@@ -56,7 +57,7 @@ Historical evidence in the repository records:
 - P0.1 `SettlementDrainSession` is covered by deterministic offline Mock tests.
 - P0.2 adds a bounded JSONL run log, event envelope, redaction, retention, atomic snapshot, Tee sink, and critical audit gate.
 
-The run-log candidate now passes 1,634 Python tests in the exact-head CI matrices. This is offline/CI evidence only. The run log is still opt-in, and the current `dispatch_id` covers one dispatch attempt only; it does not survive process restart or correlate later settlement/resupply. The separate SQLite event-id readback candidate remains PR #39.
+PR #40's previous exact-head matrices passed 1,634 Python tests. The follow-up branch adds a strict positive-integer SQLite receipt and a sink-owned `sqlite_event_id` field to JSONL; its exact-head CI is pending. The run log remains opt-in. The current `dispatch_id` covers one attempt only; it does not survive restart or correlate later settlement/resupply.
 
 ## Current state
 
