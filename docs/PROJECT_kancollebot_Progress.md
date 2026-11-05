@@ -4183,3 +4183,9 @@ The Hand plugin's read-only probe reported:
 
 - **FOLLOW-UP SOURCE_REVIEWED (manual Stop downstream chain):** 继续追踪 `AutoActionBase.StopCurrentAction`、`AutoAction.StopAction`、`ActAutoKira.OnRelease` 和 `AutoActionQueue`。手动 Stop 会把宿主 action 置为 Stopped；队列监听宿主 State 并停止当前子动作、清理待执行动作/定时器并移出 manager；ActAutoKira.OnRelease 会取消战斗/地图 proxy 事件订阅。Stopped 不触发 Finished/ErrorOccured，因此不会调用正常完成回调中的原编成恢复动作。结论从“StopCurrentAction 是否间接触发其他回调未知”进一步明确为：队列确实停止并释放观察订阅，但不恢复原编成，也不清理 AutoKira 的 CurrentFleet/目标队列/原编成 ID 快照。
 - **SOURCE BLOB EVIDENCE:** `AutoActionBase.cs` `6730bc4b3ad1554bf1b8c4c38321adcbd93b74f4`；`AutoAction.cs` `19d2bb4a0ed837dc14f206f92d708632fcce8c25`；`AutoActionQueue.cs` `c5dcaac0a791d01abee571274945166f0fadbc49`；`ActAutoKira.cs` `49ab7708935df2ebd3758a80bc7cbfb970f5521d`。
+
+
+- **FOLLOW-UP SOURCE_REVIEWED (per-expedition Kira settings and rarity mapping):** 在 KCV 反编译目录中定位并读取 `ExpeditionKiraSetting.cs`。该序列化记录含 ExpeditionId、AutoKiraOpen、KiraForSupport、AutoKiraCount、AutoKiraTargetCond、AutoKiraFilter。AutoExpeditionSettings 默认 RememberKiraSettingsByExpedition=true；GetExpeditionKiraSetting 按 ExpeditionId 取最后一条匹配记录；SaveExpeditionKiraSetting 在 fleetId 1–4 且 expeditionId>0 时创建/更新记录，并复制对应舰队的开关、支援模式、目标数量、士气目标和排序。记录不含陪练资格、补给、清装备、锁定排除、HP/修理等安全参数；完整 load/apply 调用链尚未确认。
+- **RARITY MAPPING CONFIRMED:** GetAutoKiraRareCondition 映射“金色”→5、“银色”→4、其他/回退→6；陪练谓词比较 Ship.Backs，并拒绝 Backs>=cutoff。默认“金色”因此要求 Backs<5。
+- **DESIGN CONSEQUENCE:** 可借鉴按远征保存非安全性刷闪偏好；KancolleBot 的锁定、HP、损伤、补给、修理、舰队占用和装备保护必须保持全局安全门，不能被单个远征配置覆盖。
+- **SOURCE BLOB EVIDENCE:** `ExpeditionKiraSetting.cs` blob `fbb80cfe745a7dc332c68baf8bdaf3684b3c52a4`；`AutoExpeditionSettings.cs` blob `8aa102bdaf2674c491820c82906fd0fe1e81a288`。
