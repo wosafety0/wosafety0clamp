@@ -245,7 +245,7 @@ Additional source: `ActRepair.cs`, blob `ffd7e4951f29a06bb5dbd896c57de9c114cf497
 
 - The helper `s8Upa8I6pu()` reads the current fleet's flagship at ship index 0 and computes current HP divided by maximum HP.
 - It returns the “HP needs attention” result when flagship HP is at or below 25%, or when the ratio is below the configured `AutoKiraHPPercent`.
-- The scheduler checks this helper before proceeding through its repair/maintenance branch. This is evidence of a pre-dispatch maintenance gate, not proof that this setting is the post-battle retreat threshold.
+- The scheduler checks this helper before proceeding through its repair/maintenance branch. This is a best-effort repair trigger, not a guaranteed dispatch stop: the caller only creates `ActRepair` when a repair dock is free or an occupied dock has remaining time within `OperationAdvanceTime`. If no such dock is found, the reviewed control flow falls through to later supply/sortie handling; no explicit stop-on-unavailable-repair branch was identified. This is not proof that the setting is a hard pre-dispatch safety gate.
 - The default setting remains 60% from the settings constructor; that is an upstream default, not a KancolleBot policy recommendation.
 
 ### 14.2 `AutoKiraRepairTime`
@@ -503,3 +503,17 @@ Additional source review of `poi/index.cjs`, `poi/README.md`, and `src/plugin.ts
 ### KancolleBot consequence
 
 Use Poi MCP as a convenient read-only snapshot source for fields it exposes, but do not use its current `operations.last_battle`, `sortie.node`, `sortie.fleet_ids`, or periodic `updated_at` as proof of battle completion, active fleet identity, map progression, or post-action freshness. KancolleBot needs its own read-only event observer/correlation layer for battle start/result/map-next/port transitions, with event sequence/time and explicit per-domain observation timestamps. Continue to use visible UI actions for all game mutations.
+
+
+## 27. AutoKira flagship repair gate is best-effort, not fail-closed
+
+The `AutoKira` update path checks `s8Upa8I6pu()` (flagship HP at/below 25% or below `AutoKiraHPPercent`). When true, it examines repair docks and starts `ActRepair(targetShipId, AutoKiraRepairTime * 60)` only if at least one dock matches either:
+
+- an available/free dock (`State == 0` and no ship assigned); or
+- a repairing dock with a known remaining time no greater than `AssistantSettings.Current.OperationAdvanceTime`.
+
+If no dock matches, the reviewed path exits the repair-dock conditional and proceeds to the subsequent supply check and eventual sortie path; no explicit “HP below threshold + no repair dock = stop” branch was found. This means `AutoKiraHPPercent` is a best-effort repair trigger in this path, not a fail-closed dispatch guard.
+
+`ActRepair` itself uses visible UI actions for entering the repair screen, selecting a dock/ship, confirming the repair, and applying a bucket when the remaining time meets the configured threshold. The action's proxy identifiers are session-wait evidence for UI clicks, not a direct request-building path.
+
+KancolleBot consequence: if the flagship or any participating ship is below its configured HP safety threshold, it must pause when repair is unavailable or unconfirmed. Do not proceed to sortie merely because no repair dock matched the upstream predicate.
