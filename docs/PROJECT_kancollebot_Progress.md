@@ -4110,3 +4110,8 @@ The Hand plugin's read-only probe reported:
 - **LIMITS:** 反编译控制流混淆，部分字段调用语义未完全还原；本记录未运行测试、未做 Poi/游戏运行时验证；未修改 KancolleBot 运行时代码，也未启动 sparkle 实现。完整证据、推断边界和适配建议见独立研究文档。
 - **PRIORITY:** 远征 MVP / R3 继续优先；sparkle 仍为未实现、fail-closed 的声明任务。
 - **PUBLIC-SAFE:** 研究记录使用中性代号 VCK，不包含私有上游 URL、真实仓库身份或第三方源码副本。
+
+
+- **FOLLOW-UP SOURCE_REVIEWED:** 对 `NeedKira(Fleet)` / `NotMatchKiraCondition(Fleet)` / `KiraFleet(Fleet)` 做了第二轮调用点核验。新增确认：舰队启用开关；出击/远征占用排除；修理船与修理坞匹配检查；预留船检查；按舰队配置选舰数量并受当前舰数限制；第一舰队/支援舰队走 `Condition < 50` 分支，其他舰队走配置士气目标；`"等级"` 筛选按等级降序。补充分析已写入同一研究文档第 8–9 节。
+- **KANCOLLEBOT IMPLICATION:** 将舰队可用性与舰船候选资格分离；不能把上游选舰数量解释成“陪练数量”；候选 ID 列表不代表游戏内编成已成功应用，必须另做可见 UI 与游戏状态核验。
+- **LIMITS UNCHANGED:** 反编译控制流及闭包仍有部分语义未还原；替代筛选分支、完整选择应用点未确认；未实现、未测试、未实机验证，R3 仍优先。
