@@ -4160,3 +4160,8 @@ The Hand plugin's read-only probe reported:
 
 
 - **CORRECTION (AutoKiraCount semantics):** 继续核对 `NotMatchKiraCondition` 与 `KiraFleet` 的同一计算公式后，修正此前“target queue count”简称：`AutoKiraCount` 是希望当前舰队达到适用士气阈值的舰船数量。实际待处理数量 = `min(AutoKiraCount, fleetShipCount) - alreadyMeetingThresholdCount`，小于等于0时不建队列；只从低士气候选中按配置排序选取该 deficit 数量。默认 enabled fleets 2–4 且 KiraForSupport=false 时，初始候选阈值为 Condition<50，单舰处理终点仍为配置目标75或85上限。
+
+
+- **FOLLOW-UP SOURCE_REVIEWED (Poi event/freshness limits):** 读取 Poi 插件 `index.cjs`、README 与 `plugin.ts`。真实插件监听 `game.response` 后处理少量事件并同步 Redux；另每 15 秒全量同步。显式事件处理目前仅覆盖 port/资源/舰船/装备和任务领取，不处理战斗结果、地图推进事件。syncFromPoi 更新 sortie，但不设置 last_battle；readSortie 只返回 active/map_ref，fleet_ids 固定空数组、node 固定 null。SnapshotStore 的 updated_at 在每次 setter 时写当前本地时间，15 秒轮询也会刷新，因此它是桥接同步时间，不是游戏事件时间。
+- **ADAPTER DESIGN:** 不得把 Poi MCP 的 last_battle、sortie.node、sortie.fleet_ids 或定时刷新后的 updated_at 当成战斗完成、舰队身份、地图节点或动作后新鲜度的证据。KancolleBot 需要只读 game.response/CDP 事件观察与相关联的序列/时间戳，覆盖战斗开始、战斗结果、map-next、port 等转移；游戏变更仍只走可见 UI。
+- **SOURCE BLOB EVIDENCE:** `poi/index.cjs` blob `330da2f15c9fd679c738c366082ce9cbd3a05769`；`poi/README.md` blob `4dd7cab7528b1348773ef2919b2f123ee1915be3`；`src/plugin.ts` blob `2ea3ae39aac1aa992fcb65a0eb69c2658fd9d793`。
