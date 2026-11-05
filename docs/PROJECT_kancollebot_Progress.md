@@ -4088,3 +4088,15 @@ The Hand plugin's read-only probe reported:
 - **SAFETY / 授权边界:** 仅向用户授权的 `docs/decision-contract-v1` 推送，从未 push 到 dev/feat/main；未用 `--force` / `reset --hard`；未改 CI 配置；未执行任何 Poi / 游戏点击或派遣；契约本身仍是**无运行时消费者**的只读对表文件，本次改动不可能改变生产行为（`test_task_contract.py` 只读 JSON 与 `task_scope`，不 import 生产入口）。
 - **LIMITS:** ① 本归档提交是纯文档提交，位于 `e6c1f03` 之上，其自身的 CI 另行触发的结论无法写进自身文本（避免自我引用），以当次对话记录与 Actions 页面为准；被 CI 证据覆盖的精确树是 `e6c1f03`。② 契约分支**未合并**，因此 `dev`/`feat`/`main` 上仍无这份契约，任何「已对表」的说法只在该分支成立。③ 契约 JSON 侧有机检、README 侧靠人工同步（已在文档内写明），二者仍可能再次漂移。④ 本节点不启动 M1；档 2（Data MCP）继续暂缓；档 3（替换 Poi MCP）维持不做。⑤ `MAX_FLEET_SIZE=6` 与 7 舰编成的潜在冲突**本次未改一行**，作为独立问题待确认 MVP 是否真需 7 舰后再评估。⑥ 实机验收（P1-1/2/3）继续暂缓。
 - **ARTIFACTS:** `docs/contracts/README.md`、`docs/contracts/task-contract-v1.json`、`tests/test_task_contract.py`、`docs/PROJECT_kancollebot_Progress.md`（本节点）。
+
+
+## 2026-11-05 — 治理文档与决策契约集成（PR #36 / #37）
+
+- **VERIFIED (PR #36):** 决策契约分支 `docs/decision-contract-v1`（head `5bd0060b0bd9078e8f6f8d260ff878f371739a5f`）通过 PR #36 合入集成主干；merge commit `ef288821dc94a036656fd6d1c04e840dcc25780b`。合并前四矩阵 Feature CI run `41938466434` 全部成功；合并后 trunk push CI run `41945098427` 成功。远端回读确认 PR merged、集成主干 HEAD 与 `docs/contracts/README.md` 内容。
+- **VERIFIED (PR #37):** 治理文档分支 `docs/unified-governance-20261105`（最终 head `9a4ca8423c5ed87f3935168e69fba7c5d425aa7f`）通过 PR #37 合入；merge commit `46362481e9b39092363575711996564d0270deee`。最终 head 的四矩阵 Feature CI run `41945335731` 全部成功。合并后 trunk push CI run `41945609248` 在本记录生成时仍为 in_progress，需单独回读最终结论，不把它写作已通过。
+- **IMPLEMENTED (文档修订):** 更新分支统计（81 个远端分支、65 个 `dev/*`；PR 统计快照 37 总数、28 open、7 closed-unmerged、2 merged）；补充 `temp/*` 生命周期与本地无 upstream 分支保护规则；修正生产组合根行号为 `tools/one_expedition_ui_loop.py:914-932`；澄清 78 个 Python unittest 模块与 3 个 Node 测试文件；准确描述 R3 现状及 `fleet_data_provider` 缺口。
+- **VERIFIED (R3 只读核查):** WorkBuddy 在集成基线 `0b18900` 上精读生产组合根与 supervisor/settlement/resupply 控制器；相关组件测试 58 项全绿。R3 仍未接线：生产组合根未注入 settlement/resupply controller，且生产代码没有实时 `FleetSupplyObservation(...)` 构造来源。未修改 R3 运行时代码，未进行 Poi 实机验收。
+- **VERIFIED (远端分支保护现状):** GitHub branches API 对 `main` 与集成主干均返回 `protected=false`，Rulesets API 返回空数组。仓库账户有 admin 权限，但当前可用 GitHub 连接器没有 branch-protection/ruleset 创建或更新写操作；因此本轮**未配置**分支保护。另，`main` 当前没有 `.github/workflows/` 文件，配置 required checks 前须先建立能在 main PR 上实际触发的 CI。
+- **VERIFIED (PR #35):** M1 PR #35 仍 OPEN / DRAFT，head `3b4b86490c458a255dd9f78ec538c485ae705b3f`；保持 Draft，未合并。
+- **SAFETY:** 未删除或重置任何分支。WorkBuddy 报告的 11 个本地无 upstream 分支未出现在本轮远端分支清单中；仅确认其当前没有同名远端引用，不据此清理本地分支。
+- **LIMITS / NEXT:** 集成主干最新 merge commit 为 `46362481e9b39092363575711996564d0270deee`。待回读其 push CI 结果；分支保护配置因缺少可用写接口 BLOCKED；R3 实施及 MVP 实机验收仍 PENDING。
