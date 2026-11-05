@@ -530,6 +530,86 @@ class NormalizerTests(unittest.TestCase):
             RequirementOutcome.PASS,
         )
 
+    def test_equipment_and_stat_evidence_is_taken_from_the_same_record(self):
+        equipment = {
+            ship_id: (DRUM, DRUM) if index == 0 else ()
+            for index, ship_id in enumerate(SHIP_IDS[:4])
+        }
+        stats = {"firepower": 300, "anti_air": 220, "asw": 240, "los": 150}
+        normalized = normalize_observed_fleets(
+            self.observed(
+                equipment_by_ship=equipment,
+                total_stats=stats,
+                conditions={ship_id: 49 for ship_id in SHIP_IDS[:4]},
+            ),
+            2, now=FIXED_NOW, max_state_age=MAX_AGE,
+        )
+        self.assertEqual(normalized.equipment_by_ship, equipment)
+        self.assertEqual(dict(normalized.total_stats), stats)
+        # No keyword override was passed: the production gate can only ever see
+        # evidence carried by the very record whose freshness it checked.
+        self.assertEqual(
+            dict(normalized.conditions), {s: 49 for s in SHIP_IDS[:4]}
+        )
+
+    def test_a_stale_observation_cannot_be_made_trusted_by_injecting_evidence(self):
+        equipment = {ship_id: () for ship_id in SHIP_IDS[:4]}
+        normalized = normalize_observed_fleets(
+            self.observed(equipment_by_ship=equipment), 2,
+            now=FIXED_NOW + MAX_AGE + timedelta(seconds=1),
+            max_state_age=MAX_AGE,
+        )
+        self.assertFalse(normalized.state_trusted)
+        self.assertIs(
+            checker().evaluate(normalized, 1).overall_result,
+            RequirementOutcome.UNKNOWN,
+        )
+
+    def test_an_explicit_override_still_wins_for_offline_tests(self):
+        override = {ship_id: () for ship_id in SHIP_IDS[:4]}
+        normalized = normalize_observed_fleets(
+            self.observed(), 2, now=FIXED_NOW, max_state_age=MAX_AGE,
+            equipment_by_ship=override,
+        )
+        self.assertEqual(normalized.equipment_by_ship, override)
+
+    def test_in_dock_evidence_from_the_same_record_blocks_dispatch(self):
+        normalized = normalize_observed_fleets(
+            self.observed(in_dock_ship_ids=(SHIP_IDS[0],)),
+            2, now=FIXED_NOW, max_state_age=MAX_AGE,
+        )
+        self.assertEqual(normalized.in_dock_ship_ids, (SHIP_IDS[0],))
+        verdict = checker().evaluate(normalized, 1)
+        self.assertIs(verdict.overall_result, RequirementOutcome.REJECT)
+        self.assertIn("fleet_available", verdict.failed_checks)
+
+    def test_a_record_without_evidence_does_not_invent_it(self):
+        normalized = normalize_observed_fleets(
+            self.observed(), 2, now=FIXED_NOW, max_state_age=MAX_AGE
+        )
+        self.assertIsNone(normalized.equipment_by_ship)
+        self.assertIsNone(normalized.total_stats)
+        verdict = checker().evaluate(normalized, 24)
+        # A 4-ship level-10 fleet also has definite composition failures, so
+        # REJECT dominates the non-blocking equipment UNKNOWN. What matters is
+        # that the equipment condition itself is UNKNOWN and nothing is allowed.
+        self.assertIn("equipment", verdict.unknown_checks)
+        self.assertFalse(verdict.allows_dispatch)
+        equipment_check = next(c for c in verdict.checks if c.name == "equipment")
+        self.assertIs(equipment_check.status, CheckStatus.UNKNOWN)
+
+    def test_with_equipment_evidence_the_drum_condition_is_no_longer_unknown(self):
+        equipment = {ship_id: () for ship_id in SHIP_IDS[:4]}
+        normalized = normalize_observed_fleets(
+            self.observed(equipment_by_ship=equipment),
+            2, now=FIXED_NOW, max_state_age=MAX_AGE,
+        )
+        verdict = checker().evaluate(normalized, 24)
+        # The condition is now DECIDED (REJECT: zero drums) instead of the
+        # permanent UNKNOWN it returned before a trusted observation existed.
+        self.assertNotIn("equipment", verdict.unknown_checks)
+        self.assertIn("equipment", verdict.failed_checks)
+
     def test_stale_unverified_or_foreign_observations_are_unknown(self):
         base = self.observed()
         cases = (

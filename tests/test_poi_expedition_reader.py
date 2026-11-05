@@ -3,8 +3,9 @@ import json
 import unittest
 from datetime import datetime, timezone
 
-from kancollebot.adapters.poi.expedition_reader import PoiExpeditionReader
+from kancollebot.adapters.poi.expedition_reader import PoiExpeditionReader, _INFO_SHIPS_FIELDS
 from kancollebot.adapters.poi.mcp_client import McpTool, PoiMcpError
+from kancollebot.adapters.poi.requirement_evidence import SHIP_DETAIL_FIELDS
 
 NOW = datetime(2026, 10, 24, 12, 0, tzinfo=timezone.utc)
 
@@ -24,13 +25,17 @@ def sample_payloads():
 
 class FakeClient:
     def __init__(self, *, store_ready=True, payloads=None, tools=None, lookup=None,
-                 sequences=None, projected_ships=None):
+                 sequences=None, projected_ships=None, detail_ships=None,
+                 equip_instances=None, detail_sequences=None):
         self.store_ready = store_ready
         self.payloads = payloads or sample_payloads()
         self.tools = tools or ("poi_describe", "poi_get", "poi_lookup")
         self.lookup = lookup
         self.sequences = sequences or {}
         self.projected_ships = projected_ships
+        self.detail_ships = detail_ships
+        self.equip_instances = equip_instances
+        self.detail_sequences = detail_sequences
         self.sequence_counts = {}
         self.calls = []
         self.initialize_calls = 0
@@ -55,7 +60,18 @@ class FakeClient:
             payload = self.lookup if self.lookup is not None else self.payloads["lookup"]
         else:
             path = arguments["path"]
-            if path == "info.ships" and "select" in arguments and self.projected_ships is not None:
+            select = arguments.get("select") or ()
+            is_detail_projection = path == "info.ships" and "api_slot" in select
+            if is_detail_projection and self.detail_sequences is not None:
+                index = self.sequence_counts.get("detail", 0)
+                sequence = self.detail_sequences
+                payload = sequence[min(index, len(sequence) - 1)]
+                self.sequence_counts["detail"] = index + 1
+            elif is_detail_projection and self.detail_ships is not None:
+                payload = self.detail_ships
+            elif path == "info.equips" and self.equip_instances is not None:
+                payload = self.equip_instances
+            elif path == "info.ships" and "select" in arguments and self.projected_ships is not None:
                 payload = self.projected_ships
             elif path.startswith("info.ships."):
                 if path in self.sequences:
@@ -216,10 +232,29 @@ class PoiExpeditionReaderTests(unittest.TestCase):
         observed = reader.read_fleets()
         self.assertEqual(len(observed.payload), 1)
         read_paths = [args["path"] for name, args in client.calls if name == "poi_get"]
+        # Each of the two consistency rounds now also takes one narrow
+        # equipment/stat projection. It is a SEPARATE read: widening the
+        # port-witness projection truncates the 239-ship roster on the real
+        # bridge and would silently destroy source freshness verification.
         self.assertEqual(
             read_paths,
-            ["info.fleets", "info.ships", "info.fleets", "info.ships"],
+            [
+                "info.fleets", "info.ships", "info.ships",
+                "info.fleets", "info.ships", "info.ships",
+            ],
         )
+        select_sets = [
+            set(args["select"])
+            for name, args in client.calls
+            if name == "poi_get" and args["path"] == "info.ships" and "select" in args
+        ]
+        self.assertEqual(len(select_sets), 2)
+        self.assertEqual(select_sets[0], select_sets[1])
+        self.assertIn("api_slot", select_sets[0])
+        self.assertIn("api_karyoku", select_sets[0])
+        self.assertNotIn("api_nowhp", select_sets[0])
+        self.assertNotIn("api_lv", select_sets[0])
+        self.assertEqual(select_sets[0], set(SHIP_DETAIL_FIELDS))
 
     def test_rejects_truncated_fleet_payload(self):
         payloads = sample_payloads()
@@ -323,11 +358,17 @@ class PoiExpeditionReaderTests(unittest.TestCase):
             args for name, args in client.calls
             if name == "poi_get" and args["path"] == "info.ships" and "select" in args
         ]
-        # One projection for the initial read, one for the consistency re-read.
-        self.assertEqual(len(projected_calls), 2)
-        self.assertIn("api_lv", projected_calls[0]["select"])
-        self.assertIn("api_cond", projected_calls[0]["select"])
-        self.assertGreaterEqual(projected_calls[0]["limit"], 239)
+        # Two rounds: the original port-witness projection plus the narrow
+        # equipment/stat projection. They must never be merged into one read.
+        self.assertEqual(len(projected_calls), 4)
+        witness_calls = [args for args in projected_calls if "api_lv" in args["select"]]
+        detail_calls = [args for args in projected_calls if "api_slot" in args["select"]]
+        self.assertEqual(len(witness_calls), 2)
+        self.assertEqual(len(detail_calls), 2)
+        self.assertEqual(set(witness_calls[0]["select"]), set(_INFO_SHIPS_FIELDS))
+        self.assertEqual(set(detail_calls[0]["select"]), set(SHIP_DETAIL_FIELDS))
+        self.assertIn("api_cond", witness_calls[0]["select"])
+        self.assertGreaterEqual(witness_calls[0]["limit"], 239)
         per_id_calls = [
             args["path"] for name, args in client.calls
             if name == "poi_get" and args["path"].startswith("info.ships.")
@@ -432,9 +473,109 @@ class PoiExpeditionReaderTests(unittest.TestCase):
         ]
         self.assertEqual(len(describe_calls), 1)
         self.assertEqual(len(fleet_reads), 4)
-        self.assertEqual(len(ship_reads), 4)
+        # Two observations x (2 plain + 2 narrow equipment/stat projections).
+        self.assertEqual(len(ship_reads), 8)
+        plain_ship_reads = [call for call in ship_reads if "select" not in call[1]]
+        detail_ship_reads = [call for call in ship_reads if "api_slot" in call[1].get("select", ())]
+        self.assertEqual(len(plain_ship_reads), 4)
+        self.assertEqual(len(detail_ship_reads), 4)
         self.assertEqual(client.health_calls, 2)
         self.assertEqual(len(first.payload), len(second.payload))
+
+
+def detail_payload(*, drum_on_101=True):
+    def ship(ship_id, slots):
+        return {
+            "api_id": ship_id, "api_slot": list(slots), "api_slot_ex": 0,
+            "api_slotnum": 2,
+            "api_karyoku": [20, 30], "api_taiku": [10, 20],
+            "api_taisen": [15, 25], "api_sakuteki": [5, 15],
+            "api_ndock_time": 0,
+        }
+    slots_101 = [9001, -1, -1, -1, -1] if drum_on_101 else [-1] * 5
+    return {
+        "kind": "object-map", "total": 2, "returned": 2, "truncated": False,
+        "items": {"101": ship(101, slots_101), "102": ship(102, [-1] * 5)},
+    }
+
+
+def equip_payload(*, include_9001=True):
+    items = {"9001": {"api_id": 9001, "api_slotitem_id": 75}} if include_9001 else {}
+    return {
+        "kind": "object-map", "total": 1, "returned": len(items),
+        "truncated": False, "items": items,
+    }
+
+
+class RequirementEvidenceReaderTests(unittest.TestCase):
+    """The reader attaches equipment/stat evidence to the SAME observation."""
+
+    def make_reader(self, **kwargs):
+        client = FakeClient(**kwargs)
+        return client, PoiExpeditionReader(client=client, clock=lambda: NOW)
+
+    def test_equipment_and_stats_are_attached_to_the_fleet_record(self):
+        _, reader = self.make_reader(
+            detail_ships=detail_payload(), equip_instances=equip_payload()
+        )
+        observed = reader.read_fleets()
+        fleet = observed.payload[0]
+        self.assertEqual(fleet.ship_ids, (101, 102))
+        self.assertEqual(fleet.equipment_by_ship[101], (75,))
+        self.assertEqual(fleet.equipment_by_ship[102], ())
+        self.assertEqual(fleet.total_stats["firepower"], 40)
+        self.assertEqual(fleet.total_stats["anti_air"], 20)
+
+    def test_a_missing_equipment_collection_degrades_without_breaking_the_read(self):
+        # No info.equips response at all: the base observation must still be
+        # delivered (missions without equipment rules are unaffected), but the
+        # target fleet must carry NO evidence so its conditions fail closed.
+        client, reader = self.make_reader(detail_ships=detail_payload())
+        observed = reader.read_fleets()
+        self.assertEqual(len(observed.payload), 1)
+        self.assertIsNone(observed.payload[0].equipment_by_ship)
+        self.assertIsNone(observed.payload[0].total_stats)
+        self.assertTrue(
+            any(call[1].get("path") == "info.equips" for call in client.calls)
+        )
+
+    def test_an_unresolvable_equipment_instance_yields_no_evidence(self):
+        _, reader = self.make_reader(
+            detail_ships=detail_payload(), equip_instances=equip_payload(include_9001=False)
+        )
+        observed = reader.read_fleets()
+        self.assertIsNone(observed.payload[0].equipment_by_ship)
+
+    def test_evidence_that_changes_between_consistency_reads_is_not_merged(self):
+        # A drum appears between the first and the confirmation read. Mixing
+        # them would be a TOCTOU hole: refuse to attach any evidence at all.
+        _, reader = self.make_reader(
+            detail_sequences=[detail_payload(drum_on_101=True),
+                              detail_payload(drum_on_101=False)],
+            equip_instances=equip_payload(),
+        )
+        observed = reader.read_fleets()
+        self.assertIsNone(observed.payload[0].equipment_by_ship)
+        self.assertIsNone(observed.payload[0].total_stats)
+
+    def test_evidence_reads_never_widen_the_port_witness_projection(self):
+        # Real bridge: adding equipment fields to the 8-field witness read
+        # truncates 239 ships to 225 and destroys freshness verification.
+        client, _ = self.make_reader(
+            detail_ships=detail_payload(), equip_instances=equip_payload()
+        )
+        reader = PoiExpeditionReader(client=client, clock=lambda: NOW)
+        reader.read_fleets()
+        witness_selects = [
+            set(call[1]["select"])
+            for call in client.calls
+            if call[0] == "poi_get"
+            and call[1].get("path") == "info.ships"
+            and "api_lv" in call[1].get("select", ())
+        ]
+        for select in witness_selects:
+            self.assertEqual(select, set(_INFO_SHIPS_FIELDS))
+            self.assertNotIn("api_slot", select)
 
 
 if __name__ == "__main__":

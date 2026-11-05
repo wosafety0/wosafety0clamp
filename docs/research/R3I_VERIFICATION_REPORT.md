@@ -3,6 +3,9 @@
 > 日期：2026-11-05　状态：功能验收通过；归档验收在推送/远端回读后单独判定
 > 对应规格：`KancolleBot R3-I — 远征条件检查器` WB 开发交接说明
 > 本报告只记录**实际跑过的命令与结果**。实现状态、限制与未验证规则均按代码实况书写。
+> **R3-I.2 增量（2026-11-05）**：装备/属性可信只读观测、同一 fresh baseline 绑定、真客户端只读取证、
+> 延迟/动画/陈旧三类零点击验证，另见 `docs/research/R3I_LIVE_VERIFICATION.md` 与
+> `docs/research/R3I_LIVE_EVIDENCE_20261105.json`。下面的第 3、7、9 条限制与 NEXT 已按该增量更新。
 
 ---
 
@@ -80,7 +83,7 @@
 
 | 门禁命令 | 结果 |
 |---|---|
-| `PYTHONPATH=src python -m unittest discover -s tests` | **Ran 1473 tests — OK (skipped=2)**（HEAD 基线 1392 个测试函数，净增 81） |
+| `PYTHONPATH=src python -m unittest discover -s tests` | R3-I 基线 **Ran 1473 tests — OK (skipped=2)**；R3-I.2 增量后 **Ran 1507 tests — OK (skipped=2)**（净增 34） |
 | R3-G/R3-H 定向回归（9 个模块：`test_blocked_recovery`、`test_mission_result_witness*`、`test_mission_result_observer`、`test_startup_settlement_gate`、`test_dispatch_recovery`、`test_continuous_settlement_controller*`、`test_continuous_supervisor_settlement`） | **Ran 185 tests — OK** |
 | `python -m compileall -q src tests tools` | OK |
 | `git diff --check` | OK |
@@ -109,13 +112,13 @@
 
 1. **上游资料均为社区整理，非游戏解包或官方数据**；47 条规则中 10 条 `cross_checked`、37 条 `single_source`。生产入口把 `minimum_confidence` 设为 `cross_checked`，因此**37 条单来源远征在实机门禁里一律 UNKNOWN、不可派遣**（纯检查器默认仍允许单来源，便于独立测试与显式放宽）。
 2. **21 / 37 / 38 鼓桶数存在来源冲突**（kcauto_custom 疑似把大成功条件写成通常成功条件）——不猜测、不择一，判 UNKNOWN。
-3. **装备与派生属性合计不在当前两条只读 CDP 表达式内**（`READ_ONLY_FLEET_SNAPSHOT_EXPRESSION` / `READ_ONLY_PORT_SUPPLY_SNAPSHOT_EXPRESSION` 无 `api_slot`、无火力/对空/对潜/索敌合计）。凡规则要求鼓桶或属性的远征，生产路径**绝不会 PASS**：证据缺失为 UNKNOWN，若同时有其它明确不满足项为 REJECT，两者都零点击。需补可信观测后才可能放行。
+3. ~~装备与派生属性合计不在只读观测内~~ **已由 R3-I.2 补齐**：`src/kancollebot/adapters/poi/requirement_evidence.py` 从 Poi Redux 的独立窄投影读取装备实例 ID → `info.equips` 解析为 master id（鼓桶 75）、四个显示值合计、战意与入渠状态，并附着在**同一条** `ObservedFleetSnapshot` 上。实机采集到 4 支舰队的完整证据（Fleet 3 鼓桶 10/4 艘、Fleet 4 鼓桶 8/3 艘）。`equipment` / `fleet_stats` 条件现在会明确 PASS 或 REJECT，不再恒为 UNKNOWN。**但整体 PASS 仍受规则置信度门禁限制**：要求装备/属性的远征分别为 `single_source`（24/40/101/102/103）、来源冲突（21/37/38）或编成未结构化（104/105），生产入口 `minimum_confidence="cross_checked"` 下仍判 UNKNOWN。这是规则数据问题，不是观测缺失；本轮未擅自放宽门禁。
 4. **102–105 的多套等价编成未结构化**（`composition_unstructured=True`），判 UNKNOWN；不臆造一套。
 5. 41、43–46、B/D/E 系列、月次与交战型远征没有规则记录 → UNKNOWN。旗舰舰种限制只收录了 24/32/40。
 6. `(駆+海防)` 的 DE 代用只对 wiki 明确写出的 4/5/9/24/102–105 启用；其余 DD 组按 DD-only 处理，可能**过严**（只会误拒，不会误放）。「自由枠なし」只对 37 启用。
-7. **未做实机成功/失败回归**去验证规则数值本身；本轮实机相关证据只有离线使用历史真实 port 快照（只读、无点击）。R3-I 的实机派遣门禁效果尚未在真客户端上跑过。
+7. **规则数值本身仍未做实机成功/失败回归**。R3-I.2 已在真客户端做了**只读**门禁取证（结算动画页、无 fresh witness → UNKNOWN 零点击拒绝，见 `R3I_LIVE_VERIFICATION.md`），但**没有在真客户端跑出一次完整 PASS 门禁**：需要可见 UI 刷新导航取得 port witness、且目标舰队燃料 `8/15` 需先补给，二者都会向游戏发送点击并消耗资源，本轮在获得明确授权前未执行。完整 PASS 与「放行到既有派遣流程」目前只有离线确定性测试证据。
 8. 判定优先级：state_trust / rule_source / fleet_identity 属 blocking UNKNOWN，会盖过可见的 REJECT；其它 UNKNOWN（装备/属性/补给/HP 证据）不盖过已确证的 REJECT，但两者都不能 PASS，且都记录在 `rejection_reasons`。
-9. **未提前实现**自动换船、自动装鼓桶、舰船池、动态舰队与资源调度（R3-J）；`in_dock_ship_ids` 目前只能由调用方提供，生产 CDP 快照没有入渠字段。
+9. **未提前实现**自动换船、自动装鼓桶、舰船池、动态舰队与资源调度（R3-J）。`in_dock_ship_ids` 现由 R3-I.2 的 `api_ndock_time` 证据投影提供（>0 视为入渠），但真客户端当前无入渠舰船，尚未实机验证该分支。
 10. 闪 / 大成功只做只读评估（`SparkleAssessment`，阈值 `api_cond>=50`），**不是派遣门禁**。
 
 ---
@@ -125,4 +128,4 @@
 - **功能验收：通过。** 规则有来源与版本、检查器可独立测试且零 I/O、关键条件可解释、未知数据不放行、拒绝路径零点击、只有 PASS 进入既有派遣流程、R3-G/R3-H 定向回归无退化、测试报告与实现一致。
 - **归档验收：不由本报告判定。** 需按项目规则完成本地提交 → 推送独立功能分支 → 从 GitHub 权威远端回读提交 SHA / 分支名 / 文件内容，并在交付回复中分别报告「本地保存 / 本地提交 / 远程推送 / 远程回读 / 测试验证」五项状态。
 
-> NEXT：R3-I 验收完成后才进入 **R3-J 动态舰队与资源调度**。R3-J 之前还建议：补齐可信的装备/属性只读观测，并实机跑一次 `PASS` 派遣门禁。
+> NEXT：装备/属性可信只读观测已补齐并归档（R3-I.2）。**R3-J 动态舰队与资源调度仍未启动**：用户设定的 gate 要求「在真客户端验证一次完整的 PASS 门禁 + 实机证据归档 + GitHub 远端回读」，其中真客户端完整 PASS 需要 UI 导航刷新与补给（有游戏副作用），本轮在获得明确授权前未执行，故 gate 未满足。授权范围见交付回复与 `R3I_LIVE_VERIFICATION.md` 第 5 节。

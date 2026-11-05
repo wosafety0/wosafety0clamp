@@ -44,6 +44,9 @@ def snapshot(
     reserved=0,
     ship_levels=None,
     ship_types=None,
+    equipment_by_ship=None,
+    total_stats=None,
+    in_dock_ship_ids=(),
 ):
     if ship_ids is None:
         ship_ids = (1, 2) if fleet_id == 2 else (3, 4, 5)
@@ -69,6 +72,9 @@ def snapshot(
         reserved=reserved,
         ship_levels=tuple(ship_levels),
         ship_types=tuple(ship_types),
+        equipment_by_ship=equipment_by_ship,
+        total_stats=total_stats,
+        in_dock_ship_ids=tuple(in_dock_ship_ids),
     )
 
 
@@ -813,6 +819,218 @@ class R3IRequirementGateTests(unittest.TestCase):
                 self.make_controller(
                     directory, reader, FakeUi(), dispatchable_fleet_ids=(0,)
                 )
+
+
+class SlowOrFailingReader(FakeReader):
+    """A Poi read that stalls, times out, or returns an animation-era snapshot."""
+
+    def __init__(self, observation_or_error):
+        super().__init__()
+        self.observation_or_error = observation_or_error
+
+    def read_fleets(self):
+        self.read_count += 1
+        if isinstance(self.observation_or_error, BaseException):
+            raise self.observation_or_error
+        return self.observation_or_error
+
+
+class R3IFreshnessAndLatencyGateTests(unittest.TestCase):
+    """The dispatch gate must fail closed under latency, animation and stale data.
+
+    These scenarios are the ones a real client produces while a reward/return
+    animation is on screen: Poi Redux can already say "idle" while no fresh
+    /api_port/port witness exists, or a slow network can age a read past the
+    freshness window. In every case the refusal happens during the READ, so no
+    requirement evaluation, no intent and no click can occur.
+    """
+
+    make_controller = ContinuousDispatchControllerTests.make_controller
+    valid_observations = ContinuousDispatchControllerTests.valid_observations
+
+    def r3i_checker(self):
+        return ExpeditionRequirementChecker(clock=lambda: BASE)
+
+    def assert_read_stage_refusal(self, *, controller, ui, reader, intents, events):
+        self.assertEqual(ui.dispatches, [])
+        self.assertEqual(ui.home_calls, [])
+        self.assertIsNone(intents.get(2))
+        names = [name for name, _ in events]
+        self.assertNotIn("dispatch_intent_persisted", names)
+        self.assertNotIn("dispatch_requirement_evaluation", names)
+        self.assertNotIn("dispatch_blocked_requirement_check", names)
+        self.assertEqual(reader.read_count, 1)
+
+    def test_network_latency_that_ages_the_baseline_is_refused_zero_click(self):
+        # A read that started fresh but finished after the freshness window.
+        stale = observation(
+            BASE - timedelta(seconds=95), [snapshot(2), snapshot(3)]
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = SlowOrFailingReader(stale)
+            controller, _, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(BASE),
+                requirement_checker=self.r3i_checker(),
+            )
+            with self.assertRaisesRegex(ContinuousDispatchError, "not trusted"):
+                controller.dispatch_one_ready(2)
+            self.assert_read_stage_refusal(
+                controller=controller, ui=ui, reader=reader,
+                intents=intents, events=events,
+            )
+
+    def test_a_poi_read_timeout_never_reaches_the_gate_or_the_ui(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = SlowOrFailingReader(TimeoutError("Poi read timed out"))
+            controller, _, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(BASE),
+                requirement_checker=self.r3i_checker(),
+            )
+            with self.assertRaises(TimeoutError):
+                controller.dispatch_one_ready(2)
+            self.assert_read_stage_refusal(
+                controller=controller, ui=ui, reader=reader,
+                intents=intents, events=events,
+            )
+
+    def test_animation_period_without_a_fresh_witness_is_refused_zero_click(self):
+        # This is the real-client state observed on 2026-11-05: an expedition
+        # "成功!" result screen is on display while Poi Redux already reports
+        # every fleet idle. No natural port response => no freshness witness.
+        unverified = observation(
+            BASE - timedelta(seconds=1), [snapshot(2), snapshot(3)], fresh=False
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = SlowOrFailingReader(unverified)
+            controller, _, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(BASE),
+                requirement_checker=self.r3i_checker(),
+            )
+            with self.assertRaisesRegex(ContinuousDispatchError, "not trusted"):
+                controller.dispatch_one_ready(2)
+            self.assert_read_stage_refusal(
+                controller=controller, ui=ui, reader=reader,
+                intents=intents, events=events,
+            )
+
+    def test_a_future_dated_observation_is_refused_zero_click(self):
+        future = observation(
+            BASE + timedelta(seconds=60), [snapshot(2), snapshot(3)]
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = SlowOrFailingReader(future)
+            controller, _, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(BASE),
+                requirement_checker=self.r3i_checker(),
+            )
+            with self.assertRaisesRegex(ContinuousDispatchError, "not trusted"):
+                controller.dispatch_one_ready(2)
+            self.assert_read_stage_refusal(
+                controller=controller, ui=ui, reader=reader,
+                intents=intents, events=events,
+            )
+
+    def test_the_gate_and_the_intent_bind_the_same_fresh_baseline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = WitnessAwareReader(ui, *self.valid_observations())
+            controller, _, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(
+                    BASE, BASE + timedelta(seconds=2), BASE + timedelta(seconds=3),
+                    BASE + timedelta(seconds=4), BASE + timedelta(seconds=5),
+                ),
+                requirement_checker=self.r3i_checker(),
+            )
+            controller.dispatch_one_ready(2)
+            names = [name for name, _ in events]
+            evaluation = dict(events[names.index("dispatch_requirement_evaluation")][1])
+            persisted = dict(events[names.index("dispatch_intent_persisted")][1])
+            self.assertEqual(
+                evaluation["baseline_observed_at"], persisted["baseline_observed_at"]
+            )
+            self.assertEqual(evaluation["baseline_observed_at"], (
+                BASE - timedelta(seconds=1)
+            ).isoformat())
+            self.assertTrue(evaluation["baseline_source_freshness_verified"])
+            self.assertEqual(evaluation["baseline_ship_ids"], [1, 2])
+            self.assertEqual(
+                evaluation["baseline_source"], "poi-redux:info.fleets+info.ships"
+            )
+            self.assertLess(
+                names.index("dispatch_requirement_evaluation"),
+                names.index("dispatch_intent_persisted"),
+            )
+
+    def test_equipment_and_stat_evidence_travel_with_the_same_baseline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            equipment = {1: (75, 75), 2: ()}
+            stats = {"firepower": 50, "anti_air": 70, "asw": 180, "los": 40}
+            reader = WitnessAwareReader(ui, *self.valid_observations())
+            # Replace the first (pre-dispatch) observation with one carrying
+            # evidence on the very same fleet record.
+            original = reader.observations[0]
+            evidenced = original.__class__(
+                (
+                    snapshot(2, equipment_by_ship=equipment, total_stats=stats),
+                    original.payload[1],
+                ),
+                original.observed_at,
+                original.source,
+                source_freshness_verified=original.source_freshness_verified,
+            )
+            reader.observations[0] = evidenced
+            controller, _, _, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(
+                    BASE, BASE + timedelta(seconds=2), BASE + timedelta(seconds=3),
+                    BASE + timedelta(seconds=4), BASE + timedelta(seconds=5),
+                ),
+                requirement_checker=self.r3i_checker(),
+            )
+            controller.dispatch_one_ready(2)
+            names = [name for name, _ in events]
+            evaluation = dict(events[names.index("dispatch_requirement_evaluation")][1])
+            self.assertTrue(evaluation["equipment_evidence_present"])
+            self.assertTrue(evaluation["fleet_stats_evidence_present"])
+            self.assertEqual(evaluation["fleet_stats"], stats)
+            self.assertEqual(evaluation["in_dock_ship_ids"], [])
+            self.assertEqual(evaluation["overall_result"], "PASS")
+
+    def test_in_dock_evidence_on_the_baseline_blocks_with_zero_clicks(self):
+        baseline = observation(
+            BASE - timedelta(seconds=1),
+            [snapshot(2, in_dock_ship_ids=(1,)), snapshot(3)],
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = FakeReader(baseline)
+            controller, _, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(BASE),
+                requirement_checker=self.r3i_checker(),
+            )
+            with self.assertRaisesRegex(ContinuousDispatchError, "requirement check REJECT"):
+                controller.dispatch_one_ready(2)
+            self.assertEqual(ui.dispatches, [])
+            self.assertEqual(ui.home_calls, [])
+            self.assertIsNone(intents.get(2))
+            names = [name for name, _ in events]
+            evaluation = dict(events[names.index("dispatch_requirement_evaluation")][1])
+            self.assertEqual(evaluation["in_dock_ship_ids"], [1])
+            self.assertIn("fleet_available", evaluation["failed_checks"])
+            blocked = dict(events[names.index("dispatch_blocked_requirement_check")][1])
+            self.assertEqual(blocked["dispatch_clicks_sent"], 0)
+            self.assertEqual(blocked["game_api_requests_sent"], 0)
 
 
 if __name__ == "__main__":

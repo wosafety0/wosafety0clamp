@@ -194,6 +194,16 @@ class ObservedFleetSnapshot:
     reserved: int = 0
     ship_levels: tuple[int, ...] = ()
     ship_types: tuple[int, ...] = ()
+    # R3-I: equipment master ids, fleet stat totals, morale and dock state are
+    # READ IN THE SAME OBSERVATION as ship_ids/ship_levels/ship_types. Keeping
+    # them on this record is what prevents the requirement evaluator from
+    # mixing a fresh composition with equipment read at a different instant.
+    # ``None`` means the evidence could not be established; the evaluator must
+    # then answer UNKNOWN for the affected conditions, never guess.
+    equipment_by_ship: Mapping[int, tuple[int, ...]] | None = None
+    total_stats: Mapping[str, int] | None = None
+    conditions: Mapping[int, int] | None = None
+    in_dock_ship_ids: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         if self.fleet_id < 1:
@@ -242,6 +252,32 @@ class ObservedFleetSnapshot:
             raise ValueError("return_at must be timezone-aware")
         if self.mission_id is None and self.return_at is not None:
             raise ValueError("return_at requires an active mission")
+        if self.equipment_by_ship is not None:
+            if not isinstance(self.equipment_by_ship, Mapping):
+                raise ValueError("equipment_by_ship must be a mapping or None")
+            if set(self.equipment_by_ship) != set(self.ship_ids):
+                raise ValueError("equipment_by_ship must cover exactly the fleet members")
+            for ship_id, equipment in self.equipment_by_ship.items():
+                if not isinstance(equipment, tuple) or any(
+                    isinstance(item, bool) or not isinstance(item, int) or item < 1
+                    for item in equipment
+                ):
+                    raise ValueError(f"ship {ship_id} equipment must be master-id tuples")
+        if self.total_stats is not None:
+            if not isinstance(self.total_stats, Mapping):
+                raise ValueError("total_stats must be a mapping or None")
+            for value in self.total_stats.values():
+                if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                    raise ValueError("total_stats values must be non-negative integers")
+        if self.conditions is not None:
+            if not isinstance(self.conditions, Mapping):
+                raise ValueError("conditions must be a mapping or None")
+            if not set(self.conditions).issubset(self.ship_ids):
+                raise ValueError("conditions must only describe fleet members")
+        if not isinstance(self.in_dock_ship_ids, tuple):
+            raise ValueError("in_dock_ship_ids must be a tuple")
+        if not set(self.in_dock_ship_ids).issubset(self.ship_ids):
+            raise ValueError("in_dock_ship_ids must belong to this fleet")
 
 
 __all__ = [

@@ -136,6 +136,6 @@
 3. `(駆+海防)` 的 DE 代用只对 wiki 明确写出的 4/5/9/24/102–105 启用；其他远征的 DD 组按 DD-only 处理（可能**过严**，只会误拒、不会误放）。
 4. 「自由枠なし」只对 37 启用；其余远征默认允许额外舰船。
 5. 旗舰舰种限制只收录 24（軽）、32（練巡）、40（軽）；wiki 还列出 43/45/B6/D1/D2/D3/E1 等，本轮未收录，故这些远征**无规则 → UNKNOWN**。
-6. 装备与属性合计数据**不在**当前两条只读 CDP 表达式里（`READ_ONLY_FLEET_SNAPSHOT_EXPRESSION` / `READ_ONLY_PORT_SUPPLY_SNAPSHOT_EXPRESSION` 都不含 `api_slot`/装备派生属性）。因此凡规则要求鼓桶或属性，生产路径**绝不会 PASS**：证据缺失时该项为 UNKNOWN；若同时存在其他明确不满足的条件，总判定为 REJECT（两者都零点击封锁）。只有补上可信的装备/属性观测后才可能放行。
+6. ~~装备与属性合计数据不在只读观测里~~ **R3-I.2 已补齐**：`src/kancollebot/adapters/poi/requirement_evidence.py` 通过独立的窄投影读取 `api_slot` / `api_slot_ex` / 四个显示属性数组 / `api_ndock_time`，并用 `info.equips` 把装备实例 ID 解析成 master id（鼓桶 75）。之所以必须独立投影：实机测得把装备字段并入 239 艘的 port-witness 投影会把响应从 239/239 截断成 225/239，从而**静默破坏 freshness 校验**。证据附着在同一条 `ObservedFleetSnapshot` 上，与 composition 共用 freshness 判定。条件级 `equipment` / `fleet_stats` 现已能明确 PASS/REJECT；**但整体 PASS 仍受规则置信度限制**（这些远征是 single_source、来源冲突或编成未结构化），详见 `R3I_LIVE_VERIFICATION.md` 第 2.3 节。
 7. 41/43–46、B/D/E 系列、月次远征与交战型远征没有规则记录，判 UNKNOWN。
 8. 上游数据均为社区整理，非游戏解包；本轮未做实机成功/失败回归来验证规则数值。

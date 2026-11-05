@@ -276,10 +276,37 @@ class ContinuousDispatchController:
                         if self.dispatchable_fleet_ids is not None else True
                     ),
                 )
+                # Prove the gate did not wander onto another observation: the
+                # normalizer's snapshot source and ship set must be the exact
+                # ones prepare_dispatch() will bind the intent to below.
+                if (
+                    normalized.snapshot_source != baseline.source
+                    or normalized.ship_ids != snapshot.ship_ids
+                ):
+                    raise ContinuousDispatchError(
+                        "R3-I requirement evaluation diverged from the dispatch baseline"
+                    )
                 verdict = self.requirement_checker.evaluate(
                     normalized, requirement.mission_id, fleet_id=fleet_id
                 )
-                self.event_sink("dispatch_requirement_evaluation", verdict.as_dict())
+                evaluation_payload = verdict.as_dict()
+                evaluation_payload.update(
+                    {
+                        "baseline_observed_at": baseline.observed_at.isoformat(),
+                        "baseline_source": baseline.source,
+                        "baseline_source_freshness_verified": baseline.source_freshness_verified,
+                        "baseline_ship_ids": list(snapshot.ship_ids),
+                        "equipment_evidence_present": normalized.equipment_by_ship is not None,
+                        "fleet_stats_evidence_present": normalized.total_stats is not None,
+                        "fleet_stats": (
+                            dict(normalized.total_stats)
+                            if normalized.total_stats is not None
+                            else None
+                        ),
+                        "in_dock_ship_ids": list(normalized.in_dock_ship_ids),
+                    }
+                )
+                self.event_sink("dispatch_requirement_evaluation", evaluation_payload)
                 if not verdict.allows_dispatch:
                     reasons = " | ".join(verdict.rejection_reasons[:4])
                     self.event_sink("dispatch_blocked_requirement_check", {
@@ -288,6 +315,8 @@ class ContinuousDispatchController:
                         "overall_result": verdict.overall_result.value,
                         "failed_checks": list(verdict.failed_checks),
                         "unknown_checks": list(verdict.unknown_checks),
+                        "baseline_observed_at": baseline.observed_at.isoformat(),
+                        "baseline_source_freshness_verified": baseline.source_freshness_verified,
                         "dispatch_clicks_sent": 0,
                         "game_api_requests_sent": 0,
                         "fleet_composition_changes_proposed": False,

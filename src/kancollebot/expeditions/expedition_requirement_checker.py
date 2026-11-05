@@ -234,6 +234,12 @@ def normalize_observed_fleets(
     ``source_freshness_verified`` AND a local age within ``max_state_age``.
     A stale observation is still returned (as an UNKNOWN snapshot) so the
     verdict can explain why instead of silently dropping the evidence.
+
+    Equipment/stat/morale/dock evidence is taken from the SAME fleet record
+    that carries ship_ids and the freshness verdict. The three keyword
+    arguments remain only as explicit test overrides; the production dispatch
+    gate passes none of them, so it cannot combine a fresh composition with
+    equipment read at a different instant.
     """
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must be timezone-aware")
@@ -303,9 +309,14 @@ def normalize_observed_fleets(
         ammo_ready=record.ammo_ready,
         heavy_damage_ship_ids=record.heavy_damage_ship_ids,
         hp_evidence_available=True,
-        equipment_by_ship=equipment_by_ship,
-        total_stats=total_stats,
-        conditions=conditions,
+        in_dock_ship_ids=record.in_dock_ship_ids,
+        equipment_by_ship=(
+            equipment_by_ship
+            if equipment_by_ship is not None
+            else record.equipment_by_ship
+        ),
+        total_stats=total_stats if total_stats is not None else record.total_stats,
+        conditions=conditions if conditions is not None else record.conditions,
         identity_ambiguous=bool(identity_reasons),
         identity_reasons=tuple(identity_reasons),
     )
