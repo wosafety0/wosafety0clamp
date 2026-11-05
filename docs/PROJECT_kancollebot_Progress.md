@@ -4169,3 +4169,7 @@ The Hand plugin's read-only probe reported:
 
 - **FOLLOW-UP SOURCE_REVIEWED (repair gate boundary):** 继续读取 AutoKira 的旗舰 HP 检查和 ActRepair 调用。低于 AutoKiraHPPercent/25% 时只在存在空闲修理渠，或占用修理渠剩余时间不超过 OperationAdvanceTime 时创建 ActRepair；未发现没有合适修理渠时强制停止的分支，控制流会继续后续补给/出击判断。因此该设置是 best-effort repair trigger，不是可靠 fail-closed 派遣门。ActRepair 通过可见 UI 进入修理、选渠/选舰、确认，并按剩余时间阈值决定是否使用修复桶。
 - **DESIGN CONSEQUENCE:** KancolleBot 若参与舰船低于 HP 安全阈值，修理不可用/未确认必须阻塞出击，不能因无空闲修理渠而继续派遣。
+
+
+- **FOLLOW-UP SOURCE_REVIEWED (destructive auto-dissolution side path):** 追踪 `qmCpe2e1m8` 与 `ActDissolution`。当 AutoDissolution=true 且船位达到上限时，AutoKira 调度器可选出候选舰并执行“自动解体”UI 动作，等待 `api_req_kousyou_destroyship`。设置构造器默认 AutoDissolution=false，但持久化设置可覆盖。该操作会实际解体舰船，KancolleBot 刷闪绝不能自动复用。
+- **SOURCE BLOB EVIDENCE:** `ActDissolution.cs` blob `c719195fe73c3afdd450088ab0025dab60ecc09e`；`AutoExpeditionSettings.cs` blob `8aa102bdaf2674c491820c82906fd0fe1e81a288`。
