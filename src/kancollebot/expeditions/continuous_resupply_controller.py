@@ -109,7 +109,7 @@ class ContinuousResupplyController:
         ui_driver: ContinuousResupplyUiDriver,
         fleet_data_provider: Callable[[], FleetSupplyObservation],
         ui_arbiter: UiOperationArbiter,
-        event_sink: Callable[[str, Mapping[str, object]], None],
+        event_sink: Callable[[str, Mapping[str, object]], int | None],
         allow_ui_actions: bool = False,
         max_state_age: timedelta = timedelta(seconds=30),
         clock: Callable[[], datetime] | None = None,

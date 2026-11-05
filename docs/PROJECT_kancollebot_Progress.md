@@ -4100,3 +4100,14 @@ The Hand plugin's read-only probe reported:
 - **VERIFIED (PR #35):** M1 PR #35 仍 OPEN / DRAFT，head `3b4b86490c458a255dd9f78ec538c485ae705b3f`；保持 Draft，未合并。
 - **SAFETY:** 未删除或重置任何分支。WorkBuddy 报告的 11 个本地无 upstream 分支未出现在本轮远端分支清单中；仅确认其当前没有同名远端引用，不据此清理本地分支。
 - **LIMITS / NEXT:** 集成主干最新 merge commit 为 `46362481e9b39092363575711996564d0270deee`。待回读其 push CI 结果；分支保护配置因缺少可用写接口 BLOCKED；R3 实施及 MVP 实机验收仍 PENDING。
+
+
+## 2026-11-06 — 暴露持久化 event_id，并厘清 dispatch_id 设计边界
+
+- **FINDING:** `dispatch_events` 已有 SQLite `event_id INTEGER PRIMARY KEY AUTOINCREMENT`，但 `SqliteDispatchEventLog.load_all()` 丢弃了该列，调用写入也不返回 ID。日志消费者因此不能直接使用数据库已有的唯一事件键。
+- **IMPLEMENTED:** `SqliteDispatchEventLog.__call__()` 现在返回新插入的 event_id；`load_all()` 为每条记录返回 event_id。四列旧 schema 完全不变；dispatch/settlement/resupply/monitor 的 event_sink 类型允许返回 int 或 None，既有只返回 None 的测试 sink 仍兼容。
+- **TESTS:** 扩展真实 SQLite sink 测试：新写入返回 2；旧四列数据库的旧行/新行 ID 为 1/2；两个 sink 共用同一数据库时 ID 连续为 1/2/3，读取顺序一致。
+- **DESIGN:** 新增 `docs/DESIGN_event_identity_and_dedup.md`。确认 event_id 是单条事件 ID，不是一次远征的 dispatch_id。当前 DispatchIntent/FleetRuntime 均未持久化 dispatch_id，且 reward claim 后 mission tuple 被清空；若要跨派遣、归还、结算、补给关联，必须先设计可恢复的生命周期 ID 与兼容迁移。当前不伪造 dispatch_id、不迁移 schema。
+- **RESULT ATTRIBUTION:** 结算归属必须由新鲜舰队状态、mission tuple 和状态机证据判定；点击行为和 UI 页面本身不作为结果归属证明。多个待结算舰队必须逐个读回确认。
+- **VALIDATION:** exact-head CI pending; this entry will be updated only after GitHub Actions and remote readback are verified.
+- **SAFETY:** 离线仓库修改；没有 Poi 连接、游戏输入、派遣、结算、补给、奖励收取、Runtime.evaluate、页面 JavaScript、getter 访问或系统修改。

@@ -123,11 +123,13 @@ class SqliteAttributionTests(unittest.TestCase):
             before = self._columns(path)
 
             sink = SqliteDispatchEventLog(path, task_kind=TaskKind.EXPEDITION.value)
-            sink("new_event", {"fleet_id": 3})
+            new_event_id = sink("new_event", {"fleet_id": 3})
 
+            self.assertEqual(new_event_id, 2)
             self.assertEqual(self._columns(path), before)  # no migration happened
             self.assertEqual(len(before), 4)
             rows = sink.load_all()
+            self.assertEqual([row["event_id"] for row in rows], [1, 2])
             self.assertEqual(len(rows), 2)
             # Old row: payload byte-for-byte as written, attribution unknown.
             self.assertEqual(rows[0]["fields"], {"fleet_id": 2})
@@ -167,11 +169,15 @@ class SqliteAttributionTests(unittest.TestCase):
             expedition = SqliteDispatchEventLog(path, task_kind="expedition")
             other = SqliteDispatchEventLog(path, task_kind="combat")
 
-            expedition("a", {"fleet_id": 2, "task_kind": "combat"})
-            other("b", {"fleet_id": 2, "task_kind": "expedition"})
-            expedition("c", {"fleet_id": 3})
+            event_ids = (
+                expedition("a", {"fleet_id": 2, "task_kind": "combat"}),
+                other("b", {"fleet_id": 2, "task_kind": "expedition"}),
+                expedition("c", {"fleet_id": 3}),
+            )
+            self.assertEqual(event_ids, (1, 2, 3))
 
             rows = expedition.load_all()
+            self.assertEqual([row["event_id"] for row in rows], [1, 2, 3])
             self.assertEqual(len(rows), 3)
             self.assertEqual(
                 [(row["event"], row["fields"]["task_kind"]) for row in rows],
