@@ -8,13 +8,13 @@ A local-first Python framework for safety-gated desktop game automation. The gam
 
 The GitHub default branch **main** still contains only `.github`; it is not the application source baseline.
 
-| Role | Branch / PR | Exact HEAD | State |
+| Role | Branch / PR | Recorded commit | State |
 | --- | --- | --- | --- |
 | Current MVP base | `dev/dispatch-observer-safety-current-mvp-20261103` | `ba8884466f2bb1d568cc46b76034711df81bb50c` | Current remote base |
-| Settlement + run-log review candidate | `dev/run-log-safety-hardening-20261106` / [Draft PR #40](https://github.com/wosafety0/wosafety0clamp/pull/40) | `1bf11856356f9bd3b0fd7a615567a1ac9c4b9fed` | Open, unmerged |
+| Settlement + run-log review candidate | `dev/run-log-safety-hardening-20261106` / [Draft PR #40](https://github.com/wosafety0/wosafety0clamp/pull/40) | `1bf11856356f9bd3b0fd7a615567a1ac9c4b9fed` (code commit; see PR for current head) | Open, unmerged |
 | SQLite event-id readback candidate | `dev/event-id-readback-20261106` / [Draft PR #39](https://github.com/wosafety0/wosafety0clamp/pull/39) | `6048b918632ffea1510e4b038b82cd30c53a4384` | Separate, open, unmerged |
 
-PR #40 is a broad staging candidate (40 commits / 103 changed files), not a merge recommendation. Its exact HEAD passed:
+PR #40 is a broad staging candidate (42 commits / 105 changed files), not a merge recommendation. Its exact HEAD passed:
 - [Push CI #42128797363](https://github.com/wosafety0/wosafety0clamp/actions/runs/42128797363): 1,634 Python tests, 21 optional vision tests skipped; Node 17/17; compile and CLI smoke passed.
 - [Feature CI #42128884084](https://github.com/wosafety0/wosafety0clamp/actions/runs/42128884084): all four Python 3.12/3.13 × vision with/without jobs passed; 1,634 tests per matrix (4 skipped with vision, 21 without); Node 19/19; the missing-vision dependency gate failed closed as expected.
 

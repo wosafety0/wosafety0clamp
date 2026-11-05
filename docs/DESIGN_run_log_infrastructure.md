@@ -1,7 +1,7 @@
 # 统一运行日志基础设施（P0.2）
 
 状态：已实现、已离线测试、未做实机验证。
-权威分支：`feat/production-settlement-resupply-wiring-20261105`。
+当前候选分支：`dev/run-log-safety-hardening-20261106`（Draft PR #40）。
 
 本文件替代一次性的"设计方案"，因此它同时承担三件事：**现有能力盘点**（阶段 A）、
 **新增契约**（阶段 B/C）、**外部参考机制的实际采用情况**（含明确不采用的理由）。
@@ -260,3 +260,32 @@ settlement / resupply / visible_ui_refresh / UI driver 六处注入点都**不�
 - 结算 / 补给没有 `dispatch_id`（它们不属于任何一次派遣），也没有替代关联键。
 - `tools/live_dispatch_expedition.py` 直接调 `driver.dispatch_expedition`，绕过 supervisor，
   仍然不产生 `dispatch_id`。它是单发工具，本轮刻意不动。
+
+
+## 10. 2026-11-06：日志安全审查与修复
+
+对 P0.2 实现做了一次只读代码审查，发现并修复以下问题：
+
+1. **Degraded latch 可被后续成功写入清除。** 普通诊断行丢失后，下一条成功写入会把 `degraded_reason` 置回 `None`，导致 `ensure_writable()` 重新放行，掩盖同一 run 已经缺行。现改为 sticky latch：后续成功 append、stop 记录、prune 报告和 probe 均不能清除；只有新 run_id 的新 sink 才能重新开始。
+2. **单条超大事件可突破单文件上限。** 原轮转逻辑只判断当前文件加事件是否超限；空文件遇到单条大于 `max_file_bytes` 的事件仍会写入。现在在选择分片前拒绝该事件。
+3. **日志分片路径会跟随符号链接。** `log_files()` 原先把 symlink 当普通文件；同目录 symlink 可指向快照或其他文件。现在枚举跳过 symlink，所有受控读写路径拒绝直接符号链接。
+4. **快照临时路径可被预置 symlink 劫持。** 原固定 `current_state.json.tmp` 使用普通 `open(..., "wb")`，会跟随已存在链接。现在使用同目录 `tempfile.mkstemp` 的独占随机临时文件，再原子替换；快照读也经过路径保护。
+5. **共享脱敏器加载失败会退化为原文写入。** 原 fallback 只截断字符串，不做凭据脱敏。现在未知/不可用的脱敏策略按 fail-closed 处理：诊断值整体替换为 `[REDACTED]`。
+6. **emitter 提升的 `source` / `observed_at` 绕过脱敏。** 这两个字段不是不可伪造的机器身份；现在也经过共享文本脱敏器。
+7. **空白包围的关键事件名可能被当作普通诊断事件。** 关键事件分类现在对照 `strip()` 后的名称；信封验证仍拒绝格式错误，因此关键事件写入失败会抛出 `AuditLogUnavailable`。
+
+新增 9 个回归测试，覆盖 sticky latch、关键事件格式、超大单条事件、日志/快照 symlink、固定临时文件 symlink、来源字段脱敏和脱敏器不可用。
+
+**Exact code-head CI：**
+- Push [#42128797363](https://github.com/wosafety0/wosafety0clamp/actions/runs/42128797363)：1,634 Python tests，21 skipped；Node 17/17；compileall、package install 和 CLI smoke 通过。
+- Feature matrix [#42128884084](https://github.com/wosafety0/wosafety0clamp/actions/runs/42128884084)：Python 3.12/3.13 × vision with/without 四个 job 全部通过；每个 job 1,634 tests，vision with 跳过 4，without 跳过 21；Node 19/19。无视觉依赖路径明确 fail-closed。
+
+### 10.1 身份契约仍需人工决策
+
+- 本候选的 `dispatch_id` 是 supervisor 一次派遣**尝试**的 ID；在门禁之前生成，因此 REJECT 尝试也有 ID。它不代表派遣已发生，也不是完整远征生命周期 ID。
+- PR #39 的 `docs/DESIGN_event_identity_and_dedup.md` 将 `dispatch_id` 定义为从派遣、返航、结算到补给完成的生命周期 ID。两种语义不能用同一个字段名混用。
+- 本候选 JSONL `event_id` 是 UUID 字符串；PR #39 暴露的 SQLite `event_id` 是整数主键。二者当前没有 join 字段。
+- `action_id` 尚未逐点击绑定；settlement/resupply 事件也没有持久化 lifecycle ID。
+- `--run-log-dir` 仍为显式 opt-in，未做 live log 验证。
+
+在明确 attempt ID / lifecycle ID、JSONL / SQLite event ID 的关系之前，不应把当前字段描述成完整生命周期关联，也不应开启生产默认日志。
