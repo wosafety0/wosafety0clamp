@@ -517,3 +517,14 @@ If no dock matches, the reviewed path exits the repair-dock conditional and proc
 `ActRepair` itself uses visible UI actions for entering the repair screen, selecting a dock/ship, confirming the repair, and applying a bucket when the remaining time meets the configured threshold. The action's proxy identifiers are session-wait evidence for UI clicks, not a direct request-building path.
 
 KancolleBot consequence: if the flagship or any participating ship is below its configured HP safety threshold, it must pause when repair is unavailable or unconfirmed. Do not proceed to sortie merely because no repair dock matched the upstream predicate.
+
+
+## 28. Optional auto-dissolution is a destructive side path
+
+The Kira update loop also calls `qmCpe2e1m8()`. When `AutoDissolution=true` and the organization ship count has reached the configured maximum, this helper can return candidate ships; the update loop then creates `ActDissolution` and queues the “自动解体” action before continuing.
+
+- `AutoDissolution` is initialized to **false** in the reviewed settings constructor, so this side path is disabled by default unless a saved/user setting enables it.
+- `ActDissolution` performs visible ship-list selection and clicks the dismantle control, waiting for the corresponding `api_req_kousyou_destroyship` session. This is an actual ship-dismantling operation, not a harmless candidate filter.
+- KancolleBot must not import this side path into brushing. Ship dismantling is outside the sparkle task and requires a separate explicit user decision; it must never be triggered automatically to make room for fellows or target processing.
+
+Source blobs: `ActDissolution.cs` `c719195fe73c3afdd450088ab0025dab60ecc09e`; `AutoExpeditionSettings.cs` `8aa102bdaf2674c491820c82906fd0fe1e81a288`.
