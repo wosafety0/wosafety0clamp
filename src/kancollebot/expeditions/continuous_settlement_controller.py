@@ -339,6 +339,32 @@ class ContinuousSettlementController:
                     raise StartupSettlementRefused(
                         "observed_returned_mission_differs_from_persisted"
                     )
+                # The fleet was out when this process started and has come home.
+                # The start-up snapshot is what says so, and rebuilding the phase
+                # from it is the one thing the snapshot may decide: the monitor
+                # would have made the same transition had it had a trusted
+                # observation. Home Port verification is still required - a
+                # return seen before it is exactly what the monitor blocks on.
+                current = self.scheduler.fleet(fleet_id)
+                if current.phase is FleetPhase.EXPEDITION_ACTIVE:
+                    if not current.home_port_verified:
+                        self._refuse_startup(
+                            fleet_id,
+                            "home_port_verification_missing",
+                            screen.state,
+                            failed_check="post_dispatch_home_port_verification",
+                            game_actions_sent=0,
+                        )
+                        raise StartupSettlementRefused("home_port_verification_missing")
+                    self.scheduler.confirm_returned(fleet_id, returned)
+                    self.event_sink("startup_settlement_fleet_state_rebuilt", {
+                        "fleet_id": fleet_id,
+                        "previous_phase": current.phase.value,
+                        "current_phase": self.scheduler.fleet(fleet_id).phase.value,
+                        "mission_id": returned.mission_id,
+                        "final_time_ms": returned.final_time_ms,
+                        "game_api_requests": False,
+                    })
 
             decision = evaluate_startup_settlement(
                 fleet_id=fleet_id,
@@ -423,12 +449,18 @@ class ContinuousSettlementController:
                     fleet_id, "RETURN_RESULT",
                     ui_call=lambda: self.ui_driver.collect_return_result(fleet_id=fleet_id),
                     steps=steps,
+                    confirm_fn=lambda: self._confirm_phase(
+                        fleet_id, FleetPhase.RETURNED_PENDING_UI, "RETURN_RESULT"
+                    ),
                 )
             if current_screen == "RETURN_RESULT":
                 current_screen = self._advance_visible(
                     fleet_id, "BONUS_ITEMS",
                     ui_call=lambda: self.ui_driver.claim_bonus_items(fleet_id=fleet_id),
                     steps=steps,
+                    confirm_fn=lambda: self._confirm_phase(
+                        fleet_id, FleetPhase.RETURN_RESULT, "BONUS_ITEMS"
+                    ),
                 )
             if current_screen == "BONUS_ITEMS":
                 self._advance_visible(
@@ -469,6 +501,23 @@ class ContinuousSettlementController:
                 scheduler_phase_after=updated.phase.value,
             )
 
+    def _confirm_phase(
+        self, fleet_id: int, required_phase: FleetPhase, ui_state: str
+    ) -> None:
+        """Record a proven screen in the scheduler, when the phase allows it.
+
+        A fleet with no durable mission (blocked, or a state the scheduler never
+        learned) has no settlement phase to advance, and inventing one would be
+        a fabricated record. The chain still closes; nothing is credited.
+        """
+        current = self.scheduler.fleet(fleet_id)
+        if current.phase is not required_phase:
+            return
+        if ui_state == "RETURN_RESULT":
+            self.scheduler.confirm_return_result(fleet_id, ui_state=ui_state)
+        elif ui_state == "BONUS_ITEMS":
+            self.scheduler.confirm_bonus_items(fleet_id, ui_state=ui_state)
+
     def _advance_visible(
         self,
         fleet_id: int,
@@ -476,6 +525,7 @@ class ContinuousSettlementController:
         *,
         ui_call: Callable[[], UiStateEvidence],
         steps: list[tuple[str, str]],
+        confirm_fn: Callable[[], None] | None = None,
     ) -> str:
         """One two-frame proven step of the visible reward chain.
 
@@ -492,6 +542,8 @@ class ContinuousSettlementController:
             "state": evidence.state,
             "evidence": evidence.evidence,
         })
+        if confirm_fn is not None:
+            confirm_fn()
         return evidence.state
 
     def _refuse_startup(

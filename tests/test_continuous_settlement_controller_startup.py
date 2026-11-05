@@ -37,13 +37,13 @@ OTHER = 2
 SHIPS = (16374, 13350, 6, 5747)
 
 
-def fleet_snapshot(fleet_id=FLEET, ship_ids=SHIPS, mission_status=0):
+def fleet_snapshot(fleet_id=FLEET, ship_ids=SHIPS, mission_status=0, return_at=RETURN_AT):
     returned = mission_status != 0
     return ExpeditionFleetSnapshot(
         fleet_id=fleet_id,
         ship_ids=ship_ids,
         mission_id=3 if returned else None,
-        return_at=RETURN_AT if returned else None,
+        return_at=return_at if returned else None,
         mission_status=mission_status,
         reserved=0,
         ship_levels=(1,) * len(ship_ids),
@@ -124,14 +124,34 @@ class SpySettlementUi:
         return self._evidence("HOME_PORT")
 
 
+def prepare_active(scheduler, *, home_port_verified=True):
+    """Drive the real scheduler into EXPEDITION_ACTIVE with an active tuple."""
+    active = MissionTuple(
+        mission_status=1, mission_id=3, final_time_ms=FINAL_MS,
+        reserved=0, ship_ids=SHIPS,
+    )
+    scheduler.mark_ready(FLEET)
+    scheduler.begin_dispatch(FLEET)
+    scheduler.confirm_dispatch(FLEET, active)
+    if home_port_verified:
+        scheduler.confirm_home_port_after_dispatch(
+            FLEET, ui_state="HOME_PORT", observed_mission=active
+        )
+    return active
+
+
 class StartupChainTests(unittest.TestCase):
-    def make_controller(self, directory, observation, ui, *, returned=False):
+    def make_controller(
+        self, directory, observation, ui, *, returned=False, active=None
+    ):
         scheduler = ContinuousExpeditionScheduler(
             dispatch_fleet_ids=(FLEET,),
             state_store=None,
         )
         if returned:
             prepare_returned(scheduler)
+        if active is not None:
+            prepare_active(scheduler, home_port_verified=active)
         controller = ContinuousSettlementController(
             scheduler=scheduler,
             state_reader=NoNavigationReader(observation),
@@ -211,6 +231,44 @@ class StartupChainTests(unittest.TestCase):
             controller, _ = self.make_controller(directory, poi, ui)
             self.run_chain(controller)
         self.assertEqual(controller.state_reader.read_calls, 1)
+
+    def test_a_fleet_caught_out_is_rebuilt_into_a_settlement_phase(self):
+        # The process started while the fleet was still out and it came home
+        # while nobody was watching. The start-up snapshot is what says so, and
+        # rebuilding the phase from it is the one thing the snapshot may decide.
+        with tempfile.TemporaryDirectory() as directory:
+            ui = SpySettlementUi(displayed_screen="HOME_PORT_RETURN_NOTICE")
+            poi = make_observation([
+                fleet_snapshot(mission_status=2), fleet_snapshot(OTHER)
+            ])
+            controller, scheduler = self.make_controller(
+                directory, poi, ui, active=True
+            )
+            result = self.run_chain(controller, screen="HOME_PORT_RETURN_NOTICE")
+            state = scheduler.fleet(FLEET)
+        self.assertEqual(state.phase, FleetPhase.RESUPPLY_REQUIRED)
+        self.assertEqual(result.scheduler_phase_after, "RESUPPLY_REQUIRED")
+        self.assertIsNotNone(result.mission)
+
+    def test_a_return_without_home_port_verification_refuses(self):
+        # The monitor blocks on exactly this: a return seen before the
+        # post-dispatch Home Port check is not a trusted return.
+        with tempfile.TemporaryDirectory() as directory:
+            ui = SpySettlementUi(displayed_screen="HOME_PORT_RETURN_NOTICE")
+            poi = make_observation([
+                fleet_snapshot(mission_status=2), fleet_snapshot(OTHER)
+            ])
+            controller, scheduler = self.make_controller(
+                directory, poi, ui, active=False
+            )
+            with self.assertRaises(StartupSettlementRefused) as caught:
+                self.run_chain(controller, screen="HOME_PORT_RETURN_NOTICE")
+            state = scheduler.fleet(FLEET)
+        self.assertEqual(caught.exception.reason, "home_port_verification_missing")
+        self.assertEqual(
+            [call for call in ui.calls if call[0] != "settlement_screen"], []
+        )
+        self.assertIs(state.phase, FleetPhase.EXPEDITION_ACTIVE)
 
 
 class StartupChainRefusalTests(unittest.TestCase):
@@ -298,6 +356,42 @@ class StartupChainRefusalTests(unittest.TestCase):
         exc, advance_calls = self.refuse(poi, ui)
         self.assertEqual(exc.reason, "reward_screen_no_longer_displayed")
         self.assertEqual(advance_calls, [])
+
+    def test_a_different_returned_mission_refuses_with_zero_clicks(self):
+        # The screen is proven, but Poi's returned mission is not the one this
+        # fleet was dispatched with: the chain belongs to someone else.
+        with tempfile.TemporaryDirectory() as directory:
+            ui = SpySettlementUi(displayed_screen="HOME_PORT_RETURN_NOTICE")
+            poi = make_observation([
+                fleet_snapshot(
+                    mission_status=2,
+                    return_at=RETURN_AT + timedelta(minutes=7),
+                ),
+                fleet_snapshot(OTHER),
+            ])
+            scheduler = ContinuousExpeditionScheduler(dispatch_fleet_ids=(FLEET,))
+            prepare_active(scheduler)
+            controller = ContinuousSettlementController(
+                scheduler=scheduler,
+                state_reader=NoNavigationReader(poi),
+                ui_driver=ui,
+                ui_arbiter=UiOperationArbiter(),
+                event_sink=lambda event, fields: None,
+                allow_ui_actions=True,
+            )
+            with self.assertRaises(StartupSettlementRefused) as caught:
+                controller.settle_visible_reward_chain(
+                    fleet_id=FLEET,
+                    screen=select_startup_screen(
+                        composited_state="HOME_PORT_RETURN_NOTICE"
+                    ),
+                    expected_ship_ids=SHIPS,
+                    expected_ship_ids_source="dispatch_intent_mission_1",
+                )
+        self.assertEqual(
+            caught.exception.reason, "observed_returned_mission_differs_from_persisted"
+        )
+        self.assertEqual([call for call in ui.calls if call[0] != "settlement_screen"], [])
 
 
 class StartupChainDisabledTests(unittest.TestCase):
