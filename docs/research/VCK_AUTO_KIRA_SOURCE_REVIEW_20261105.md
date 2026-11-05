@@ -151,3 +151,44 @@ The `NeedKira` predicate and the `KiraFleet` selection sequence are distinct. A 
 - **ADDITIONAL SOURCE_REVIEWED:** `NeedKira(Fleet)`, `NotMatchKiraCondition(Fleet)`, and `KiraFleet(Fleet)` call-site excerpts from the same pinned `AutoKira.cs` blob.
 - **CONFIRMED WITH CALL-SITE EVIDENCE:** per-fleet enable switch; sortie/expedition exclusion; repair-dock and reserved-ship checks; per-fleet count cap; fleet-1/support `< 50` branch; configured target branch; descending-level ordering when filter is `"等级"`.
 - **STILL NOT VERIFIED:** the full semantics of the alternate non-`"等级"` filter branch, every delegate captured by the obfuscated compiler-generated closures, and the exact point at which the selection view model is applied to the visible game fleet.
+
+
+## 10. Follow-up reconstruction: escort predicate and supply scope
+
+The reference tree also contains a second decompilation output under `feitizhushou_Deobfuscation/`. The corresponding `AutoKira.cs`, `ActAutoKira.cs`, and `ActSupply.cs` were fetched and compared at the same pinned reference commit. This provides additional call-site detail, but the control flow remains obfuscated.
+
+### 10.1 Escort candidate predicate (`DIMp7EBFLK(Ship)`)
+
+The predicate's visible conditions indicate that a fellow candidate is rejected when any of these conditions apply:
+
+- Locked-ship exclusion is enabled and the ship fails the lock check.
+- The ship level is not below `AutoKiraLvCondition`.
+- Its rarity value does not pass the configured rare-condition comparison.
+- It is not ship type ID 2 (the code's destroyer type branch).
+- It is in repair.
+- HP percentage is below `AutoKiraHPCondition`.
+- Fuel or ammunition ratio is below **30%**.
+
+The constructor default for the level threshold is 5 and for HP threshold is 60%. The 30% fuel/ammunition floors are literal predicate constants, not configurable fields in this method.
+
+This explains the purpose of `AutoKiraLvCondition`, `AutoKiraRareCondition`, and `AutoKiraHPCondition` more directly than the settings declarations alone. It also shows that this upstream fellow-candidate predicate is destroyer-specific; it is not evidence that light cruisers are accepted by the same path.
+
+### 10.2 Fellow supply scope
+
+- `AutoKiraSupplyFellows` is passed inverted to `ActSupply(CurrentFleet, !AutoKiraSupplyFellows)`.
+- In `ActSupply`, the second parameter is explicitly named `flagShipOnly`. When true, the action adds a click on the flagship-only supply control; when false, it adds the all-ships supply check action.
+- Therefore, when `AutoKiraSupplyFellows = true`, the upstream刷闪 supply action is configured to supply the whole fleet, including fellow ships. When false, it uses flagship-only supply.
+- The same inverted flag is passed to `ActionHelper.NeedsSupply` before dispatching the supply action. The exact helper overload's internal filtering semantics are not reconstructed here, so no stronger claim is made about its preflight coverage.
+
+### 10.3 KancolleBot implications
+
+- If KancolleBot later supports escort rotation, define escort eligibility explicitly and independently; do not copy the upstream DD-only restriction if the approved strategy allows both DD and CL.
+- Consider fuel/ammunition minimum ratios as policy inputs, but choose thresholds through KancolleBot requirements and tests rather than inheriting 30%.
+- Distinguish flagship-only supply from whole-fleet supply. A successful supply action must be verified against every selected ship, not inferred from the button click.
+- A missing lock observation must remain ineligible even if the upstream UI's configurable lock-exclusion switch is disabled.
+
+## 11. Updated evidence status
+
+- **ADDITIONAL SOURCE_REVIEWED:** second decompilation output for `AutoKira.cs`, `ActAutoKira.cs`, and `ActSupply.cs`; exact blob IDs are recorded in the follow-up research notes and can be fetched from the pinned reference snapshot.
+- **CONFIRMED WITH CALL-SITE EVIDENCE:** fellow candidate checks for lock option, level, rarity, destroyer type, repair status, HP, fuel and ammunition; `AutoKiraSupplyFellows` maps to whole-fleet versus flagship-only supply through the inverted `flagShipOnly` argument.
+- **STILL NOT VERIFIED:** the obfuscated lock/rarity helper implementations and the exact preflight coverage of the `ActionHelper.NeedsSupply` overload.
