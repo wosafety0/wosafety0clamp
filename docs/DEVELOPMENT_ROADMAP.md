@@ -11,7 +11,7 @@
 ## 0. 当前真实状态（必须先看清）
 
 - **MVP（远征）仍为 `IN_PROGRESS`（PARTIAL）**：一手文档 `MVP_EXPEDITION_SINGLE_LOOP.md` 多次明确"Full-loop acceptance remains pending and MVP remains IN_PROGRESS"。派遣已可在受控条件下单次运行，但**收取→再派遣→返回稳定页的完整无人干预闭环未端到端验证**。
-- **R3（结算/补给控制器接线）确属未完成**：`DESIGN_production_controller_wiring.md` 结论"本次 P0 先不接线"；生产入口仅装配 `dispatch_controller`，结算/补给控制器未实例化、未传入 supervisor（见 `PRODUCT_ARCHITECTURE.md` §9）。
+- **R3（生产组合根接线）确属未完成**：supervisor、结算控制器、补给控制器的逻辑已实现；本地组件测试 58 项通过。生产入口仅装配 `dispatch_controller`，尚未实例化/注入 settlement 与 resupply controller；此外 `fleet_data_provider` 尚无实时 Poi 观测构造来源（`src` 下无生产 `FleetSupplyObservation(...)` 构造）。源码位置见 `PRODUCT_ARCHITECTURE.md` §9。
 - **实机验收整体 DEFERRED**：所有需要真实 Poi 会话与一次性授权的验收（P1-1 奖励领取视觉校准、Fleet 4 补给指纹、双帧核验、完整无人干预循环）均 pending，等待真实会话与一次性授权。
 - **本路线不启动战斗/刷闪的实质开发**，先保证远征闭环可靠。
 
@@ -35,14 +35,14 @@
 - **目标**：补齐 Poi 接口/适配边界、数据新鲜度验证、快照一致性要求、生产入口接线、**完成 R3 settlement/resupply controller wiring**、完善执行门禁、明确事件归因、处理阻塞远征闭环的基础问题。
 - **依赖**：基线 `0b18900`（平台能力已具备：只读 Poi、freshness fail-closed、视觉门禁、UI 仲裁、事件归因）。
 - **交付物**：
-  1. 结算/补给控制器的生产 UI driver（结算点击链、补给点击链）。
-  2. 补给所需的 `fleet_data_provider`（不共享 `PoiFleetStateReader`）。
+  1. 复用并验证现有 `CdpContinuousExpeditionUiDriver` 对结算/补给 UI driver 协议的适配，不重复造一套点击驱动。
+  2. 实现补给所需的实时 `fleet_data_provider`，从已验证的 Poi 端口观测构造 `FleetSupplyObservation`；不得伪造 `poi-redux:` 来源或复用不满足新鲜度契约的数据。
   3. 生产组合根传参：`ContinuousExpeditionSupervisor(monitor, dispatch_controller, settlement_controller, resupply_controller)`，且 `allow_ui_actions=True`、共享 scheduler/state_reader/event_sink/UiOperationArbiter。
   4. 生产入口启动期断言（防止误传 `False` 静默退化为永远暂停）。
 - **自动化测试**：离线状态机测试（已覆盖结算/补给分支的类内测试）；新增生产装配断言测试（锁定接线后的组合根）；freshness 负面测试；CI（`ci.yml` 对 `dev/**` 推送触发）。
 - **Poi 实机验收要求**：**DEFERRED**——需真实会话 + 一次性授权（`--authorize-ui-actions`）；验收点包括 P1-1 奖励领取双帧视觉校准、Fleet 4 补给指纹、双帧核验。本轮未做。
 - **进入下一阶段条件**：R3 接线完成且离线门禁全绿；实机验收项明确标注已做/未做。
-- **当前阻塞**：R3 未接线（一手证据确认）；结算/补给点击链与补给 provider 未实现；实机验收未授权。**这些是明确阻塞，不是缺陷修复完成。**
+- **当前阻塞**：R3 生产组合根未接线；`fleet_data_provider` 实时观测来源未实现；生产集成测试仍有断言控制器未接线的旧 guard，需翻转为正向装配断言；实机验收仍待真实 Poi 会话。控制器/supervisor 组件逻辑已实现且 58 项相关单测通过，但这不等于生产闭环完成。
 
 ---
 
@@ -118,5 +118,5 @@
 3. **[P1] 闭环脚本与每阶段 UI 验证**：补齐 17 步中尚未自动化的收取/再派遣/返回稳定页；确保无"计时即成功""无限刷新"。
 4. **[P1] supply-screen 与 mission 3 正向识别模板校准**：当前未经验证，是闭环阻断点。
 5. **[决策] 7 舰 vs `MAX_FLEET_SIZE=6`**：确认 MVP 是否需 7 舰，单独评估。
-6. **[治理] 分支整合收尾**：合并 PR #35（M1）、#36（契约）入集成主干；合并后跑 CI；确认无回归后再评估删除源分支（需用户确认）。
-7. **[治理] 分支保护**：为 `main` 与集成主干添加保护/Ruleset（需用户授权）。
+6. **[治理] 分支整合收尾**：PR #36（契约）已合并；PR #35（M1）仍为 Draft，未经解除 Draft 与复核不得合并；PR #37（治理文档）待修订、CI 与合并验收。源分支清理需另行核查并取得授权。
+7. **[治理] 分支保护**：为 `main` 与集成主干添加保护/Ruleset；当前两者均未启用保护，远程写入工具能力待确认。
