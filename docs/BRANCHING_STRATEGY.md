@@ -24,24 +24,25 @@
 - SHA：`a4f377764d94c8f0960c931bf94c27bb7e9b5a8e`（自基线以来未变）。
 - 远端已合并 PR 仅 **1 个**：#9（CI 工作流 `verify-global-rules.yml`）。
 - `main` 上**没有 `docs/` 目录**，也没有任何业务代码——目前基本是 bootstrap 状态。
-- **分支保护：无**（`branches/main/protection` 返回 404）。**Rulesets：空 `[]`**。
+- **分支保护：未启用**（本轮分支列表 API 对 `main` 返回 `protected=false`）；仓库 Rulesets API 返回空 `[]`。这是本轮核验快照，不将权限受限的 protection 详情读取结果误写为 404。
 
 ### 2.2 扁平 `dev` 分支不可创建（重要约束）
-- 仓库已存在 **50+ 个 `dev/<feature>` 分支**。Git 引用规则禁止 `refs/heads/dev` 与 `refs/heads/dev/...` 共存（目录/文件 D/F 冲突）。
+- 本轮 GitHub 分支列表实测 **81 个远端分支，其中 65 个为 `dev/*`**。Git 引用规则禁止 `refs/heads/dev` 与 `refs/heads/dev/...` 共存（目录/文件 D/F 冲突）。
 - 因此**无法创建名为 `dev` 的扁平长期集成分支**。这是结构性约束，不是权限问题。
 - **替代方案（本轮采用）**：以事实上的集成主干 `dev/dispatch-observer-safety-current-mvp-20261103`（= 共同开发基线 `0b18900`）作为长期集成主线。后续是否迁移到扁平 `dev` 需要先把 `dev/*` 分支重命名/整合，**属高风险操作，需用户明确授权**（见第 9 节）。
 
 ### 2.3 现有分支前缀（实测计数）
 - `dev/*`：约 50 个（功能集成 / 安全加固 / 扫描会话等短期分支）。
 - `feat/*`：含 `feat/closed-loop-settlement-20261104`、`feat/expedition-min-ships-20261105`、`feat/renderer-block-detection-20261103`、`feat/harness-trial-gate*`。
-- `fix/*`、`chore/*`、`harness/*`、`research/*`、`test/*`：少量。
+- `fix/*`（3）、`chore/*`（2）、`harness/*`（1）、`research/*`（1）、`test/*`（1）：少量；`temp/*` 当前远端为 0 条，供短期临时集成/验证分支使用。
 - `docs/decision-contract-v1`：决策契约分支（见第 7 节）。
 
-### 2.4 PR 现状（实测 35 个）
-- **27 open / 7 closed / 1 merged**。
+### 2.4 PR 现状（本轮实测 37 个）
+- **28 open / 7 closed-unmerged / 2 merged**（GitHub `state=all` 列表；merged 单独计数，不重复计入 closed-unmerged）。
 - 多数 open PR 以 `dev/expedition-closed-loop-mvp` 或 `dev/dispatch-observer-safety-current-mvp-20261103` 为 base。
-- 既有 M1 集成 PR：**#35**（`dev/expedition-min-ships-hardening-20261105` → `dev/dispatch-observer-safety-current-mvp-20261103`，open）。
-- 本轮新增契约集成 PR：**#36**（`docs/decision-contract-v1` → `dev/dispatch-observer-safety-current-mvp-20261103`，open，纯文档+测试）。
+- M1 集成 PR：**#35**（`dev/expedition-min-ships-hardening-20261105` → 集成主干，open / Draft；保持 Draft，未合并）。
+- 决策契约 PR：**#36**（`docs/decision-contract-v1` → 集成主干，已于 2026-11-05 合并，merge commit `ef288821dc94a036656fd6d1c04e840dcc25780b`）。
+- 本治理文档 PR：**#37**（`docs/unified-governance-20261105` → 集成主干，open；本文档所在 PR）。
 
 ---
 
@@ -55,6 +56,7 @@
 | `fix/*` | 缺陷修复 | 合并后即清理 |
 | `docs/*` | 独立文档 / 契约工作（如本分支、契约分支） | 合并后即清理 |
 | `chore/*`、`research/*`、`test/*`、`harness/*` | 维护、研究、测试、工具链 | 合并或废弃后清理 |
+| `temp/*` | 临时集成、实验与验证，不承载长期产品开发 | 验证完成或成果迁移后评估清理 |
 
 > 不为远征、战斗、刷闪分别创建长期公共平台分支；它们作为模块在 `src/kancollebot/` 内演进，统一汇入集成主干。
 
@@ -66,6 +68,7 @@
 - 文档/契约：`docs/<short-description>-<YYYYMMDD>`。
 - 集成/加固：`dev/<short-description>-<YYYYMMDD>`（沿用现有约定）。
 - 研究/工具：`research/*`、`test/*`、`harness/*`、`chore/*`。
+- 临时验证：`temp/<short-description>-<YYYYMMDD>`；仅短期使用，验证结果应迁移至正式功能/修复分支后再清理。
 
 ---
 
@@ -86,12 +89,12 @@
 
 ## 7. 临时分支生命周期与清理规则（本轮已评估）
 
-清理前必须全部满足：① 有效提交已集成或明确保留；② 无独有未集成提交；③ 无未完成 PR；④ 无 CI/工作流依赖；⑤ 无协作者仍在使用；⑥ 符合保护/授权规则。不满足则**保留并记录原因**。
+清理前必须全部满足：① 有效提交已集成或明确保留；② 无独有未集成提交；③ 无未完成 PR；④ 无 CI/工作流依赖；⑤ 无协作者仍在使用；⑥ 符合保护/授权规则。不满足则**保留并记录原因**。本地无 upstream 分支不等于废弃；必须先核对分支提交、工作树、worktree、PR/CI 引用及协作者状态，未完成核查前不得删除、重置或覆盖。
 
 | 分支 | 独有提交 | 未完成 PR | 评估结论 | 原因 |
 |---|---|---|---|---|
 | `feat/closed-loop-settlement-20261104` | 无（= `0b18900`，与集成主干同源） | 无 | **保留** | 是共同开发基线的可读引用，删除价值低且可能干扰协作者定位基线；非强制。 |
-| `docs/decision-contract-v1` | 有（契约文档+测试，5bd0060） | 已由 #36 集成到主干（open） | **保留至 #36 合并** | 集成 PR 尚未合并；合并完成且确认无回归后再考虑删除源分支。 |
+| `docs/decision-contract-v1` | 有（契约文档+测试，5bd0060） | #36 已合并 | **保留待独立清理评估** | 合并完成；先确认无协作者/CI/本地工作依赖，再另行评估删除。 |
 | `feat/expedition-min-ships-20261105` | 有（M1 + 用户硬化提交，5290f51） | M1 已由 #35 集成（open） | **保留** | M1 集成 PR #35 仍 open；且远端该分支有用户新增的硬化提交，删除会丢失可追溯来源；**禁止强推/重写**。 |
 
 > 本轮**未删除任何分支**。删除操作被推迟到对应 PR 合并且明确无依赖之后，且需用户确认（删除属不可逆、高影响操作，遵循 AGENTS §2.2 / §10.2）。
@@ -99,7 +102,7 @@
 ---
 
 ## 8. 治理建议（非阻塞）
-- **为 `main` 与集成主干添加分支保护 / Ruleset**：当前两者均无保护，存在误推风险。建议至少对 `main` 启用保护并要求在合并前通过 CI。
+- **为 `main` 与集成主干添加分支保护 / Ruleset**：本轮分支列表 API 对两者均返回 `protected=false`，Rulesets 为空；存在误推风险。建议启用 PR 合并门禁、适用 CI required checks，并禁止 force-push / deletion。
 - **统一集成主干命名**：当前 `dev/*` 约定导致扁平 `dev` 无法创建。建议用户决策：要么正式采纳 `dev/<feature>` + 指定 trunk 的模型，要么规划一次性迁移（重命名现有 `dev/*` 为 `feature/*` 或类似，再建扁平 `dev`）。该迁移为高风险，需单独授权。
 
 ---
