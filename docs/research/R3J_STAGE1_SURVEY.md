@@ -11,9 +11,9 @@
 
 | 用户设定的 R3-J 启动条件 | 证据 |
 |---|---|
-| 真客户端完整 PASS 门禁 | `R3I_LIVE_PASS_EVIDENCE_20261105.json`：`overall_result=PASS`、13 项全 PASS、`source_freshness_verified=true` |
-| 派遣前检查使用同一份 fresh baseline | `same_baseline_binding.same_fresh_baseline=true` + 确定性测试锁定 intent 同源 |
-| 保留 REJECT / UNKNOWN 零点击验证 | R3-I.2 证据与 `R3IFreshnessAndLatencyGateTests` 未删改，1515 条测试通过 |
+| 真客户端完整 PASS 门禁 | `R3I_LIVE_PASS_EVIDENCE_20261105.json`：`overall_result=PASS`、13 项全 PASS、`source_freshness_verified=true`（Fleet 3）；**R3-I.4 交接轮另按规格补做 Fleet 2**：`R3I_FLEET2_LIVE_GATE_EVIDENCE_20261105.json` 同为 `PASS`、13 项全 PASS、`source_freshness_verified=true`，见 `R3I_FLEET2_VERIFICATION.md` |
+| 派遣前检查使用同一份 fresh baseline | `same_baseline_binding.same_fresh_baseline=true` + 确定性测试锁定 intent 同源；R3-I.4 另有 `baseline_ship_ids` 三处一致与刷新后 10 分钟状态未漂移的只读取证 |
+| 保留 REJECT / UNKNOWN 零点击验证 | R3-I.2 证据与 `R3IFreshnessAndLatencyGateTests` 未删改；R3-I.4 另补真客户端零点击 UNKNOWN 对照 `R3I_FLEET2_ZERO_CLICK_UNKNOWN_CONTROL_20261105.json` |
 | 实机证据归档 | `docs/research/` 两份证据 + 两份报告 + 权威进度章节 |
 | GitHub 远端回读 | 本轮执行（见交付回复五项状态） |
 

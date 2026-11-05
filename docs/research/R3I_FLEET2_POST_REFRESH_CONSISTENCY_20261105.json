@@ -1,0 +1,92 @@
+{
+  "kind": "r3i_fleet2_post_refresh_readonly_consistency",
+  "purpose": "Prove that after the visible UI refresh finished, Poi state did not drift from the fresh baseline used by the PASS verdict (TOCTOU check). Read-only: no UI input, no game API request.",
+  "captured_at_utc": "2026-11-05T15:53:09.643834+00:00",
+  "archived_baseline": {
+    "file": "docs/research/R3I_FLEET2_LIVE_GATE_EVIDENCE_20261105.json",
+    "observed_at": "2026-11-05T15:43:14.080834+00:00",
+    "source": "poi-redux:info.fleets+info.ships",
+    "source_freshness_verified": true
+  },
+  "current_observation": {
+    "observed_at": "2026-11-05T15:53:09.643165+00:00",
+    "source": "poi-redux:info.fleets+info.ships",
+    "source_freshness_verified": false,
+    "note": "This later read has no fresh witness of its own (correctly false); used ONLY for state comparison, never as a gate baseline."
+  },
+  "compared_fleets": [
+    "1",
+    "2",
+    "3",
+    "4"
+  ],
+  "compared_fields": [
+    "ship_ids",
+    "ship_levels",
+    "ship_types",
+    "fuel_ready",
+    "ammo_ready",
+    "mission_status",
+    "mission_id",
+    "equipment_by_ship",
+    "total_stats",
+    "in_dock_ship_ids",
+    "drum_count",
+    "drum_carriers"
+  ],
+  "differences": [],
+  "state_unchanged_after_refresh": true,
+  "current_fleet2": {
+    "fleet_id": 2,
+    "ship_ids": [
+      12613,
+      16733,
+      16323,
+      13519
+    ],
+    "ship_levels": [
+      17,
+      15,
+      14,
+      31
+    ],
+    "ship_types": [
+      2,
+      2,
+      2,
+      2
+    ],
+    "fuel_ready": true,
+    "ammo_ready": true,
+    "mission_status": 0,
+    "mission_id": null,
+    "equipment_by_ship": {
+      "12613": [],
+      "13519": [],
+      "16323": [],
+      "16733": []
+    },
+    "total_stats": {
+      "los": 27,
+      "asw": 108,
+      "anti_air": 74,
+      "firepower": 92
+    },
+    "in_dock_ship_ids": [],
+    "drum_count": 0,
+    "drum_carriers": 0
+  },
+  "reconciliation": {
+    "reason": "First comparison omitted the two DERIVED fields drum_count/drum_carriers from the freshly collected side, producing 8 false differences (archived=0/10/8, current=null). No observed field differed. Recomputed from the same equipment_by_ship evidence with the identical DRUM_MASTER_ID=75 rule; all observation fields are unchanged.",
+    "false_difference_count": 8,
+    "observation_fields_changed": 0,
+    "derived_from": "equipment_by_ship"
+  },
+  "safety": {
+    "game_clicks_sent": 0,
+    "game_api_requests_sent": 0,
+    "game_input_sent": false,
+    "dispatch_attempted": false,
+    "runtime_evaluate_used": false
+  }
+}

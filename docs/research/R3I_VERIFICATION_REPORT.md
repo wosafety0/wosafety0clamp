@@ -10,6 +10,11 @@
 > PASS 门禁（Fleet 3 / 远征 1，`source_freshness_verified=true`、`same_fresh_baseline=true`），见
 > `docs/research/R3I_LIVE_PASS_VERIFICATION.md` 与 `docs/research/R3I_LIVE_PASS_EVIDENCE_20261105.json`。
 > 第 7 条限制、测试数量与 NEXT 已按此增量再次更新。
+> **R3-I.4 增量（2026-11-05，WorkBuddy 交接轮）**：按交接规格把验证对象从 Fleet 3 改为 **Fleet 2**，
+> 用既有只读脚本 `tools/verify_r3i_live_gate.py` 重新完整执行一遍：只补 Fleet 2、先补给后启观察器、
+> 观察器确认运行后才做 UI 刷新导航，取得 `source_freshness_verified=true` 与 **Fleet 2 / 远征 1 真实 PASS**
+> （13 项全 PASS、9999 对照仍 UNKNOWN）。11 项停止条件全过，另补零点击 UNKNOWN 对照与刷新后状态一致性
+> 只读取证。见 `docs/research/R3I_FLEET2_VERIFICATION.md`。**本轮未放宽任何门禁、未修改生产文件。**
 
 ---
 
@@ -87,7 +92,7 @@
 
 | 门禁命令 | 结果 |
 |---|---|
-| `PYTHONPATH=src python -m unittest discover -s tests` | R3-I 基线 **Ran 1473 tests — OK (skipped=2)**；R3-I.2 增量后 **Ran 1507 tests — OK (skipped=2)**（净增 34）；R3-I.3 新增 `test_verify_r3i_live_pass_gate.py`(8) 后 **Ran 1515 tests — OK (skipped=2)** |
+| `PYTHONPATH=src python -m unittest discover -s tests` | R3-I 基线 **Ran 1473 tests — OK (skipped=2)**；R3-I.2 增量后 **Ran 1507 tests — OK (skipped=2)**（净增 34）；R3-I.3 新增 `test_verify_r3i_live_pass_gate.py`(8) 后 **Ran 1515 tests — OK (skipped=2)**；R3-I.4 新增 `test_verify_r3i_fleet2_gate.py`(16) 后 **Ran 1531 tests — OK (skipped=2)** |
 | R3-G/R3-H 定向回归（9 个模块：`test_blocked_recovery`、`test_mission_result_witness*`、`test_mission_result_observer`、`test_startup_settlement_gate`、`test_dispatch_recovery`、`test_continuous_settlement_controller*`、`test_continuous_supervisor_settlement`） | **Ran 185 tests — OK** |
 | `python -m compileall -q src tests tools` | OK |
 | `git diff --check` | OK |
@@ -132,7 +137,8 @@
 - **功能验收：通过。** 规则有来源与版本、检查器可独立测试且零 I/O、关键条件可解释、未知数据不放行、拒绝路径零点击、只有 PASS 进入既有派遣流程、R3-G/R3-H 定向回归无退化、测试报告与实现一致。
 - **归档验收：不由本报告判定。** 需按项目规则完成本地提交 → 推送独立功能分支 → 从 GitHub 权威远端回读提交 SHA / 分支名 / 文件内容，并在交付回复中分别报告「本地保存 / 本地提交 / 远程推送 / 远程回读 / 测试验证」五项状态。
 
-> NEXT：装备/属性可信只读观测（R3-I.2）与真客户端完整 PASS 门禁（R3-I.3）均已补齐并归档。用户设定的
-> R3-J gate（真客户端完整 PASS + 实机证据归档 + GitHub 远端回读）已满足，**R3-J 在本轮启动阶段一**
-> （规格核查与实施规划），不提前实现自动换船或动态舰队调度。仍未验证的是「PASS 之后放行到既有派遣
-> 流程」的实机链与规则数值回归，二者需另行授权，详见 `R3I_LIVE_PASS_VERIFICATION.md` 第 6 节。
+> NEXT：装备/属性可信只读观测（R3-I.2）、真客户端完整 PASS 门禁（R3-I.3）、以及**按 WorkBuddy
+> 交接规格对 Fleet 2 重做的专属验证（R3-I.4）**均已补齐并归档。用户设定的 R3-J gate 按交接口径已满足，
+> 阶段一（规格核查与实施规划）已启动，不提前实现自动换船或动态舰队调度。仍未验证的是「PASS 之后放行到
+> 既有派遣流程」的实机链与规则数值回归，二者需另行授权，详见 `R3I_FLEET2_VERIFICATION.md` 第 12 节与
+> `R3I_LIVE_PASS_VERIFICATION.md` 第 6 节。

@@ -1,0 +1,462 @@
+{
+  "kind": "r3i_live_readonly_gate_verification",
+  "tool": "tools/verify_r3i_live_gate.py",
+  "captured_at_utc": "2026-11-05T15:48:56.778254+00:00",
+  "elapsed_seconds": 0.137,
+  "poi_endpoint": "http://127.0.0.1:12450/mcp",
+  "fleet_id": 2,
+  "requested_mission_id": 1,
+  "max_state_age_seconds": 30.0,
+  "witness_wait_seconds": 0.0,
+  "observation": {
+    "observed_at": "2026-11-05T15:48:56.778033+00:00",
+    "source": "poi-redux:info.fleets+info.ships",
+    "source_freshness_verified": false
+  },
+  "passive_observer": {
+    "started": false,
+    "wait_seconds": 0.0,
+    "thread_alive_at_capture": false,
+    "last_status": "disabled",
+    "natural_port_response_captured": false
+  },
+  "fleets": [
+    {
+      "fleet_id": 1,
+      "ship_ids": [
+        23
+      ],
+      "ship_levels": [
+        98
+      ],
+      "ship_types": [
+        8
+      ],
+      "mission_status": 0,
+      "mission_id": null,
+      "fuel_ready": true,
+      "ammo_ready": true,
+      "equipment_by_ship": {
+        "23": []
+      },
+      "total_stats": {
+        "los": 48,
+        "firepower": 98,
+        "asw": 0,
+        "anti_air": 84
+      },
+      "conditions": {
+        "23": 68
+      },
+      "in_dock_ship_ids": [],
+      "drum_count": 0,
+      "drum_carriers": 0
+    },
+    {
+      "fleet_id": 2,
+      "ship_ids": [
+        12613,
+        16733,
+        16323,
+        13519
+      ],
+      "ship_levels": [
+        17,
+        15,
+        14,
+        31
+      ],
+      "ship_types": [
+        2,
+        2,
+        2,
+        2
+      ],
+      "mission_status": 0,
+      "mission_id": null,
+      "fuel_ready": true,
+      "ammo_ready": true,
+      "equipment_by_ship": {
+        "12613": [],
+        "13519": [],
+        "16323": [],
+        "16733": []
+      },
+      "total_stats": {
+        "los": 27,
+        "firepower": 92,
+        "asw": 108,
+        "anti_air": 74
+      },
+      "conditions": {
+        "12613": 49,
+        "13519": 49,
+        "16323": 49,
+        "16733": 49
+      },
+      "in_dock_ship_ids": [],
+      "drum_count": 0,
+      "drum_carriers": 0
+    },
+    {
+      "fleet_id": 3,
+      "ship_ids": [
+        16374,
+        13350,
+        6,
+        5747
+      ],
+      "ship_levels": [
+        88,
+        92,
+        76,
+        74
+      ],
+      "ship_types": [
+        2,
+        2,
+        2,
+        2
+      ],
+      "mission_status": 0,
+      "mission_id": null,
+      "fuel_ready": true,
+      "ammo_ready": true,
+      "equipment_by_ship": {
+        "6": [
+          75,
+          75,
+          75
+        ],
+        "5747": [
+          75,
+          75,
+          75
+        ],
+        "13350": [
+          68,
+          166,
+          75
+        ],
+        "16374": [
+          75,
+          75,
+          75
+        ]
+      },
+      "total_stats": {
+        "los": 150,
+        "firepower": 194,
+        "asw": 235,
+        "anti_air": 243
+      },
+      "conditions": {
+        "6": 49,
+        "5747": 49,
+        "13350": 49,
+        "16374": 49
+      },
+      "in_dock_ship_ids": [],
+      "drum_count": 10,
+      "drum_carriers": 4
+    },
+    {
+      "fleet_id": 4,
+      "ship_ids": [
+        16859,
+        14882,
+        12794,
+        1325
+      ],
+      "ship_levels": [
+        88,
+        47,
+        39,
+        82
+      ],
+      "ship_types": [
+        2,
+        2,
+        2,
+        2
+      ],
+      "mission_status": 0,
+      "mission_id": null,
+      "fuel_ready": false,
+      "ammo_ready": false,
+      "equipment_by_ship": {
+        "1325": [
+          75,
+          75,
+          75
+        ],
+        "12794": [
+          75,
+          75
+        ],
+        "14882": [
+          75,
+          75,
+          75
+        ],
+        "16859": [
+          68,
+          68,
+          68
+        ]
+      },
+      "total_stats": {
+        "los": 108,
+        "firepower": 147,
+        "asw": 203,
+        "anti_air": 188
+      },
+      "conditions": {
+        "1325": 49,
+        "12794": 49,
+        "14882": 49,
+        "16859": 49
+      },
+      "in_dock_ship_ids": [],
+      "drum_count": 8,
+      "drum_carriers": 3
+    }
+  ],
+  "evidence_digest_sha256": "b7b7f7163cf8b26e1f26cb22814a59c34127a12f0174d08d37fe01c29986a63d",
+  "verdicts": {
+    "1": {
+      "overall_result": "UNKNOWN",
+      "allows_dispatch": false,
+      "rule_source": "XVs32/kcauto_custom data/expedition/expedition.json@18d61ab3fe91",
+      "rule_version": "2026-11-05.1",
+      "rule_confidence": "cross_checked",
+      "passed_checks": [
+        "rule_source",
+        "fleet_identity",
+        "fleet_available",
+        "ship_count",
+        "flagship_valid",
+        "flagship_level",
+        "fleet_total_level",
+        "ship_type_composition",
+        "equipment",
+        "fleet_stats",
+        "supply",
+        "damage"
+      ],
+      "failed_checks": [],
+      "unknown_checks": [
+        "state_trust"
+      ],
+      "rejection_reasons": [
+        "[UNKNOWN] state_trust: Observation is not trusted: Poi source freshness has not been independently verified"
+      ],
+      "checks": [
+        {
+          "name": "state_trust",
+          "status": "UNKNOWN",
+          "detail": "Observation is not trusted: Poi source freshness has not been independently verified"
+        },
+        {
+          "name": "rule_source",
+          "status": "PASS",
+          "detail": "Rule 01 '練習航海' from community_wiki_and_tool_agree (confidence cross_checked); refs: kcauto_custom@18d61ab3fe91235ea2476ea186bad5c516572a66:data/expedition/expedition.json#1, wikiwiki.jp/kancolle 遠征/詳細一覧表 (Last-modified 2026-09-01)#01."
+        },
+        {
+          "name": "fleet_identity",
+          "status": "PASS",
+          "detail": "Exactly one trusted record for Fleet 2."
+        },
+        {
+          "name": "fleet_available",
+          "status": "PASS",
+          "detail": "Fleet is idle, unlocked and policy-permitted."
+        },
+        {
+          "name": "ship_count",
+          "status": "PASS",
+          "detail": "Observed 4 ships meets the minimum 2."
+        },
+        {
+          "name": "flagship_valid",
+          "status": "PASS",
+          "detail": "Flagship api_stype 2 is valid (allowed: any)."
+        },
+        {
+          "name": "flagship_level",
+          "status": "PASS",
+          "detail": "Flagship level 17 meets minimum 1."
+        },
+        {
+          "name": "fleet_total_level",
+          "status": "NOT_APPLICABLE",
+          "detail": "No fleet total-level requirement."
+        },
+        {
+          "name": "ship_type_composition",
+          "status": "NOT_APPLICABLE",
+          "detail": "No fixed ship-type requirement."
+        },
+        {
+          "name": "equipment",
+          "status": "NOT_APPLICABLE",
+          "detail": "No equipment requirement for this expedition."
+        },
+        {
+          "name": "fleet_stats",
+          "status": "NOT_APPLICABLE",
+          "detail": "No fleet stat requirement."
+        },
+        {
+          "name": "supply",
+          "status": "PASS",
+          "detail": "Every member is fully supplied with fuel and ammunition."
+        },
+        {
+          "name": "damage",
+          "status": "PASS",
+          "detail": "No heavy damage observed."
+        }
+      ],
+      "snapshot_source": "poi-redux:info.fleets+info.ships",
+      "state_trusted": false,
+      "state_untrusted_reasons": [
+        "Poi source freshness has not been independently verified"
+      ],
+      "equipment_evidence_present": true,
+      "fleet_stats_evidence_present": true,
+      "baseline_ship_ids": [
+        12613,
+        16733,
+        16323,
+        13519
+      ]
+    },
+    "9999": {
+      "overall_result": "UNKNOWN",
+      "allows_dispatch": false,
+      "rule_source": "XVs32/kcauto_custom data/expedition/expedition.json@18d61ab3fe91",
+      "rule_version": "2026-11-05.1",
+      "rule_confidence": null,
+      "passed_checks": [
+        "fleet_identity",
+        "fleet_available",
+        "flagship_valid",
+        "fleet_total_level",
+        "supply",
+        "damage"
+      ],
+      "failed_checks": [],
+      "unknown_checks": [
+        "state_trust",
+        "rule_source",
+        "ship_count",
+        "flagship_level",
+        "ship_type_composition",
+        "equipment",
+        "fleet_stats"
+      ],
+      "rejection_reasons": [
+        "[UNKNOWN] state_trust: Observation is not trusted: Poi source freshness has not been independently verified",
+        "[UNKNOWN] rule_source: Mission 9999 has no record in static rule table 2026-11-05.1; dispatch cannot be cleared without a rule.",
+        "[UNKNOWN] ship_count: No rule, so no ship count can be checked.",
+        "[UNKNOWN] flagship_level: No rule, so no flagship level can be checked.",
+        "[UNKNOWN] ship_type_composition: No rule, so composition cannot be checked.",
+        "[UNKNOWN] equipment: No rule, so equipment cannot be checked.",
+        "[UNKNOWN] fleet_stats: No rule, so stat requirements cannot be checked."
+      ],
+      "checks": [
+        {
+          "name": "state_trust",
+          "status": "UNKNOWN",
+          "detail": "Observation is not trusted: Poi source freshness has not been independently verified"
+        },
+        {
+          "name": "rule_source",
+          "status": "UNKNOWN",
+          "detail": "Mission 9999 has no record in static rule table 2026-11-05.1; dispatch cannot be cleared without a rule."
+        },
+        {
+          "name": "fleet_identity",
+          "status": "PASS",
+          "detail": "Exactly one trusted record for Fleet 2."
+        },
+        {
+          "name": "fleet_available",
+          "status": "PASS",
+          "detail": "Fleet is idle, unlocked and policy-permitted."
+        },
+        {
+          "name": "ship_count",
+          "status": "UNKNOWN",
+          "detail": "No rule, so no ship count can be checked."
+        },
+        {
+          "name": "flagship_valid",
+          "status": "PASS",
+          "detail": "Flagship api_stype 2 is valid (allowed: any)."
+        },
+        {
+          "name": "flagship_level",
+          "status": "UNKNOWN",
+          "detail": "No rule, so no flagship level can be checked."
+        },
+        {
+          "name": "fleet_total_level",
+          "status": "NOT_APPLICABLE",
+          "detail": "No fleet total-level requirement."
+        },
+        {
+          "name": "ship_type_composition",
+          "status": "UNKNOWN",
+          "detail": "No rule, so composition cannot be checked."
+        },
+        {
+          "name": "equipment",
+          "status": "UNKNOWN",
+          "detail": "No rule, so equipment cannot be checked."
+        },
+        {
+          "name": "fleet_stats",
+          "status": "UNKNOWN",
+          "detail": "No rule, so stat requirements cannot be checked."
+        },
+        {
+          "name": "supply",
+          "status": "PASS",
+          "detail": "Every member is fully supplied with fuel and ammunition."
+        },
+        {
+          "name": "damage",
+          "status": "PASS",
+          "detail": "No heavy damage observed."
+        }
+      ],
+      "snapshot_source": "poi-redux:info.fleets+info.ships",
+      "state_trusted": false,
+      "state_untrusted_reasons": [
+        "Poi source freshness has not been independently verified"
+      ],
+      "equipment_evidence_present": true,
+      "fleet_stats_evidence_present": true,
+      "baseline_ship_ids": [
+        12613,
+        16733,
+        16323,
+        13519
+      ]
+    }
+  },
+  "safety": {
+    "game_clicks_sent": 0,
+    "game_api_requests_sent": 0,
+    "game_input_sent": false,
+    "dispatch_attempted": false,
+    "fleet_composition_changes_proposed": false,
+    "ship_state_changes_proposed": false,
+    "runtime_evaluate_used": false,
+    "files_written_by_probe": [
+      "evidence JSON at --out"
+    ]
+  }
+}

@@ -163,3 +163,18 @@ info.fleets / info.ships(witness投影) / masters
 
 新增测试：`test_requirement_evidence.py`(16)、`test_expedition_requirement_checker.py`(+6)、
 `test_poi_expedition_reader.py`(+5)、`test_continuous_dispatch_controller.py`(+7)。
+
+---
+
+## 7. 后续增量（R3-I.3 / R3-I.4）
+
+本节第 6 节记录的命令与结果是 R3-I.2 当时的历史状态，**不代表后续没有进展**：
+
+- **R3-I.3**：用户授权「可见 UI 刷新导航 + 补给、不派遣」后，用 `tools/verify_r3i_live_pass_gate.py`
+  在真客户端跑出 Fleet 3 / 远征 1 的完整 PASS（`source_freshness_verified=true`、
+  `same_fresh_baseline=true`），见 `R3I_LIVE_PASS_VERIFICATION.md`。
+- **R3-I.4（WorkBuddy 交接轮）**：按交接规格把验证对象改为 **Fleet 2**，用本节同一个只读脚本
+  `tools/verify_r3i_live_gate.py`（blob `7fa6378f…` 未改）重新完整执行：只补 Fleet 2、
+  先补给后启观察器、观察器确认运行后才做 UI 刷新导航，取得 `source_freshness_verified=true`
+  与 Fleet 2 / 远征 1 真实 PASS。另补零点击 UNKNOWN 对照与刷新后状态一致性只读取证。
+  **完整报告见 `R3I_FLEET2_VERIFICATION.md`**，本节的「1507 tests」计数已由后续增量刷新。
