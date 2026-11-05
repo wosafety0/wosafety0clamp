@@ -4179,3 +4179,7 @@ The Hand plugin's read-only probe reported:
 - **MANUAL STOP SAFETY GAP:** `AutoKira.Stop()` 只设置 IsStarted=false、State=Idle 并调用 StopCurrentAction；未直接调用原编成恢复 ActChangeOrganization，也未调用清除 CurrentFleet/目标队列/原编成快照的 `xlTpvgtV0K()`。StopCurrentAction 是否间接触发其他回调未由该方法证明。因此不能保证手动停止后原编成恢复或任务快照清理。
 - **DESIGN CONSEQUENCE:** KancolleBot 应把“无陪练”策略做成显式配置（允许单舰目标模式，或强制陪练数量不足时阻塞）；取消操作应独立进入 reconciliation，重新观察并恢复/核验原编成，不能将 Stop UI 动作等同于恢复完成。
 - **SOURCE BLOB EVIDENCE:** `AutoKira.cs` blob `ba9b2094eb26f947e725364398aefa9041c5d7ed`；`ActChangeOrganization.cs` blob `2235a4e72212bccfd06445567d197bad921fe51c`。
+
+
+- **FOLLOW-UP SOURCE_REVIEWED (manual Stop downstream chain):** 继续追踪 `AutoActionBase.StopCurrentAction`、`AutoAction.StopAction`、`ActAutoKira.OnRelease` 和 `AutoActionQueue`。手动 Stop 会把宿主 action 置为 Stopped；队列监听宿主 State 并停止当前子动作、清理待执行动作/定时器并移出 manager；ActAutoKira.OnRelease 会取消战斗/地图 proxy 事件订阅。Stopped 不触发 Finished/ErrorOccured，因此不会调用正常完成回调中的原编成恢复动作。结论从“StopCurrentAction 是否间接触发其他回调未知”进一步明确为：队列确实停止并释放观察订阅，但不恢复原编成，也不清理 AutoKira 的 CurrentFleet/目标队列/原编成 ID 快照。
+- **SOURCE BLOB EVIDENCE:** `AutoActionBase.cs` `6730bc4b3ad1554bf1b8c4c38321adcbd93b74f4`；`AutoAction.cs` `19d2bb4a0ed837dc14f206f92d708632fcce8c25`；`AutoActionQueue.cs` `c5dcaac0a791d01abee571274945166f0fadbc49`；`ActAutoKira.cs` `49ab7708935df2ebd3758a80bc7cbfb970f5521d`。
