@@ -546,13 +546,14 @@ KancolleBot consequence: make the policy explicit: either allow target-only brus
 
 ### 29.2 Manual Stop() does not explicitly restore or clear the temporary formation snapshot
 
-The reviewed `AutoKira.Stop()` body performs only:
+The reviewed `AutoKira.Stop()` body sets `IsStarted = false`, sets `State = AssistantState.Idle`, and calls `StopCurrentAction()`. The downstream stop chain is also now traced:
 
-- `IsStarted = false`;
-- `State = AssistantState.Idle`;
-- `StopCurrentAction()`.
+- `AutoActionBase.StopCurrentAction()` calls `CurrentAction.StopAction()` and clears its current-action reference.
+- The base `AutoAction.StopAction()` sets `ActionState.Stopped`; the state setter logs the stop and calls `OnRelease()`. `ActAutoKira.OnRelease()` unsubscribes its battle/map proxy event subscriptions and stops its timer.
+- `AutoActionQueue` subscribes to the host action's `State` property. When the host becomes `Stopped`, it calls its own `Stop()`, which stops the current child action, clears pending actions/timers, and removes the queue from its manager.
+- The `Stopped` state does not raise the action's `Finished` or `ErrorOccured` event. Consequently, the normal-completion callback that schedules the saved-formation `ActChangeOrganization` restoration is not invoked by this stop path.
 
-It does not directly call the saved-formation `ActChangeOrganization` restoration path, nor the `xlTpvgtV0K()` cleanup routine that clears `CurrentFleet`, the target queue, and the original ship-ID snapshot. The method therefore provides no source-level guarantee that manually stopping during temporary formation/sortie restores the original formation or clears the active-task snapshot. Whether `StopCurrentAction()` triggers any additional callback is not established by this method and remains unverified.
+The stop chain therefore halts the active action queue and releases event observers, but it does **not** call the saved-formation `ActChangeOrganization` restoration path or the `xlTpvgtV0K()` cleanup routine that clears `CurrentFleet`, the target queue, and the original ship-ID snapshot. Manually stopping during temporary formation/sortie still has no source-level guarantee of restoring the original fleet or clearing the active-task snapshot.
 
 KancolleBot consequence: cancellation must be modeled as a separate state transition. Stop the current UI action safely, reconcile the actual screen and fleet state, restore the captured formation if safe, and verify it from a fresh observation. If the state is ambiguous, pause for reconciliation rather than declaring cancellation complete.
 
@@ -560,3 +561,7 @@ KancolleBot consequence: cancellation must be modeled as a separate state transi
 
 - `AutoKira.cs` blob: `ba9b2094eb26f947e725364398aefa9041c5d7ed`
 - `ActChangeOrganization.cs` blob: `2235a4e72212bccfd06445567d197bad921fe51c`
+- `AutoActionBase.cs` blob: `6730bc4b3ad1554bf1b8c4c38321adcbd93b74f4`
+- `AutoAction.cs` blob: `19d2bb4a0ed837dc14f206f92d708632fcce8c25`
+- `AutoActionQueue.cs` blob: `c5dcaac0a791d01abee571274945166f0fadbc49`
+- `ActAutoKira.cs` blob: `49ab7708935df2ebd3758a80bc7cbfb970f5521d`
