@@ -76,8 +76,10 @@ class FakeGameInput:
         elif point.label.startswith("fleet-") and point.label.endswith("-tab"):
             self.marks.selected = int(point.label.split("-")[1])
 
-    def capture_screenshot(self):
+    def capture_screenshot(self, *, from_surface: bool = True):
         self.frames += 1
+        # The start-up probe captures both layers; the fake's "screens" do not
+        # differ per layer, so one counter is enough.
         return f"frame-{self.frames}"
 
 
@@ -262,6 +264,16 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
         )
         stack.enter_context(
             patch.object(entry, "load_position_index", lambda _path: object())
+        )
+        # The fake frames are not decodable PNGs, and the start-up probe fails
+        # closed on an unreadable classifier. Stand in for a verified plain
+        # port reading so the tests exercise everything after the snapshot.
+        stack.enter_context(
+            patch.object(
+                entry,
+                "classify_screenshot_fingerprints",
+                return_value=("HOME_PORT", {}),
+            )
         )
 
     def test_entry_wires_real_monitor_controller_supervisor_and_cdp_driver(self):

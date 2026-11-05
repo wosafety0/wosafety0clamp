@@ -34,10 +34,33 @@ from kancollebot.expeditions.continuous_scheduler import (
     UiOperationArbiter,
 )
 from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
+from kancollebot.expeditions.startup_settlement import (
+    StartupScreen,
+    StartupSettlementRefused,
+    evaluate_startup_settlement,
+)
 
 
 class ContinuousSettlementError(RuntimeError):
     """The observed state or UI transaction cannot safely continue."""
+
+
+@dataclass(frozen=True, slots=True)
+class VisibleRewardSettlement:
+    """What a startup reward-chain settlement actually proved.
+
+    ``mission`` is None when the durable scheduler held no returned identity for
+    the fleet (for example a blocked or forgotten run): the chain is still
+    provably closed, but there is no dispatch record to credit, so nothing is
+    written back to the scheduler.
+    """
+
+    fleet_id: int
+    start_screen: str
+    mission: MissionTuple | None
+    steps: tuple[tuple[str, str], ...]
+    ship_ids: tuple[int, ...]
+    scheduler_phase_after: str
 
 
 class ContinuousSettlementUiDriver(Protocol):
@@ -258,6 +281,241 @@ class ContinuousSettlementController:
                 reward_claimed_evidence=reward_claimed_evidence,
             )
 
+    def settle_visible_reward_chain(
+        self,
+        *,
+        fleet_id: int,
+        screen: StartupScreen,
+        expected_ship_ids: tuple[int, ...] | None = None,
+        expected_ship_ids_source: str | None = None,
+    ) -> VisibleRewardSettlement:
+        """Close a reward chain that is already on display at process start.
+
+        This is the one settlement entry that does not need a fresh port
+        witness, and it exists because that witness is unobtainable while a
+        reward screen is up: the freshness navigation begins at HOME_PORT, and
+        every reward screen advances on a click anywhere, so the monitor cannot
+        navigate and the fleet can never be settled (live 2026-11-05).
+
+        What replaces the witness gate is narrower, not weaker:
+
+        * the screen is proven on the composited layer by the caller, and
+          re-proven read-only here before the first click;
+        * the fleet is attributed by its ship-ID set against the composition
+          recorded when it was dispatched, and settlement is refused outright
+          when that set is missing or different;
+        * no other fleet may have an unaccepted result, because the screens
+          name the expedition and not the fleet;
+        * every step is still two-frame verified by the driver, and a step that
+          is already complete is re-proven instead of clicked again.
+
+        Refusals are zero-click: the outcome is raised before the driver is
+        asked for anything.
+        """
+        if not self.allow_ui_actions:
+            raise ContinuousSettlementError("UI actions are disabled; explicit enablement is required")
+        if fleet_id not in self.scheduler.dispatch_fleet_ids:
+            raise ContinuousSettlementError(
+                f"Fleet {fleet_id} is not a configured dispatch/settlement fleet"
+            )
+        if not isinstance(screen, StartupScreen):
+            raise ContinuousSettlementError("a proven startup screen is required")
+
+        with self.ui_arbiter.operation(f"startup-settlement-fleet-{fleet_id}"):
+            observation = self._read_observation_read_only()
+            snapshot = self._snapshot_for(observation, fleet_id)
+            others = self._other_fleets_awaiting_result(observation, fleet_id)
+            persisted = self.scheduler.fleet(fleet_id).mission
+            if persisted is not None and snapshot.mission_status == 2:
+                returned = self._require_returned_snapshot(fleet_id, snapshot)
+                if not returned.same_expedition(persisted):
+                    self._refuse_startup(
+                        fleet_id,
+                        "observed_returned_mission_differs_from_persisted",
+                        screen.state,
+                        failed_check="persisted_mission_identity",
+                        game_actions_sent=0,
+                    )
+                    raise StartupSettlementRefused(
+                        "observed_returned_mission_differs_from_persisted"
+                    )
+
+            decision = evaluate_startup_settlement(
+                fleet_id=fleet_id,
+                screen=screen,
+                snapshot=snapshot,
+                expected_ship_ids=expected_ship_ids,
+                expected_ship_ids_source=expected_ship_ids_source,
+                other_fleets_awaiting_result=others,
+            )
+            if not decision.allowed:
+                attribution = decision.attribution
+                self._refuse_startup(
+                    fleet_id,
+                    decision.reason,
+                    decision.screen,
+                    failed_check="startup_attribution",
+                    observed_ship_ids=list(attribution.observed_ship_ids) if attribution else [],
+                    expected_ship_ids=list(attribution.expected_ship_ids or ()) if attribution else [],
+                    expected_ship_ids_source=expected_ship_ids_source,
+                    other_fleets_awaiting_result=list(others),
+                    game_actions_sent=0,
+                )
+                raise StartupSettlementRefused(decision.reason)
+
+            probe = getattr(self.ui_driver, "settlement_screen", None)
+            if not callable(probe):
+                self._refuse_startup(
+                    fleet_id,
+                    "driver_cannot_prove_displayed_reward_screen",
+                    screen.state,
+                    failed_check="screen_probe",
+                    game_actions_sent=0,
+                )
+                raise StartupSettlementRefused("driver_cannot_prove_displayed_reward_screen")
+            displayed = probe(fleet_id=fleet_id)
+            if displayed is None:
+                # The proven screen is gone. It is not "already settled" unless
+                # something proves that, and a silent step backwards would leave
+                # the chain half-open, so nothing is clicked either way.
+                self._refuse_startup(
+                    fleet_id,
+                    "reward_screen_no_longer_displayed",
+                    screen.state,
+                    failed_check="screen_probe",
+                    game_actions_sent=0,
+                )
+                raise StartupSettlementRefused("reward_screen_no_longer_displayed")
+
+            self.event_sink("startup_settlement_started", {
+                "fleet_id": fleet_id,
+                "snapshot_screen": screen.state,
+                "displayed_screen": displayed,
+                "layers_disagree": screen.layers_disagree,
+                "default_surface_state": screen.default_surface_state,
+                "ship_ids": list(decision.attribution.observed_ship_ids if decision.attribution else ()),
+                "expected_ship_ids_source": expected_ship_ids_source,
+                "game_api_requests": False,
+            })
+            # A restart can resume mid-chain: the durable phase may still say
+            # RETURNED_PENDING_UI while the proven screen is already the bonus
+            # one. The intermediate scheduler phases are pure bookkeeping of
+            # what the two-frame probe just proved, so they are recorded before
+            # the next click - confirm_reward_claimed would otherwise refuse a
+            # chain the game itself has already advanced.
+            current = self.scheduler.fleet(fleet_id)
+            if (
+                displayed in ("RETURN_RESULT", "BONUS_ITEMS")
+                and current.phase is FleetPhase.RETURNED_PENDING_UI
+            ):
+                self.scheduler.confirm_return_result(fleet_id, ui_state="RETURN_RESULT")
+                current = self.scheduler.fleet(fleet_id)
+            if (
+                displayed == "BONUS_ITEMS"
+                and current.phase is FleetPhase.RETURN_RESULT
+            ):
+                self.scheduler.confirm_bonus_items(fleet_id, ui_state="BONUS_ITEMS")
+
+            steps: list[tuple[str, str]] = []
+            current_screen = displayed
+            if current_screen == "HOME_PORT_RETURN_NOTICE":
+                current_screen = self._advance_visible(
+                    fleet_id, "RETURN_RESULT",
+                    ui_call=lambda: self.ui_driver.collect_return_result(fleet_id=fleet_id),
+                    steps=steps,
+                )
+            if current_screen == "RETURN_RESULT":
+                current_screen = self._advance_visible(
+                    fleet_id, "BONUS_ITEMS",
+                    ui_call=lambda: self.ui_driver.claim_bonus_items(fleet_id=fleet_id),
+                    steps=steps,
+                )
+            if current_screen == "BONUS_ITEMS":
+                self._advance_visible(
+                    fleet_id, "HOME_PORT",
+                    ui_call=lambda: self.ui_driver.claim_reward(fleet_id=fleet_id),
+                    steps=steps,
+                )
+
+            current = self.scheduler.fleet(fleet_id)
+            if current.phase in (
+                FleetPhase.RETURNED_PENDING_UI,
+                FleetPhase.RETURN_RESULT,
+                FleetPhase.BONUS_ITEMS,
+            ) and current.mission is not None:
+                updated = self.scheduler.confirm_reward_claimed(fleet_id, claimed=True)
+                credited = current.mission
+            else:
+                # No durable returned identity: the chain is provably closed,
+                # but there is nothing to credit. Recording a fabricated
+                # mission tuple would be worse than leaving the phase alone.
+                updated = current
+                credited = None
+            self.event_sink("startup_settlement_completed", {
+                "fleet_id": fleet_id,
+                "start_screen": displayed,
+                "steps": [state for state, _ in steps],
+                "evidence": [evidence for _, evidence in steps],
+                "scheduler_phase_after": updated.phase.value,
+                "mission_credited": credited is not None,
+                "game_api_requests": False,
+            })
+            return VisibleRewardSettlement(
+                fleet_id=fleet_id,
+                start_screen=displayed,
+                mission=credited,
+                steps=tuple(steps),
+                ship_ids=tuple(decision.attribution.observed_ship_ids if decision.attribution else ()),
+                scheduler_phase_after=updated.phase.value,
+            )
+
+    def _advance_visible(
+        self,
+        fleet_id: int,
+        expected_state: str,
+        *,
+        ui_call: Callable[[], UiStateEvidence],
+        steps: list[tuple[str, str]],
+    ) -> str:
+        """One two-frame proven step of the visible reward chain.
+
+        No Poi observation is required across the boundary here: the port
+        witness cannot be produced while a reward screen is up, and the driver
+        already proves the resulting screen on two consecutive frames. The
+        scheduler is what records the progress, and only after the proof.
+        """
+        evidence = ui_call()
+        self._require_settlement_evidence(evidence, expected_state)
+        steps.append((evidence.state, evidence.evidence))
+        self.event_sink("startup_settlement_step_confirmed", {
+            "fleet_id": fleet_id,
+            "state": evidence.state,
+            "evidence": evidence.evidence,
+        })
+        return evidence.state
+
+    def _refuse_startup(
+        self,
+        fleet_id: int,
+        reason: str,
+        screen: str | None,
+        *,
+        failed_check: str,
+        **fields: object,
+    ) -> None:
+        payload: dict[str, object] = {
+            "fleet_id": fleet_id,
+            "reason": reason,
+            "screen": screen,
+            "failed_check": failed_check,
+            "automatic_retry": False,
+            **fields,
+        }
+        try:
+            self.event_sink("startup_settlement_refused", payload)
+        except Exception:
+            pass
+
     def _advance(
         self,
         fleet_id: int,
@@ -292,6 +550,24 @@ class ContinuousSettlementController:
         confirm_fn()
         self.event_sink(event, {"fleet_id": fleet_id, "evidence": evidence.evidence})
         return evidence.evidence
+
+    def _read_observation_read_only(
+        self,
+    ) -> ObservedState[tuple[ExpeditionFleetSnapshot, ...]]:
+        """Read Poi once for the startup gate: no navigation, no witness demand.
+
+        The startup path exists because the freshness navigation cannot run
+        while a reward screen is up. It therefore must not call
+        :meth:`_read_observation` (which requires ``require_fresh`` and may
+        navigate through ``ensure_fresh``). This read is used only to attribute
+        the screen to a fleet; the screens themselves are proven by the driver,
+        and the normal monitor still enforces the unchanged freshness and
+        fail-closed gates once the chain is closed.
+        """
+        observation = self.state_reader.read_fleets()
+        if not observation.source.startswith("poi-redux:"):
+            raise StartupSettlementRefused("state observation must originate from Poi Redux")
+        return observation
 
     def _read_observation(
         self,

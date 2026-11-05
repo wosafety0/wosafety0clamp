@@ -4268,3 +4268,28 @@ The Hand plugin's read-only probe reported:
   - ① 启动时若已证实奖励页，就在进入 tick 循环**之前**由结算控制器按屏幕证据结算（需先把舰队以 `RETURNED_PENDING_UI` 采纳；采纳依据可取启动时已用的 CDP 快照，它不依赖 witness）。改动局限在入口。
   - ② 调整 `supervisor.tick()` 顺序：当持久化 phase 明确要求结算（`RETURNED_PENDING_UI`）而观测不可信时，允许结算先行。改动触及 supervisor 语义，影响面更大。
 - **LIMITS:** 本轮未验证「空区点 (600,400) 在奖励页是否也能推进」；`startup_reward_screen_detected` 之后 `enable_ui_refresh=false` 是否会连带禁用后续所有刷新（含返航后）尚未验证。
+
+## 2026-11-05 — R3-F（入口级启动结算）：用编成舰 ID 归属奖励链，绕开 monitor 的 witness 前置
+
+- **用户指令:** 采纳候选 ①（入口级修复），**不实施 ②（不改 supervisor 调度语义）**。前置安全条件：启动快照只可用于识别已有结算页面与重建舰队状态，**不能自动替代跨舰队归属校验**。实施要求五条：① 启动读一次 CDP 快照并识别合成层页面；② 只有明确识别出 `HOME_PORT_RETURN_NOTICE`/`RETURN_RESULT`/`BONUS_ITEMS` 才进启动结算路径；③ 通过**舰船 ID 集合**核对目标舰队与结算结果的归属，无法核对或不匹配立即拒绝；④ 满足归属条件后由**结算控制器**接管，不经过必须依赖 freshness witness 的 Monitor 前置步骤；⑤ 结算完成后再进入正常 Monitor 循环，恢复原有 freshness 与 fail-closed 门禁。测试必须覆盖：启动已有奖励页可进入结算 / 默认层与合成层判定不同时采用合成层证据 / 归属不匹配零操作 / 无法取得舰船 ID 零操作 / 页面识别失败或 CDP 断开零操作 / 启动结算完成后正常进入 Monitor 且不重复领取。本轮**不改** freshness 判据、BLOCKED 语义与多舰队并行结算策略。
+- **IMPLEMENTED（新增判定模块 `src/kancollebot/expeditions/startup_settlement.py`）:**
+  - `select_startup_screen(composited_state, default_surface_state)`：**合成层是唯一判据**，默认层只做审计。默认层既不能新增奖励页、也不能取消奖励页——RETURN_NOTICE 只存在于合成浮层，信任默认层会让母港恢复盲点推进奖励链。
+  - `evaluate_startup_settlement(...)`：纯函数判决，六个拒绝码——`no_proven_reward_screen`、`poi_reported_no_fleet_record`、`observed_ship_ids_unavailable`、`recorded_composition_unavailable`、`observed_composition_does_not_match_recorded`、`other_fleets_awaiting_result`、`fleet_is_still_on_expedition`。任一拒绝都在**驱动被调用之前**发生，因此结构上零点击。
+  - `resolve_recorded_composition(mission, intent)`：派遣时记录的编成是唯一能把结果绑到舰队的持久事实；优先取 scheduler 的 mission，其次取该舰队最新的 `dispatch_intents` 行，都没有则判"无法核对"并拒绝。
+  - 归属比较用**集合相等**（顺序无关），并且额外要求**没有第二支舰队仍在等待结果**（`mission_status == 2`）——奖励页只写任务名不写舰队名，两支队伍同时待领取时必须拒绝。
+- **IMPLEMENTED（结算控制器新增 `settle_visible_reward_chain`）:**
+  - 唯一不要求新鲜 port witness 的结算入口，用**只读**观测（`read_fleets()`，不调用 `ensure_fresh`、不导航）取舰队快照。替换掉 witness 门的是更窄而非更宽的证据：屏幕由调用方在合成层证明、控制器在首次点击前**再只读复证一次**、舰队归属由舰船 ID 集合核对、每一步仍由 driver 做两帧验证、已完成的步骤只复证不重点。
+  - 屏幕在首击前消失 → 判 `reward_screen_no_longer_displayed` 并拒绝（不猜、不点）。
+  - 中断恢复：持久化 phase 还停在 `RETURNED_PENDING_UI` 而屏幕已是 `BONUS_ITEMS` 时，把**已被两帧证明**的中间相位补记进调度器（`confirm_return_result`/`confirm_bonus_items`），否则 `confirm_reward_claimed` 会拒绝一条游戏已经走完的链。
+  - 没有可归属的持久化 mission 时**不伪造** mission tuple：链条照常关闭，但调度器相位原样保留，`mission_credited=False`。
+  - 常规结算路径 `settle_one_returned()` 一字未改；`_read_observation()`（含 `require_fresh` 与 witness 跨动作边界检查）保持原样，freshness 判据未被放宽。
+- **IMPLEMENTED（生产入口 `tools/one_expedition_ui_loop.py`）:**
+  - 启动改为**一次** CDP 快照读两层（合成层 + 默认层），由合成层决定走哪条路；奖励页在时**不做母港恢复**（零点击），否则照旧恢复 + 采基准图。
+  - 奖励页已被证明且归属核对通过 → 在进入 tick 循环之前调用 `settle_visible_reward_chain`；被拒绝 → 抛 `LoopError` 并明确 "zero game actions sent"。归属来源 = scheduler mission，否则该舰队最新的 dispatch intent（实机 Fleet 3 命中 `dispatch_intent_mission_1`，编成 `[16374,13350,6,5747]`）。
+  - 结算之后走**原样**的 `ensure_fresh(origin="run_bootstrap")` + Monitor 循环，freshness 与 fail-closed 门禁原封不动。
+  - 母港恢复的奖励页守卫由「只看合成层」放宽为「**任一层**能证明即拒绝」：`RETURN_RESULT`/`BONUS_ITEMS` 指纹是用默认层（`fromSurface=True`）采的，合成层 UNKNOWN 不构成"没有奖励页"的证据；双层检查是只读的，只会扩大拒绝面，不会扩大点击面。
+- **TESTED:** `PYTHONPATH=src python -m unittest discover -s tests` → **1265 tests OK / 2 skip**（上轮 1226，净增 39 条）；`python -m compileall -q src tests tools` OK；`git diff --check` OK；`node --test tests/*.test.cjs` → **19/19**。新增用例：`tests/test_startup_settlement_gate.py`（21 条：分层选择、四类拒绝、编成集合相等、按集合比较）与 `tests/test_continuous_settlement_controller_startup.py`（14 条：BONUS_ITEMS 单步链、RETURN_NOTICE 三步链、持久化 mission 被记账、无持久化 mission 时调度器不动、**只读 reader 被调用时 `ensure_fresh` 会直接失败**、六类拒绝零点击、禁用 UI 时拒绝、未配置舰队拒绝），入口侧 `tests/test_one_expedition_ui_loop.py` 追加 4 条（合成层优先、默认层不能开路径、CDP 断开抛错、双层守卫零点击）。
+- **SAFETY:** 未改 freshness 判据、`max_state_age`、cooldown、导航三步序列；未改 supervisor 调度顺序；未改 BLOCKED 语义（无 `unblock()`，启动结算**不解除** BLOCKED，只关闭奖励链）；未改多舰队并行结算策略（"另一队仍待领取"依旧拒绝）。所有拒绝路径都在任何点击之前发生，且以 `game_actions_sent=0` 记账。
+- **VERIFIED（实机，只读）:** 14:04 复检时 Fleet 3 为 `api_mission [2,3,1793857398968,0]`、合成层 `HOME_PORT_RETURN_NOTICE` **0.9987**、默认层同帧 `HOME_PORT` **0.9986**（正是要覆盖的分层差异场景）；编成 `[16374,13350,6,5747]` 与生产库 `dispatch_intents` 记录**逐位相同**，归属核对可通过。14:35 再检时画面已变为普通母港、Fleet 3 状态由 2 变为 0——**奖励链在这期间已被人工取走**，故本轮的实机启动结算场景已不复存在（见 LIMITS）。
+- **LIMITS:** ① **本轮未能在真实奖励页上跑完这条窄路径**：14:35 前后该链已被人工领取（`status 2 -> 0`，画面回到母港），需再产生一次返航才能实机取证。② 生产库 Fleet 3 的持久化相位仍是 `BLOCKED`（R3-E 的 FINDING 3 未处理），启动结算只会关闭奖励链、**不会**解除 BLOCKED，其后的 Monitor tick 仍会 `blocked_hold`。③ 归属判据依赖"派遣时记录过编成"：换库或记录缺失时判 `recorded_composition_unavailable` 并拒绝，这是有意的保守方向。④ 奖励页归属最终仍靠编成 ID + "仅一支队伍待领取"两条间接证据，任务同名与同编成无法区分。
+- **NEXT:** ① 用一次真实返航实机取证这条窄路径（单舰队，编成不与他人重复）；② 单独处理 BLOCKED 的受支持解除路径；③ 重采 `RETURN_RESULT` 指纹（仍是 `[280,280,320,160]` 宽框）；④ 重采/改用 marks 识别舰队页。

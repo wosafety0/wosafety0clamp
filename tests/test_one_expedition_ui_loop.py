@@ -1072,5 +1072,87 @@ class RewardScreenRecoveryGuardTests(unittest.TestCase):
         self.assertEqual(game_session.input.click.call_count, 0)
 
 
+class StartupScreenProbeTests(unittest.TestCase):
+    """The start-up snapshot: both layers captured, the composited one decides."""
+
+    @staticmethod
+    def session(capture_error=None):
+        game_session = MagicMock()
+        if capture_error is not None:
+            game_session.input.capture_screenshot.side_effect = capture_error
+        else:
+            game_session.input.capture_screenshot.return_value = "frame"
+        return game_session
+
+    def probe(self, composited, default):
+        return (
+            patch.object(controller, "_read_visual_document", return_value={}),
+            patch.object(
+                controller,
+                "classify_screenshot_fingerprints",
+                side_effect=[(composited, {composited: 0.9987}), (default, {})],
+            ),
+            patch.object(controller, "_print_event"),
+        )
+
+    def test_the_composited_layer_decides_a_disagreeing_startup(self):
+        # Live 2026-11-05: composited RETURN_NOTICE 0.9987 vs default
+        # HOME_PORT 0.9986 on the same frame. The default reading would have
+        # sent recovery into the reward chain, so it must be audit only.
+        read_doc, classify, _event = self.probe(
+            "HOME_PORT_RETURN_NOTICE", "HOME_PORT"
+        )
+        with read_doc, classify, _event:
+            screen = controller._probe_startup_screen(self.session())
+        self.assertEqual(screen.state, "HOME_PORT_RETURN_NOTICE")
+        self.assertTrue(screen.layers_disagree)
+        self.assertEqual(screen.default_surface_state, "HOME_PORT")
+
+    def test_the_default_layer_cannot_open_the_startup_path(self):
+        read_doc, classify, _event = self.probe("HOME_PORT", "BONUS_ITEMS")
+        with read_doc, classify, _event:
+            screen = controller._probe_startup_screen(self.session())
+        self.assertIsNone(screen.state)
+
+    def test_a_cdp_failure_propagates_without_any_click(self):
+        with (
+            patch.object(controller, "_read_visual_document", return_value={}),
+            patch.object(
+                controller,
+                "classify_screenshot_fingerprints",
+                side_effect=[("BONUS_ITEMS", {}), ("BONUS_ITEMS", {})],
+            ),
+            patch.object(controller, "_print_event"),
+        ):
+            broken = self.session(capture_error=RuntimeError("cdp gone"))
+            with self.assertRaises(RuntimeError):
+                controller._probe_startup_screen(broken)
+
+
+class RewardScreenAnyLayerGuardTests(unittest.TestCase):
+    """Recovery refuses a screen proven on either capture layer."""
+
+    def test_a_default_layer_screen_refuses_recovery(self):
+        # The result/bonus fingerprints were captured from the default surface,
+        # so a composited UNKNOWN is not proof of absence.
+        game_session = MagicMock()
+        game_session.input.capture_screenshot.return_value = "frame"
+        with (
+            patch.object(controller, "_print_event"),
+            patch.object(controller.time, "sleep"),
+            patch.object(controller, "_require_ui_state",
+                         side_effect=controller.LoopError("not HOME_PORT")),
+            patch.object(controller, "_visible_settlement_screen", return_value=None),
+            patch.object(
+                controller,
+                "classify_screenshot_fingerprints",
+                return_value=("BONUS_ITEMS", {}),
+            ),
+        ):
+            with self.assertRaisesRegex(controller.LoopError, "BONUS_ITEMS"):
+                controller._recover_home_port(game_session)
+        self.assertEqual(game_session.input.click.call_count, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

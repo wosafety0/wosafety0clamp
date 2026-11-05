@@ -593,6 +593,96 @@ def _visible_settlement_screen(game_session) -> str | None:
     return observed if observed in REWARD_SCREEN_STATES else None
 
 
+def _reward_screen_on_any_layer(game_session) -> str | None:
+    """The reward screen proven on either capture layer, or None.
+
+    The composited layer is the authoritative one for the return notice, but the
+    RETURN_RESULT and BONUS_ITEMS fingerprints were captured from the default
+    surface (``fromSurface=True``), so a composited UNKNOWN is not proof that no
+    reward screen is up. Recovery refuses on a screen proven by *either* layer:
+    checking both is read-only and can only widen the refusal, never the click.
+    """
+    screen = _visible_settlement_screen(game_session)
+    if screen is not None:
+        return screen
+    fingerprint_path = Path(
+        os.environ.get(
+            "KANCOLLEBOT_FINGERPRINTS_PATH",
+            ROOT / "src" / "kancollebot" / "adapters" / "poi" / "ooi_1200x720_fingerprints.json",
+        )
+    )
+    try:
+        document = _read_visual_document(fingerprint_path)
+        payload = game_session.input.capture_screenshot(from_surface=True)
+        observed, _scores = classify_screenshot_fingerprints(payload, document)
+    except Exception:
+        return None
+    return observed if observed in REWARD_SCREEN_STATES else None
+
+
+def _probe_startup_screen(game_session):
+    """One start-up CDP snapshot of both layers; the composited layer decides.
+
+    The reward screens are drawn on a composited overlay that the default
+    ``fromSurface=True`` capture drops. Live 2026-11-05 the same frame
+    classified HOME_PORT_RETURN_NOTICE 0.9987 on the composited layer and
+    HOME_PORT 0.9986 on the default one. A startup decision taken from the
+    default layer would therefore walk straight into Home Port recovery and
+    click the reward chain blind, so the default reading is recorded as audit
+    only. Any CDP or classifier failure propagates: no screen proof, no clicks.
+    """
+    from kancollebot.expeditions.startup_settlement import select_startup_screen
+
+    fingerprint_path = Path(
+        os.environ.get(
+            "KANCOLLEBOT_FINGERPRINTS_PATH",
+            ROOT / "src" / "kancollebot" / "adapters" / "poi" / "ooi_1200x720_fingerprints.json",
+        )
+    )
+    document = _read_visual_document(fingerprint_path)
+    composited_payload = game_session.input.capture_screenshot(from_surface=False)
+    composited_state, composited_scores = classify_screenshot_fingerprints(
+        composited_payload, document
+    )
+    try:
+        default_payload = game_session.input.capture_screenshot(from_surface=True)
+        default_state, _default_scores = classify_screenshot_fingerprints(
+            default_payload, document
+        )
+    except (CdpInputError, VisualFingerprintError, OSError, ValueError):
+        # The default layer is audit data; a broken second capture must not
+        # turn a proven composited screen into an unproven one.
+        default_state = None
+    screen = select_startup_screen(
+        composited_state=composited_state, default_surface_state=default_state
+    )
+    score = composited_scores.get(composited_state) if composited_scores else None
+    _print_event(
+        "startup_screen_snapshot",
+        composited_state=composited_state,
+        composited_state_score=None if score is None else round(float(score), 4),
+        default_surface_state=default_state,
+        startup_screen=screen.state,
+        layers_disagree=screen.layers_disagree,
+        evidence=screen.evidence,
+        clicks_sent=0,
+        game_api_requests=False,
+    )
+    return screen
+
+
+def _probe_startup_attribution(args, runtime, target_fleet_id):
+    """Resolve the recorded ship-ID set that ties a reward chain to a fleet."""
+    from kancollebot.expeditions.dispatch_recovery import SqliteDispatchIntentStore
+    from kancollebot.expeditions.startup_settlement import resolve_recorded_composition
+
+    recorded = resolve_recorded_composition(
+        mission=runtime.scheduler.fleet(target_fleet_id).mission,
+        intent=SqliteDispatchIntentStore(args.database).get(target_fleet_id),
+    )
+    return recorded if recorded is not None else (None, None)
+
+
 def _recover_home_port(game_session, attempts: int = 3, force_click: bool = False) -> None:
     """Use bounded top-left navigation retries, requiring state evidence after each click.
 
@@ -607,7 +697,7 @@ def _recover_home_port(game_session, attempts: int = 3, force_click: bool = Fals
             return
         except (UiStateGateError, LoopError) as exc:
             _print_event("home_port_state_not_confirmed", attempt=0, error=str(exc))
-    settlement_screen = _visible_settlement_screen(game_session)
+    settlement_screen = _reward_screen_on_any_layer(game_session)
     if settlement_screen is not None:
         raise LoopError(
             f"The account is showing {settlement_screen}, a reward screen that advances on a "
@@ -959,6 +1049,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
     from kancollebot.expeditions.continuous_supervisor import (
         ContinuousExpeditionSupervisor,
     )
+    from kancollebot.expeditions.startup_settlement import StartupSettlementRefused
     from kancollebot.expeditions.port_supply_provider import (
         PoiReduxFleetSupplyProvider,
     )
@@ -1008,23 +1099,26 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 if args.settle_only
                 else _mission_requirement(args, target_fleet_id, target_mission_id)
             )
-            # A run can start on a reward screen the previous process left open
-            # (live 2026-11-05: a return result for Fleet 4, whose api_mission
-            # the game had already cleared). Home Port recovery must not click
-            # it - every reward screen advances on a click anywhere - and the
-            # chain is exactly what the settlement controller is for, so the
-            # startup skips the recovery and lets the controller close it.
-            if _visible_settlement_screen(game_session) is not None:
+            # One start-up snapshot decides the path, from the composited layer.
+            # A proven reward screen is settled by the settlement controller
+            # BEFORE the monitor ever asks for a freshness witness: that
+            # witness needs a HOME_PORT navigation, which cannot run while a
+            # reward screen is up. This is the entry-level fix for the
+            # start-up deadlock (live 2026-11-05); the supervisor's tick order
+            # and the monitor's freshness gate are unchanged.
+            startup_screen = _probe_startup_screen(game_session)
+            if startup_screen.state is not None:
                 _print_event(
                     "startup_reward_screen_detected",
-                    owned_by="settlement controller",
+                    startup_screen=startup_screen.state,
+                    default_surface_state=startup_screen.default_surface_state,
+                    owned_by="startup settlement path",
                     recovery_clicks_sent=0,
-                    ui_refresh_disabled_reason=(
+                    ui_refresh_deferred_reason=(
                         "the freshness navigation starts at HOME_PORT and cannot run "
                         "while a reward screen is up"
                     ),
                 )
-                args.enable_ui_refresh = False
             else:
                 _recover_home_port(game_session)
                 _capture_home_reference(game_session)
@@ -1232,6 +1326,42 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 game_api_requests=False,
                 ui_refresh_enabled=args.enable_ui_refresh,
             )
+            if startup_screen.state is not None:
+                # Entry-level startup settlement. The gate compares the Fleet's
+                # observed ship-ID set with the composition recorded when it
+                # was dispatched; a missing or different set refuses with zero
+                # game actions. Only after that proof does the controller own
+                # the chain, and it re-proves the screen read-only before the
+                # first click. The monitor is not involved in this decision.
+                if settlement_controller is None:
+                    raise LoopError(
+                        "startup reward screen detected but no settlement controller "
+                        "is wired; refusing to click the chain"
+                    )
+                expected_ship_ids, expected_source = _probe_startup_attribution(
+                    args, runtime, target_fleet_id
+                )
+                try:
+                    startup_settlement = settlement_controller.settle_visible_reward_chain(
+                        fleet_id=target_fleet_id,
+                        screen=startup_screen,
+                        expected_ship_ids=expected_ship_ids,
+                        expected_ship_ids_source=expected_source,
+                    )
+                except StartupSettlementRefused as exc:
+                    raise LoopError(
+                        f"startup settlement refused ({exc.reason}); zero game actions sent"
+                    ) from exc
+                _print_event(
+                    "STARTUP_SETTLEMENT_CLOSED",
+                    fleet_id=target_fleet_id,
+                    start_screen=startup_settlement.start_screen,
+                    steps=[state for state, _ in startup_settlement.steps],
+                    ship_ids=list(startup_settlement.ship_ids),
+                    mission_credited=startup_settlement.mission is not None,
+                    scheduler_phase_after=startup_settlement.scheduler_phase_after,
+                    game_api_requests=False,
+                )
             # One explicit bootstrap refresh before the first tick.
             #
             # The monitor no longer navigates as a side effect of reading, and
