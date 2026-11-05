@@ -285,7 +285,7 @@ Additional source: `ActionHelper.cs`, blob `8fc6c7a57831c627ef50b58aa2fea3c9095a
 
 ### 15.3 Event observation and failure behavior
 
-The action subscribes to parsed proxy event streams for sortie battle, battle result, map start, map next, and midnight battle. Battle-result parsing exceptions stop the action, show a warning to inspect ship status, and log the exception. Queue error callbacks set the action state to Error and, on the retreat/advance paths, call `StopAction()`. The AutoKira-level error callback then enters `GNMpkkXilJ()` / `ActReset`: it resets the UI toward the home port, but does not itself restore the saved fleet formation. The saved snapshot and `CurrentFleet` are not cleared in that handler, so error recovery must not be treated as equivalent to normal formation restoration.
+The action subscribes to parsed proxy event streams for sortie battle, battle result, map start, map next, and midnight battle. Battle-result parsing exceptions stop the action, show a warning to inspect ship status, and log the exception. Queue error callbacks set the action state to Error and, on the retreat/advance paths, call `StopAction()`. The AutoKira-level error callback then enters `GNMpkkXilJ()` / `ActReset`: it resets the UI toward the home port, but does not itself restore the saved fleet formation. The saved snapshot and `CurrentFleet` are not cleared in that handler, so error recovery must not be treated as equivalent to normal formation restoration. The separate cleanup routine `xlTpvgtV0K()` clears `CurrentFleet`, the Kira target queue, and the saved-ID list, but `GNMpkkXilJ()` does not call it. `NeedAction()` returns true whenever `CurrentFleet != -1`; after `ActReset` returns the assistant to Idle, `CanAction()` can therefore consider the operation actionable again. This indicates a possible automatic re-entry/retry path; no explicit retry budget or backoff was found in the reviewed code, but actual repetition depends on the outer assistant scheduler and was not runtime-tested.
 
 This is useful as an observation/error-handling reference only. KancolleBot must continue to keep Poi/CDP observation read-only and perform all game mutations through visible UI actions; it must not reproduce the upstream proxy/request layer.
 
@@ -310,7 +310,7 @@ All files below were fetched from the pinned reference snapshot identified in Se
 - Separate the pre-dispatch flagship HP maintenance threshold from the post-battle 25% fleet-wide retreat threshold.
 - Model repair-bucket policy explicitly: the reviewed upstream helper uses a bucket when remaining repair time is greater than or equal to the configured threshold. Do not inherit that policy without a KancolleBot-specific decision.
 - Do not import the upstream proxy layer. Reimplement only the necessary observation and visible UI behavior behind KancolleBot's Poi adapter and UI controller.
-- Still unresolved: what the scheduler does after `ActReset` returns to Idle with the original-fleet snapshot still present; the precise no-eligible-fellow continuation behavior; complete repair candidate selection; whether any higher-level scheduler imposes a separate battle cap.
+- Still unresolved: whether the outer assistant scheduler repeatedly re-enters the same target after `ActReset`; the precise no-eligible-fellow continuation behavior; complete repair candidate selection; whether any higher-level scheduler imposes a separate battle cap.
 - Status remains SOURCE_REVIEWED only. No KancolleBot code changed, no tests run, no Poi/game runtime validation performed, and no R3 files or branches modified.
 
 
@@ -349,7 +349,7 @@ When `AutoKiraUseFellow=false`, the builder leaves slots 1–5 as `-1` and const
 ### 18.3 Original formation restoration and equipment side effect
 
 - **Normal completion:** the original fleet membership snapshot is captured before target processing and later passed back to `ActChangeOrganization` with `forceClearAll: true`. The completion callback clears the snapshot and resets `CurrentFleet`. This confirms a normal-path formation restoration mechanism.
-- **Error path:** `GNMpkkXilJ()` logs “自动刷闪执行失败”, sets the assistant state to Error, and starts `ActReset`. `ActReset` performs UI recovery/navigation back to the home port; the reviewed action contains no Organization/formation restoration action. The error handler itself does not clear `uQFpLxEG9U` or reset `CurrentFleet`, and it does not invoke the saved-formation `ActChangeOrganization` path. Therefore the source does **not** guarantee original formation restoration after an error or interrupted sortie; a partially changed formation may remain.
+- **Error path:** `GNMpkkXilJ()` logs “自动刷闪执行失败”, sets the assistant state to Error, and starts `ActReset`. `ActReset` performs UI recovery/navigation back to the home port; the reviewed action contains no Organization/formation restoration action. The error handler itself does not clear `uQFpLxEG9U` or reset `CurrentFleet`, and it does not invoke the saved-formation `ActChangeOrganization` path. Therefore the source does **not** guarantee original formation restoration after an error or interrupted sortie; a partially changed formation may remain. The separate `xlTpvgtV0K()` cleanup helper clears the target queue and snapshot, but the error handler does not call it. Since `NeedAction()` treats a non-negative `CurrentFleet` as actionable and `ActReset` returns the state to Idle, the scheduler may re-enter the same target path; this is a potential retry/reset loop, not a runtime-confirmed result.
 - The temporary fellow is placed in slot 1. The `AutoKiraClearEquips` branch therefore clears equipment from that fellow in the temporary formation.
 - The saved snapshot contains ship IDs, not equipment-slot state. The reviewed restore path restores fleet membership only; it does not restore the fellow's cleared equipment. This is a persistent side effect and a strong reason not to copy upstream equipment clearing into KancolleBot.
 
@@ -385,3 +385,16 @@ The AutoKira update loop reads the actual `Ship.Condition` value. For the curren
 - When the target remains below both thresholds, the update loop continues through its repair/supply/formation/sortie handling for that target.
 
 This is a per-target queue completion rule, distinct from the post-battle 25% HP fleet-wide retreat rule in Section 15.2. Source accessor `lA7tMa290FfCHEQoFgif` returns `Ship.Condition`; source file blob is the `AutoKira.cs` blob listed in Section 16.
+
+
+## 22. Error reset, cleanup, and possible re-entry
+
+Additional call-site evidence from `AutoKira.cs` and `ActReset.cs`:
+
+- `GNMpkkXilJ()` is the shared Kira error handler. It logs the failure, sets `State=Error`, creates `ActReset`, and sets `State=Idle` when the reset action finishes.
+- `ActReset` is UI recovery/navigation toward the home port. The reviewed implementation does not perform a fleet Organization change and therefore does not restore the saved original fleet.
+- A separate `xlTpvgtV0K()` routine clears `CurrentFleet`, clears `Assistant.Instance.KiraShips.Ships`, and clears `uQFpLxEG9U`. The reviewed `GNMpkkXilJ()` error handler does not invoke this cleanup routine.
+- `NeedAction()` returns true whenever `CurrentFleet != -1`. Since the reset completion callback returns the assistant to Idle without clearing that field, `CanAction()` can regard the same Kira task as actionable again. The source therefore exposes a **potential re-entry/retry loop** after an error. No explicit retry counter/backoff was found in this path; whether the outer assistant scheduler repeats it in practice remains unverified.
+- KancolleBot design implication: an error must transition to a paused/reconciliation state. Before resuming, re-read the live fleet, current screen, target morale, supply, and saved original formation; never blindly repeat the last click or sortie after a reset.
+
+This section is a static call-flow finding, not a runtime assertion. It does not establish that KCV always loops after every error.
