@@ -4,35 +4,34 @@ A local-first Python framework for safety-gated desktop game automation. The gam
 
 > **Handover entry point:** read [docs/HANDOFF.md](docs/HANDOFF.md) before changing code.
 
-## Development branches and integration state (2026-11-04)
+## Development branches and integration state (2026-11-06)
 
-The GitHub default branch **main** contains only the `.github` directory. It is not, and never was, the application source baseline.
+The GitHub default branch **main** still contains only `.github`; it is not the application source baseline.
 
-The integration performed on 2026-11-04 is **local only**. Nothing has been pushed, so `3bd949b` is a local-only commit and **must not be described as an integrated remote version**.
-
-| Role | Branch | Local HEAD | Remote HEAD |
+| Role | Branch / PR | Exact HEAD | State |
 | --- | --- | --- | --- |
-| Integration target | `dev/dispatch-observer-safety-current-mvp-20261103` | `3bd949b` | `86f294c` |
-| Preservation / active work line | `feat/closed-loop-settlement-20261104` | `3bd949b` | `caa3e5a` |
-| Verified fast-forward snapshot (local, temporary) | `temp/integration-ff-20261104` | `caa3e5a` | n/a |
+| Current MVP base | `dev/dispatch-observer-safety-current-mvp-20261103` | `ba8884466f2bb1d568cc46b76034711df81bb50c` | Current remote base |
+| Settlement + run-log review candidate | `dev/run-log-safety-hardening-20261106` / [Draft PR #40](https://github.com/wosafety0/wosafety0clamp/pull/40) | `1bf11856356f9bd3b0fd7a615567a1ac9c4b9fed` | Open, unmerged |
+| SQLite event-id readback candidate | `dev/event-id-readback-20261106` / [Draft PR #39](https://github.com/wosafety0/wosafety0clamp/pull/39) | `6048b918632ffea1510e4b038b82cd30c53a4384` | Separate, open, unmerged |
 
-The target branch was advanced locally by a pure fast-forward of 81 commits (zero conflicts, no new merge commit). These SHAs are the integration snapshot; later local commits advance the local HEAD, so re-check with `git rev-parse` and `git ls-remote origin <branch>` before relying on them. Until a separately authorized push happens, a fresh clone can obtain only `caa3e5a` from `origin/feat/closed-loop-settlement-20261104` and `86f294c` from the target dev branch.
+PR #40 is a broad staging candidate (40 commits / 103 changed files), not a merge recommendation. Its exact HEAD passed:
+- [Push CI #42128797363](https://github.com/wosafety0/wosafety0clamp/actions/runs/42128797363): 1,634 Python tests, 21 optional vision tests skipped; Node 17/17; compile and CLI smoke passed.
+- [Feature CI #42128884084](https://github.com/wosafety0/wosafety0clamp/actions/runs/42128884084): all four Python 3.12/3.13 × vision with/without jobs passed; 1,634 tests per matrix (4 skipped with vision, 21 without); Node 19/19; the missing-vision dependency gate failed closed as expected.
 
-`dev/expedition-closed-loop-mvp` is a **historical** MVP branch. Older handoff notes and PR descriptions still call it the active baseline; that statement is superseded. It has diverged substantially from the current line (56 / 141 commits from the merge base) and cannot be fast-forwarded.
+The branch contains historical Fleet 2 / Fleet 4 evidence from earlier operator-authorized work. The current scheduled development run performed **no Poi connection, game input, dispatch, settlement, resupply, or account operation**. The one recorded Fleet 4 loop is not proof of unattended multi-cycle operation.
 
-    git clone https://github.com/wosafety0/wosafety0clamp.git
-    Set-Location wosafety0clamp
-    git fetch origin
-    git switch --track origin/feat/closed-loop-settlement-20261104
+PR #40 keeps run-log production wiring optional; `--run-log-dir` remains explicit and default-off. Its current `dispatch_id` is a per-attempt identifier, not a persisted expedition-lifecycle identifier. The separate PR #39 exposes the existing SQLite integer event ID; it is not yet joined to the JSONL UUID event ID in PR #40.
 
-The remote branch above is behind the local integration head until the pending push is authorized.
+The branch `dev/expedition-closed-loop-mvp` remains historical. Re-read the handoff and progress record before choosing a branch; do not infer application state from `main`.
 
 ## Current development priorities
 
-1. Complete production dispatch/supervisor composition only after freshness, UI-state gates, durable intent recovery, exact post-action verification, reward settlement, and fleet-wide resupply are integrated.
-2. Keep Fleet 1 read-only **for expeditions**. Fleets 2/3/4 are the *expedition* dispatch policy ceiling, but the effective set is always resolved from the fleets this account has actually unlocked (2, 3 and 4 unlock progressively); a missing fleet fails closed rather than being assumed. Fleet 4 may be dispatched but has no verified supply visual gate yet, so its closed-loop resupply remains blocked until real-client calibration. Fleet 1 is the flagship **sortie/combat** fleet: this reservation is a per-task policy, not a global fact, and combat automation must declare its own fleet policy.
-3. Continue mocked/offline tests and static CI; missing, stale, ambiguous, or malformed observations must remain fail-closed.
-4. Treat any future live operation as a separately authorized, operator-supervised activity. CI and this repository workflow do not authorize unattended game actions.
+1. Review Draft PR #40 as a broad integration candidate; do not merge it without a per-file review and a decision on the event identity contract.
+2. Resolve the semantic difference between a dispatch-attempt ID and an expedition-lifecycle ID. Do not use the current per-attempt `dispatch_id` to attribute later settlement/resupply events.
+3. Define how the JSONL UUID `event_id` joins the SQLite integer `event_id` from PR #39; do not silently treat them as the same identifier.
+4. Keep run-log production wiring default-off until a separately authorized live validation proves the full event chain and failure behavior.
+5. Continue offline review of multi-fleet settlement/resupply, interruption recovery, scanner boundaries, and the unresolved 7-ship versus 6-slot design constraint.
+6. Keep missing, stale, ambiguous, malformed, or conflicting observations fail-closed. A green CI run is not live-client acceptance.
 
 ## Automation tasks and scope
 
@@ -47,21 +46,23 @@ Two rules protect the roadmap:
 
 Known work before a second task runs alongside expedition: fleet runtime state is keyed by `fleet_id` alone (`fleet_runtime`, `dispatch_intents`), so a shared fleet-lease / `(task_kind, fleet_id)` key is required; `dispatch_events` needs structured task attribution; and each new task needs its own screen registry (UI states, fingerprints, coordinates, click plans). These are documented in `docs/PROJECT_kancollebot_Progress.md` and are intentionally not implemented yet.
 
-## Current status — 2026-11-03
+## Current status — 2026-11-06
 
-The repository is beyond the initial bootstrap stage. The current MVP includes an offline-tested fleet lifecycle state machine, shared-UI arbiter, SQLite fleet-state and dispatch-intent stores/recovery, an injected-port dispatch controller, a read-only continuous monitor, and a single-tick supervisor.
+The current MVP base remains `dev/dispatch-observer-safety-current-mvp-20261103`. Draft PR #40 proposes a separate settlement-drain and run-log integration; it has not been merged.
 
-The Poi integration includes a passive Network observer and an in-memory freshness-witness path. One natural successful port response was matched against a contemporaneous Poi MCP read on 2026-11-02; this is a bounded observation, not proof of long-term freshness or atomic consistency across future reads.
+Historical evidence in the repository records:
+- Fleet 2 / mission 1 passed the freshness and requirement gate, but that run stopped before dispatch.
+- Fleet 4 / mission 1 completed one operator-supervised live loop: supply, fresh witness, gate, dispatch, return, reward settlement, Home Port, and state reconciliation.
+- P0.1 `SettlementDrainSession` is covered by deterministic offline Mock tests.
+- P0.2 adds a bounded JSONL run log, event envelope, redaction, retention, atomic snapshot, Tee sink, and critical audit gate.
 
-The recorded operator-supervised UI evidence covers return-result/bonus/home navigation and fleet-wide supply for the unlocked Fleets 1–3. A final audit recorded 13/13 ships at master fuel/ammunition levels. This historical evidence does not establish unattended scheduler readiness.
-
-Production dispatch/supervisor composition, mission/fleet selection, reward progression, automatic resupply integration into the continuous scheduler, and unattended operation remain pending. The production freshness/dispatch gate remains fail-closed. Current safety candidate PR #27 is based directly on the current MVP branch and adds strict dispatch-intent, freshness, and passive-observer validation; its exact-head offline CI passed 460 Python tests, 17 Node static tests, and compile/syntax checks, with 17 optional vision tests skipped because those dependencies were unavailable.
+The run-log candidate now passes 1,634 Python tests in the exact-head CI matrices. This is offline/CI evidence only. The run log is still opt-in, and the current `dispatch_id` covers one dispatch attempt only; it does not survive process restart or correlate later settlement/resupply. The separate SQLite event-id readback candidate remains PR #39.
 
 ## Current state
 
-This is an actively developed prototype, **not an accepted unattended automation release**.
+This is an actively developed prototype, **not an accepted unattended automation release**. One historical Fleet 4 live loop is not proof of repeated cycles, multi-fleet settlement, interruption recovery, or unattended operation. Production run logging remains default-off. The current automation run did not connect to Poi or perform game input.
 
-Verified components include read-only Poi state observation, passive freshness witnessing, guarded fleet-wide resupply, visual UI-state gates, and offline-tested dispatch preconditions. The full live dispatch → return → reward settlement → resupply loop remains unverified. Read the handoff document for exact evidence and limitations.
+Read [docs/HANDOFF.md](docs/HANDOFF.md) and [docs/PROJECT_kancollebot_Progress.md](docs/PROJECT_kancollebot_Progress.md) for exact branch, commit, CI, and blocker evidence.
 
 ## Development setup
 
@@ -117,12 +118,12 @@ Run from the repository root in PowerShell:
     python -m compileall -q src tests tools
     git diff --check
 
-The GitHub Actions workflow runs the corresponding offline checks on pushes to main and dev/**, and on pull requests targeting main.
+The GitHub Actions workflows run offline checks on pushes to main/dev/** and pull requests targeting main/dev/**. The feature matrix tests Python 3.12/3.13 with and without optional vision dependencies.
 
 ## Safety boundaries
 
 - Keep credentials, cookies, tokens, local game data, screenshots, and machine-specific paths out of Git.
-- CDP is loopback-only. Runtime.evaluate is restricted to one fixed read-only fleet snapshot expression; arbitrary JavaScript evaluation is prohibited.
+- CDP remains loopback-only. Do not use Runtime.evaluate, execute page JavaScript, or access page getters in this development workflow. Passive Network observation may only capture naturally occurring traffic.
 - Do not send, replay, or construct game-server requests.
 - Game actions must use the reviewed visible UI path and fail closed on stale, ambiguous, or conflicting evidence.
 - Offline tests and a green CI run do not establish live gameplay acceptance.
