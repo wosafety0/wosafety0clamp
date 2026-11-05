@@ -4173,3 +4173,9 @@ The Hand plugin's read-only probe reported:
 
 - **FOLLOW-UP SOURCE_REVIEWED (destructive auto-dissolution side path):** 追踪 `qmCpe2e1m8` 与 `ActDissolution`。当 AutoDissolution=true 且船位达到上限时，AutoKira 调度器可选出候选舰并执行“自动解体”UI 动作，等待 `api_req_kousyou_destroyship`。设置构造器默认 AutoDissolution=false，但持久化设置可覆盖。该操作会实际解体舰船，KancolleBot 刷闪绝不能自动复用。
 - **SOURCE BLOB EVIDENCE:** `ActDissolution.cs` blob `c719195fe73c3afdd450088ab0025dab60ecc09e`；`AutoExpeditionSettings.cs` blob `8aa102bdaf2674c491820c82906fd0fe1e81a288`。
+
+
+- **FOLLOW-UP SOURCE_REVIEWED (no-fellow fallback and manual stop):** 追踪 `JVjpi4cK7X`、其 `ActChangeOrganization(CurrentFleet, newShips, forceClearAll:true)` 调用及 `AutoKira.Stop()`。编成构造器先将 6 个槽位设为 -1，slot0 放当前目标；AutoKiraUseFellow=true 时最多将首个符合条件的陪练放入 slot1。候选为空时不会在构造器中报错，返回 target-only 数组；调用方仍将数组交给 forceClearAll 编成动作，因此 builder/action 边界不是 fail-closed（不据此断言所有状态都必然继续出击，外围状态机仍有混淆分支）。陪练候选包括 DD、等级/稀有度、未入渠、HP、燃弹各至少30%、排除目标同名、未编入任何舰队及可配置锁定排除；候选不排序，取 First；目标 master ID=147 时另排除名字含“響”的舰船。
+- **MANUAL STOP SAFETY GAP:** `AutoKira.Stop()` 只设置 IsStarted=false、State=Idle 并调用 StopCurrentAction；未直接调用原编成恢复 ActChangeOrganization，也未调用清除 CurrentFleet/目标队列/原编成快照的 `xlTpvgtV0K()`。StopCurrentAction 是否间接触发其他回调未由该方法证明。因此不能保证手动停止后原编成恢复或任务快照清理。
+- **DESIGN CONSEQUENCE:** KancolleBot 应把“无陪练”策略做成显式配置（允许单舰目标模式，或强制陪练数量不足时阻塞）；取消操作应独立进入 reconciliation，重新观察并恢复/核验原编成，不能将 Stop UI 动作等同于恢复完成。
+- **SOURCE BLOB EVIDENCE:** `AutoKira.cs` blob `ba9b2094eb26f947e725364398aefa9041c5d7ed`；`ActChangeOrganization.cs` blob `2235a4e72212bccfd06445567d197bad921fe51c`。
