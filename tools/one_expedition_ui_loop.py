@@ -119,11 +119,11 @@ DISPATCH_STEPS = (
     (EXPEDITION_START, 1.5, "FLEET_2_SELECTED", "EXPEDITION_ACTIVE"),
 )
 
-# The composition gate needs a ship count and a flagship level per mission. The
-# catalogue carries names and areas only, and the client does not render the
-# level requirement, so only the two pairs this account has verified live are
-# kept here; anything else must be given explicitly rather than guessed.
-KNOWN_COMPOSITION = {(2, 1): (2, 1), (3, 3): (3, 3)}
+# R3-I: mission composition numbers live in ONE versioned static table
+# (src/kancollebot/expeditions/data/expedition_requirements.json), not in the
+# composition roots. `_mission_requirement()` is the only adapter from that
+# table to the legacy composition gate; the full check is performed by
+# ExpeditionRequirementChecker before any click.
 
 
 class LoopError(RuntimeError):
@@ -159,12 +159,18 @@ class SettleOnlyDispatcher:
 
 
 def _mission_requirement(args, fleet_id: int, mission_id: int):
-    """The composition gate's numbers for this fleet and mission.
+    """Adapt ONE static, versioned rule to the legacy composition gate.
 
-    ``--minimum-ships``/``--flagship-level`` win when given; otherwise only a
-    pair that was verified live is used. There is deliberately no default: a
-    made-up requirement would let the gate pass a fleet the mission cannot take.
+    R3-I removed the per-entry hardcoded table: a mission without a rule is
+    refused rather than guessed, and the full condition evaluation is done by
+    ``ExpeditionRequirementChecker`` on the fresh Poi baseline. The two CLI
+    overrides are kept only as an operator assertion read from the mission
+    panel; they may make the gate STRICTER than the static rule, never weaker.
     """
+    from kancollebot.expeditions.expedition_rule_data import (
+        DEFAULT_RULE_SET,
+        mission_composition_requirement_for,
+    )
     from kancollebot.expeditions.mission_eligibility import MissionCompositionRequirement
 
     minimum_ships = getattr(args, "minimum_ships", None)
@@ -174,21 +180,31 @@ def _mission_requirement(args, fleet_id: int, mission_id: int):
             "--minimum-ships and --flagship-level must be given together; the "
             "composition gate needs both numbers"
         )
+    if DEFAULT_RULE_SET.requirement_for(mission_id) is None:
+        raise LoopError(
+            f"no static requirement rule for fleet {fleet_id} / mission "
+            f"{mission_id} in {DEFAULT_RULE_SET.rule_version}; refusing to "
+            "invent one from the mission panel"
+        )
+    baseline = mission_composition_requirement_for(mission_id)
     if minimum_ships is None:
-        known = KNOWN_COMPOSITION.get((fleet_id, mission_id))
-        if known is None:
-            raise LoopError(
-                f"no verified composition requirement for fleet {fleet_id} / mission "
-                f"{mission_id}; pass --minimum-ships and --flagship-level read from the "
-                "mission panel rather than guessing them"
-            )
-        minimum_ships, flagship_level = known
+        return baseline
     for name, value in (
         ("--minimum-ships", minimum_ships),
         ("--flagship-level", flagship_level),
     ):
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise LoopError(f"{name} must be a positive integer")
+    if (
+        minimum_ships < baseline.minimum_ships
+        or flagship_level < baseline.minimum_flagship_level
+    ):
+        raise LoopError(
+            f"explicit composition override ({minimum_ships}, {flagship_level}) is "
+            f"weaker than the static rule for mission {mission_id} "
+            f"({baseline.minimum_ships}, {baseline.minimum_flagship_level}); "
+            "refusing to weaken the gate"
+        )
     return MissionCompositionRequirement(
         mission_id=mission_id,
         minimum_ships=minimum_ships,
@@ -1156,6 +1172,9 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
         FleetAvailabilityError,
         resolve_fleet_availability,
     )
+    from kancollebot.expeditions.expedition_requirement_checker import (
+        ExpeditionRequirementChecker,
+    )
     from kancollebot.task_scope import TaskKind
     from run_continuous_expedition_monitor import build_runtime
 
@@ -1318,6 +1337,25 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     ui_arbiter=ui_arbiter,
                 )
             else:
+                # R3-I is a LIVE dispatch gate, not an optional diagnostic:
+                # the pure evaluator runs on the same fresh baseline before the
+                # first click. Only PASS proceeds; REJECT/UNKNOWN raise with
+                # zero UI input. Production additionally demands a cross-checked
+                # rule, so a single-source (unconfirmed) rule fails closed.
+                # There is deliberately no CLI or runtime bypass switch.
+                requirement_checker = ExpeditionRequirementChecker(
+                    minimum_confidence="cross_checked",
+                )
+                dispatchable_fleet_ids = tuple(RUNTIME_CONFIG.dispatchable_fleet_ids)
+                _print_event(
+                    "dispatch_requirement_gate_enabled",
+                    rule_source=requirement_checker.rule_source,
+                    rule_version=requirement_checker.rule_version,
+                    minimum_confidence="cross_checked",
+                    unlocked_fleet_ids=list(unlocked_fleet_ids),
+                    dispatchable_fleet_ids=list(dispatchable_fleet_ids),
+                    dispatch_clicks_sent=0,
+                )
                 dispatch_controller = ContinuousDispatchController(
                     scheduler=runtime.scheduler,
                     dispatch_coordinator=dispatch_coordinator,
@@ -1328,6 +1366,9 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     event_sink=runtime.monitor.event_sink,
                     allow_ui_actions=True,
                     max_state_age=timedelta(seconds=args.max_state_age_seconds),
+                    requirement_checker=requirement_checker,
+                    unlocked_fleet_ids=unlocked_fleet_ids,
+                    dispatchable_fleet_ids=dispatchable_fleet_ids,
                 )
             # R3: the settlement and resupply controllers are the two branches
             # supervisor.tick() could never reach while they were absent. They

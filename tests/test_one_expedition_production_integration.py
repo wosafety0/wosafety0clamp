@@ -598,16 +598,24 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
     def test_fleet_4_is_no_longer_statically_deferred(self):
         """On a four-fleet account, Fleet 4 reaches the composition gate.
 
-        It must still fail closed there: no Fleet-4 composition requirement
-        has been verified live, and inventing one would be a dispatch decision
-        made from a guess. What matters here is that the old static 'deferred'
-        rejection is gone and the account-fact gate admitted the fleet.
+        R3-I replaced the entry's private two-pair table with one versioned
+        static rule table. A mission WITH a rule (3) is therefore no longer a
+        Fleet-4 dead end, but a catalogue mission WITHOUT a rule (41) must
+        still fail closed at the composition gate with zero clicks. The old
+        static 'deferred' rejection is gone either way.
         """
+        # The pure adapter now resolves Fleet 4 / mission 3 from the static
+        # table; no live-verified Fleet-4 pair is needed any more.
+        args = self.make_args(Path(tempfile.gettempdir()) / "unused.sqlite3")
+        requirement = entry._mission_requirement(args, 4, 3)
+        self.assertEqual((requirement.minimum_ships, requirement.minimum_flagship_level), (3, 3))
+
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "production" / "state.sqlite3"
             database.parent.mkdir(parents=True)
             args = self.make_args(database)
             args.fleet_id = 4
+            args.mission_id = 41  # in the catalogue, but has no static rule
             game_session = MagicMock()
             game_session.input = FakeGameInput()
             game_session.__enter__.return_value = game_session
@@ -620,7 +628,7 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
                 patch.object(entry, "_probe_unlocked_fleet_ids", return_value=(1, 2, 3, 4)),
                 patch.object(monitor_runtime, "build_runtime") as build,
             ):
-                with self.assertRaisesRegex(entry.LoopError, "no verified composition requirement"):
+                with self.assertRaisesRegex(entry.LoopError, "no static requirement rule"):
                     entry.run(args)
 
             build.assert_not_called()

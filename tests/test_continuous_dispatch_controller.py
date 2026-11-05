@@ -19,6 +19,9 @@ from kancollebot.expeditions.dispatch_recovery import (
     DurableDispatchCoordinator,
     SqliteDispatchIntentStore,
 )
+from kancollebot.expeditions.expedition_requirement_checker import (
+    ExpeditionRequirementChecker,
+)
 from kancollebot.expeditions.fleet_state_store import SqliteFleetStateStore
 from kancollebot.expeditions.mission_eligibility import MissionCompositionRequirement
 from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
@@ -160,6 +163,9 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
         events=None,
         mission_requirements=None,
         passive_witness_wait_seconds=10.0,
+        requirement_checker=None,
+        unlocked_fleet_ids=None,
+        dispatchable_fleet_ids=None,
     ):
         db_path = Path(directory) / "state.sqlite3"
         scheduler = ContinuousExpeditionScheduler(
@@ -183,6 +189,9 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
             max_state_age=fresh_age,
             clock=clock or (lambda: BASE + timedelta(seconds=10)),
             passive_witness_wait_seconds=passive_witness_wait_seconds,
+            requirement_checker=requirement_checker,
+            unlocked_fleet_ids=unlocked_fleet_ids,
+            dispatchable_fleet_ids=dispatchable_fleet_ids,
         )
         return controller, scheduler, intent_store, events
 
@@ -600,6 +609,210 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
             with self.assertRaisesRegex(ContinuousDispatchError, "Poi Redux"):
                 controller.dispatch_one_ready(2)
             self.assertEqual(ui.dispatches, [])
+
+
+class R3IRequirementGateTests(unittest.TestCase):
+    """R3-I is wired into the dispatch transaction BEFORE the first click.
+
+    The two builders are borrowed from the legacy controller test case (they
+    compose the same real scheduler/store/arbiter), without inheriting and
+    re-running every legacy test method.
+    """
+
+    make_controller = ContinuousDispatchControllerTests.make_controller
+    valid_observations = ContinuousDispatchControllerTests.valid_observations
+
+    def r3i_checker(self, **kwargs):
+        return ExpeditionRequirementChecker(clock=lambda: BASE, **kwargs)
+
+    def full_clock(self):
+        return FakeClock(
+            BASE,
+            BASE + timedelta(seconds=2),
+            BASE + timedelta(seconds=3),
+            BASE + timedelta(seconds=4),
+            BASE + timedelta(seconds=5),
+        )
+
+    def assert_zero_click_refusal(self, *, controller, ui, reader, events, intents, expected):
+        with self.assertRaisesRegex(ContinuousDispatchError, "requirement check"):
+            controller.dispatch_one_ready(2)
+        self.assertEqual(ui.dispatches, [])
+        self.assertEqual(ui.home_calls, [])
+        self.assertEqual(reader.read_count, 1)
+        self.assertIsNone(intents.get(2))
+        names = [name for name, _ in events]
+        self.assertNotIn("dispatch_intent_persisted", names)
+        self.assertIn("dispatch_requirement_evaluation", names)
+        self.assertIn("dispatch_blocked_requirement_check", names)
+        evaluation = dict(events[names.index("dispatch_requirement_evaluation")][1])
+        blocked = dict(events[names.index("dispatch_blocked_requirement_check")][1])
+        self.assertEqual(evaluation["overall_result"], expected)
+        self.assertFalse(evaluation["allows_dispatch"])
+        self.assertEqual(evaluation["safety"]["game_clicks_sent"], 0)
+        self.assertEqual(evaluation["safety"]["game_api_requests_sent"], 0)
+        self.assertEqual(blocked["dispatch_clicks_sent"], 0)
+        self.assertEqual(blocked["game_api_requests_sent"], 0)
+        self.assertFalse(blocked["fleet_composition_changes_proposed"])
+        return evaluation
+
+    def test_only_a_pass_verdict_reaches_the_existing_dispatch_flow(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = WitnessAwareReader(ui, *self.valid_observations())
+            controller, scheduler, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=self.full_clock(),
+                requirement_checker=self.r3i_checker(),
+            )
+            result = controller.dispatch_one_ready(2)
+            self.assertEqual(result.fleet_id, 2)
+            self.assertEqual(ui.dispatches, [(2, 1)])
+            names = [name for name, _ in events]
+            self.assertIn("dispatch_requirement_evaluation", names)
+            self.assertNotIn("dispatch_blocked_requirement_check", names)
+            evaluation = dict(events[names.index("dispatch_requirement_evaluation")][1])
+            self.assertEqual(evaluation["overall_result"], "PASS")
+            self.assertTrue(evaluation["allows_dispatch"])
+            self.assertEqual(evaluation["safety"]["game_clicks_sent"], 0)
+            self.assertLess(
+                names.index("dispatch_requirement_evaluation"),
+                names.index("dispatch_intent_persisted"),
+            )
+            self.assertIn("dispatch_confirmed_by_poi", names)
+
+    def test_a_reject_verdict_blocks_with_zero_clicks_and_no_intent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            baseline = observation(
+                BASE - timedelta(seconds=1),
+                [snapshot(2, fuel_ready=False), snapshot(3)],
+            )
+            ui = FakeUi()
+            reader = FakeReader(baseline)
+            controller, scheduler, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(BASE),
+                requirement_checker=self.r3i_checker(),
+            )
+            evaluation = self.assert_zero_click_refusal(
+                controller=controller, ui=ui, reader=reader, events=events,
+                intents=intents, expected="REJECT",
+            )
+            self.assertIn("supply", evaluation["failed_checks"])
+            self.assertEqual(scheduler.fleet(2).phase, FleetPhase.IDLE)
+
+    def test_an_unknown_verdict_blocks_with_zero_clicks_and_no_intent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            baseline = observation(
+                BASE - timedelta(seconds=1),
+                [snapshot(2, ship_levels=(), ship_types=()), snapshot(3)],
+            )
+            ui = FakeUi()
+            reader = FakeReader(baseline)
+            controller, scheduler, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(BASE),
+                requirement_checker=self.r3i_checker(),
+            )
+            evaluation = self.assert_zero_click_refusal(
+                controller=controller, ui=ui, reader=reader, events=events,
+                intents=intents, expected="UNKNOWN",
+            )
+            self.assertIn("flagship_level", evaluation["unknown_checks"])
+            self.assertIn("flagship_valid", evaluation["unknown_checks"])
+
+    def test_a_missing_static_rule_is_an_unknown_zero_click_refusal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = FakeReader(observation(
+                BASE - timedelta(seconds=1), [snapshot(2), snapshot(3)]
+            ))
+            controller, scheduler, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(BASE),
+                mission_requirements={
+                    2: MissionCompositionRequirement(9999, 2, 1),
+                    3: MissionCompositionRequirement(3, 3, 3),
+                },
+                requirement_checker=self.r3i_checker(),
+            )
+            evaluation = self.assert_zero_click_refusal(
+                controller=controller, ui=ui, reader=reader, events=events,
+                intents=intents, expected="UNKNOWN",
+            )
+            self.assertIn("rule_source", evaluation["unknown_checks"])
+
+    def test_mixed_fleet_identity_is_never_used_to_clear_the_gate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            # Ship 1 appears in BOTH fleet records: the R3-I normalizer must
+            # mark the identity ambiguous even though _snapshot_for() succeeds.
+            baseline = observation(
+                BASE - timedelta(seconds=1),
+                [snapshot(2, ship_ids=(1, 2)), snapshot(3, ship_ids=(1, 4, 5))],
+            )
+            ui = FakeUi()
+            reader = FakeReader(baseline)
+            controller, scheduler, intents, events = self.make_controller(
+                directory, reader, ui,
+                clock=FakeClock(BASE),
+                requirement_checker=self.r3i_checker(),
+            )
+            evaluation = self.assert_zero_click_refusal(
+                controller=controller, ui=ui, reader=reader, events=events,
+                intents=intents, expected="UNKNOWN",
+            )
+            self.assertIn("fleet_identity", evaluation["unknown_checks"])
+
+    def test_account_unlock_and_dispatch_policy_facts_reach_the_gate(self):
+        for label, kwargs in (
+            ("locked", {"unlocked_fleet_ids": (3,)}),
+            ("out-of-policy", {"dispatchable_fleet_ids": (3,)}),
+        ):
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as directory:
+                ui = FakeUi()
+                reader = FakeReader(observation(
+                    BASE - timedelta(seconds=1), [snapshot(2), snapshot(3)]
+                ))
+                controller, scheduler, intents, events = self.make_controller(
+                    directory, reader, ui,
+                    clock=FakeClock(BASE),
+                    requirement_checker=self.r3i_checker(),
+                    **kwargs,
+                )
+                evaluation = self.assert_zero_click_refusal(
+                    controller=controller, ui=ui, reader=reader, events=events,
+                    intents=intents, expected="REJECT",
+                )
+                self.assertIn("fleet_available", evaluation["failed_checks"])
+
+    def test_the_gate_is_opt_in_so_existing_controller_tests_are_unchanged(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ui = FakeUi()
+            reader = WitnessAwareReader(ui, *self.valid_observations())
+            controller, scheduler, intents, events = self.make_controller(
+                directory, reader, ui, clock=self.full_clock()
+            )
+            controller.dispatch_one_ready(2)
+            self.assertEqual(ui.dispatches, [(2, 1)])
+            self.assertNotIn(
+                "dispatch_requirement_evaluation", [name for name, _ in events]
+            )
+
+    def test_the_constructor_refuses_a_fake_checker_or_bad_fleet_sets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reader = FakeReader(*self.valid_observations())
+            with self.assertRaisesRegex(ValueError, "must be an ExpeditionRequirementChecker"):
+                self.make_controller(
+                    directory, reader, FakeUi(), requirement_checker=object()
+                )
+            with self.assertRaisesRegex(ValueError, "must be a tuple of positive integers"):
+                self.make_controller(
+                    directory, reader, FakeUi(), unlocked_fleet_ids=[2]
+                )
+            with self.assertRaisesRegex(ValueError, "must be a tuple of positive integers"):
+                self.make_controller(
+                    directory, reader, FakeUi(), dispatchable_fleet_ids=(0,)
+                )
 
 
 if __name__ == "__main__":

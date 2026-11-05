@@ -57,6 +57,10 @@ from kancollebot.expeditions.fleet_state_store import (  # noqa: E402
 from kancollebot.expeditions.mission_eligibility import (  # noqa: E402
     MissionCompositionRequirement,
 )
+from kancollebot.expeditions.expedition_rule_data import (  # noqa: E402
+    DEFAULT_RULE_SET,
+    requirements_for_assignments,
+)
 from kancollebot.expeditions.fleet_availability import (  # noqa: E402
     resolve_fleet_availability,
 )
@@ -234,36 +238,23 @@ def build_runtime(
         port_snapshot_provider=provider,
         freshness_max_age=timedelta(seconds=max_state_age_seconds),
     )
-    all_requirements = {
-        2: MissionCompositionRequirement(
-            mission_id=1,
-            minimum_ships=2,
-            minimum_flagship_level=1,
-        ),
-        3: MissionCompositionRequirement(
-            mission_id=3,
-            minimum_ships=3,
-            minimum_flagship_level=3,
-        ),
-        # Fleet 4 defaults to the same already live-verified mission-1
-        # composition as Fleet 2. This is a conservative default, NOT a claim
-        # that dispatching Fleet 4 has been verified on a real client; any
-        # other expedition must be supplied explicitly via mission_requirements.
-        4: MissionCompositionRequirement(
-            mission_id=1,
-            minimum_ships=2,
-            minimum_flagship_level=1,
-        ),
-    }
+    # R3-I: which fleet runs which mission is still a scheduling decision, but
+    # the NUMBERS for each mission now come from the single versioned static
+    # rule table rather than three copies of hardcoded literals. Fleet 4 keeps
+    # the conservative mission-1 default; this is not a claim that dispatching
+    # Fleet 4 was verified on a real client.
+    all_requirements = requirements_for_assignments(
+        {2: 1, 3: 3, 4: 1}, rule_set=DEFAULT_RULE_SET
+    )
     requirements = {
         fleet_id: all_requirements[fleet_id]
         for fleet_id in effective_dispatch_fleet_ids
     }
     if mission_requirements is not None:
         # A caller that dispatches a mission other than the ones configured
-        # here has to say which one, because the composition gate is what stops
-        # a fleet being sent on an expedition it cannot satisfy. The catalogue
-        # carries names and areas only, so these numbers cannot be derived.
+        # here has to say which one. The R3-I evaluator remains authoritative
+        # for the full condition set; this legacy mapping is only a blunt
+        # pre-check used by the monitor.
         if set(mission_requirements) != set(effective_dispatch_fleet_ids):
             raise ValueError(
                 "mission_requirements must configure every and only effective "

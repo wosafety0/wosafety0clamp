@@ -20,3 +20,10 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# Static reference/fingerprint data is loaded from Path(__file__) at import
+# time; it must be present in an installed wheel as well as a source checkout.
+[tool.setuptools.package-data]
+"kancollebot.adapters.poi" = ["*.json"]
+"kancollebot.calibration" = ["data/*.json"]
+"kancollebot.expeditions" = ["data/*.json"]

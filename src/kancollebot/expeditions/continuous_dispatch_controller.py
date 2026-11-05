@@ -28,6 +28,10 @@ from kancollebot.expeditions.continuous_scheduler import (
 from kancollebot.expeditions.dispatch_recovery import (
     DurableDispatchCoordinator,
 )
+from kancollebot.expeditions.expedition_requirement_checker import (
+    ExpeditionRequirementChecker,
+    normalize_observed_fleets,
+)
 from kancollebot.expeditions.mission_eligibility import (
     FleetCompositionSnapshot,
     MissionCompositionRequirement,
@@ -186,6 +190,9 @@ class ContinuousDispatchController:
         max_state_age: timedelta = timedelta(seconds=30),
         clock: Callable[[], datetime] | None = None,
         passive_witness_wait_seconds: float = 10.0,
+        requirement_checker: ExpeditionRequirementChecker | None = None,
+        unlocked_fleet_ids: tuple[int, ...] | None = None,
+        dispatchable_fleet_ids: tuple[int, ...] | None = None,
     ) -> None:
         if set(mission_requirements) != set(scheduler.dispatch_fleet_ids):
             raise ValueError("mission_requirements must configure every and only dispatchable fleet")
@@ -210,6 +217,22 @@ class ContinuousDispatchController:
             )
         if not callable(event_sink):
             raise ValueError("a durable event_sink is required")
+        if requirement_checker is not None and not isinstance(
+            requirement_checker, ExpeditionRequirementChecker
+        ):
+            raise ValueError("requirement_checker must be an ExpeditionRequirementChecker")
+        for label, value in (
+            ("unlocked_fleet_ids", unlocked_fleet_ids),
+            ("dispatchable_fleet_ids", dispatchable_fleet_ids),
+        ):
+            if value is not None and (
+                not isinstance(value, tuple)
+                or any(isinstance(item, bool) or not isinstance(item, int) or item < 1 for item in value)
+            ):
+                raise ValueError(f"{label} must be a tuple of positive integers")
+        self.requirement_checker = requirement_checker
+        self.unlocked_fleet_ids = unlocked_fleet_ids
+        self.dispatchable_fleet_ids = dispatchable_fleet_ids
         self.scheduler = scheduler
         self.dispatch_coordinator = dispatch_coordinator
         self.state_reader = state_reader
@@ -235,6 +258,44 @@ class ContinuousDispatchController:
             )
             snapshot = self._snapshot_for(baseline, fleet_id)
             requirement = self.mission_requirements[fleet_id]
+            # R3-I: the full static-rule evaluation happens on the SAME fresh
+            # baseline, before the first click and before an intent is written.
+            # REJECT and UNKNOWN both leave dispatch_clicks_sent at zero.
+            if self.requirement_checker is not None:
+                normalized = normalize_observed_fleets(
+                    baseline,
+                    fleet_id,
+                    now=baseline_now,
+                    max_state_age=self.max_state_age,
+                    fleet_unlocked=(
+                        fleet_id in self.unlocked_fleet_ids
+                        if self.unlocked_fleet_ids is not None else True
+                    ),
+                    dispatch_policy_allowed=(
+                        fleet_id in self.dispatchable_fleet_ids
+                        if self.dispatchable_fleet_ids is not None else True
+                    ),
+                )
+                verdict = self.requirement_checker.evaluate(
+                    normalized, requirement.mission_id, fleet_id=fleet_id
+                )
+                self.event_sink("dispatch_requirement_evaluation", verdict.as_dict())
+                if not verdict.allows_dispatch:
+                    reasons = " | ".join(verdict.rejection_reasons[:4])
+                    self.event_sink("dispatch_blocked_requirement_check", {
+                        "fleet_id": fleet_id,
+                        "mission_id": requirement.mission_id,
+                        "overall_result": verdict.overall_result.value,
+                        "failed_checks": list(verdict.failed_checks),
+                        "unknown_checks": list(verdict.unknown_checks),
+                        "dispatch_clicks_sent": 0,
+                        "game_api_requests_sent": 0,
+                        "fleet_composition_changes_proposed": False,
+                    })
+                    raise ContinuousDispatchError(
+                        f"Fleet {fleet_id} / mission {requirement.mission_id} "
+                        f"requirement check {verdict.overall_result.value}: {reasons}"
+                    )
             if snapshot.heavy_damage_ship_ids:
                 blocked_ship_ids = tuple(snapshot.heavy_damage_ship_ids)
                 self.event_sink("dispatch_blocked_large_damage", {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import inspect
 import os
 import sys
 import tempfile
@@ -210,19 +211,43 @@ class DispatchTargetGateTests(unittest.TestCase):
         requirement = controller._mission_requirement(self.make_args(), 2, 1)
         self.assertEqual((requirement.minimum_ships, requirement.minimum_flagship_level), (2, 1))
 
-    def test_a_mission_without_a_verified_requirement_is_refused(self):
-        with self.assertRaisesRegex(
-            controller.LoopError, "no verified composition requirement for fleet 3 / mission 5"
-        ):
-            controller._mission_requirement(self.make_args(mission_id=5), 3, 5)
+    def test_r3i_static_table_replaces_the_entry_local_hardcoded_pairs(self):
+        # Mission 5 was "unverified" when only two live pairs were hardcoded.
+        # R3-I supplies its numbers from the single versioned static table.
+        requirement = controller._mission_requirement(self.make_args(mission_id=5), 3, 5)
+        self.assertEqual((requirement.minimum_ships, requirement.minimum_flagship_level), (4, 3))
 
-    def test_explicit_numbers_are_used_for_an_unverified_mission(self):
+    def test_a_mission_without_a_static_rule_is_refused(self):
+        with self.assertRaisesRegex(
+            controller.LoopError, "no static requirement rule for fleet 3 / mission 999"
+        ):
+            controller._mission_requirement(self.make_args(mission_id=999), 3, 999)
+
+    def test_a_missing_rule_cannot_be_bypassed_with_explicit_numbers(self):
+        with self.assertRaisesRegex(controller.LoopError, "no static requirement rule"):
+            controller._mission_requirement(
+                self.make_args(mission_id=999, minimum_ships=6, flagship_level=99), 3, 999
+            )
+
+    def test_explicit_numbers_may_only_make_the_gate_stricter(self):
         requirement = controller._mission_requirement(
-            self.make_args(mission_id=5, minimum_ships=4, flagship_level=2), 3, 5
+            self.make_args(mission_id=5, minimum_ships=5, flagship_level=4), 3, 5
         )
         self.assertEqual(requirement.mission_id, 5)
-        self.assertEqual(requirement.minimum_ships, 4)
-        self.assertEqual(requirement.minimum_flagship_level, 2)
+        self.assertEqual(requirement.minimum_ships, 5)
+        self.assertEqual(requirement.minimum_flagship_level, 4)
+
+    def test_an_override_weaker_than_the_static_rule_is_refused(self):
+        for ships, level in ((3, 3), (4, 2)):
+            with self.subTest(ships=ships, level=level):
+                with self.assertRaisesRegex(controller.LoopError, "weaker than the static rule"):
+                    controller._mission_requirement(
+                        self.make_args(
+                            mission_id=5, minimum_ships=ships, flagship_level=level
+                        ),
+                        3,
+                        5,
+                    )
 
     def test_half_a_requirement_is_refused(self):
         with self.assertRaisesRegex(controller.LoopError, "must be given together"):
@@ -235,6 +260,36 @@ class DispatchTargetGateTests(unittest.TestCase):
                     controller._mission_requirement(
                         self.make_args(minimum_ships=value, flagship_level=2), 3, 5
                     )
+
+
+class R3IProductionGateWiringTests(unittest.TestCase):
+    """Guard against the LIVE dispatch gate being quietly removed.
+
+    The controller's checker is optional for legacy/offline callers, so a unit
+    test of the controller alone cannot prove that the production entry enables
+    it. This source-level guard checks the only production construction site.
+    """
+
+    def test_the_production_entry_always_injects_the_requirement_checker(self):
+        source = inspect.getsource(controller._run_production_supervisor_once)
+        self.assertIn("requirement_checker=requirement_checker", source)
+        self.assertIn('minimum_confidence="cross_checked"', source)
+        self.assertIn("unlocked_fleet_ids=unlocked_fleet_ids", source)
+        self.assertIn("dispatchable_fleet_ids=dispatchable_fleet_ids", source)
+        self.assertIn("dispatch_requirement_gate_enabled", source)
+
+    def test_the_entry_does_not_expose_a_bypass_switch_or_private_rule_table(self):
+        source = inspect.getsource(controller._run_production_supervisor_once)
+        self.assertNotIn("--disable-requirement-check", source)
+        self.assertNotIn("requirement_checker=None", source)
+        self.assertFalse(hasattr(controller, "KNOWN_COMPOSITION"))
+
+    def test_the_monitor_composition_root_reads_the_static_rule_table(self):
+        import run_continuous_expedition_monitor as monitor
+
+        source = inspect.getsource(monitor.build_runtime)
+        self.assertIn("requirements_for_assignments", source)
+        self.assertNotIn("minimum_ships=2,", source)
 
 
 class DispatchFleetValidationTests(unittest.TestCase):

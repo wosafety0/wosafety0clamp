@@ -177,7 +177,7 @@ SHARED_CAPABILITIES: tuple[SharedCapability, ...] = (
     SharedCapability(
         name="expedition_composition_checks",
         module="kancollebot.expeditions.mission_eligibility",
-        symbols=("MissionCompositionRequirement", "evaluate_mission_composition", "KNOWN_COMPOSITION"),
+        symbols=("MissionCompositionRequirement", "evaluate_mission_composition"),
         boundary=CapabilityBoundary.TASK_SPECIFIC,
         rationale=(
             "Module docstring says 'Pure, offline expedition composition "
@@ -187,7 +187,10 @@ SHARED_CAPABILITIES: tuple[SharedCapability, ...] = (
         decoupling_note=(
             "The generic SHAPE (fleet snapshot + requirement) is reusable for "
             "automated composition, but must be redefined per task; do not "
-            "import this module from a combat/quest path."
+            "import this module from a combat/quest path. R3-I moved the "
+            "per-mission numbers into one versioned static table "
+            "(expedition_rule_data / expedition_requirements.json); the old "
+            "KNOWN_COMPOSITION literal was removed and must not be reintroduced."
         ),
     ),
     SharedCapability(
