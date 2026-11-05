@@ -548,14 +548,21 @@ class CdpContinuousExpeditionUiDriver:
 
         Some pages cannot be named - the fleet-selection page has no usable
         fingerprint - and a proof that never succeeds is a proof that never
-        sends the click that would fix it. This loop instead clicks the 母港
-        control, waits, and looks again: a recognised Home Port ends it.
+        sends the click that would fix it. This is the last resort: the named
+        states and the calibrated fleet tab are tried first, because a click on
+        a page nobody can identify has an unknown effect.
+
+        The loop waits before its first click. The client often settles on its
+        own - after a start click it shows the fleet-selection page and then
+        drops back to the expedition list - and waiting costs nothing while a
+        click changes a screen we do not understand.
 
         Two rules keep it safe. A reward screen stops the loop outright,
         because those advance on a click anywhere and belong to the settlement
         controller. And every attempt is bounded: an unrecognised screen never
         turns into an unbounded click sequence.
         """
+        observed_port = False
         for attempt in range(1, max_attempts + 1):
             try:
                 return self._confirm(
@@ -568,6 +575,15 @@ class CdpContinuousExpeditionUiDriver:
                     "a reward screen is on display; the settlement controller owns "
                     "that chain, so no return-to-port click is sent"
                 )
+            if attempt == 1:
+                # Let the client settle before the first click.
+                self._event_sink("continuous_ui_return_by_observation_wait", {
+                    "fleet_id": fleet_id,
+                    "wait_seconds": interval_seconds,
+                    "clicks_sent": 0,
+                })
+                self._sleep(interval_seconds)
+                continue
             self._event_sink("continuous_ui_return_by_observation_attempt", {
                 "fleet_id": fleet_id,
                 "attempt": attempt,

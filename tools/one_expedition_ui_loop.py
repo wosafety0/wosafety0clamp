@@ -794,6 +794,14 @@ def _recover_home_port_by_observation(
                 "on a click anywhere. The observed recovery will not send that click: "
                 "the settlement controller owns the reward chain."
             )
+        if attempt == 1:
+            # Let the client settle before the first click: waiting changes
+            # nothing, while a click on an unnamed page changes a screen we do
+            # not understand.
+            _print_event("home_port_recovery_settle_wait", attempt=attempt,
+                         wait_seconds=interval_seconds, clicks_sent=0)
+            time.sleep(interval_seconds)
+            continue
         point = candidates[(attempt - 1) % len(candidates)]
         _print_event("ui_action_precondition", action="click_home_port_observed",
                      attempt=attempt, force_click=False, point=point.label)

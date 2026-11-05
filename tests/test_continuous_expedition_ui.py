@@ -603,13 +603,14 @@ class ReturnByObservationTests(unittest.TestCase):
         return driver, game_input, events
 
     @staticmethod
-    def verify_with_port_after_first_call():
+    def verify_with_port_after(failures):
+        """A verifier that reports the port only after N failed attempts."""
         calls = {"home_port": 0}
 
         def verify(state, *, visual_attempts=None):
             if state == "HOME_PORT":
                 calls["home_port"] += 1
-                if calls["home_port"] == 1:
+                if calls["home_port"] <= failures:
                     raise ContinuousUiDriverError("the Home Port is not on screen yet")
                 return UiStateEvidence(
                     state="HOME_PORT",
@@ -620,15 +621,32 @@ class ReturnByObservationTests(unittest.TestCase):
 
         return verify
 
-    def test_the_loop_clicks_once_and_stops_at_the_port(self):
+    def test_the_loop_waits_before_its_first_click(self):
+        # The client often settles on its own - after a start click it shows
+        # the fleet page and then drops back to the expedition list - so the
+        # first round waits instead of clicking.
         driver, game_input, events = self.make_driver(
-            verify=self.verify_with_port_after_first_call()
+            verify=self.verify_with_port_after(2)
         )
         evidence = driver.return_to_home_port(fleet_id=3)
         self.assertEqual(evidence.state, "HOME_PORT")
         self.assertEqual(game_input.clicks, ["home-port"])
         self.assertTrue(any(
+            name == "continuous_ui_return_by_observation_wait" for name, _ in events
+        ))
+        self.assertTrue(any(
             name == "continuous_ui_return_by_observation_attempt" for name, _ in events
+        ))
+
+    def test_the_loop_never_clicks_when_the_port_appears_on_its_own(self):
+        driver, game_input, events = self.make_driver(
+            verify=self.verify_with_port_after(1)
+        )
+        evidence = driver.return_to_home_port(fleet_id=3)
+        self.assertEqual(evidence.state, "HOME_PORT")
+        self.assertEqual(game_input.clicks, [])
+        self.assertTrue(any(
+            name == "continuous_ui_return_by_observation_wait" for name, _ in events
         ))
 
     def test_a_reward_screen_stops_the_loop_before_any_click(self):
@@ -660,7 +678,7 @@ class ReturnByObservationTests(unittest.TestCase):
 
     def test_a_named_page_never_reaches_the_loop(self):
         driver, game_input, _ = self.make_driver(
-            verify=self.verify_with_port_after_first_call()
+            verify=self.verify_with_port_after(1)
         )
         with self.assertRaises(ContinuousUiDriverError):
             driver.return_to_home_port(
