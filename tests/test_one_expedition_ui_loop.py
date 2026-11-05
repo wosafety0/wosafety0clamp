@@ -999,6 +999,54 @@ class HiddenHomePortUiLayerTests(unittest.TestCase):
         self.assertTrue(all(point.label == "home-port" for point in clicked))
 
 
+class VisibleSettlementScreenTests(unittest.TestCase):
+    """The startup guard: which screens the recovery is not allowed to click."""
+
+    @staticmethod
+    def session():
+        game_session = MagicMock()
+        game_session.input.capture_screenshot.return_value = "frame"
+        return game_session
+
+    def classify(self, observed):
+        return (
+            patch.object(controller, "_read_visual_document", return_value={}),
+            patch.object(
+                controller,
+                "classify_screenshot_fingerprints",
+                return_value=(observed, {}),
+            ),
+        )
+
+    def test_a_reward_screen_is_reported(self):
+        for state in ("HOME_PORT_RETURN_NOTICE", "RETURN_RESULT", "BONUS_ITEMS"):
+            with self.subTest(state=state):
+                read_doc, classify = self.classify(state)
+                with read_doc, classify:
+                    self.assertEqual(
+                        controller._visible_settlement_screen(self.session()), state
+                    )
+
+    def test_the_port_is_not_a_reward_screen(self):
+        read_doc, classify = self.classify("HOME_PORT")
+        with read_doc, classify:
+            self.assertIsNone(controller._visible_settlement_screen(self.session()))
+
+    def test_an_unreadable_frame_is_not_treated_as_a_reward_screen(self):
+        game_session = MagicMock()
+        game_session.input.capture_screenshot.side_effect = RuntimeError("no frame")
+        self.assertIsNone(controller._visible_settlement_screen(game_session))
+
+    def test_it_asks_for_the_composited_frame(self):
+        # The return notice only exists in the composited capture; asking for the
+        # page surface is the bug this whole path exists to avoid.
+        read_doc, classify = self.classify("HOME_PORT")
+        game_session = self.session()
+        with read_doc, classify:
+            controller._visible_settlement_screen(game_session)
+        game_session.input.capture_screenshot.assert_called_once_with(from_surface=False)
+
+
 class RewardScreenRecoveryGuardTests(unittest.TestCase):
     """Recovery must not walk a reward chain it cannot prove.
 

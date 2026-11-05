@@ -1007,8 +1007,26 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 if args.settle_only
                 else _mission_requirement(args, target_fleet_id, target_mission_id)
             )
-            _recover_home_port(game_session)
-            _capture_home_reference(game_session)
+            # A run can start on a reward screen the previous process left open
+            # (live 2026-11-05: a return result for Fleet 4, whose api_mission
+            # the game had already cleared). Home Port recovery must not click
+            # it - every reward screen advances on a click anywhere - and the
+            # chain is exactly what the settlement controller is for, so the
+            # startup skips the recovery and lets the controller close it.
+            if _visible_settlement_screen(game_session) is not None:
+                _print_event(
+                    "startup_reward_screen_detected",
+                    owned_by="settlement controller",
+                    recovery_clicks_sent=0,
+                    ui_refresh_disabled_reason=(
+                        "the freshness navigation starts at HOME_PORT and cannot run "
+                        "while a reward screen is up"
+                    ),
+                )
+                args.enable_ui_refresh = False
+            else:
+                _recover_home_port(game_session)
+                _capture_home_reference(game_session)
 
             def verify_state(expected: str, *, visual_attempts: int = 3) -> UiStateEvidence:
                 state = UiState(expected)
