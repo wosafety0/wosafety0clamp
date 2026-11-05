@@ -36,7 +36,7 @@ KancolleBot 是一个**只读优先、fail-closed** 的舰娘游戏自动化机�
 | 日志 / 事件归因 / 监控 | IMPLEMENTED | `core/task_attribution.py`、`continuous_monitor.py` | 可信事件封套；调用方 `**extra` 不能覆盖信任 `task_kind`。 |
 | 异常恢复 | IMPLEMENTED | `dispatch_recovery.py`、`action_journal.py` | 崩溃安全意图持久化、at-most-once 日志。 |
 | 配置与策略管理 | IMPLEMENTED | `task_scope.py`（TaskKind/FleetPolicy 单一事实来源）、`runtime_config.py` | `fleet_policy_for()` 含 fail-closed 守卫。 |
-| 自动化测试基建 | IMPLEMENTED | `tests/`（78 个 unittest + 3 个 node `.cjs`） | unittest + `node --test`；CI 见 `BRANCHING_STRATEGY.md` §2.4。 |
+| 自动化测试基建 | IMPLEMENTED | `tests/`（78 个 Python unittest 测试模块 + 3 个 Node `.cjs` 测试文件；用例数以实际运行输出为准） | unittest + `node --test`；CI 见 `BRANCHING_STRATEGY.md` §2.4。 |
 
 > **平台层约束**：业务模块不得复制一套 Poi 接口或数据读取逻辑。当前存在两套 Poi 访问范式（只读快照层 vs 实时 CDP 层），职责不同（观测 vs 控制），但概念重叠，需用文档明确边界（见第 7 节）。
 
@@ -113,7 +113,7 @@ KancolleBot 是一个**只读优先、fail-closed** 的舰娘游戏自动化机�
 
 ## 9. 现有架构问题（待解决）
 
-1. **R3 未接线**（最高优先）：结算/补给控制器已实现，但 `tools/one_expedition_ui_loop.py:986-989` 组合根未传入，闭环在结算/补给阶段只暂停不动作。详见 `DEVELOPMENT_ROADMAP.md` P0。
+1. **R3 未接线**（最高优先）：生产组合根位于 `tools/one_expedition_ui_loop.py:914-932`；当前仅构造并注入 dispatch controller，未构造/注入 settlement 与 resupply controller。控制器和 supervisor 分支逻辑已实现；生产 `fleet_data_provider` 尚无实时 Poi `FleetSupplyObservation` 构造来源。详见 `DEVELOPMENT_ROADMAP.md` P0。
 2. **档1 契约未接入运行时**：契约是文档+稳定性测试，生产代码不读取。需决定是“消费契约”还是“以 `task_scope.py` 为唯一真值并废弃 JSON 契约”。
 3. **双 Poi 访问范式**：只读快照层与实时 CDP 层概念重叠，需文档明确边界，避免未来各模块各建一套。
 4. **死代码**：`adapters/poi/expedition_state.py`（135 行旧版）已被 `expedition_state_v2.py` 取代且无任何导入，建议删除。
