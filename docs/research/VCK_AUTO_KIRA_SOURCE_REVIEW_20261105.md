@@ -606,3 +606,17 @@ Separate persistent task policy from execution policy. If KancolleBot later supp
 
 - `ExpeditionKiraSetting.cs` blob: `fbb80cfe745a7dc332c68baf8bdaf3684b3c52a4`
 - `AutoExpeditionSettings.cs` blob: `8aa102bdaf2674c491820c82906fd0fe1e81a288`
+
+
+## 31. Battle HP gate uses reconstructed damage-phase HP, not only a live store read
+
+Further review of `ActAutoKira.cs` (blob `49ab7708935df2ebd3758a80bc7cbfb970f5521d`) refines Section 15.2:
+
+- The `api_req_sortie_battle` handler `OgP3nae30b(kcsapi_battle)` initializes `HPs_f` from `api_f_nowhps`, then processes the battle payload's damage phases and subtracts damage from the corresponding friendly HP entries. The reviewed logic includes airstrike/injection-airstrike, opening torpedo, shelling phases, and torpedo damage.
+- The separate `api_req_sortie_battle_midnight` handler `qIR3ptYXGX(kcsapi_battle_midnight)` also initializes friendly HP from that event payload and applies night-battle damage.
+- After the battle UI/session queue completes, `kR337kpmUA()` compares the resulting `HPs_f` values with each present fleet ship's maximum HP. Any ship at or below 25% makes the helper return false and selects the retreat path. This is fleet-wide, not flagship-only.
+- The `api_req_sortie_battleresult` handler is separate: `Rb633lGcUR` calls `Assistant.UpdateBattleResult(P_0, JIw30XiJDT, nHr35uo1Di, HPs_e)`. It passes the battle result payload, tracked target IDs, a map flag, and the enemy HP list; the friendly retreat check instead uses `HPs_f` accumulated by the battle-phase observer.
+
+### KancolleBot design consequence
+
+Keep battle-event-derived HP estimates and live post-battle Poi/CDP observations as distinct evidence types. Event-derived damage reconstruction can support an immediate conservative retreat decision, but it must not be mislabeled as a fresh live fleet snapshot. After returning to port, re-read and verify actual HP/damage state before resupply, repair, or another sortie. If a required battle event is missing, malformed, or cannot be correlated to the current sortie, treat the battle outcome as unknown and stop rather than advancing on a stale estimate.
