@@ -4252,3 +4252,19 @@ The Hand plugin's read-only probe reported:
 - **SAFETY:** 未改 freshness 判据、`max_state_age`、cooldown、导航序列；未新增点击次数（仍是每奖励页一击）；`(1144,665)` 在点击前用分类器确认页面为 `BONUS_ITEMS`，点击后确认到达 `HOME_PORT`。
 - **LIMITS:** ① 「空区点 (600,400) 在奖励页不可用」**未被证伪**——本轮是直接改用「次」，未在奖励页做 A/B。② 新指纹只在本账号 Fleet 2 的「練習航海」奖励页采到；其他任务若奖励页有额外元素（如多行物品），需复测。③ `RETURN_RESULT` 仍在用 `[280,280,320,160]` 这套同样的宽框，未重采。
 - **NEXT:** 用新指纹 + 新推进点，对仍待领取的 Fleet 3（`api_mission [2,3,…]`）跑一次单舰队结算，取证「结算→补给→再派遣」。
+
+## 2026-11-05 — R3-E 阻塞：启动即遇奖励页时，监控与结算互相锁死
+
+- **场景（实机复现）:** Fleet 3 返航未领取（`api_mission [2,3,…]`），母港上浮着它的返航提示。执行 `one_expedition_ui_loop.py --settle-only --adopt-observed-mission --wait-for-return`。
+- **观测证据:** 合成层 (`from_surface=False`) 分类为 `HOME_PORT_RETURN_NOTICE` **0.9991**；默认层同一时刻只读到纯母港 `HOME_PORT` **0.9980**。即返航提示位于合成浮层，默认层看不到——两层的判定都与事实相符，不是分类器错误。
+- **死锁链条（每一步都符合各自规则，合起来却无法前进）:**
+  1. 启动探测到奖励页 → `startup_reward_screen_detected`，**不执行母港恢复**（防止盲点推进奖励链，正确），并置 `enable_ui_refresh=false`（导航从 HOME_PORT 出发，奖励页在时不能跑，正确）。
+  2. 每 tick 先跑 `monitor.tick()`，Poi witness 未验证 → 抛 `PRODUCTION_TICK_OBSERVATION_UNAVAILABLE`（R3-D 之后 monitor 不隐式导航，正确）。
+  3. 采纳只发生在 `monitor._reconcile_fleet()` 内（入口把 `--adopt-observed-mission` 传给 `adopt_unplanned_missions`），而 monitor 在采纳之前就抛了 → **DB 里 `fleet_runtime` 一行都没有，事件 0 条**。
+  4. `supervisor.tick()` 第 241 行 `monitor.tick()` 在结算之前执行，因此结算控制器永远轮不到——“屏幕上已经摆着一个待领取的奖励页”这件**不需要任何观测**就能做的事，被观测新鲜度挡在门外。
+- **VERIFIED:** 实机跑 1m46s、10+ 个 tick，`game_actions_sent=0`、`dispatch_events` 为空、`fleet_runtime` 为空，无任何推进。
+- **IMPACT:** 任何“进程重启时屏幕停在奖励页”的生产情形都会如此。这不是本轮新引入：`startup_reward_screen_detected` 的注释记录同一现象在 2026-11-05 更早已出现过（当时靠人工收尾）。
+- **未修复（等待决策）。两条候选路径:**
+  - ① 启动时若已证实奖励页，就在进入 tick 循环**之前**由结算控制器按屏幕证据结算（需先把舰队以 `RETURNED_PENDING_UI` 采纳；采纳依据可取启动时已用的 CDP 快照，它不依赖 witness）。改动局限在入口。
+  - ② 调整 `supervisor.tick()` 顺序：当持久化 phase 明确要求结算（`RETURNED_PENDING_UI`）而观测不可信时，允许结算先行。改动触及 supervisor 语义，影响面更大。
+- **LIMITS:** 本轮未验证「空区点 (600,400) 在奖励页是否也能推进」；`startup_reward_screen_detected` 之后 `enable_ui_refresh=false` 是否会连带禁用后续所有刷新（含返航后）尚未验证。
