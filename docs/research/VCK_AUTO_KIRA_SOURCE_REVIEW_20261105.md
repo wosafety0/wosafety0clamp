@@ -418,3 +418,58 @@ Constructor defaults directly observed:
 Combined with Sections 14.3 and 19, the default `AutoKiraSupplyFellows=false` means the automatic preflight/supply path checks and supplies **only the flagship**, not the temporary fellow. The fellow's candidate predicate only requires fuel and ammunition ratios of at least 30%; it is not guaranteed to be fully replenished by the default policy. This is an upstream resource-saving behavior, not a safe readiness policy to inherit blindly.
 
 These values are defaults only. Persisted settings can override them, so runtime behavior must be based on the loaded settings snapshot rather than constructor defaults.
+
+
+## 24. Modern Poi MCP adaptation boundary (KanColle-Agent)
+
+Read-only source review of `Yukikaze030/KanColle-Agent`, `main` at commit `835de05a836061f9f57c484edd2455e299ff63fd`. This review does not modify that repository.
+
+### 24.1 Useful data already exposed
+
+The current Poi MCP adapter exposes ship instance/master IDs, level, HP, max HP, condition, locked, damage, fleet membership, repair-dock boolean, equipment slots, and fleet composition. `getFleets` also reports coverage for fleets, ships, and equipment and returns missing ship/equipment identifiers. The tools refuse an unloaded ships domain and return `not_ready` when the fleet domain is not loaded. Those domain-level guards are useful foundations.
+
+### 24.2 Data gaps and unsafe normalization defaults
+
+The current `ShipRecord` schema does not contain per-ship fuel or ammunition; the resource fields are player-wide totals. Therefore the KCV fellow requirement of per-ship fuel and ammo ratios cannot be evaluated from the normalized `ShipRecord` alone.
+
+The Poi bridge currently normalizes missing fields as follows:
+
+- `condition: s.api_cond ?? 49` — missing morale becomes a plausible numeric value.
+- `locked: Boolean(s.api_locked)` — missing lock state becomes `false`, indistinguishable from confirmed unlocked.
+- `max_hp: s.api_maxhp ?? s.api_max_hp ?? s.api_nowhp ?? 1` — missing maximum HP can fall back to current HP, making a damaged ship appear to have a 100% HP ratio.
+- `level: s.api_lv ?? 0` — missing level becomes 0 and can falsely satisfy a low-level fellow filter.
+- `dock: repairing.has(s.api_id)` — the repair set is built from `readRepairs`; that reader defaults missing `info.repairs/info.repair` to an empty array, so absent repair data can look like “not in dock.”
+- `fleet_id: fleetByShip.get(s.api_id) ?? null` — null can mean unassigned, but can also result when no fleet mapping was loaded. Only interpret it as unassigned after independently confirming complete fleet coverage.
+
+The shared `ShipRecord` type makes `condition`, `locked`, `hp`, and `max_hp` non-optional, so consumers cannot distinguish source values from these fallbacks.
+
+### 24.3 Repair freshness is not independently represented
+
+- `SnapshotStore.DomainName` includes `operations` but no `repairs` domain.
+- `setRepairs` stores the repair list and marks the broader operations domain `partial`; it does not establish a dedicated repairs coverage state.
+- `getOperations` returns the repairs array without a repairs-specific coverage marker, and `poiGetOperations` returns that result as successful without checking repair completeness.
+- `getFleets` coverage includes fleets, ships, and equipment, but not repairs. Therefore `dock=false` is not independently freshness-qualified by the current fleet response.
+
+### 24.4 KancolleBot adapter requirements
+
+For strict fellow eligibility and dispatch safety, do not use the normalized defaults as proof. The adapter should preserve raw field availability or expose tri-state values:
+
+- `condition: number | null`, `locked: boolean | null`;
+- `hp/max_hp: number | null`;
+- per-ship `fuel/max_fuel` and `ammo/max_ammo` as nullable values;
+- `dock: boolean | null` with explicit repairs coverage;
+- fleet membership only treated as “unassigned” when fleet-domain coverage is complete.
+
+Add a dedicated repairs freshness/coverage signal and keep domain `updated_at` timestamps available to the safety gate. Until these gaps are closed, use read-only raw Poi store observations for the missing fields or reject the candidate as unknown. Never let missing lock, fuel, ammo, HP maximum, or repair state pass an eligibility gate.
+
+### 24.5 Pinned source blobs
+
+| File | Blob SHA |
+|---|---|
+| `packages/shared/src/types.ts` | `e6ff7de70a47d92e5121dfcc8c547ae112a01396` |
+| `packages/poi-plugin-mcp/poi/store-bridge.cjs` | `6d48c76295e43b8b634286984293cec7102babc1` |
+| `packages/poi-plugin-mcp/src/services.ts` | `4130a3c97b3d1cfd4284f15cb17f55e924079e06` |
+| `packages/poi-plugin-mcp/src/snapshot.ts` | `efaeef9f005d02b1804a62c7318eeb72ff627c6b` |
+| `packages/poi-plugin-mcp/src/tools.ts` | `56eb30450272c52e701bd88876142baca55bff67` |
+
+This is a static source compatibility review. No plugin or KancolleBot adapter code was changed, and no live Poi runtime data was queried.
