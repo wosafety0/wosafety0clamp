@@ -4189,3 +4189,8 @@ The Hand plugin's read-only probe reported:
 - **RARITY MAPPING CONFIRMED:** GetAutoKiraRareCondition 映射“金色”→5、“银色”→4、其他/回退→6；陪练谓词比较 Ship.Backs，并拒绝 Backs>=cutoff。默认“金色”因此要求 Backs<5。
 - **DESIGN CONSEQUENCE:** 可借鉴按远征保存非安全性刷闪偏好；KancolleBot 的锁定、HP、损伤、补给、修理、舰队占用和装备保护必须保持全局安全门，不能被单个远征配置覆盖。
 - **SOURCE BLOB EVIDENCE:** `ExpeditionKiraSetting.cs` blob `fbb80cfe745a7dc332c68baf8bdaf3684b3c52a4`；`AutoExpeditionSettings.cs` blob `8aa102bdaf2674c491820c82906fd0fe1e81a288`。
+
+
+- **FOLLOW-UP SOURCE_REVIEWED (battle HP reconstruction):** 继续追踪 ActAutoKira 的战斗事件处理。sortie battle handler 从 `api_f_nowhps` 初始化 HPs_f，并按空袭/航空支援、开幕雷击、炮击阶段和雷击等伤害字段扣减；midnight battle handler 也单独从事件 payload 初始化并应用夜战伤害。战斗 UI/session queue 完成后，kR337kpmUA 对照当前舰队每艘舰的最大 HP 检查 HPs_f；任一舰 <=25% 即走撤退。该门槛是全舰队，不是仅旗舰。battleresult handler 则另行调用 Assistant.UpdateBattleResult，传入目标 ID、地图标记和敌方 HP 列表。
+- **ADAPTER DESIGN:** 战斗事件推算 HP 与实时 Poi/CDP 舰队观察必须分开标记。推算可用于保守撤退，但不能伪装成新鲜的 live snapshot；回港后重新读取实际 HP/损伤，验证后再补给、修理或再次出击。事件缺失、解析失败或无法关联当前 sortie 时，结果应为 unknown 并停止推进。
+- **SOURCE BLOB EVIDENCE:** `ActAutoKira.cs` blob `49ab7708935df2ebd3758a80bc7cbfb970f5521d`。
