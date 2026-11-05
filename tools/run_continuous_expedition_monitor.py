@@ -128,6 +128,12 @@ def build_runtime(
     # mission_requirements are). A declared-but-unimplemented task is rejected
     # here instead of silently inheriting expedition fleet policy.
     task_kind: TaskKind | str = TaskKind.EXPEDITION,
+    # Opt-in recovery for a fleet that is already out (restart, or an expedition
+    # started by hand). Off by default: BLOCKED is the conservative answer when
+    # the durable state and the game disagree. Turning it on asserts that the
+    # caller confirmed HOME_PORT in the same observation window, and the monitor
+    # still requires the observed mission identity and composition to match.
+    adopt_unplanned_missions: bool = False,
 ) -> MonitorRuntime:
     """Compose one read-only monitor with shared durable stores and witness source."""
     policy = require_task_enabled(task_kind)
@@ -282,6 +288,7 @@ def build_runtime(
         mission_requirements=requirements,
         event_sink=event_sink,
         max_state_age=timedelta(seconds=max_state_age_seconds),
+        adopt_unplanned_missions=adopt_unplanned_missions,
     )
     return MonitorRuntime(
         monitor=monitor,

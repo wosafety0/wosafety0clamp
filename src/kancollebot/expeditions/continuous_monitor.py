@@ -70,6 +70,11 @@ class ContinuousExpeditionMonitor:
         event_sink: Callable[[str, Mapping[str, object]], None],
         max_state_age: timedelta = timedelta(seconds=30),
         clock: Callable[[], datetime] | None = None,
+        # Opt-in: adopt a mission the scheduler did not dispatch when it matches
+        # the configured mission for that fleet. Off by default because the
+        # conservative answer to "I expected an idle fleet" is BLOCKED; a caller
+        # that has just confirmed Home Port may prefer to resume instead.
+        adopt_unplanned_missions: bool = False,
     ) -> None:
         if set(mission_requirements) != set(scheduler.dispatch_fleet_ids):
             raise ValueError("mission_requirements must configure every and only dispatchable fleet")
@@ -79,12 +84,15 @@ class ContinuousExpeditionMonitor:
             raise ValueError("a durable event_sink is required")
         if max_state_age < timedelta(0):
             raise ValueError("max_state_age must not be negative")
+        if not isinstance(adopt_unplanned_missions, bool):
+            raise ValueError("adopt_unplanned_missions must be a bool")
         self.scheduler = scheduler
         self.state_reader = state_reader
         self.mission_requirements = dict(mission_requirements)
         self.event_sink = event_sink
         self.max_state_age = max_state_age
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.adopt_unplanned_missions = adopt_unplanned_missions
 
     def tick(self) -> ContinuousMonitorReport:
         """Read once, validate the whole fleet set, then reconcile each fleet."""
@@ -172,10 +180,23 @@ class ContinuousExpeditionMonitor:
                     fleet_id, previous, current, "settlement_pending",
                     "returned mission identity remains unchanged",
                 )
+            if self._is_idle_snapshot(snapshot) and current.mission is not None:
+                # Accepting the expedition result clears api_mission, so a
+                # half-finished reward chain shows up as an idle fleet (live
+                # 2026-11-05). The returned identity is in the scheduler and the
+                # remaining work is pure UI, so this keeps the settlement alive
+                # instead of blocking a fleet the game has already settled.
+                return self._result(
+                    fleet_id, previous, current, "settlement_continuing",
+                    "Poi reports idle after the result was accepted; reward screens pending",
+                )
             return self._block(fleet_id, current, "settlement phase no longer matches returned mission")
 
         if current.phase in (FleetPhase.IDLE, FleetPhase.READY, FleetPhase.RESUPPLY_REQUIRED):
             if not self._is_idle_snapshot(snapshot):
+                adopted = self._adopt_unplanned_mission(fleet_id, current, snapshot)
+                if adopted is not None:
+                    return adopted
                 return self._block(fleet_id, current, "scheduler expects idle fleet but Poi reports a mission")
             plan = evaluate_expedition_fleet(snapshot, now=now)
             if plan.decision is not ExpeditionDecision.READY_TO_DISPATCH:
@@ -196,6 +217,64 @@ class ContinuousExpeditionMonitor:
             return self._result(fleet_id, previous, current, "ready_hold", "fleet remains ready")
 
         return self._block(fleet_id, current, f"unsupported scheduler phase: {current.phase.value}")
+
+    def _adopt_unplanned_mission(
+        self,
+        fleet_id: int,
+        current: FleetRuntime,
+        snapshot: ExpeditionFleetSnapshot,
+    ) -> FleetMonitorResult | None:
+        """Resume a fleet whose mission the durable state does not know about.
+
+        Returns None - which leaves the caller free to block - unless every
+        adoptable fact lines up: the option is on, the mission identity equals
+        the configured mission for this fleet, and the observed composition
+        still satisfies that mission's requirement. The mission is *not* trusted
+        on the strength of its arrival time; only the identity and the ships are
+        used, so a different expedition on the same fleet still blocks.
+        """
+        if not self.adopt_unplanned_missions:
+            return None
+        observed = self._mission_from_snapshot(snapshot, fleet_id)
+        if observed is None:
+            self._reject_adoption(fleet_id, "mission tuple cannot be formed from the observation")
+            return None
+        requirement = self.mission_requirements[fleet_id]
+        if observed.mission_id != requirement.mission_id:
+            self._reject_adoption(
+                fleet_id,
+                f"observed mission {observed.mission_id} is not the configured "
+                f"mission {requirement.mission_id}",
+            )
+            return None
+        if not self._composition_is_eligible(snapshot, requirement):
+            self._reject_adoption(fleet_id, "observed composition is not eligible for the configured mission")
+            return None
+        updated = self.scheduler.adopt_observed_mission(
+            fleet_id, observed, home_port_verified=observed.mission_status == 1
+        )
+        self.event_sink("fleet_mission_adopted", {
+            "fleet_id": fleet_id,
+            "mission_id": observed.mission_id,
+            "mission_status": observed.mission_status,
+            "final_time_ms": observed.final_time_ms,
+            "ship_ids": list(observed.ship_ids),
+            "previous_phase": current.phase.value,
+            "current_phase": updated.phase.value,
+        })
+        reason = (
+            "observed mission matches the configured mission; Home Port was confirmed "
+            "by the caller, so the fleet resumes as active"
+            if observed.mission_status == 1
+            else "observed mission already returned; waiting for the reward screens"
+        )
+        return self._result(fleet_id, current.phase, updated, "adopted_observed_mission", reason)
+
+    def _reject_adoption(self, fleet_id: int, reason: str) -> None:
+        self.event_sink("fleet_mission_adoption_rejected", {
+            "fleet_id": fleet_id,
+            "reason": reason,
+        })
 
     @staticmethod
     def _is_idle_snapshot(snapshot: ExpeditionFleetSnapshot) -> bool:

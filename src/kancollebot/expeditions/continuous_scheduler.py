@@ -198,6 +198,53 @@ class ContinuousExpeditionScheduler:
             raise SchedulerInvariantError("mission tuple changed during Home Port navigation")
         return self._set(replace(current, home_port_verified=True))
 
+    def adopt_observed_mission(
+        self,
+        fleet_id: int,
+        mission: MissionTuple,
+        *,
+        home_port_verified: bool,
+    ) -> FleetRuntime:
+        """Adopt a mission this scheduler did not dispatch, from one observation.
+
+        A restart, or an expedition started by hand, leaves the durable state at
+        IDLE while the game says a fleet is out. Blocking is the fail-closed
+        answer and stays the default; this method is the narrow opposite: the
+        caller has already matched the observed mission identity against the
+        configured mission and the composition gate, so the only missing fact is
+        *which* phase the fleet occupies.
+
+        Two targets, because the phase invariants are what keep settlement
+        honest: an active mission (status 1) becomes EXPEDITION_ACTIVE and needs
+        the caller to have confirmed Home Port in the same observation window;
+        an already-returned mission (status 2) becomes RETURNED_PENDING_UI, which
+        is exactly the state that waits for the reward screens.
+        """
+        current = self.fleet(fleet_id)
+        if current.phase not in (
+            FleetPhase.IDLE, FleetPhase.READY, FleetPhase.RESUPPLY_REQUIRED
+        ):
+            raise SchedulerInvariantError(
+                "only an idle, ready or resupply-pending fleet can adopt an observed mission"
+            )
+        if not isinstance(mission, MissionTuple):
+            raise SchedulerInvariantError("adoption requires a mission tuple")
+        if mission.mission_status == 1:
+            if not home_port_verified:
+                raise SchedulerInvariantError(
+                    "adopting an active mission requires a confirmed Home Port"
+                )
+            return self._set(replace(
+                current, phase=FleetPhase.EXPEDITION_ACTIVE, mission=mission,
+                home_port_verified=True,
+            ))
+        if mission.mission_status == 2:
+            return self._set(replace(
+                current, phase=FleetPhase.RETURNED_PENDING_UI, mission=mission,
+                home_port_verified=False,
+            ))
+        raise SchedulerInvariantError("adoption requires mission status 1 or 2")
+
     def may_wait_for_return(self, fleet_id: int) -> bool:
         current = self.fleet(fleet_id)
         return current.phase is FleetPhase.EXPEDITION_ACTIVE and current.home_port_verified
@@ -231,6 +278,30 @@ class ContinuousExpeditionScheduler:
         current = self.fleet(fleet_id)
         if current.phase is not FleetPhase.BONUS_ITEMS or not claimed:
             raise SchedulerInvariantError("reward completion requires a confirmed claim from BONUS_ITEMS")
+        return self._set(replace(current, phase=FleetPhase.RESUPPLY_REQUIRED,
+                                 mission=None, home_port_verified=False))
+
+    def confirm_settlement_already_complete(
+        self, fleet_id: int, *, evidence: str
+    ) -> FleetRuntime:
+        """Close a settlement whose reward screens are no longer on display.
+
+        The reward request is accepted the moment the result screen opens, so a
+        process that restarts after that point finds an idle fleet and a plain
+        Home Port instead of a reward chain (live 2026-11-05). Waiting for a
+        screen that will never come strands the fleet forever; this transition
+        records the UI evidence the caller actually has and moves to resupply,
+        which is the phase the fleet genuinely needs.
+        """
+        current = self.fleet(fleet_id)
+        if current.phase not in (
+            FleetPhase.RETURNED_PENDING_UI, FleetPhase.RETURN_RESULT, FleetPhase.BONUS_ITEMS
+        ):
+            raise SchedulerInvariantError(
+                "only a settlement-phase fleet can be closed as already settled"
+            )
+        if not isinstance(evidence, str) or not evidence.strip():
+            raise SchedulerInvariantError("closing a settlement requires UI evidence")
         return self._set(replace(current, phase=FleetPhase.RESUPPLY_REQUIRED,
                                  mission=None, home_port_verified=False))
 
