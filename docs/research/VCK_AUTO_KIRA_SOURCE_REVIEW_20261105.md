@@ -19,11 +19,12 @@ The files are decompiled and control-flow obfuscated. Public field names and dir
 
 ## 2. Source-confirmed settings and predicates
 
-### 2.1 Per-fleet selection count
+### 2.1 Per-fleet target queue count
 
 - `AutoKiraCount` is a four-element per-fleet setting. The constructor initializes each element to **6**.
-- `NotMatchKiraCondition(Fleet)` indexes it by `fleet.Id - 1`; `KiraFleet(Fleet)` uses the same per-fleet value when determining how many ships to select, capped by the fleet's actual ship count.
-- This supports interpreting the field as the configured number of ships to include in the Kira selection for that fleet. The default 6 is a configuration default, not a universal recommendation.
+- `KiraFleet(Fleet)` caps this value at the current fleet's ship count, filters the fleet's low-morale target candidates, and populates `KiraShipsViewModel.Ships` with up to that many target ship IDs.
+- The later Kira update path consumes this collection as a target queue. It processes the first target, constructs a temporary formation around that target, and runs `ActAutoKira`; the list is then reevaluated as morale changes.
+- Therefore `AutoKiraCount` is the number of target ships to process for that fleet, **not** the number of escorts and **not** the total number of ships in one sortie formation. The default 6 is a configuration default, not a universal recommendation.
 
 ### 2.2 Morale target
 
@@ -211,13 +212,15 @@ Additional files were reviewed from the same pinned reference snapshot:
 - After the queue returns to the home port, the completion callback calls `StartAction()` again so the current fleet can be compared with the target. A repeated formation signature or four unsuccessful passes causes an error/stop rather than unbounded retry.
 - These actions use visible UI coordinates and session waits; the proxy request identifiers are used as completion evidence for those UI actions.
 
-### 12.2 Boundary: generic capability is not yet a proven Kira call chain
+### 12.2 Kira-specific application and restoration chain
 
-The reviewed `AutoKira.cs` contains `ActChangeOrganization` call sites, but the reviewed evidence does not establish that the candidate list produced by `KiraFleet(Fleet)` is passed through those specific call sites before `ActAutoKira` starts. Therefore:
+Follow-up call-site tracing now establishes that the generic formation action is used by the Kira scheduler:
 
-- Treat `ActChangeOrganization` / `ActChangeOneShip` as a reusable upstream UI formation mechanism.
-- Do not claim that the Kira candidate-selection path has been proven to apply its selected IDs to the live fleet.
-- Do not claim automatic restoration of the previous formation. The generic action accepts a target array but contains no original-formation snapshot/restore mechanism; restoration, if any, must be implemented by its caller and remains unproven for the Kira path.
+- `KiraFleet(Fleet)` copies the current fleet's ship IDs into `uQFpLxEG9U` before building the target queue. The same list is used by `IsShipReserved` while `CurrentFleet` is active.
+- `Update()` reads the first target ID from `KiraShipsViewModel.Ships`. `JVjpi4cK7X()` builds a six-slot target array, and the `Update` state machine passes it to `ActChangeOrganization(CurrentFleet, newShips, forceClearAll: true)`.
+- Once the formation action completes, the Kira flow proceeds to `K1jp8Rwgts`, which starts `ActAutoKira(CurrentFleet)`.
+- The scheduler later creates another `ActChangeOrganization` using `uQFpLxEG9U.ToArray()`. Its completion callback clears the saved list and resets `CurrentFleet = -1`. This is source evidence of a scheduler-level original-formation restoration path.
+- The generic `ActChangeOrganization` action itself still does not snapshot the original formation; the snapshot and restore are implemented by the surrounding `AutoKira` scheduler. Because the state machine is control-flow-obfuscated, the exact branch conditions and all interruption paths still need separate reconstruction and runtime validation.
 
 ## 13. AutoKiraClearEquips: a real equipment mutation
 
@@ -249,8 +252,18 @@ Additional source: `ActRepair.cs`, blob `ffd7e4951f29a06bb5dbd896c57de9c114cf497
 - The configured value is multiplied by 60 and passed to `ActRepair` as seconds.
 - The AutoKira repair path also passes the same seconds threshold to `ActionHelper.NeedsUseBucket(remainingRepairTime, secondsToUseBucket)`.
 - When that helper returns true, the path creates an `ActUseBucket` action and reports “使用修复桶”.
-- Therefore this setting participates in the repair-bucket decision threshold; it is not safe to describe it as a generic maximum repair wait.
-- The exact comparison semantics of `ActionHelper.NeedsUseBucket` and the full `ActionHelper.NeedsSupply` overload remain unresolved because the helper implementation was not located in the reviewed source set.
+- Therefore this setting participates in the repair-bucket decision threshold; it is not a generic maximum repair wait.
+- The helper implementation is now located: `ActionHelper.NeedsUseBucket` returns `remainingRepairTime >= threshold`. With the default 10-minute setting, a bucket is used when remaining repair time is **at least 10 minutes**; shorter repairs do not meet this bucket condition.
+
+### 14.3 `ActionHelper.NeedsSupply`: exact preflight semantics
+
+Additional source: `ActionHelper.cs`, blob `8fc6c7a57831c627ef50b58aa2fea3c9095a671b`.
+
+- `NeedsSupply(fleet, percent, flagShipOnly)` builds a list containing either all `fleet.Ships` or only `fleet.Ships[0]` when `flagShipOnly=true`.
+- With `percent >= 1f` (the AutoKira call passes exactly `1f`), it checks whether every included ship has both fuel and ammunition at maximum. If any included ship is below maximum in either resource, the helper returns true (“supply needed”).
+- For `percent < 1f`, it compares each included ship's fuel and ammunition ratios against that percentage and returns true if either ratio is below the threshold.
+- A null fleet or an empty fleet returns false. This is an upstream fail-open edge: false can mean “no supply needed” **or** “there was no fleet/ship to inspect.” KancolleBot must treat missing/empty observations as unknown and block dispatch rather than copy this behavior.
+- AutoKira calls the helper with `!AutoKiraSupplyFellows` as `flagShipOnly`. Thus `AutoKiraSupplyFellows=true` checks the whole fleet at 100% fuel/ammunition; false checks only the flagship at 100%.
 
 ## 15. ActAutoKira: map, battle, retreat, and failure flow
 
@@ -295,7 +308,66 @@ All files below were fetched from the pinned reference snapshot identified in Se
 - Treat formation candidate IDs, the UI formation action, and post-action live-fleet verification as three separate stages.
 - Treat equipment clearing as a high-impact mutation with a mandatory restoration design; the upstream behavior is not a safe default.
 - Separate the pre-dispatch flagship HP maintenance threshold from the post-battle 25% fleet-wide retreat threshold.
-- Model repair-bucket policy explicitly and keep helper semantics unknown until independently reconstructed.
+- Model repair-bucket policy explicitly: the reviewed upstream helper uses a bucket when remaining repair time is greater than or equal to the configured threshold. Do not inherit that policy without a KancolleBot-specific decision.
 - Do not import the upstream proxy layer. Reimplement only the necessary observation and visible UI behavior behind KancolleBot's Poi adapter and UI controller.
-- Still unresolved: the exact Kira candidate-list-to-live-formation call chain; original fleet restoration; `ActionHelper.NeedsSupply` and `NeedsUseBucket` internals; complete repair candidate selection; whether any higher-level scheduler imposes a separate battle cap.
+- Still unresolved: all interruption/error branches around original-formation restoration; the precise no-eligible-fellow continuation behavior; complete repair candidate selection; whether any higher-level scheduler imposes a separate battle cap.
 - Status remains SOURCE_REVIEWED only. No KancolleBot code changed, no tests run, no Poi/game runtime validation performed, and no R3 files or branches modified.
+
+
+## 18. Confirmed target-to-formation path and actual fellow count
+
+This follow-up resolves the earlier Section 12.2 uncertainty. The candidate IDs are not merely a display list: they feed the Kira formation builder.
+
+### 18.1 Target queue and flagship assignment
+
+- `KiraFleet(Fleet)` collects the current fleet's original ship IDs in `uQFpLxEG9U`, sets `CurrentFleet`, and adds selected low-morale target IDs to `KiraShipsViewModel.Ships`.
+- With the per-fleet filter set to `"等级"`, the target candidates are ordered by descending level. `JVjpi4cK7X()` assigns `KiraShipsViewModel.Ships[0]` to formation slot 0, so the first queued target becomes flagship for that run.
+- The update path applies the generated six-slot array through `ActChangeOrganization(..., forceClearAll: true)`, then starts `ActAutoKira(CurrentFleet)`. This is direct call-site evidence of candidate-to-live-formation application.
+- The queue is target-oriented: the same fleet can process several target ships sequentially. The first target is not necessarily a user-designated ship unless the queue/order is explicitly controlled.
+
+### 18.2 Fellow selection is at most one unassigned destroyer
+
+When `AutoKiraUseFellow=true`, `JVjpi4cK7X()` searches the organization ship collection and writes only formation slot 1. The other four slots remain `-1` in the returned six-element array. The reviewed function therefore adds **at most one fellow**, not two or three.
+
+The fellow candidate predicate directly observed in this function requires:
+
+- ship type ID **2** (destroyer branch);
+- level strictly below `AutoKiraLvCondition`;
+- not currently repairing;
+- rarity value strictly below the configured rarity condition;
+- HP percentage at least `AutoKiraHPCondition`;
+- fuel ratio at least **30%** and ammunition ratio at least **30%**;
+- a name that does not contain the target flagship's name;
+- not locked when `AutoKiraExcludeLockedShip=true`.
+
+The builder then iterates every fleet and removes any candidate whose ship ID is already present in that fleet. The fellow must therefore be **unassigned to every fleet** at the time of selection. The remaining pool is not explicitly sorted before `First()`; the chosen fellow depends on the organization ship enumeration order, not a demonstrated lowest-level or best-fit ranking.
+
+If no candidate remains, slot 1 stays `-1`. The separate `TpUpjAQ341()` pre-check can return false in its no-fellow branch; the obfuscated caller does not establish a universal fail-closed stop for every possible pre-existing formation. KancolleBot should explicitly require the configured number of eligible fellows and stop when that requirement is not met.
+
+When `AutoKiraUseFellow=false`, the builder leaves slots 1–5 as `-1` and constructs a target-only formation.
+
+### 18.3 Original formation restoration and equipment side effect
+
+- The original fleet membership snapshot is captured before target processing and later passed back to `ActChangeOrganization` with `forceClearAll: true`. The completion callback clears the snapshot and resets `CurrentFleet`. This confirms that the scheduler has a formation restoration path, although interrupted/error paths still need separate tracing.
+- The temporary fellow is placed in slot 1. The `AutoKiraClearEquips` branch therefore clears equipment from that fellow in the temporary formation.
+- The saved snapshot contains ship IDs, not equipment-slot state. The reviewed restore path restores fleet membership only; it does not restore the fellow's cleared equipment. This is a persistent side effect and a strong reason not to copy upstream equipment clearing into KancolleBot.
+
+## 19. ActionHelper exact helper semantics
+
+Additional source: `ActionHelper.cs`, blob `8fc6c7a57831c627ef50b58aa2fea3c9095a671b`.
+
+- `NeedsSupply` returns true if any included ship is below the requested fuel or ammunition threshold. At the AutoKira call's `percent=1f`, that means both resources must be full for every included ship.
+- `flagShipOnly=true` restricts the list to the flagship; false checks every ship in the fleet. Combined with the inverted `AutoKiraSupplyFellows` argument, true means whole-fleet full supply and false means flagship-only full supply.
+- Null or empty fleet input returns false rather than an “unknown/not ready” result. This behavior is unsuitable for KancolleBot's fail-closed readiness gate.
+- `NeedsUseBucket` constructs a TimeSpan from the configured seconds and returns `remainingRepairTime >= threshold`. The default 10-minute setting therefore uses a bucket for repairs with at least 10 minutes remaining.
+
+## 20. Follow-up source inventory
+
+Additional exact blob IDs from the pinned reference snapshot:
+
+| File | Blob SHA |
+|---|---|
+| `ActionHelper.cs` | `8fc6c7a57831c627ef50b58aa2fea3c9095a671b` |
+| `KiraShipsViewModel.cs` | `02345550530dcabf4d583864a850391b6e6bcfeb` |
+
+Status remains SOURCE_REVIEWED only. No KancolleBot runtime code changed; no tests or Poi/game runtime validation were performed; R3 was not modified.
