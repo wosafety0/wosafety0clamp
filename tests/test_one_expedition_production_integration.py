@@ -147,8 +147,16 @@ class FakeListSession:
 
 
 class FakeProvider:
-    def __init__(self):
+    """Stands in for BackgroundPortSnapshotProvider, which is callable."""
+
+    def __init__(self, witness=None):
+        self.witness = witness
         self.closed = False
+        self.reads = 0
+
+    def __call__(self):
+        self.reads += 1
+        return self.witness
 
     def close(self, *, join_timeout_seconds):
         self.closed = True
@@ -388,13 +396,14 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
             self.assertEqual(set(kwargs["mission_requirements"]), {3})
             self.assertIsNotNone(kwargs["ui_input"])
 
-    def test_production_supervisor_has_no_settlement_or_resupply_controller(self):
-        """R3: lock the current production assembly as EVIDENCE, not as a fix.
+    def test_production_supervisor_injects_settlement_and_resupply_controllers(self):
+        """R3: the production assembly must be able to reach every tick() branch.
 
-        Class-level tests prove the branches work when controllers are injected;
-        this one proves the real composition root never injects them, so the
-        settlement/resupply branches of tick() are unreachable in production.
-        No production click chain is modified by this test.
+        The class-level tests prove the branches work when controllers are
+        injected. This one proves the real composition root injects them, so a
+        fleet that returns, or that still needs fuel, is actually closed out
+        instead of parking the loop forever. It also proves the three visible
+        click workflows share one arbiter.
         """
         return_at = datetime.now(timezone.utc) + timedelta(minutes=20)
         idle = make_snapshot()
@@ -453,16 +462,43 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
 
             supervisor_cls.assert_called_once()
             assembly = supervisor_cls.call_args.kwargs
-            self.assertEqual(set(assembly), {"monitor", "dispatch_controller"})
-            self.assertNotIn("settlement_controller", assembly)
-            self.assertNotIn("resupply_controller", assembly)
+            self.assertEqual(
+                set(assembly),
+                {"monitor", "dispatch_controller", "settlement_controller", "resupply_controller"},
+            )
             self.assertIs(assembly["monitor"], runtime.monitor)
-            # With both controllers None, tick() can never call
-            # settle_one_returned() / resupply_one_needed().
             self.assertEqual(len(built_supervisors), 1)
             instance = built_supervisors[0]
-            self.assertIsNone(instance.settlement_controller)
-            self.assertIsNone(instance.resupply_controller)
+            self.assertIsNotNone(instance.settlement_controller)
+            self.assertIsNotNone(instance.resupply_controller)
+
+            # Every visible click workflow must exclude the others.
+            arbiter = instance.settlement_controller.ui_arbiter
+            self.assertIs(instance.resupply_controller.ui_arbiter, arbiter)
+            self.assertIs(instance.dispatch_controller.ui_arbiter, arbiter)
+            self.assertIs(arbiter, assembly["dispatch_controller"].ui_arbiter)
+
+            # The supervisor enforces these shares at construction time; assert
+            # them here so a future refactor cannot quietly drop one.
+            self.assertIs(instance.settlement_controller.scheduler, runtime.scheduler)
+            self.assertIs(
+                instance.settlement_controller.state_reader, runtime.monitor.state_reader
+            )
+            self.assertIs(
+                instance.settlement_controller.event_sink, runtime.monitor.event_sink
+            )
+            self.assertIs(instance.resupply_controller.scheduler, runtime.scheduler)
+            self.assertIs(
+                instance.resupply_controller.event_sink, runtime.monitor.event_sink
+            )
+            self.assertIs(instance.settlement_controller.allow_ui_actions, True)
+            self.assertIs(instance.resupply_controller.allow_ui_actions, True)
+
+            # The supply cost source stays the Redux-read snapshot joined with
+            # the monitor's passive port witness, not a fabricated payload.
+            provider = instance.resupply_controller.fleet_data_provider
+            self.assertIsNotNone(provider.port_witness_provider)
+            self.assertIs(provider.port_witness_provider, runtime.provider)
 
     def test_unfresh_monitor_observation_stops_before_any_ui_click(self):
         runtime, reader, provider = self.make_runtime([make_snapshot()], fresh=False)

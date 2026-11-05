@@ -1,11 +1,14 @@
 """Run one supervised Fleet 3 -> mission 3 UI dispatch transaction.
 
 The production entry composes the fresh Poi monitor, durable scheduler and
-dispatch-intent coordinator, ContinuousDispatchController, single-tick
-ContinuousExpeditionSupervisor, and a visible CDP UI driver. It exits only after
-Poi confirms the new mission tuple and two-frame Home Port evidence. It does not
-wait for return, collect rewards, resupply, or run unattended. All game input is
-visible UI input; no game-server requests or page-state mutation are performed.
+dispatch-intent coordinator, ContinuousDispatchController, the settlement and
+resupply controllers, single-tick ContinuousExpeditionSupervisor, and a visible
+CDP UI driver. It exits only after Poi confirms the new mission tuple and
+two-frame Home Port evidence. A fleet that is already waiting for its return
+result, its reward, or its resupply is closed out first, in the same tick, by
+the injected controllers; it does not wait for a return that has not happened
+yet and it does not run unattended. All game input is visible UI input; no
+game-server requests or page-state mutation are performed.
 """
 from __future__ import annotations
 
@@ -28,6 +31,10 @@ from kancollebot.adapters.poi.cdp_fleet_state import (  # noqa: E402
     CdpFleetStateError,
     PoiFleetMissionState,
     read_poi_fleet_states,
+)
+from kancollebot.adapters.poi.cdp_port_supply import (  # noqa: E402
+    PoiPortSupplySnapshot,
+    read_poi_port_supply_snapshot,
 )
 from kancollebot.adapters.poi.cdp_input import (  # noqa: E402
     CdpInputError,
@@ -774,6 +781,19 @@ def _probe_unlocked_fleet_ids() -> tuple[int, ...]:
     )
 
 
+def _read_poi_port_supply_snapshot() -> PoiPortSupplySnapshot:
+    """Read-only: one fixed Redux port-supply snapshot over a short CDP session.
+
+    Poi's Redux state lives on the shell ``page`` target, not on the game
+    ``webview`` this entry clicks in, so the resupply data source needs its own
+    ``connect_poi_session``. Opening it per read keeps no long-lived second
+    connection alive across the expedition wait, and guarantees the post-action
+    verification is a genuinely new observation rather than a cached one.
+    """
+    with connect_poi_session(timeout=5.0) as poi_session:
+        return read_poi_port_supply_snapshot(poi_session.transport)
+
+
 def _run_production_supervisor_once(args: argparse.Namespace) -> int:
     """Compose the durable monitor/controller/supervisor with the visible CDP driver."""
     from datetime import timedelta
@@ -785,12 +805,21 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
         ContinuousDispatchController,
         UiStateEvidence,
     )
+    from kancollebot.expeditions.continuous_resupply_controller import (
+        ContinuousResupplyController,
+    )
     from kancollebot.expeditions.continuous_scheduler import (
         FleetPhase,
         UiOperationArbiter,
     )
+    from kancollebot.expeditions.continuous_settlement_controller import (
+        ContinuousSettlementController,
+    )
     from kancollebot.expeditions.continuous_supervisor import (
         ContinuousExpeditionSupervisor,
+    )
+    from kancollebot.expeditions.port_supply_provider import (
+        PoiReduxFleetSupplyProvider,
     )
     from kancollebot.expeditions.dispatch_recovery import (
         DurableDispatchCoordinator,
@@ -911,17 +940,51 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 runtime.scheduler,
                 SqliteDispatchIntentStore(args.database),
             )
+            # One arbiter for every visible click in this process. The refresh
+            # driver, the dispatch controller, the settlement controller and the
+            # resupply controller must exclude one another, or two of them could
+            # interleave clicks on the same screen.
+            ui_arbiter = runtime.ui_arbiter or UiOperationArbiter()
             dispatch_controller = ContinuousDispatchController(
                 scheduler=runtime.scheduler,
                 dispatch_coordinator=dispatch_coordinator,
                 state_reader=runtime.monitor.state_reader,
                 ui_driver=ui_driver,
-                # The refresh driver and this controller must share one
-                # arbiter, or their visible clicks would not be mutually
-                # excluded. With refresh disabled there is no refresh driver,
-                # so a fresh arbiter is sufficient.
-                ui_arbiter=runtime.ui_arbiter or UiOperationArbiter(),
+                ui_arbiter=ui_arbiter,
                 mission_requirements=runtime.monitor.mission_requirements,
+                event_sink=runtime.monitor.event_sink,
+                allow_ui_actions=True,
+                max_state_age=timedelta(seconds=args.max_state_age_seconds),
+            )
+            # R3: the settlement and resupply controllers are the two branches
+            # supervisor.tick() could never reach while they were absent. They
+            # reuse the SAME ui_driver (it implements both the settlement and
+            # the resupply driver protocols) and the SAME arbiter. The resupply
+            # controller keeps its own narrower safety gate: only fleets in
+            # RUNTIME_CONFIG.resupply_verified_fleet_ids may be clicked, so
+            # Fleet 4 still fails closed until its supply tab is calibrated.
+            settlement_controller = ContinuousSettlementController(
+                scheduler=runtime.scheduler,
+                state_reader=runtime.monitor.state_reader,
+                ui_driver=ui_driver,
+                ui_arbiter=ui_arbiter,
+                event_sink=runtime.monitor.event_sink,
+                allow_ui_actions=True,
+                max_state_age=timedelta(seconds=args.max_state_age_seconds),
+            )
+            fleet_data_provider = PoiReduxFleetSupplyProvider(
+                snapshot_reader=_read_poi_port_supply_snapshot,
+                # The monitor's own passive observer is the only source of a
+                # real api_port/port witness in this process; reusing it keeps
+                # one witness stream instead of inventing a second one.
+                port_witness_provider=runtime.provider,
+                max_age=timedelta(seconds=args.max_state_age_seconds),
+            )
+            resupply_controller = ContinuousResupplyController(
+                scheduler=runtime.scheduler,
+                ui_driver=ui_driver,
+                fleet_data_provider=fleet_data_provider,
+                ui_arbiter=ui_arbiter,
                 event_sink=runtime.monitor.event_sink,
                 allow_ui_actions=True,
                 max_state_age=timedelta(seconds=args.max_state_age_seconds),
@@ -929,6 +992,8 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
             supervisor = ContinuousExpeditionSupervisor(
                 monitor=runtime.monitor,
                 dispatch_controller=dispatch_controller,
+                settlement_controller=settlement_controller,
+                resupply_controller=resupply_controller,
             )
 
             _print_event(
@@ -939,10 +1004,32 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 read_only_fleets=list(runtime.scheduler.read_only_fleet_ids),
                 deferred_fleets=list(runtime.scheduler.deferred_fleet_ids),
                 fleet_availability_verified=runtime.fleet_availability_verified,
+                settlement_controller_wired=supervisor.settlement_controller is not None,
+                resupply_controller_wired=supervisor.resupply_controller is not None,
+                shared_ui_arbiter=(
+                    supervisor.settlement_controller.ui_arbiter is ui_arbiter
+                    and supervisor.resupply_controller.ui_arbiter is ui_arbiter
+                    and dispatch_controller.ui_arbiter is ui_arbiter
+                ),
                 game_api_requests=False,
                 ui_refresh_enabled=args.enable_ui_refresh,
             )
             result = supervisor.tick()
+            if result.settlements or result.resupplies:
+                _print_event(
+                    "PRODUCTION_CLOSED_LOOP_ACTIONS",
+                    settlement_fleet_ids=[
+                        execution.fleet_id for execution in result.settlements
+                    ],
+                    resupply_fleet_ids=[
+                        execution.fleet_id for execution in result.resupplies
+                    ],
+                    resupply_already_supplied=[
+                        bool(execution.already_supplied)
+                        for execution in result.resupplies
+                    ],
+                    game_api_requests=False,
+                )
             if result.paused_reason is not None or not result.dispatches:
                 _print_event(
                     "PRODUCTION_SUPERVISOR_PAUSED",

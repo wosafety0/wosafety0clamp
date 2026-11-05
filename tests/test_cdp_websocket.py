@@ -15,6 +15,8 @@ from kancollebot.adapters.poi.cdp_websocket import (
     connect_game_webview,
     connect_poi_session,
     READ_ONLY_FLEET_SNAPSHOT_EXPRESSION,
+    READ_ONLY_PORT_SUPPLY_SNAPSHOT_EXPRESSION,
+    require_allowed_runtime_evaluate,
 )
 
 
@@ -234,6 +236,46 @@ class CdpWebSocketTransportTests(unittest.TestCase):
     def test_rejects_non_positive_timeout(self):
         with self.assertRaisesRegex(ValueError, "timeout"):
             CdpWebSocketTransport("ws://127.0.0.1:9222/devtools/page/1", timeout=0)
+
+    def test_allowlist_accepts_both_fixed_read_only_expressions(self):
+        for expression in (
+            READ_ONLY_FLEET_SNAPSHOT_EXPRESSION,
+            READ_ONLY_PORT_SUPPLY_SNAPSHOT_EXPRESSION,
+        ):
+            with self.subTest(expression=expression[:40]):
+                require_allowed_runtime_evaluate(
+                    {"expression": expression, "returnByValue": True}
+                )
+
+    def test_port_supply_expression_is_not_the_fleet_snapshot(self):
+        self.assertNotEqual(
+            READ_ONLY_PORT_SUPPLY_SNAPSHOT_EXPRESSION,
+            READ_ONLY_FLEET_SNAPSHOT_EXPRESSION,
+        )
+
+    def test_allowlist_rejects_mutations_of_the_fixed_expressions(self):
+        mutated = READ_ONLY_PORT_SUPPLY_SNAPSHOT_EXPRESSION.replace(
+            "info.resources", "info.fleets"
+        )
+        self.assertNotEqual(mutated, READ_ONLY_PORT_SUPPLY_SNAPSHOT_EXPRESSION)
+        with self.assertRaisesRegex(CdpInputError, "fixed read-only fleet snapshot"):
+            require_allowed_runtime_evaluate(
+                {"expression": mutated, "returnByValue": True}
+            )
+
+    def test_allowlist_requires_exactly_the_two_parameters(self):
+        with self.assertRaisesRegex(CdpInputError, "fixed read-only fleet snapshot"):
+            require_allowed_runtime_evaluate(
+                {
+                    "expression": READ_ONLY_PORT_SUPPLY_SNAPSHOT_EXPRESSION,
+                    "returnByValue": True,
+                    "awaitPromise": False,
+                }
+            )
+        with self.assertRaisesRegex(CdpInputError, "fixed read-only fleet snapshot"):
+            require_allowed_runtime_evaluate(
+                {"expression": READ_ONLY_PORT_SUPPLY_SNAPSHOT_EXPRESSION}
+            )
 
     def test_connect_selects_target_and_opens_transport(self):
         target = CdpTarget(
