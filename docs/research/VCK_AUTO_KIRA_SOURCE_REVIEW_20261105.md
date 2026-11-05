@@ -472,6 +472,9 @@ Add a dedicated repairs freshness/coverage signal and keep domain `updated_at` t
 | `packages/poi-plugin-mcp/src/services.ts` | `4130a3c97b3d1cfd4284f15cb17f55e924079e06` |
 | `packages/poi-plugin-mcp/src/snapshot.ts` | `efaeef9f005d02b1804a62c7318eeb72ff627c6b` |
 | `packages/poi-plugin-mcp/src/tools.ts` | `56eb30450272c52e701bd88876142baca55bff67` |
+| `packages/poi-plugin-mcp/poi/index.cjs` | `330da2f15c9fd679c738c366082ce9cbd3a05769` |
+| `packages/poi-plugin-mcp/poi/README.md` | `4dd7cab7528b1348773ef2919b2f123ee1915be3` |
+| `packages/poi-plugin-mcp/src/plugin.ts` | `2ea3ae39aac1aa992fcb65a0eb69c2658fd9d793` |
 
 This is a static source compatibility review. No plugin or KancolleBot adapter code was changed, and no live Poi runtime data was queried.
 
@@ -485,3 +488,18 @@ The exact formula is visible in both `NotMatchKiraCondition(Fleet)` and `KiraFle
 Only when `needed > 0` does the scheduler create a Kira target list, and it takes that many candidates from the below-threshold set. The set is sorted by descending level when the `"等级"` filter is active.
 
 This supersedes the earlier shorthand that described `AutoKiraCount` as a target queue count. It is the desired number of ships to satisfy the applicable morale threshold; the actual queue is only the deficit. For the default enabled fleets (Fleets 2–4), the candidate threshold is `Condition < 50` because `KiraForSupport=false`; the later per-target completion loop continues until `Condition >= AutoKiraTargetCond` (default 75) or `Condition >= 85`.
+
+
+## 26. Poi MCP event and freshness limits
+
+Additional source review of `poi/index.cjs`, `poi/README.md`, and `src/plugin.ts` from the same KanColle-Agent `main` commit:
+
+- The real Poi plugin listens to `game.response`. For each response it calls `runtime.handleApiEvent(...)` and then `syncFromPoi(runtime.store)`. It also runs a full `syncFromPoi` every **15 seconds** as a fallback.
+- The current real bridge's `handleApiEvent` path only has explicit event handling for `api_port/port` (resources, ships, equipment) and `api_req_quest/clearitemget` (quest completion). It does not parse `api_req_sortie_battle`, `api_req_sortie_battleresult`, `api_req_map_start`, or `api_req_map_next`.
+- `syncFromPoi` calls `setSortie(readSortie(store))` but does not call `setLastBattle`. The `last_battle` field is initialized to null and the reviewed real Poi sync path does not populate it. `getOperations` can return the field, but that does not establish a battle result was observed.
+- `readSortie` currently returns only `active` and `map_ref`; it hardcodes `fleet_ids: []` and `node: null`. It therefore cannot identify the active sortie fleet or the current map node through this normalized field.
+- `SnapshotStore.touch` stamps `updated_at` with the current local time whenever a domain setter runs. Because the 15-second fallback calls the full sync and refreshes domain timestamps even without a new game response, these timestamps represent bridge synchronization time, not a source-event timestamp. Snapshot version/generated_at changes likewise do not prove that a new battle or fleet observation arrived.
+
+### KancolleBot consequence
+
+Use Poi MCP as a convenient read-only snapshot source for fields it exposes, but do not use its current `operations.last_battle`, `sortie.node`, `sortie.fleet_ids`, or periodic `updated_at` as proof of battle completion, active fleet identity, map progression, or post-action freshness. KancolleBot needs its own read-only event observer/correlation layer for battle start/result/map-next/port transitions, with event sequence/time and explicit per-domain observation timestamps. Continue to use visible UI actions for all game mutations.
