@@ -4115,3 +4115,7 @@ The Hand plugin's read-only probe reported:
 - **FOLLOW-UP SOURCE_REVIEWED:** 对 `NeedKira(Fleet)` / `NotMatchKiraCondition(Fleet)` / `KiraFleet(Fleet)` 做了第二轮调用点核验。新增确认：舰队启用开关；出击/远征占用排除；修理船与修理坞匹配检查；预留船检查；按舰队配置选舰数量并受当前舰数限制；第一舰队/支援舰队走 `Condition < 50` 分支，其他舰队走配置士气目标；`"等级"` 筛选按等级降序。补充分析已写入同一研究文档第 8–9 节。
 - **KANCOLLEBOT IMPLICATION:** 将舰队可用性与舰船候选资格分离；不能把上游选舰数量解释成“陪练数量”；候选 ID 列表不代表游戏内编成已成功应用，必须另做可见 UI 与游戏状态核验。
 - **LIMITS UNCHANGED:** 反编译控制流及闭包仍有部分语义未还原；替代筛选分支、完整选择应用点未确认；未实现、未测试、未实机验证，R3 仍优先。
+
+
+- **FOLLOW-UP SOURCE_REVIEWED:** 读取同一参考快照的第二份反编译输出及 `ActSupply.cs`，进一步确认陪练候选谓词：锁定排除选项、等级低于阈值、稀有度比较、驱逐舰类型分支、非入渠、HP 达标、燃料与弹药均不低于 30%。确认 `AutoKiraSupplyFellows` 反向传入 `ActSupply.flagShipOnly`：开启时执行全舰队补给，关闭时仅旗舰补给。相关证据及未还原的 helper 边界已写入研究文档第 10–11 节。
+- **LIMITS:** 锁定/稀有度 helper 与 `ActionHelper.NeedsSupply` 重载的完整语义仍待核验；这些结论仍是源码研究，不是 KancolleBot 实现或运行时验证。
