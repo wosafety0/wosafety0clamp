@@ -192,3 +192,110 @@ This explains the purpose of `AutoKiraLvCondition`, `AutoKiraRareCondition`, and
 - **ADDITIONAL SOURCE_REVIEWED:** second decompilation output for `AutoKira.cs`, `ActAutoKira.cs`, and `ActSupply.cs`; exact blob IDs are recorded in the follow-up research notes and can be fetched from the pinned reference snapshot.
 - **CONFIRMED WITH CALL-SITE EVIDENCE:** fellow candidate checks for lock option, level, rarity, destroyer type, repair status, HP, fuel and ammunition; `AutoKiraSupplyFellows` maps to whole-fleet versus flagship-only supply through the inverted `flagShipOnly` argument.
 - **STILL NOT VERIFIED:** the obfuscated lock/rarity helper implementations and the exact preflight coverage of the `ActionHelper.NeedsSupply` overload.
+
+
+## 12. Formation application: visible UI action chain
+
+Additional files were reviewed from the same pinned reference snapshot:
+
+- `ActChangeOrganization.cs` — blob `2235a4e72212bccfd06445567d197bad921fe51c`
+- `ActChangeOneShip.cs` — blob `754bfbe9f464c012f4bdbfc51654db39c5405168`
+
+### 12.1 What the generic formation action actually does
+
+- `ActChangeOrganization(fleetID, newShips, forceClearAll, ...)` accepts a target ship-ID array; it does not itself preserve a copy of the original fleet composition.
+- Before acting, it rejects duplicate positive ship IDs.
+- It compares the live fleet against the requested target and checks whether the target is already satisfied.
+- Its action queue navigates to the Organization UI with `ActClickSession`, optionally selects the target fleet, and when `forceClearAll=true` can click the UI control that removes all escorts before rebuilding the requested slots.
+- It then queues one `ActChangeOneShip` action per slot that requires a change. `ActChangeOneShip` navigates ship-list pages, applies the configured filter/sort UI, selects the ship, and confirms the change through a UI click/session action.
+- After the queue returns to the home port, the completion callback calls `StartAction()` again so the current fleet can be compared with the target. A repeated formation signature or four unsuccessful passes causes an error/stop rather than unbounded retry.
+- These actions use visible UI coordinates and session waits; the proxy request identifiers are used as completion evidence for those UI actions.
+
+### 12.2 Boundary: generic capability is not yet a proven Kira call chain
+
+The reviewed `AutoKira.cs` contains `ActChangeOrganization` call sites, but the reviewed evidence does not establish that the candidate list produced by `KiraFleet(Fleet)` is passed through those specific call sites before `ActAutoKira` starts. Therefore:
+
+- Treat `ActChangeOrganization` / `ActChangeOneShip` as a reusable upstream UI formation mechanism.
+- Do not claim that the Kira candidate-selection path has been proven to apply its selected IDs to the live fleet.
+- Do not claim automatic restoration of the previous formation. The generic action accepts a target array but contains no original-formation snapshot/restore mechanism; restoration, if any, must be implemented by its caller and remains unproven for the Kira path.
+
+## 13. AutoKiraClearEquips: a real equipment mutation
+
+Additional source: `ActClearEquips.cs`, blob `8e21133fac18034d6d443948022896336b956959`.
+
+The call chain in `AutoKira.cs` is now clearer:
+
+- The check is gated by both `AutoKiraUseFellow` and `AutoKiraClearEquips`.
+- It examines the current fleet only when at least two ships are present, then checks the equipment slots of fleet position index 1 (the second ship).
+- If that second ship has equipped slots, the scheduler creates `ActClearEquips(CurrentFleet, 1, equippedSlotCount)`.
+- `ActClearEquips` uses the visible Remodel UI: open Remodel, choose the fleet, choose the ship slot, remove the equipment, then return to the home port.
+- The action uses `api_slotset` for the single-slot case and `api_unsetslot_all` when the equipped-slot count is at least two.
+
+This is not a passive filter and does not mean “clear equipment from every fellow.” At the reviewed call site it clears equipment from the second ship in the current fleet. No re-equipping/restoration step was established in this call path. KancolleBot must not copy this behavior without an explicit equipment snapshot, ownership/slot verification, and a tested restoration plan; otherwise it risks leaving a player's ship unequipped.
+
+## 14. Flagship HP and repair-bucket threshold
+
+Additional source: `ActRepair.cs`, blob `ffd7e4951f29a06bb5dbd896c57de9c114cf4974`.
+
+### 14.1 `AutoKiraHPPercent`
+
+- The helper `s8Upa8I6pu()` reads the current fleet's flagship at ship index 0 and computes current HP divided by maximum HP.
+- It returns the “HP needs attention” result when flagship HP is at or below 25%, or when the ratio is below the configured `AutoKiraHPPercent`.
+- The scheduler checks this helper before proceeding through its repair/maintenance branch. This is evidence of a pre-dispatch maintenance gate, not proof that this setting is the post-battle retreat threshold.
+- The default setting remains 60% from the settings constructor; that is an upstream default, not a KancolleBot policy recommendation.
+
+### 14.2 `AutoKiraRepairTime`
+
+- The configured value is multiplied by 60 and passed to `ActRepair` as seconds.
+- The AutoKira repair path also passes the same seconds threshold to `ActionHelper.NeedsUseBucket(remainingRepairTime, secondsToUseBucket)`.
+- When that helper returns true, the path creates an `ActUseBucket` action and reports “使用修复桶”.
+- Therefore this setting participates in the repair-bucket decision threshold; it is not safe to describe it as a generic maximum repair wait.
+- The exact comparison semantics of `ActionHelper.NeedsUseBucket` and the full `ActionHelper.NeedsSupply` overload remain unresolved because the helper implementation was not located in the reviewed source set.
+
+## 15. ActAutoKira: map, battle, retreat, and failure flow
+
+### 15.1 Map selection and battle UI
+
+- The constructor path initializes the map selector variable to `1`; the coordinate calculation selects the first map on the first map page. In this reviewed action, the selected map is therefore 1-1.
+- The queue selects the requested fleet, opens Sortie, selects map 1-1, confirms the map, selects the sortie action, and waits for the map-info session.
+- It requests the “单纵” formation coordinate through its formation helper.
+- The battle queue waits for the battle session and then uses the `Sortie_not_nightfight` UI coordinate while waiting for the battle-result session. This is direct evidence that this path chooses the no-night-battle option; the separate subscription to the midnight-battle event is an observation handler, not evidence that the action deliberately starts night battle.
+
+### 15.2 Post-battle HP stop gate
+
+- After a battle queue finishes, the action increments its battle counter and calls `kR337kpmUA()`.
+- That helper iterates the selected fleet's ships and compares the observed friendly HP captured in `HPs_f` with each ship's maximum HP.
+- If any present ship is at or below 25% HP, it returns false; the callback then waits for the retreat UI and the `api_port` session.
+- If no present ship meets that threshold, the callback advances through the map-next UI/session path and builds the next action queue.
+- The counter field is declared and incremented in this file, but the reviewed file contains no read/use of it as a maximum-battle termination condition. Do not infer a configured battle cap from that counter.
+- The source establishes map 1-1 selection and a health-based retreat condition, but does not by itself establish a fixed “exactly two battles” rule. The number of battle nodes reached depends on the map flow and observed progression.
+
+### 15.3 Event observation and failure behavior
+
+The action subscribes to parsed proxy event streams for sortie battle, battle result, map start, map next, and midnight battle. Battle-result parsing exceptions stop the action, show a warning to inspect ship status, and log the exception. Queue error callbacks set the action state to Error and, on the retreat/advance paths, call `StopAction()`.
+
+This is useful as an observation/error-handling reference only. KancolleBot must continue to keep Poi/CDP observation read-only and perform all game mutations through visible UI actions; it must not reproduce the upstream proxy/request layer.
+
+## 16. Source blob inventory for this follow-up
+
+All files below were fetched from the pinned reference snapshot identified in Section 1:
+
+| File | Blob SHA |
+|---|---|
+| `AutoKira.cs` (second decompilation output) | `ba9b2094eb26f947e725364398aefa9041c5d7ed` |
+| `ActAutoKira.cs` (second decompilation output) | `49ab7708935df2ebd3758a80bc7cbfb970f5521d` |
+| `ActChangeOrganization.cs` | `2235a4e72212bccfd06445567d197bad921fe51c` |
+| `ActChangeOneShip.cs` | `754bfbe9f464c012f4bdbfc51654db39c5405168` |
+| `ActClearEquips.cs` | `8e21133fac18034d6d443948022896336b956959` |
+| `ActRepair.cs` | `ffd7e4951f29a06bb5dbd896c57de9c114cf4974` |
+| `ActSupply.cs` | `7640d36ed41e77d197d028d91c6199713efd44ea` |
+
+## 17. KancolleBot design consequences and remaining gaps
+
+- Treat formation candidate IDs, the UI formation action, and post-action live-fleet verification as three separate stages.
+- Treat equipment clearing as a high-impact mutation with a mandatory restoration design; the upstream behavior is not a safe default.
+- Separate the pre-dispatch flagship HP maintenance threshold from the post-battle 25% fleet-wide retreat threshold.
+- Model repair-bucket policy explicitly and keep helper semantics unknown until independently reconstructed.
+- Do not import the upstream proxy layer. Reimplement only the necessary observation and visible UI behavior behind KancolleBot's Poi adapter and UI controller.
+- Still unresolved: the exact Kira candidate-list-to-live-formation call chain; original fleet restoration; `ActionHelper.NeedsSupply` and `NeedsUseBucket` internals; complete repair candidate selection; whether any higher-level scheduler imposes a separate battle cap.
+- Status remains SOURCE_REVIEWED only. No KancolleBot code changed, no tests run, no Poi/game runtime validation performed, and no R3 files or branches modified.
