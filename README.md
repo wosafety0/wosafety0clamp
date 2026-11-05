@@ -13,7 +13,7 @@ The GitHub default branch **main** still contains only `.github`; it is not the 
 | Current MVP base | `dev/dispatch-observer-safety-current-mvp-20261103` | `ba8884466f2bb1d568cc46b76034711df81bb50c` | Current remote base |
 | Settlement + run-log review candidate | `dev/run-log-safety-hardening-20261106` / [Draft PR #40](https://github.com/wosafety0/wosafety0clamp/pull/40) | `1bf11856356f9bd3b0fd7a615567a1ac9c4b9fed` (code commit; see PR for current head) | Open, unmerged |
 | SQLite event-id readback candidate | `dev/event-id-readback-20261106` / [Draft PR #39](https://github.com/wosafety0/wosafety0clamp/pull/39) | `6048b918632ffea1510e4b038b82cd30c53a4384` | Separate, open, unmerged |
-| SQLite/JSONL row-link follow-up | `dev/identity-contract-and-event-link-20261106` / PR pending | `5d514d4a50572966334aaaa9c16b1e700547aa78` | Stacked on #40; CI pending |
+| SQLite/JSONL row-link follow-up | `dev/identity-contract-and-event-link-20261106` / [Draft PR #41](https://github.com/wosafety0/wosafety0clamp/pull/41) | `cbc29f1fcfdd5a0dafb60e56f98c857bcbbe7d1f` | Open, stacked on #40 |
 
 PR #40 is a broad staging candidate (42 commits / 105 changed files), not a merge recommendation. Its exact HEAD passed:
 - [Push CI #42128797363](https://github.com/wosafety0/wosafety0clamp/actions/runs/42128797363): 1,634 Python tests, 21 optional vision tests skipped; Node 17/17; compile and CLI smoke passed.
@@ -21,7 +21,7 @@ PR #40 is a broad staging candidate (42 commits / 105 changed files), not a merg
 
 The branch contains historical Fleet 2 / Fleet 4 evidence from earlier operator-authorized work. The current scheduled development run performed **no Poi connection, game input, dispatch, settlement, resupply, or account operation**. The one recorded Fleet 4 loop is not proof of unattended multi-cycle operation.
 
-PR #40 keeps run-log production wiring optional; `--run-log-dir` remains explicit and default-off. The follow-up branch returns the existing SQLite integer event ID and writes it into the JSONL envelope as `sqlite_event_id`; the JSONL UUID `event_id` remains distinct. This is a row-level join only, not semantic deduplication. The current `dispatch_id` still has per-attempt semantics in PR #40, while a durable expedition-lifecycle ID remains unresolved and must not be inferred.
+PR #40 keeps run-log production wiring optional; `--run-log-dir` remains explicit and default-off. Draft PR #41 returns the existing SQLite integer event ID and writes it into the JSONL envelope as `sqlite_event_id`; the JSONL UUID `event_id` remains distinct. Exact-head CI passed 1,637 tests (21 optional vision tests skipped). This is a row-level join only, not semantic deduplication. The current `dispatch_id` still has per-attempt semantics in PR #40, while a durable expedition-lifecycle ID remains unresolved and must not be inferred.
 
 The branch `dev/expedition-closed-loop-mvp` remains historical. Re-read the handoff and progress record before choosing a branch; do not infer application state from `main`.
 
@@ -57,7 +57,7 @@ Historical evidence in the repository records:
 - P0.1 `SettlementDrainSession` is covered by deterministic offline Mock tests.
 - P0.2 adds a bounded JSONL run log, event envelope, redaction, retention, atomic snapshot, Tee sink, and critical audit gate.
 
-PR #40's previous exact-head matrices passed 1,634 Python tests. The follow-up branch adds a strict positive-integer SQLite receipt and a sink-owned `sqlite_event_id` field to JSONL; its exact-head CI is pending. The run log remains opt-in. The current `dispatch_id` covers one attempt only; it does not survive restart or correlate later settlement/resupply.
+Draft PR #41's exact final-head CI [#42133030053](https://github.com/wosafety0/wosafety0clamp/actions/runs/42133030053) passed 1,637 Python tests with 21 optional vision tests skipped; compile, package install, CLI smoke and Node static checks passed. The run log remains opt-in. The current per-attempt `dispatch_id` does not survive restart or correlate later settlement/resupply; lifecycle-wide `dispatch_id` remains unimplemented.
 
 ## Current state
 
