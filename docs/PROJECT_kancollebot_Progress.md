@@ -4237,3 +4237,18 @@ The Hand plugin's read-only probe reported:
 - **SAFETY:** 未改 freshness 判据、`max_state_age`、cooldown、导航三步序列；未删任何导航步骤；引导刷新与服务同样走 `ensure_fresh(origin=...)`，未新增旁路；等待模式的容忍只影响"是否继续等"，不含任何额外点击（`game_actions_sent=0`）。
 - **LIMITS:** ① R3-E **未完成**：缺 `BONUS_ITEMS` 之后的补给与再派遣证据；奖励页停在屏幕上未推进。② FINDING 2 的跨舰队归属错误属安全问题，在修好前**不应让两支舰队同时返航**。③ 本轮未验证 `EXPEDITION_LIST` 可裁剪。④ 引导刷新使 `run_bootstrap` 成为新的 origin，尚未纳入 origin 枚举文档。
 - **NEXT（建议顺序）:** ① 结算前后用编成舰 ID 校验归属，不匹配则拒绝（FINDING 2，安全优先）；② 实机重采 `BONUS_ITEMS` 指纹（FINDING 1）；③ 给 BLOCKED 增加受支持的解除路径（FINDING 3）；④ 重采/改用 marks 识别舰队页（FINDING 4）；⑤ 再跑一轮单舰队闭环取证补给与再派遣。
+
+## 2026-11-05 — R3-E 补充：实机重采 `BONUS_ITEMS` 指纹，并改用它右下角的「次」推进奖励页
+
+- **用户指令:** 游戏画面停在 Fleet 2 的「獲得ボーナス」页，可以采集；并指出右下角有「次」按钮。
+- **IMPLEMENTED（两处，均为实机证据驱动）:**
+  - `BONUS_ITEMS` 指纹重采：`crop [280,280,320,160] -> [600,502,182,48]`、`grid [24,16] -> [24,6]`、`samples 1 -> 5`。旧裁剪框落在**左侧舰娘列表**（随编成变化），实机在同一页只得 **0.9021**，低于阈值 0.97；新裁剪框只覆盖右栏「獲得アイテム」标签与其周围的固定底纹，不含立绘与图标。
+  - 新增 `BONUS_NEXT = RecordedPoint(1144, 665, "bonus-next")`，`_advance_reward_screen()` 在 `before == "BONUS_ITEMS"` 时用它推进；前两步（返航提示→结果、结果→奖励）继续用原 `REWARD_ADVANCE (600,400)`。原注释称"三个奖励页点击任意位置都能推进"，但奖励页这一步**从未被执行到过**（每次都停在指纹校验），因此不为它假设可用性。
+- **VERIFIED（实机，13:53 起）:**
+  - 采集后同一画面分类：**`BONUS_ITEMS` = 1.0000**，次优 `HOME_PORT` = 0.7945，margin 0.2055（阈值 0.04）；13:45 的旧截图同样判 1.0000，说明该区域不随时间变化。
+  - 负样本（远征列表页）在同一裁剪下相似度 **0.3927**，且整页分类仍为 `UNKNOWN`。
+  - 点击 `(1144,665)` 一次：1.5 秒后画面由 `BONUS_ITEMS`（0.8002）变为 **`HOME_PORT`（0.9984）**，即奖励页确实以「次」离开。
+- **TESTED:** 全量 **1226 tests OK / 2 skip**；`compileall -q src tests tools` OK；Node `tests/*.test.cjs` 19/19；`tests.test_continuous_expedition_ui_settlement` + `test_continuous_expedition_ui` + `test_visible_ui_refresh` 共 61 项 OK。新增断言：奖励页推进点必须是 `BONUS_NEXT`；三步链路合计 2 次空区点击 + 1 次「次」点击。
+- **SAFETY:** 未改 freshness 判据、`max_state_age`、cooldown、导航序列；未新增点击次数（仍是每奖励页一击）；`(1144,665)` 在点击前用分类器确认页面为 `BONUS_ITEMS`，点击后确认到达 `HOME_PORT`。
+- **LIMITS:** ① 「空区点 (600,400) 在奖励页不可用」**未被证伪**——本轮是直接改用「次」，未在奖励页做 A/B。② 新指纹只在本账号 Fleet 2 的「練習航海」奖励页采到；其他任务若奖励页有额外元素（如多行物品），需复测。③ `RETURN_RESULT` 仍在用 `[280,280,320,160]` 这套同样的宽框，未重采。
+- **NEXT:** 用新指纹 + 新推进点，对仍待领取的 Fleet 3（`api_mission [2,3,…]`）跑一次单舰队结算，取证「结算→补给→再派遣」。

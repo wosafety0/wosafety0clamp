@@ -1,10 +1,12 @@
 """The production UI driver's settlement chain: one proven click per reward screen.
 
-The three reward screens (return notice -> result -> bonus items -> Home Port)
-advance on a click anywhere, so no button is located. What these tests pin down
-is everything else: the state before each click is proven, the click happens
-exactly once, the resulting screen is proven before the chain moves on, and any
-mismatch stops the chain instead of retrying a click whose outcome is unknown.
+The first two reward screens (return notice -> result -> bonus items) advance on
+a click anywhere, so no button is located there. The bonus screen is the one
+exception: it is left through its 次 control, whose coordinates were verified on
+the live client. What these tests pin down is everything else: the state before
+each click is proven, the click happens exactly once, the resulting screen is
+proven before the chain moves on, and any mismatch stops the chain instead of
+retrying a click whose outcome is unknown.
 """
 from __future__ import annotations
 
@@ -12,6 +14,7 @@ import unittest
 
 from kancollebot.adapters.poi.cdp_input import RecordedPoint
 from kancollebot.adapters.poi.continuous_expedition_ui import (
+    BONUS_NEXT,
     REWARD_ADVANCE,
     CdpContinuousExpeditionUiDriver,
     ContinuousUiDriverError,
@@ -185,6 +188,7 @@ class ClaimRewardTests(unittest.TestCase):
 
         self.assertEqual(evidence.state, "HOME_PORT")
         self.assertEqual(len(clicks), 1)
+        self.assertEqual(clicks[0], BONUS_NEXT)
         self.assertEqual(screen.verified, ["BONUS_ITEMS", "HOME_PORT"])
 
     def test_reward_requires_the_bonus_screen(self) -> None:
@@ -329,7 +333,9 @@ class EventTrailTests(unittest.TestCase):
         driver.claim_bonus_items(fleet_id=3)
         driver.claim_reward(fleet_id=3)
 
-        self.assertEqual(len([c for c in clicks if c == REWARD_ADVANCE]), 3)
+        # Two empty-area clicks (notice, result) plus one 次 click (bonus).
+        self.assertEqual(len([c for c in clicks if c == REWARD_ADVANCE]), 2)
+        self.assertEqual(len([c for c in clicks if c == BONUS_NEXT]), 1)
         self.assertEqual(
             [name for name in events if name == "continuous_ui_settlement_step_started"],
             ["continuous_ui_settlement_step_started"] * 3,

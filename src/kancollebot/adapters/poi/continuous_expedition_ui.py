@@ -68,12 +68,18 @@ SUPPLY_MENU = RecordedPoint(103, 340, "supply-menu")
 SUPPLY_VERIFY_SAMPLES = 6
 SUPPLY_SETTLE_SECONDS = 1.0
 
-# The three reward screens (return notice -> result -> bonus items -> port)
-# advance on a click *anywhere*, so no button has to be located: one fixed point
-# in the empty area under the roster is used for every step. It sits well away
-# from the 次 control in the bottom-right corner, which is the only other thing
-# on those screens a stray click could reach.
+# The return notice and the result screen advance on a click in the empty area
+# under the roster. It sits well away from the 次 control in the bottom-right
+# corner, which is the only other thing on those screens a stray click could
+# reach.
 REWARD_ADVANCE = RecordedPoint(600, 400, "reward-advance")
+# The bonus screen is the exception, verified on this account on 2026-11-05:
+# the 次 control carries it to the Home Port in one click (1.5s, screenshots
+# classified BONUS_ITEMS -> HOME_PORT either side). The empty-area point above
+# has never been reached on this screen - every earlier run stopped at the
+# fingerprint check one step before the click - so it is not assumed to work
+# here. The two earlier steps keep the point that has always worked for them.
+BONUS_NEXT = RecordedPoint(1144, 665, "bonus-next")
 REWARD_SETTLE_SECONDS = 1.6
 # The client fades between reward screens. A failed post-click check is retried
 # this many times, one second apart, before the screen counts as never arrived.
@@ -730,7 +736,8 @@ class CdpContinuousExpeditionUiDriver:
             })
             return already
         self._confirm(before, phase=f"{phase} precondition", samples=REWARD_VERIFY_SAMPLES)
-        self._click(REWARD_ADVANCE, action=f"advance_{phase}", step=step)
+        advance = BONUS_NEXT if before == "BONUS_ITEMS" else REWARD_ADVANCE
+        self._click(advance, action=f"advance_{phase}", step=step)
         self._sleep(REWARD_SETTLE_SECONDS)
         evidence = self._await_state(after, phase=f"after {phase}")
         self._event_sink("continuous_ui_settlement_step_completed", {
