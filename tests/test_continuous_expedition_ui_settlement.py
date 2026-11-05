@@ -148,13 +148,29 @@ class ClaimBonusItemsTests(unittest.TestCase):
         self.assertEqual(len(clicks), 1)
         self.assertEqual(clicks[0], REWARD_ADVANCE)
 
-    def test_bonus_items_is_not_accepted_as_a_result_screen(self) -> None:
+    def test_a_chain_already_at_bonus_items_resumes_without_a_click(self) -> None:
+        # Resuming is the whole point of probing the target first: a settlement
+        # interrupted between two screens must finish, not skip a screen with a
+        # blind click (live 2026-11-05: api_mission cleared mid-chain).
+        screen = ScriptedScreen("BONUS_ITEMS")
+        clicks: list[RecordedPoint] = []
+        driver = build_driver(screen, clicks)
+
+        evidence = driver.claim_bonus_items(fleet_id=2)
+
+        self.assertEqual(evidence.state, "BONUS_ITEMS")
+        self.assertEqual(clicks, [])
+
+    def test_a_screen_past_the_target_is_still_an_error(self) -> None:
+        # Only the exact target counts as "already advanced"; a screen beyond it
+        # means the chain ran further than the scheduler believes, which is not
+        # something to paper over.
         screen = ScriptedScreen("BONUS_ITEMS")
         clicks: list[RecordedPoint] = []
         driver = build_driver(screen, clicks)
 
         with self.assertRaises(ContinuousUiDriverError):
-            driver.claim_bonus_items(fleet_id=2)
+            driver.collect_return_result(fleet_id=3)
 
         self.assertEqual(clicks, [])
 
@@ -180,6 +196,93 @@ class ClaimRewardTests(unittest.TestCase):
             driver.claim_reward(fleet_id=3)
 
         self.assertEqual(clicks, [])
+
+
+class FadingScreen:
+    """A screen the client reaches through the port background, not instantly.
+
+    ``fade_reads`` is how many times a check for the target has to fail before
+    the target is really on screen, which is what the live client did for ~2 s
+    after the notice click on 2026-11-05.
+    """
+
+    def __init__(self, initial: str, *, target: str, fade_reads: int) -> None:
+        self.state = initial
+        self.target = target
+        self.fade_reads = fade_reads
+        self.clicks = 0
+
+    def click(self, point: RecordedPoint) -> None:
+        # The click advances the client, but the next screen is still fading in.
+        self.clicks += 1
+
+    def verify(self, expected: str, *, visual_attempts: int | None = None) -> UiStateEvidence:
+        if expected == self.target:
+            if not self.clicks:
+                # Before the click the target simply is not there yet.
+                raise ContinuousUiDriverError(f"expected {expected}, screen shows {self.state}")
+            if self.fade_reads > 0:
+                self.fade_reads -= 1
+                self.state = "HOME_PORT"
+                raise ContinuousUiDriverError(
+                    f"expected {expected}, screen shows HOME_PORT"
+                )
+            self.state = self.target
+        if expected != self.state:
+            raise ContinuousUiDriverError(f"expected {expected}, screen shows {self.state}")
+        return UiStateEvidence(
+            state=expected,
+            consecutive_states=(expected, expected),
+            evidence="scripted",
+        )
+
+
+def build_fading_driver(
+    screen: FadingScreen,
+    *,
+    events: list[str] | None = None,
+) -> CdpContinuousExpeditionUiDriver:
+    log = events if events is not None else []
+    return CdpContinuousExpeditionUiDriver(
+        game_input=screen,
+        verify_state=screen.verify,
+        event_sink=lambda event, payload: log.append(event),
+        details=FakeDetails(),
+        marks=FakeMarks(),
+        capture=lambda: "unused",
+        locate_row=None,
+        sleep=lambda _seconds: None,
+    )
+
+
+class RewardScreenFadeTests(unittest.TestCase):
+    def test_a_screen_behind_a_fade_is_waited_for(self) -> None:
+        # The post-click frame is the port background, a *known* state that is
+        # not the target. It must be polled through, not treated as a failure.
+        screen = FadingScreen("HOME_PORT_RETURN_NOTICE", target="RETURN_RESULT", fade_reads=3)
+        events: list[str] = []
+        driver = build_fading_driver(screen, events=events)
+
+        evidence = driver.collect_return_result(fleet_id=3)
+
+        self.assertEqual(evidence.state, "RETURN_RESULT")
+        self.assertEqual(screen.state, "RETURN_RESULT")
+        self.assertEqual(screen.clicks, 1)
+        self.assertEqual(
+            [name for name in events if name == "continuous_ui_reward_screen_pending"],
+            ["continuous_ui_reward_screen_pending"] * 3,
+        )
+
+    def test_a_screen_that_never_arrives_stops_after_the_single_click(self) -> None:
+        # Waiting is read-only: a fade that never lands must still stop the
+        # chain with exactly the one click the caller already sent.
+        screen = FadingScreen("HOME_PORT_RETURN_NOTICE", target="RETURN_RESULT", fade_reads=99)
+        driver = build_fading_driver(screen)
+
+        with self.assertRaises(ContinuousUiDriverError):
+            driver.collect_return_result(fleet_id=3)
+
+        self.assertEqual(screen.clicks, 1)
 
 
 class FleetScopeTests(unittest.TestCase):

@@ -123,7 +123,7 @@ class ContinuousSettlementController:
         with self.ui_arbiter.operation(f"continuous-settlement-fleet-{fleet_id}"):
             baseline, _ = self._read_observation()
             snapshot = self._snapshot_for(baseline, fleet_id)
-            returned = self._require_returned_snapshot(fleet_id, snapshot)
+            returned = self._observed_return_state(fleet_id, snapshot)
 
             current = self.scheduler.fleet(fleet_id)
             if current.phase not in (
@@ -139,12 +139,60 @@ class ContinuousSettlementController:
                     f"Fleet {fleet_id} has no returned mission identity to settle"
                 )
             persisted = current.mission
-            if not returned.same_expedition(persisted):
+            if returned is not None and not returned.same_expedition(persisted):
                 self._block_after_ambiguous(fleet_id)
                 raise ContinuousSettlementError(
                     f"Fleet {fleet_id} observed returned mission does not match the "
                     f"dispatched identity; settlement blocked"
                 )
+            if returned is None:
+                # The server clears api_mission the moment the expedition result
+                # is accepted, which happens on the first click of the reward
+                # chain (live 2026-11-05). The chain is then pure UI, and the
+                # returned identity lives in the scheduler, so an idle reading
+                # is the expected shape of "this settlement is already half
+                # done" - not a reason to strand the fleet.
+                self.event_sink("settlement_resumed_after_result_taken", {
+                    "fleet_id": fleet_id,
+                    "phase": current.phase.value,
+                    "mission_id": persisted.mission_id,
+                    "final_time_ms": persisted.final_time_ms,
+                })
+
+            if current.phase is FleetPhase.RETURNED_PENDING_UI and returned is None:
+                # Nothing left to click is a *result*, not a failure: the reward
+                # request is accepted when the result screen opens, so a restart
+                # after that point sees an idle fleet and a plain Home Port. Only
+                # the driver can prove the absence, so a driver without the probe
+                # keeps the old fail-closed behaviour.
+                probe = getattr(self.ui_driver, "settlement_screen", None)
+                if not callable(probe):
+                    # No probe means "cannot prove the chain is over", and an
+                    # unprovable absence keeps the old fail-closed answer.
+                    raise ContinuousSettlementError(
+                        f"Fleet {fleet_id} has no returned mission tuple to settle"
+                    )
+                visible = probe(fleet_id=fleet_id)
+                if visible is None:
+                    updated = self.scheduler.confirm_settlement_already_complete(
+                        fleet_id,
+                        evidence="home_port_without_reward_screen_and_idle_fleet",
+                    )
+                    self.event_sink("settlement_closed_without_reward_screens", {
+                        "fleet_id": fleet_id,
+                        "mission_id": persisted.mission_id,
+                        "final_time_ms": persisted.final_time_ms,
+                        "evidence": "home_port_without_reward_screen_and_idle_fleet",
+                        "current_phase": updated.phase.value,
+                        "game_api_requests": False,
+                    })
+                    return SettlementExecution(
+                        fleet_id=fleet_id,
+                        mission=persisted,
+                        return_result_evidence="",
+                        bonus_items_evidence="",
+                        reward_claimed_evidence="home_port_without_reward_screen",
+                    )
 
             return_result_evidence = ""
             bonus_items_evidence = ""
@@ -217,8 +265,8 @@ class ContinuousSettlementController:
                     f"Fleet {fleet_id} did not become idle after reward claim"
                 )
         else:
-            after_returned = self._require_returned_snapshot(fleet_id, after_snapshot)
-            if not after_returned.same_expedition(persisted):
+            after_returned = self._observed_return_state(fleet_id, after_snapshot)
+            if after_returned is not None and not after_returned.same_expedition(persisted):
                 self._block_after_ambiguous(fleet_id)
                 raise ContinuousSettlementError(
                     f"Fleet {fleet_id} returned mission changed during settlement"
@@ -273,6 +321,21 @@ class ContinuousSettlementController:
             reserved=snapshot.reserved,
             ship_ids=snapshot.ship_ids,
         )
+
+    @classmethod
+    def _observed_return_state(
+        cls, fleet_id: int, snapshot: ExpeditionFleetSnapshot
+    ) -> MissionTuple | None:
+        """Returned identity, or None when Poi already reports the fleet idle.
+
+        Both are evidence of the same settled server fact: an idle fleet with a
+        returned mission in the scheduler means the reward request was accepted
+        and only the reward screens are left. Anything else still has to be a
+        status-2 tuple matching the dispatched expedition.
+        """
+        if cls._is_idle(snapshot):
+            return None
+        return cls._require_returned_snapshot(fleet_id, snapshot)
 
     @staticmethod
     def _is_idle(snapshot: ExpeditionFleetSnapshot) -> bool:

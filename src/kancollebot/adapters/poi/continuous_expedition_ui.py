@@ -75,6 +75,10 @@ SUPPLY_SETTLE_SECONDS = 1.0
 # on those screens a stray click could reach.
 REWARD_ADVANCE = RecordedPoint(600, 400, "reward-advance")
 REWARD_SETTLE_SECONDS = 1.6
+# The client fades between reward screens. A failed post-click check is retried
+# this many times, one second apart, before the screen counts as never arrived.
+REWARD_SCREEN_POLLS = 8
+REWARD_SCREEN_POLL_SECONDS = 1.0
 REWARD_VERIFY_SAMPLES = 6
 
 # Fleets the game lets a player send on an expedition. Fleet 1 is drawn on the
@@ -172,6 +176,61 @@ class CdpContinuousExpeditionUiDriver:
             "consecutive_states": evidence.consecutive_states,
         })
         return evidence
+
+    def _await_state(self, expected: str, *, phase: str) -> UiStateEvidence:
+        """Wait for a reward screen the client reaches through a fade.
+
+        A post-click check is not a precondition: the client fades through the
+        port background on its way to the next screen, and that intermediate
+        frame is a *known* state (HOME_PORT) rather than an unknown one. Treating
+        it as a failure ends a chain that is in fact progressing - live
+        2026-11-05, the notice click showed HOME_PORT for ~2 s before the result
+        screen appeared, which aborted a settlement one click from completion.
+
+        Each attempt is the same strict check the caller would have run: the
+        successful attempt *is* the confirmation, so a screen that arrives costs
+        no extra verification. Only a failed check is repeated, and only
+        ``REWARD_SCREEN_POLLS`` times - the click has already been sent, so the
+        polling is read-only; no further input ever comes from here.
+        """
+        for attempt in range(1, REWARD_SCREEN_POLLS + 1):
+            try:
+                return self._confirm(expected, phase=phase, samples=REWARD_VERIFY_SAMPLES)
+            except Exception as exc:
+                if (
+                    type(exc).__name__ not in self._NOT_THIS_SCREEN
+                    or attempt >= REWARD_SCREEN_POLLS
+                ):
+                    raise
+                self._event_sink("continuous_ui_reward_screen_pending", {
+                    "phase": phase,
+                    "expected": expected,
+                    "attempt": attempt,
+                    "of": REWARD_SCREEN_POLLS,
+                    "detail": str(exc)[:200],
+                })
+                self._sleep(REWARD_SCREEN_POLL_SECONDS)
+        raise ContinuousUiDriverError(f"{phase}: {expected} never appeared")  # pragma: no cover
+
+    # The verifier is injected, so "this is not the screen you expected" arrives
+    # as whatever the caller's module raises: this driver's own
+    # ContinuousUiDriverError, the gate's UiStateGateError, or the production
+    # entry's LoopError. A probe must treat all three as a plain no, and must
+    # still refuse to guess when the *evidence source* itself failed - clicking
+    # blind is the one thing a reward chain must never do.
+    _NOT_THIS_SCREEN = frozenset(
+        {"ContinuousUiDriverError", "UiStateGateError", "LoopError"}
+    )
+
+    def _probe_state(
+        self, expected: str, *, phase: str, samples: int | None = None
+    ) -> UiStateEvidence | None:
+        try:
+            return self._confirm(expected, phase=phase, samples=samples)
+        except Exception as exc:
+            if type(exc).__name__ in self._NOT_THIS_SCREEN:
+                return None
+            raise
 
     def _click(self, point: RecordedPoint, *, action: str, step: int) -> None:
         self._event_sink("continuous_ui_click_attempted", {
@@ -602,12 +661,26 @@ class CdpContinuousExpeditionUiDriver:
             "expected_after": after,
             "game_api_requests": False,
         })
+        # Resume before clicking. A settlement can be interrupted between two
+        # screens (process restart, a blocked gate, or the game itself having
+        # accepted the result while the chain was closed), and every screen
+        # advances on a click anywhere - so a click sent to a screen that is
+        # already the target would skip a screen instead of redoing one. Prove
+        # the target first; only click when the chain really is one step behind.
+        already = self._probe_state(after, phase=f"{phase} already advanced")
+        if already is not None:
+            self._event_sink("continuous_ui_settlement_step_already_advanced", {
+                "fleet_id": fleet_id,
+                "phase": phase,
+                "state": after,
+                "evidence": already.evidence,
+                "clicks_sent": 0,
+            })
+            return already
         self._confirm(before, phase=f"{phase} precondition", samples=REWARD_VERIFY_SAMPLES)
         self._click(REWARD_ADVANCE, action=f"advance_{phase}", step=step)
         self._sleep(REWARD_SETTLE_SECONDS)
-        evidence = self._confirm(
-            after, phase=f"after {phase}", samples=REWARD_VERIFY_SAMPLES
-        )
+        evidence = self._await_state(after, phase=f"after {phase}")
         self._event_sink("continuous_ui_settlement_step_completed", {
             "fleet_id": fleet_id,
             "phase": phase,
@@ -615,6 +688,38 @@ class CdpContinuousExpeditionUiDriver:
             "evidence": evidence.evidence,
         })
         return evidence
+
+    SETTLEMENT_SCREENS = ("HOME_PORT_RETURN_NOTICE", "RETURN_RESULT", "BONUS_ITEMS")
+
+    def settlement_screen(self, *, fleet_id: int) -> str | None:
+        """Return the reward screen on display, or None when none is.
+
+        Read-only: three bounded probes, no clicks. It answers the one question
+        a restart cannot answer from Poi alone - "is there anything left to
+        click?" - so the caller can finish a settlement that was interrupted
+        after its reward request had already been accepted.
+        """
+        if isinstance(fleet_id, bool) or not isinstance(fleet_id, int) or fleet_id < 1:
+            raise ContinuousUiDriverError("fleet_id must be a positive integer")
+        if fleet_id not in self._supported_fleets:
+            raise ContinuousUiDriverError(
+                f"fleet {fleet_id} is not a supported dispatch/settlement fleet; "
+                f"supported fleets are {list(self._supported_fleets)}"
+            )
+        for screen in self.SETTLEMENT_SCREENS:
+            if self._probe_state(screen, phase=f"probe {screen}") is not None:
+                self._event_sink("continuous_ui_settlement_screen_detected", {
+                    "fleet_id": fleet_id,
+                    "state": screen,
+                    "clicks_sent": 0,
+                })
+                return screen
+        self._event_sink("continuous_ui_settlement_screen_absent", {
+            "fleet_id": fleet_id,
+            "probed": list(self.SETTLEMENT_SCREENS),
+            "clicks_sent": 0,
+        })
+        return None
 
     def collect_return_result(self, *, fleet_id: int) -> UiStateEvidence:
         """Advance the return notice to the expedition result screen."""
