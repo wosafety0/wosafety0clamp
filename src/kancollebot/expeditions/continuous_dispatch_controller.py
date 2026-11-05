@@ -125,7 +125,7 @@ class SqliteDispatchEventLog:
         finally:
             db.close()
 
-    def __call__(self, event: str, fields: Mapping[str, object]) -> None:
+    def __call__(self, event: str, fields: Mapping[str, object]) -> int:
         if not isinstance(event, str) or not event.strip():
             raise ValueError("event name must be a non-empty string")
         if not isinstance(fields, Mapping):
@@ -143,23 +143,28 @@ class SqliteDispatchEventLog:
         )
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            db.execute(
+            cursor = db.execute(
                 "INSERT INTO dispatch_events (created_at, event, payload_json) VALUES (?, ?, ?)",
                 (datetime.now(timezone.utc).isoformat(), event, payload),
             )
+            event_id = cursor.lastrowid
+            if type(event_id) is not int or event_id < 1:
+                raise RuntimeError("SQLite did not return a valid event_id")
+        return event_id
 
     def load_all(self) -> tuple[dict[str, object], ...]:
         with self._connect() as db:
             rows = db.execute(
-                "SELECT created_at, event, payload_json FROM dispatch_events ORDER BY event_id"
+                "SELECT event_id, created_at, event, payload_json FROM dispatch_events ORDER BY event_id"
             ).fetchall()
         return tuple(
             {
+                "event_id": event_id,
                 "created_at": created_at,
                 "event": event,
                 "fields": json.loads(payload_json),
             }
-            for created_at, event, payload_json in rows
+            for event_id, created_at, event, payload_json in rows
         )
 
 class ContinuousDispatchController:
@@ -180,7 +185,7 @@ class ContinuousDispatchController:
         ui_driver: ContinuousUiDriver,
         ui_arbiter: UiOperationArbiter,
         mission_requirements: Mapping[int, MissionCompositionRequirement],
-        event_sink: Callable[[str, Mapping[str, object]], None],
+        event_sink: Callable[[str, Mapping[str, object]], int | None],
         allow_ui_actions: bool = False,
         max_state_age: timedelta = timedelta(seconds=30),
         clock: Callable[[], datetime] | None = None,

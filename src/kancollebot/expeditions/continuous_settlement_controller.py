@@ -87,7 +87,7 @@ class ContinuousSettlementController:
         state_reader: PoiFleetStateReader,
         ui_driver: ContinuousSettlementUiDriver,
         ui_arbiter: UiOperationArbiter,
-        event_sink: Callable[[str, Mapping[str, object]], None],
+        event_sink: Callable[[str, Mapping[str, object]], int | None],
         allow_ui_actions: bool = False,
         max_state_age: timedelta = timedelta(seconds=30),
         clock: Callable[[], datetime] | None = None,

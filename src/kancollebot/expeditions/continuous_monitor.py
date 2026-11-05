@@ -67,7 +67,7 @@ class ContinuousExpeditionMonitor:
         scheduler: ContinuousExpeditionScheduler,
         state_reader: PoiFleetStateReader,
         mission_requirements: Mapping[int, MissionCompositionRequirement],
-        event_sink: Callable[[str, Mapping[str, object]], None],
+        event_sink: Callable[[str, Mapping[str, object]], int | None],
         max_state_age: timedelta = timedelta(seconds=30),
         clock: Callable[[], datetime] | None = None,
     ) -> None:
