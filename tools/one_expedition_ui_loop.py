@@ -958,20 +958,49 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
             )
             # R3: the settlement and resupply controllers are the two branches
             # supervisor.tick() could never reach while they were absent. They
-            # reuse the SAME ui_driver (it implements both the settlement and
-            # the resupply driver protocols) and the SAME arbiter. The resupply
-            # controller keeps its own narrower safety gate: only fleets in
-            # RUNTIME_CONFIG.resupply_verified_fleet_ids may be clicked, so
-            # Fleet 4 still fails closed until its supply tab is calibrated.
-            settlement_controller = ContinuousSettlementController(
-                scheduler=runtime.scheduler,
-                state_reader=runtime.monitor.state_reader,
-                ui_driver=ui_driver,
-                ui_arbiter=ui_arbiter,
-                event_sink=runtime.monitor.event_sink,
-                allow_ui_actions=True,
-                max_state_age=timedelta(seconds=args.max_state_age_seconds),
+            # share the SAME ui_driver and the SAME arbiter as dispatch. The
+            # resupply controller keeps its own narrower safety gate: only
+            # fleets in RUNTIME_CONFIG.resupply_verified_fleet_ids may be
+            # clicked, so Fleet 4 still fails closed until its supply tab is
+            # calibrated.
+            #
+            # Capability is checked, not assumed. The production driver
+            # implements the visible supply chain, but it has no calibrated
+            # click chain for the return-result / bonus / reward screens, so
+            # injecting a settlement controller here would only turn "paused at
+            # settlement" into an AttributeError at the first returned fleet.
+            # The controller is therefore wired only when the driver can
+            # actually execute it; otherwise the supervisor keeps pausing.
+            settlement_actions = (
+                "collect_return_result",
+                "claim_bonus_items",
+                "claim_reward",
             )
+            settlement_controller = None
+            if all(callable(getattr(ui_driver, name, None)) for name in settlement_actions):
+                settlement_controller = ContinuousSettlementController(
+                    scheduler=runtime.scheduler,
+                    state_reader=runtime.monitor.state_reader,
+                    ui_driver=ui_driver,
+                    ui_arbiter=ui_arbiter,
+                    event_sink=runtime.monitor.event_sink,
+                    allow_ui_actions=True,
+                    max_state_age=timedelta(seconds=args.max_state_age_seconds),
+                )
+            else:
+                _print_event(
+                    "settlement_controller_unavailable",
+                    reason=(
+                        "the production UI driver has no calibrated settlement click chain; "
+                        "a returned fleet stays paused instead of being clicked blind"
+                    ),
+                    missing_actions=[
+                        name
+                        for name in settlement_actions
+                        if not callable(getattr(ui_driver, name, None))
+                    ],
+                    game_api_requests=False,
+                )
             fleet_data_provider = PoiReduxFleetSupplyProvider(
                 snapshot_reader=_read_poi_port_supply_snapshot,
                 # The monitor's own passive observer is the only source of a
@@ -1007,9 +1036,12 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 settlement_controller_wired=supervisor.settlement_controller is not None,
                 resupply_controller_wired=supervisor.resupply_controller is not None,
                 shared_ui_arbiter=(
-                    supervisor.settlement_controller.ui_arbiter is ui_arbiter
+                    dispatch_controller.ui_arbiter is ui_arbiter
                     and supervisor.resupply_controller.ui_arbiter is ui_arbiter
-                    and dispatch_controller.ui_arbiter is ui_arbiter
+                    and (
+                        supervisor.settlement_controller is None
+                        or supervisor.settlement_controller.ui_arbiter is ui_arbiter
+                    )
                 ),
                 game_api_requests=False,
                 ui_refresh_enabled=args.enable_ui_refresh,

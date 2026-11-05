@@ -119,7 +119,6 @@ class PoiReduxFleetSupplyProvider:
                 "snapshot_reader did not return a PoiPortSupplySnapshot"
             )
         self.read_count += 1
-        now = self.clock()
 
         witness = None
         if self.port_witness_provider is not None:
@@ -127,6 +126,9 @@ class PoiReduxFleetSupplyProvider:
         self.last_witness_captured_at = _witness_timestamp(witness, "bodyCapturedAt")
         self.last_witness_received_at = _witness_timestamp(witness, "responseReceivedAt")
 
+        # Age is measured after the witness is in hand, so a slow observer call
+        # can never make stale evidence look younger than it is.
+        now = self.clock()
         verified, reject_reason = self._verify(witness, snapshot, now)
         self.last_freshness_verified = verified
         self.last_reject_reason = reject_reason

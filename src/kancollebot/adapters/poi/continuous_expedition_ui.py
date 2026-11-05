@@ -29,6 +29,10 @@ from collections.abc import Callable, Mapping
 from typing import Protocol
 
 from kancollebot.adapters.poi.cdp_input import RecordedPoint
+from kancollebot.adapters.poi.visual_target import (
+    locate_fleet_supply_all_button,
+    locate_supply_fleet_tab,
+)
 from kancollebot.calibration import (
     DECISION_POINT,
     DEFAULT_CATALOG,
@@ -55,6 +59,14 @@ SORTIE = RecordedPoint(280, 425, "sortie")
 EXPEDITION_MODE = RecordedPoint(1000, 360, "expedition-mode")
 MISSION_CONFIRM = RecordedPoint(DECISION_POINT[0], DECISION_POINT[1], "mission-confirm")
 EXPEDITION_START = RecordedPoint(920, 670, "expedition-start")
+# The only entrance to the supply screen from the Home Port. Verified on this
+# account by tools/full_supply_ui_action.py before its single supply click.
+SUPPLY_MENU = RecordedPoint(103, 340, "supply-menu")
+
+# Supply screens are verified with six samples, not the dispatch gate's three:
+# the checkbox/button regions are small and the screen repaints after the click.
+SUPPLY_VERIFY_SAMPLES = 6
+SUPPLY_SETTLE_SECONDS = 1.0
 
 # Fleets the game lets a player send on an expedition. Fleet 1 is drawn on the
 # tab strip but cannot be dispatched, so it is not offered.
@@ -123,9 +135,15 @@ class CdpContinuousExpeditionUiDriver:
         self._neutralize_pointer()
         return self._capture()
 
-    def _confirm(self, expected: str, *, phase: str) -> UiStateEvidence:
+    def _confirm(
+        self, expected: str, *, phase: str, samples: int | None = None
+    ) -> UiStateEvidence:
         self._neutralize_pointer()
-        evidence = self._verify_state(expected)
+        evidence = (
+            self._verify_state(expected)
+            if samples is None
+            else self._verify_state(expected, visual_attempts=samples)
+        )
         if not isinstance(evidence, UiStateEvidence):
             raise ContinuousUiDriverError(
                 f"{phase}: verifier returned no structured UI evidence"
@@ -412,6 +430,136 @@ class CdpContinuousExpeditionUiDriver:
             })
             self._sleep(self._settle_seconds)
             return self._confirm("HOME_PORT", phase="after return_home_port observation retry")
+
+    # -- resupply ---------------------------------------------------------
+    def _supply_page_state(self) -> str:
+        """Which supply page variant is on screen, proven one state at a time."""
+        for candidate in (
+            "SUPPLY_FLEET_1_SELECTED",
+            "SUPPLY_FLEET_2_SELECTED",
+            "SUPPLY_FLEET_3_SELECTED",
+            "SUPPLY_MENU",
+        ):
+            try:
+                self._confirm(
+                    candidate,
+                    phase="identify the supply page",
+                    samples=SUPPLY_VERIFY_SAMPLES,
+                )
+                return candidate
+            except Exception:
+                continue
+        raise ContinuousUiDriverError(
+            "the current screen is not a verified supply page; refusing to click"
+        )
+
+    def resupply_fleet(self, *, fleet_id: int) -> UiStateEvidence:
+        """Supply one idle fleet and return two-frame Home Port evidence.
+
+        The chain is the one already calibrated for this account: Home Port ->
+        supply menu -> that fleet's tab -> its single fleet-wide supply button
+        -> back to Home Port. Completion is *not* claimed here; the caller
+        re-reads Poi Redux and requires every ship to be at capacity. This
+        driver only proves which screen each click landed on.
+        """
+        if isinstance(fleet_id, bool) or not isinstance(fleet_id, int) or fleet_id < 1:
+            raise ContinuousUiDriverError("fleet_id must be a positive integer")
+        if fleet_id not in self._supported_fleets:
+            raise ContinuousUiDriverError(
+                f"fleet {fleet_id} cannot be resupplied; supported fleets are "
+                f"{list(self._supported_fleets)}"
+            )
+        if fleet_id not in (2, 3):
+            raise ContinuousUiDriverError(
+                f"no calibrated supply tab region for fleet {fleet_id}; only fleets 2 and 3 "
+                "have a verified supply tab and button on this account"
+            )
+        expected_fleet = f"SUPPLY_FLEET_{fleet_id}_SELECTED"
+        self._event_sink("continuous_ui_resupply_started", {
+            "fleet_id": fleet_id,
+            "game_api_requests": False,
+        })
+        self._confirm("HOME_PORT", phase="resupply precondition")
+        self._click(SUPPLY_MENU, action="open_supply_menu", step=1)
+        self._sleep(SUPPLY_SETTLE_SECONDS)
+        state = self._supply_page_state()
+        if state != expected_fleet:
+            frame = self._frame()
+            try:
+                tab = locate_supply_fleet_tab(frame, fleet_index=fleet_id)
+            except Exception as exc:
+                raise ContinuousUiDriverError(
+                    f"supply tab for fleet {fleet_id} could not be located: {exc}"
+                ) from exc
+            self._event_sink("continuous_ui_supply_tab_located", {
+                "fleet_id": fleet_id,
+                "bounds": list(tab.bounds),
+                "region": list(tab.region),
+                "locator": tab.locator,
+            })
+            self._input.click(RecordedPoint(tab.x, tab.y, tab.label))
+            self._event_sink("continuous_ui_supply_tab_click_sent", {
+                "fleet_id": fleet_id,
+                "target": tab.label,
+                "retry_allowed": False,
+            })
+            self._sleep(self._settle_seconds)
+            self._confirm(
+                expected_fleet,
+                phase="after selecting the supply fleet tab",
+                samples=SUPPLY_VERIFY_SAMPLES,
+            )
+        else:
+            self._event_sink("continuous_ui_supply_tab_already_selected", {
+                "fleet_id": fleet_id,
+            })
+
+        # The supply button is located three times and must not move: the
+        # region is small, and a drifting bound means a repaint is in flight.
+        targets = []
+        frame = ""
+        for _ in range(3):
+            self._confirm(
+                expected_fleet,
+                phase="supply button precondition",
+                samples=SUPPLY_VERIFY_SAMPLES,
+            )
+            frame = self._frame()
+            try:
+                targets.append(locate_fleet_supply_all_button(frame))
+            except Exception as exc:
+                raise ContinuousUiDriverError(
+                    f"fleet {fleet_id} supply button could not be located: {exc}"
+                ) from exc
+            self._sleep(0.25)
+        if len({target.bounds for target in targets}) != 1:
+            raise ContinuousUiDriverError(
+                "the fleet supply button moved across three frames; refusing to click"
+            )
+        target = targets[-1]
+        self._event_sink("continuous_ui_supply_button_verified", {
+            "fleet_id": fleet_id,
+            "bounds": list(target.bounds),
+            "region": list(target.region),
+            "locator": target.locator,
+        })
+        self._input.click(RecordedPoint(target.x, target.y, target.label))
+        self._event_sink("continuous_ui_supply_click_sent", {
+            "fleet_id": fleet_id,
+            "retry_allowed": False,
+        })
+        self._sleep(SUPPLY_SETTLE_SECONDS)
+
+        # A supply keeps the client on the supply screen; return Home Port so
+        # the caller gets the same two-frame Home Port evidence every other
+        # controller action produces.
+        self._click(HOME_PORT, action="return_home_port", step=3)
+        evidence = self._confirm("HOME_PORT", phase="after resupply")
+        self._event_sink("continuous_ui_resupply_completed", {
+            "fleet_id": fleet_id,
+            "completion_verified_by": "caller_poi_observation",
+        })
+        return evidence
 
 
 class DetailSourceLike(Protocol):
