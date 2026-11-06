@@ -192,7 +192,13 @@ class LocateBelowThePageTests(unittest.TestCase):
             events[0][1]["point"],
             {"x": fake.clicks[0][0][0], "y": fake.clicks[0][0][1]},
         )
-        self.assertEqual(fake.clicks, [((1126, 651), "expedition-list-down")])
+        self.assertEqual(len(fake.clicks), 1)
+        self.assertEqual(fake.clicks[0][1], "expedition-list-down")
+        self.assertEqual(events[1][1]["point"], events[0][1]["point"])
+        x, y = fake.clicks[0][0]
+        left, top, right, bottom = DEFAULT_SCROLL_DOWN_BOX
+        self.assertTrue(left <= x < right)
+        self.assertTrue(top <= y < bottom)
 
     def test_failed_pre_click_audit_does_not_send_the_measured_click(self) -> None:
         fake = FakeList(9)

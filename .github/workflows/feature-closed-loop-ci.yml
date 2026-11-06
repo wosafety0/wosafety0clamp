@@ -1,19 +1,19 @@
 name: Feature CI - closed-loop settlement
 
-# The repository-wide ci.yml only fires on main / dev/** pushes and installs
-# the package WITHOUT its optional vision extra, so this preservation branch
-# gets no CI and 17 OpenCV/NumPy tests are silently skipped there. This
-# workflow is scoped to the feature branch and runs the suite both with and
-# without the vision extra, so the fail-closed dependency gate is verified in
-# both directions.
+# The repository-wide ci.yml installs the package without its optional vision
+# extra, leaving OpenCV/NumPy tests skipped. This workflow runs the full Python
+# 3.12/3.13 matrix both with and without vision dependencies on the preserved
+# and current production-settlement feature lines.
 on:
   push:
     branches:
       - feat/closed-loop-settlement-20261104
+      - feat/run-log-critical-ui-gate-current-base-20261107
   pull_request:
     branches:
       - main
       - "dev/**"
+      - feat/production-settlement-resupply-wiring-20261105
   workflow_dispatch:
 
 permissions:

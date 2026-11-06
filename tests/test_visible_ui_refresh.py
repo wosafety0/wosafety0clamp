@@ -187,11 +187,15 @@ class VisibleUiPortRefreshDriverTests(unittest.TestCase):
                     raise OSError("audit log unavailable")
 
         driver._event_sink = fail_second_attempt
-        with self.assertRaisesRegex(OSError, "audit log unavailable"):
+        with self.assertRaises(VisibleUiRefreshError) as raised:
             driver.refresh_port_state()
 
+        self.assertIsInstance(raised.exception.__cause__, OSError)
+        self.assertEqual(str(raised.exception.__cause__), "audit log unavailable")
         self.assertEqual(game_input.clicks, [SORTIE])
         self.assertEqual(attempts, 2)
+        self.assertEqual(driver.last_refresh_stats["clicks_attempted"], 2)
+        self.assertEqual(driver.last_refresh_stats["clicks_completed"], 1)
 
     def test_a_click_that_changed_the_screen_is_never_repeated(self):
         # The screen moved, so the outcome is ambiguous: no second click, by
