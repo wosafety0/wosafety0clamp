@@ -13,7 +13,7 @@ The GitHub default branch **main** still contains only `.github`; it is not the 
 | Current MVP base | `dev/dispatch-observer-safety-current-mvp-20261103` | `ba8884466f2bb1d568cc46b76034711df81bb50c` | Current remote base |
 | Settlement + run-log review candidate | `dev/run-log-safety-hardening-20261106` / [Draft PR #40](https://github.com/wosafety0/wosafety0clamp/pull/40) | `1bf11856356f9bd3b0fd7a615567a1ac9c4b9fed` (code commit; see PR for current head) | Open, unmerged |
 | SQLite event-id readback candidate | `dev/event-id-readback-20261106` / [Draft PR #39](https://github.com/wosafety0/wosafety0clamp/pull/39) | `6048b918632ffea1510e4b038b82cd30c53a4384` | Separate, open, unmerged |
-| SQLite/JSONL row-link follow-up | `dev/identity-contract-and-event-link-20261106` / [Draft PR #41](https://github.com/wosafety0/wosafety0clamp/pull/41) | `cbc29f1fcfdd5a0dafb60e56f98c857bcbbe7d1f` | Open, stacked on #40 |
+| SQLite/JSONL row-link follow-up | `dev/identity-contract-and-event-link-20261106` / [Draft PR #41](https://github.com/wosafety0/wosafety0clamp/pull/41) | `a167df27f3480160e469dd36291706a6e7c4c0ef` | Open, stacked on #40 |
 
 PR #40 is a broad staging candidate (42 commits / 105 changed files), not a merge recommendation. Its exact HEAD passed:
 - [Push CI #42128797363](https://github.com/wosafety0/wosafety0clamp/actions/runs/42128797363): 1,634 Python tests, 21 optional vision tests skipped; Node 17/17; compile and CLI smoke passed.
