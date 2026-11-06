@@ -4772,3 +4772,12 @@ The Hand plugin's read-only probe reported:
 - **TESTED:** `CanonicalVariantMergeTests` +1（双变体都并入、抑制 canonical 模板后仍由 canonical 作答）；指纹模块 21 OK；**全量 1818 OK / 2 skip**；`compileall` OK；`git diff --check` OK；`node --test` 25/25。
 - **重入路径分析（已代码核证）:** scheduler phase `RETURN_RESULT` 语义 = 遠征成功页已确认、下一步动作即 bonus 推进——与留在獲得页的物理画面**逐动作对齐**（`settle_one_returned` 第 412 行分支 `claim_bonus_items` expected BONUS_ITEMS），M2 就位后重入即可完成结算，无需额外代码。
 - **LIMITS:** ①变体按远征逐个补充（M1=远征 1、M2=远征 2、canonical=远征 3），新远征首遇必然一次 fail-closed（安全成本，非缺陷）；②变体指纹录自当前账号渲染；③`CANONICAL_STATE_VARIANTS` 与 capture 工具 SUPPORTED_STATES 双处维护仍在；④Fleet 4 结算重入与 READY 终态待下轮执行。
+
+## 2026-11-06 — L4 soak（完成）：三舰队全参与终态 + soak 总结
+
+- **M2 变体生产实战（07:33Z）:** c1d settle-only 重入，进程启动即 `startup_reward_screen_detected startup_screen=BONUS_ITEMS`（默认表面分类一次通过，M2 并入在生产 driver 路径生效）→ 启动结算路径完成奖励链 → 实例 `dispatch-20261106T064534Z-bd912bb47a19` settled（07:33:31:205Z，与生产 API 逐位）→ 补给 → supervisor tick 1 `ui_actions_disabled` 干净退出。**Fleet 4 终态 READY。**
+- **soak 终态（三库 + Poi 核对）:** Fleet 2（遠征 3×6 派遣全成功，ship_ids [12613,16733,16323,13519] 逐位一致，6/6 实例 settled，2 次 `closed_loop=true` 同进程完整往返：c3c tick 27 / c3d tick 52）；Fleet 3（遠征 1×2，2/2 settled，实例 2 经缺陷 D 中间态路径收口）；Fleet 4（遠征 2×1，1/1 settled）。三舰队 runtime 全部 READY、补给满（06:43Z Poi：全舰队 fuel/ammo deficit=0，fuel_available=43888、ammo_available=63497）。
+- **fail-closed 事件清单（全部零点击/安全停止，无一误点击）:** ①周期 1 IDLE 无补给通道 pause（缺陷 A，设计语义）；②遠征成功页双高分卡死（缺陷 B，旧按钮区模板）；③c3 归属 UNATTRIBUTED 拒绝（缺陷 C，账本未闭合）；④c1c 中间态 RETURN_RESULT 恢复缺口（缺陷 D）；⑤c1b/c2b 远征 1 獲得页 0.9021（缺陷 E）；⑥c1c 远征 2 獲得页 0.9076（E 预测命中）。缺陷 B/C/D/E/E.2 五项修复均已实机回归（实例 4 自动闭合、settle-only 重入×3、M1/M2 生产分类各一次）。
+- **提交链（本 soak）:** `3458e87`(B) → `012276a`(C) → `903dd19`(D) → `fc0c56e`(E) → `2498ff5`(E.2/M2)，全部推送 + 远端 tree 回读一致。测试 1811 → **1818 OK / 2 skip**（+7）；node 25/25 保持。
+- **实机首验清单:** settle-only 单 tick 收口路径（c2c/c3e/c1c/c1d 四次）；settle-only×wait-for-return 不可跨 tick 等待（语义发现，见上节）；M2 变体生产分类；Fleet 4 远征 2 首次全链（派遣门禁→返航→结算→补给→READY）；变体机制「新远征首遇一次 fail-closed」的设计成本实证。
+- **LIMITS:** ①变体仍需按远征逐个补充（canonical=遠征 3、M1=遠征 1、M2=遠征 2；远征 4+ 未捕获）；②`CANONICAL_STATE_VARIANTS` 与 capture 工具 SUPPORTED_STATES 双处维护；③settle-only 收口后 `home_port_verified=0`（无派遣核验路径，属预期，非缺陷）；④P0.2 多舰队 Drain 迁移未开工（`other_returns` 屏障仍靠单返回前提）。
