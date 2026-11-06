@@ -189,3 +189,26 @@
 - **Reported aircraft handling:** Aircraft stat contributions may be affected by slot aircraft count and proficiency. The wiki notes that aircraft-derived ASW has partially described special handling and that aircraft are not recommended as a way to fine-tune a fleet just above a threshold while the formula remains unclear.
 - **Automation consequence:** A stat-gated mission must be represented as a mission-specific set of thresholds and a separately versioned expedition-stat calculator. Do not reuse battle stat aggregation, raw ship master stats, UI-visible sums, or the shared KanColle-Agent HP normalizer as substitutes. If an aircraft/equipment contribution cannot be calculated with a fully specified supported rule, mark the result UNKNOWN and block dispatch.
 - **Live verification:** Not performed. No current Poi equipment slots, improvement values, aircraft proficiency, or mission result were inspected in this pass. The formula must be independently validated against the current client before production use.
+
+
+### EXP-020 — Great-success determination classes
+- **Rule class A — ordinary expeditions:** The maintained Japanese wiki reports that a fleet meeting the expedition success conditions and departing with all six ships in the sparkled / high morale state achieves great success with 100% probability. It estimates approximately 95% with five sparkled ships and approximately 80% with four; these reduced-fleet probabilities are community estimates, not deterministic guarantees. The relevant state is the departure-time condition: sparkle disappearing by return does not invalidate a great-success result.
+- **Rule class B — drum-can expeditions:** The wiki describes a separate model for IDs 21, 24, 37, 38, 40, 44 and E2. Its current table lists the following reported guaranteed combinations, in addition to each mission's normal success conditions:
+
+| Mission ID | Name | Sparkled ships | Ships carrying drums | Total drums |
+|---|---|---:|---:|---:|
+| 21 | 北方鼠輸送作戦 | 4 | 3 | 4 |
+| 24 | 北方航路海上護衛 | 4 | 1 | 2 |
+| 37 | 東京急行 | 4 | 3 | 5 |
+| 38 | 東京急行(弐) | 4 | 4 | 10 |
+| 40 | 水上機前線輸送 | 4 | 1 | 4 |
+| 44 | 航空装備輸送任務 | 4 | 3 | 8 |
+| E2 | 強行鼠輸送作戦 | 4 | 3 | 6 |
+
+  The source's theoretical probability table says the higher drum threshold plus four or more sparkled ships reaches at least 100%; extra drums beyond that threshold do not increase the reported probability. It also reports a lower, non-guaranteed great-success chance when drums exceed the mission's success minimum without meeting the higher great-success threshold. Treat the probability model as community research, not a production-grade formula.
+- **Rule class C — flagship-level expeditions:** The wiki reports a separate probability model for a subset of missions: 16 + 15 × sparkled_ship_count + (sqrt(flagship_level) + flagship_level / 10) percent. It states that, when normal success conditions are met, flagship Lv128 with at least four sparkled ships, or flagship Lv33 with at least five sparkled ships, reaches a reported 100% great-success threshold even if the remaining ships are not sparkled. The candidate mission list includes A2–A6, B3–B5, 41, 43, 45, 46, D1, D2 and E1; the source marks some entries with question marks and dates this applicability list to 2020-09-17. Do not assume this model applies to every listed mission without newer corroboration.
+- **Reward effect:** The same page reports great success gives 1.5× resource rewards, 2× admiral/ship experience, and guarantees the right-side item in a multi-item reward display. This is separate from random item drops and base success rewards (see EXP-017).
+- **Evidence:** COMMUNITY_REPORTED. The page is community-maintained. Its drum-can probability model cites a 2020 investigation; the flagship-level formula cites 2019 community research and the applicability list is explicitly dated 2020-09-17. A separate older duplicated page has a conflicting ID 24 drum count (4 rather than 2); this dossier follows the current maintained overview's table (2) and records the conflict rather than silently merging the values.
+- **Sources:** [遠征 — success and great-success conditions](https://wikiwiki.jp/kancolle/遠征), especially lines 230–278; [older duplicated page](https://wikiwiki.jp/kancolle/遠征/複製) for the conflicting historical ID 24 value. Accessed 2026-11-06.
+- **Automation consequence:** Great-success prediction must be a separate, mission-class-aware calculation from expedition success eligibility. Inputs include the exact fleet roster, departure-time morale per ship, flagship level, per-ship drum-can count, and number of ships carrying drums. Store the source rule/version and predicted probability alongside the decision. Do not promise a guaranteed great success for a candidate with an uncertain class, stale morale, ambiguous drum placement, or conflicting mission data. A conservative policy may require six verified sparkled ships for ordinary missions; this is an automation policy, not a universal game requirement.
+- **Live verification:** Not performed. No current Poi morale, equipment layout, mission-specific result, or controlled great-success outcome was inspected. No dispatch or game-state change was performed.
