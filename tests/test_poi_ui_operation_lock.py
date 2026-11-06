@@ -11,6 +11,12 @@ from pathlib import Path
 
 from kancollebot.adapters.poi import ui_operation_lock
 from kancollebot.adapters.poi.ui_operation_lock import PoiUiOperationLockError, poi_ui_operation
+from kancollebot.adapters.poi.ui_operation_lock import UiOperationArbiter
+from kancollebot.expeditions.recovery_classification import (
+    RecoveryPauseGate,
+    RecoveryPausedError,
+    classify_recovery_signals,
+)
 
 
 SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
@@ -184,6 +190,34 @@ with poi_ui_operation('abandoned-owner', timeout_seconds=6):
             owns_shared_arbiter,
             "the dispatch transaction must own the shared UI arbiter",
         )
+
+
+    def test_arbiter_checks_recovery_gate_before_entering_ui_operation(self):
+        gate = RecoveryPauseGate()
+        arbiter = UiOperationArbiter(action_guard=gate.require_actions_allowed)
+        gate.pause(classify_recovery_signals(visual_state="cat"))
+        entered = []
+
+        with self.assertRaises(RecoveryPausedError):
+            with arbiter.operation("must-not-enter"):
+                entered.append(True)
+
+        self.assertEqual(entered, [])
+
+    def test_arbiter_can_recheck_gate_between_individual_clicks(self):
+        gate = RecoveryPauseGate()
+        arbiter = UiOperationArbiter(action_guard=gate.require_actions_allowed)
+        clicks = []
+
+        with arbiter.operation("multi-step"):
+            arbiter.require_actions_allowed()
+            clicks.append("first")
+            gate.pause(classify_recovery_signals(observer_status="cdp_connection_closed"))
+            with self.assertRaises(RecoveryPausedError):
+                arbiter.require_actions_allowed()
+
+        self.assertEqual(clicks, ["first"])
+
 
 
 if __name__ == "__main__":
