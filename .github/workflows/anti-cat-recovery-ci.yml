@@ -31,7 +31,7 @@ jobs:
       - name: Run recovery gate tests
         env:
           PYTHONPATH: src
-        run: python -m unittest tests/test_network_fault_classifier.py -v
+        run: python -m unittest discover -s tests -p test_network_fault_classifier.py -v
       - name: Run full unit suite
         env:
           PYTHONPATH: src
