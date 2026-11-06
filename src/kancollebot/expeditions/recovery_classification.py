@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import threading
 from typing import Any
 
 
@@ -144,3 +145,62 @@ def classify_recovery_signals(
         RecoveryCategory.UNKNOWN, True, False, True,
         f"unrecognized_observer_status:{status}",
     )
+
+
+class RecoveryPausedError(RuntimeError):
+    """A game/UI action was refused because recovery has paused the run."""
+
+    def __init__(self, classification: RecoveryClassification, generation: int) -> None:
+        self.category = classification.category
+        self.generation = generation
+        self.reason = classification.reason
+        super().__init__(
+            f"recovery is paused ({self.category.value}, generation={generation}): "
+            f"{self.reason}"
+        )
+
+
+class RecoveryPauseGate:
+    """Thread-safe, latched gate that refuses actions after a recovery pause.
+
+    There is intentionally no resume/reset method in P2. Only a later,
+    separately verified reconciliation phase may add a controlled release.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._classification: RecoveryClassification | None = None
+        self._generation = 0
+
+    @property
+    def is_paused(self) -> bool:
+        with self._lock:
+            return self._classification is not None
+
+    @property
+    def generation(self) -> int:
+        with self._lock:
+            return self._generation
+
+    @property
+    def classification(self) -> RecoveryClassification | None:
+        with self._lock:
+            return self._classification
+
+    def pause(self, classification: RecoveryClassification) -> int:
+        if not isinstance(classification, RecoveryClassification):
+            raise TypeError("classification must be a RecoveryClassification")
+        if not classification.pause_required:
+            raise ValueError("only a pause-required classification can pause recovery")
+        with self._lock:
+            if self._classification is None:
+                self._classification = classification
+                self._generation += 1
+            return self._generation
+
+    def require_actions_allowed(self) -> None:
+        with self._lock:
+            classification = self._classification
+            generation = self._generation
+        if classification is not None:
+            raise RecoveryPausedError(classification, generation)
