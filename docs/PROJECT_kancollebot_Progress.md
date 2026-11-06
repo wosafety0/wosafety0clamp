@@ -4738,3 +4738,11 @@ The Hand plugin's read-only probe reported:
 - **TESTED:** **全量 1811 OK / 2 skip**（模板值无钉住断言，零测试改动）；`compileall` OK；`git diff --check` OK；`node --test` 25/25。soak 事件链：c1 派遣 ✓（04:00Z）→ c2 返航检测+归投点击 ✓、遠征成功页 fail-closed（缺陷 B 抓到）→ c2b settle-only 对账+补给 ✓ → c2c 再派遣 ✓（04:34Z）→ c2d 返航检测+归投 ✓、同页 fail-closed（复现确认）→ 捕获修复 → 待重入收尾。
 - **SAFETY:** 全程无 API 注入（`game_api_request_initiated=false`）；fail-closed 三次（IDLE pause、遠征成功页×2）均零盲点击；人工点击仅授权面内的恢复/推进（「次へ」×2、一次误点 (1195,715) 推进奖励链——奖励在结果确认时自动入账，无损失）。
 - **LIMITS:** ①新模板录自当前账号渲染与遠征 3 奖励页；遠征奖励差异大时需复查（与既有模板同一暴露面）；②`classify_screenshot_fingerprints` 的 margin 阈值未动；③soak 剩余周期（Fleet 2 收尾、Fleet 3×2、Fleet 4×1）进行中，完成后另有归档。
+
+## 2026-11-06 — L4 soak（进行中）：缺陷 C——startup 结算路径不关账本实例（实机 + 离线修复）
+
+- **实机发现（soak 缺陷 C，真 bug，已修）:** Fleet 2 c3 收尾 fail-closed：`Fleet 2 return cannot be attributed to exactly one dispatch instance (UNATTRIBUTED)`，零点击。账本证据：实例 1（04:00 派遣）`settled`（c2b 正常闭合）、实例 2（04:34 派遣）**`confirmed` 且 `settled_at=None`**——它的结算由 c2e 的 `STARTUP_SETTLEMENT_CLOSED`（BONUS 页在场路径）完成，但 **`_settle_visible_reward_chain` 只推进 scheduler phase，不调用 `_close_dispatch_record`**。两个相同的 confirmed 实例并存 → 下次归属按设计拒绝（P0-3 的「两次相同派遣不可区分」场景）。
+- **IMPLEMENTED:** `_settle_visible_reward_chain` 成功尾部（`mission_credited` 成立时）补账本闭合：`_attribute_returned(fleet_id, credited)` + `_close_dispatch_record(...)`——与 `settle_one_returned` 完全同一纪律：**best-effort**（ledger 不可读/归属歧义时实例保持开放、结算不上抛；下一次归属 fail-closed 拒绝而非错误入账）。
+- **TESTED:** `StartupChainLedgerClosureTests` 2 条——①单 confirmed 实例：链成功 + 实例变 `settled` + scheduler 进 RESUPPLY_REQUIRED/READY；②歧义账本（两个 confirmed）：链仍以显式 composition 证据成功、两实例保持 `confirmed`（fail-closed 留给下次归属）。相关模块 23 OK；**全量 1813 OK / 2 skip**（1811+2）；`compileall` OK；`git diff --check` OK；`node --test` 25/25。
+- **SAFETY:** 闭合只走生产 API（`mark_settled` 仅接受 confirmed → settled）；零 API 注入；c3 的拒绝本身零点击（设计内）。
+- **LIMITS:** ①现存实例 2 需要一次运维闭合（结算事实已由 c2e 的 `STARTUP_SETTLEMENT_CLOSED` + scheduler phase 证明，闭合走生产 `mark_settled` API 并如实归档）——修复只防未来；②`BONUS_ITEMS` 模板跨远征泛化问题仍在（远征 1 獲得物品页 0.9021 < 0.97，c1b fail-closed 抓到；「次へ」按钮区跨远征稳定但与遠征成功页无区分度，内容区有区分度但随远征变化——结构性矛盾待专门设计）；③Fleet 2 第 3 次返航的结果页仍在场等待结算。

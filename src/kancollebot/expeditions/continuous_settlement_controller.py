@@ -925,6 +925,21 @@ class ContinuousSettlementController:
                 "recovery_reason": recovery_reason,
                 "game_api_requests": False,
             })
+            if credited is not None:
+                # P0-3 alignment (live 2026-11-06): this startup path used to
+                # close the scheduler phase but not the durable dispatch
+                # instance, so the ledger kept two confirmed instances of one
+                # identical dispatch and the fleet's *next* return was refused
+                # as UNATTRIBUTED. Best-effort exactly like
+                # ``settle_one_returned``: the clicks are done and the reward
+                # is claimed, and an attribution that cannot answer uniquely
+                # leaves the record open for the next, fail-closed refusal -
+                # it never raises over a settlement that already happened.
+                try:
+                    attribution = self._attribute_returned(fleet_id, credited)
+                except ContinuousSettlementError:
+                    attribution = None
+                self._close_dispatch_record(fleet_id, attribution, credited)
             return VisibleRewardSettlement(
                 fleet_id=fleet_id,
                 start_screen=displayed,

@@ -27,6 +27,11 @@ from kancollebot.expeditions.startup_settlement import (
     StartupSettlementRefused,
     select_startup_screen,
 )
+from kancollebot.expeditions.dispatch_registry import (
+    DispatchIdentity,
+    SqliteDispatchRegistry,
+    new_dispatch_id,
+)
 from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
 
 BASE = datetime(2026, 11, 5, 5, 0, 0, tzinfo=timezone.utc)
@@ -542,6 +547,105 @@ class ActiveFleetSettledTests(unittest.TestCase):
         scheduler = ContinuousExpeditionScheduler(dispatch_fleet_ids=(FLEET,))
         with self.assertRaisesRegex(RuntimeError, "still carry the expedition"):
             scheduler.confirm_active_fleet_settled(FLEET, evidence="chain closed")
+
+
+class StartupChainLedgerClosureTests(unittest.TestCase):
+    """A credited start-up chain must close the durable dispatch instance.
+
+    Live 2026-11-06: the startup path advanced the scheduler phase but left
+    the ledger instance ``confirmed``, so after one full cycle the ledger held
+    two confirmed instances of one identical dispatch and the fleet's next
+    return was refused as UNATTRIBUTED. The closure is best-effort exactly
+    like ``settle_one_returned``: an ambiguous ledger stays open and the chain
+    still settles - the next attribution refuses, which fails closed.
+    """
+
+    INTENT_AT = BASE - timedelta(minutes=30)
+    CONFIRMED_AT = BASE - timedelta(minutes=1)
+
+    def make(self, observation, ui, *, registry):
+        scheduler = ContinuousExpeditionScheduler(
+            dispatch_fleet_ids=(FLEET,),
+            state_store=None,
+        )
+        prepare_returned(scheduler)
+        controller = ContinuousSettlementController(
+            scheduler=scheduler,
+            state_reader=NoNavigationReader(observation),
+            ui_driver=ui,
+            ui_arbiter=UiOperationArbiter(),
+            event_sink=lambda event, fields: None,
+            allow_ui_actions=True,
+            dispatch_registry=registry,
+        )
+        return controller, scheduler
+
+    @staticmethod
+    def persist_instance(registry, *, fleet_id=FLEET):
+        item = DispatchIdentity(
+            dispatch_id=new_dispatch_id(),
+            fleet_id=fleet_id,
+            mission_id=3,
+            ship_ids=SHIPS,
+            intent_persisted_at=StartupChainLedgerClosureTests.INTENT_AT,
+            detail="test",
+        )
+        registry.record_intent(item)
+        return registry.record_confirmed(
+            item.dispatch_id, confirmed_at=StartupChainLedgerClosureTests.CONFIRMED_AT
+        )
+
+    def test_a_credited_chain_closes_the_confirmed_dispatch_instance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            registry = SqliteDispatchRegistry(
+                Path(directory) / "dispatch.sqlite3", task_kind="expedition"
+            )
+            item = self.persist_instance(registry)
+            ui = SpySettlementUi(displayed_screen="BONUS_ITEMS")
+            poi = make_observation([fleet_snapshot(mission_status=2), fleet_snapshot(OTHER)])
+            controller, scheduler = self.make(poi, ui, registry=registry)
+
+            settlement = controller.settle_visible_reward_chain(
+                fleet_id=FLEET,
+                screen=select_startup_screen(composited_state="BONUS_ITEMS"),
+                expected_ship_ids=SHIPS,
+                expected_ship_ids_source="dispatch_intent_mission_1",
+            )
+
+            self.assertIsNotNone(settlement.mission)
+            self.assertEqual(registry.get(item.dispatch_id).status, "settled")
+            self.assertIn(
+                scheduler.fleet(FLEET).phase,
+                (FleetPhase.RESUPPLY_REQUIRED, FleetPhase.READY),
+            )
+
+    def test_an_ambiguous_ledger_still_settles_and_leaves_instances_open(self):
+        with tempfile.TemporaryDirectory() as directory:
+            registry = SqliteDispatchRegistry(
+                Path(directory) / "dispatch.sqlite3", task_kind="expedition"
+            )
+            first = self.persist_instance(registry)
+            second = self.persist_instance(registry)
+            ui = SpySettlementUi(displayed_screen="BONUS_ITEMS")
+            poi = make_observation([fleet_snapshot(mission_status=2), fleet_snapshot(OTHER)])
+            controller, scheduler = self.make(poi, ui, registry=registry)
+
+            settlement = controller.settle_visible_reward_chain(
+                fleet_id=FLEET,
+                screen=select_startup_screen(composited_state="BONUS_ITEMS"),
+                expected_ship_ids=SHIPS,
+                expected_ship_ids_source="dispatch_intent_mission_1",
+            )
+
+            # The chain settles on the explicit composition evidence; the
+            # ambiguous ledger is left open for the next, fail-closed refusal.
+            self.assertIsNotNone(settlement.mission)
+            self.assertEqual(registry.get(first.dispatch_id).status, "confirmed")
+            self.assertEqual(registry.get(second.dispatch_id).status, "confirmed")
+            self.assertIn(
+                scheduler.fleet(FLEET).phase,
+                (FleetPhase.RESUPPLY_REQUIRED, FleetPhase.READY),
+            )
 
 
 if __name__ == "__main__":
