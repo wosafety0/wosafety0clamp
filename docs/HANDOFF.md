@@ -1,11 +1,25 @@
 # Developer Handoff
 
-- **Updated:** 2026-11-03 (historical snapshot; current state below)
+- **Updated:** 2026-11-07 (current remote state added above; older sections remain historical)
 - **Repository:** wosafety0/wosafety0clamp
 - **Working branch at the time of this handoff (historical):** dev/expedition-closed-loop-mvp
 - **Code baseline before this documentation update:** 1aba35893daa3974c55a6ac54aec2c9dcac8cccb
 
-## Current integration state (2026-11-04) — read this first
+## Current remote integration and safety-candidate state (2026-11-07)
+
+- **Application source base:** `feat/production-settlement-resupply-wiring-20261105` @ `cdac285d2bc30ac32ceaa2e87cd56f9414ccc0a2`. Default `main` remains a rules/workflow-only branch containing `.github`.
+- **Current narrow candidate:** Draft PR [#43](https://github.com/wosafety0/wosafety0clamp/pull/43), head branch `feat/run-log-critical-ui-gate-current-base-20261107`, current code/test head `5f9dc881a7a442721c5123117b18e1065985a0de`, base `cdac285d2bc30ac32ceaa2e87cd56f9414ccc0a2`. It is open/unmerged.
+- **Verified CI for the code/test head:** Push [42274851506](https://github.com/wosafety0/wosafety0clamp/actions/runs/42274851506) passed 1,936 Python tests (22 optional vision skips) and Node 19/19. Feature push [42274851416](https://github.com/wosafety0/wosafety0clamp/actions/runs/42274851416) and Feature PR-context [42274862200](https://github.com/wosafety0/wosafety0clamp/actions/runs/42274862200) passed all four Python 3.12/3.13 × vision with/without jobs.
+- **PR #43 scope:** sticky run-log degraded latch; critical-event sink preflight; pre-click attempt/sent audit for visible refresh and expedition-list tab/scroll; production session receives the shared runtime event sink. The test/CI follow-up changed no production behavior.
+- **Do not conflate older stacks:** PR #42 is on a different, older identity-contract line. PR #43 is a narrow port to the current production-settlement base; it is not a merge of #42.
+- **Live acceptance boundary:** the 2026-11-06 evidence includes one Fleet 2 closed-loop cycle, followed by a separate stability attempt that stopped fail-closed at `unknown_page`. Three-cycle stability, multi-fleet acceptance and Fleet 4 supply acceptance are not established. Do not change the drain observation window or thresholds without the separate user decision recorded in the progress log.
+- **Run-log policy:** production run-log wiring remains opt-in/default-off. The current `dispatch_id` attempt/lifecycle distinction and `event_key` semantic deduplication are not resolved by PR #43.
+- **This scheduled development run is repository/CI-only:** no Poi/CDP connection, game input, page execution, Runtime.evaluate, getter access, account operation or system change.
+
+For the authoritative chronology and exact evidence, read [PROJECT_kancollebot_Progress.md](PROJECT_kancollebot_Progress.md), then the game-rule record [EXPEDITION_SETTLEMENT.md](game-rules/EXPEDITION_SETTLEMENT.md). The older 2026-11-04 section below is historical, not the current remote branch state.
+
+
+## Historical integration state (2026-11-04)
 
 The body of this file is a **2026-11-03 point-in-time handoff**. Its branch names, baseline SHA and CI run describe that moment only; they are not the current integration target.
 

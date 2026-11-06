@@ -5003,3 +5003,23 @@ The Hand plugin's read-only probe reported:
 - **TESTED / SAFETY：** 本轮零源码改动，四门禁复跑见提交记录。**未自动重试、未盲目点击、未清屏、未改账本、未发/重放游戏 API**；唯一一次点击是双帧确认后的 `return_notice` 归投气泡推进（正确动作，非误点击），此后零点击 fail-closed。第 3 轮**未启动**。全量 8 类关键词扫描 stdout + run-log：`STOPPED_FAIL_CLOSED`/`other_returns`/`UNATTRIBUTED`/`ui_stuck`/`Traceback`/`refused`/`single_frame_probe_failed`/`startup_settlement_refused` **均 0**；本轮失败以 `supervisor_paused` + `requires_manual_intervention=true` 表达，**不是** `STOPPED_FAIL_CLOSED` 事件，扫描该关键词不得据此宣称「无失败」。
 - **统计口径：** `settlement_drain_*` 与单帧探针事件写入 `--run-log-dir` 的 `run-2026-11-06.jsonl`（event_sink，**单文件按日期追加**），不在 stdout；本轮按 `timestamp_utc` 时间窗过滤，避免混入第 1 轮事件。后台首版分析脚本因未带 `PYTHONPATH=src` 导致 Poi/补给只读复核报 `ModuleNotFoundError`（**仅分析脚本，不影响主循环**），已用独立只读命令重取终态。
 - **LIMITS / NEXT：** ①第 2 轮**未通过**，「3 轮稳定」不成立，F3 并发与 10 条 `cross_checked` 白名单、Fleet 4 补给生产复验均未启动；②需用户**手动点掉** `RETURN_RESULT` 结果页链至纯 `HOME_PORT`，随后我只做只读复核；③之后需用户裁决：重跑第 2 轮（同命令同门禁），还是先修 drain 的结果页观察窗/等待（**代码改动需单独授权**）；④startup 编排缺陷（`startup_reward_screen_detected` 说 defer 但 `run_bootstrap` 仍发 `open_sortie`）本轮**仍未触发、仍未修、仍未实机验证**，本轮实证**不能**作为它的证据。证据：`logs/soak_l4c_f2_m1_round2_gate.json`、`logs/soak_l4c_f2_m1_round2.log`、`logs/run_log_soak_l4c_m1/run-2026-11-06.jsonl`、`logs/soak_l4c_f2_m1.sqlite3`。
+
+## 2026-11-07 - P0.2 critical audit gate CI repair and current-base verification
+
+> **范围：** 只处理当前生产结算分支的运行日志缺口门禁候选 PR #43。修复的是两处回归测试断言与 Feature CI 覆盖；本节没有更改生产点击、结算、补给或观察窗逻辑。
+
+- **启动核查：** 当前生产应用基线为 `feat/production-settlement-resupply-wiring-20261105` @ `cdac285d2bc30ac32ceaa2e87cd56f9414ccc0a2`。默认 `main` 仍只有 `.github`，不能当作应用代码基线。当前窄范围审计门禁候选为 Draft PR [#43](https://github.com/wosafety0/wosafety0clamp/pull/43)，head 分支 `feat/run-log-critical-ui-gate-current-base-20261107`。
+- **PR #43 已有实现（只读审查后保留）：** `RunLogSink` 的 degraded latch 在一次缺行后保持到本 run 结束；`TeeEventSink` 对暴露 `ensure_writable()` 的 sink 先做 critical-event preflight；可见刷新与远征列表 tab/scroll 点击的 attempt/sent 行被列为 critical；生产 `ExpeditionListSession` 使用共享 runtime event sink；唯一允许的 refresh no-op retry 也必须先写 attempt 行。任何 attempt 审计失败均发生在对应点击之前。
+- **首次精确 HEAD CI 失败：** Push [run 42271140528](https://github.com/wosafety0/wosafety0clamp/actions/runs/42271140528) 在 1,936 项测试中出现 1 failure / 1 error，根因是两处测试断言与既有契约不一致，而非生产代码失败：
+  1. `test_failed_retry_audit_stops_before_the_second_click` 期待原始 `OSError`；但 `VisibleUiPortRefreshDriver` 按现有接口把 event-sink 异常包装为 `VisibleUiRefreshError` 并保留 `__cause__`。测试现改为断言包装异常、原始 cause、两次 attempt / 一次 completed，且真实 fake input 仅收到第一次 click。
+  2. `test_measured_scroll_click_emits_attempt_and_sent_events` 固定断言旧坐标 `(1126, 651)`；当前合成扫描实际测得坐标为 `(450, 626)`。测试现断言只发生一次 measured scroll click、attempt/sent 记录坐标一致，且坐标位于 `DEFAULT_SCROLL_DOWN_BOX` 内，不再绑定过时的单个像素值。
+- **Feature CI 覆盖修正：** `.github/workflows/feature-closed-loop-ci.yml` 现在为当前候选 push 分支 `feat/run-log-critical-ui-gate-current-base-20261107` 运行 Python 3.12/3.13 × vision with/without 四矩阵，并对目标基线 `feat/production-settlement-resupply-wiring-20261105` 的 PR 启用同一矩阵。原有 `ci.yml` 仍负责基础离线验证。
+- **代码/测试/Workflow 提交：** `5f9dc881a7a442721c5123117b18e1065985a0de`（相对初始候选 `3860e5be13483cd13b3a361372966a0b1d59d93b`）。生产 Python 源码没有因本次 CI 修复而改变。
+- **验证：**
+  - Push CI [run 42274851506](https://github.com/wosafety0/wosafety0clamp/actions/runs/42274851506)：成功；Python **1,936 tests / 22 skipped**；Node **19/19**；observer syntax、compileall、CLI smoke 均通过。
+  - Feature push [run 42274851416](https://github.com/wosafety0/wosafety0clamp/actions/runs/42274851416)：四矩阵全部成功；Python 3.12/3.13 × vision with/without，各 **1,936 tests**；vision with 每项 **4 skipped**，without 每项 **22 skipped**；Node **19/19**。
+  - Feature PR-context [run 42274862200](https://github.com/wosafety0/wosafety0clamp/actions/runs/42274862200)：四矩阵全部成功。
+- **远端回读：** `tests/test_visible_ui_refresh.py` Blob `092baf7bcc8a392dabdf2c3c73ff14a7678a59a3`；`tests/test_expedition_list_session.py` Blob `401d16f3196fdbdc4af54047c611da860e2cf3c4`；`.github/workflows/feature-closed-loop-ci.yml` Blob `3c06752751627995ca460bbf7d10b772957b90fe`。最终代码/测试/Workflow HEAD 为 `5f9dc881a7a442721c5123117b18e1065985a0de`，远端 PR #43 仍 Draft/open/unmerged，目标为当前生产基线 `cdac285...`。
+- **未改/未验证：** 没有改 `SettlementDrainSession` 的 unknown-page 观察窗；2026-11-06 第二轮实机 `unknown_page` 的等待时序修改仍按用户裁决留待单独决定。没有调整视觉阈值、没有翻转 run-log 默认启用策略、没有解决 dispatch_id attempt/lifecycle 语义冲突。无 Poi/CDP 连接、无游戏输入/滚动/派遣/结算/补给/奖励、无 Runtime.evaluate、页面代码执行、getter 访问或系统修改。
+- **下一步：** PR #43 保持 Draft/open；先按最新远端 HEAD 做 review，不合并。后续独立工作可继续审查 run-log 与 lifecycle identity 的边界；任何 drain 观察窗或默认启用策略变化均需遵循既有用户裁决。
+

@@ -59,6 +59,11 @@ CRITICAL_AUDIT_EVENTS: frozenset[str] = frozenset(
         "continuous_ui_dispatch_blocked",
         "continuous_ui_settlement_step_started",
         "continuous_ui_settlement_step_completed",
+        # Other visible UI workflows: the audit row must precede every click.
+        "ui_refresh_click_attempted",
+        "ui_refresh_click_sent",
+        "expedition_list_click_attempted",
+        "expedition_list_click_sent",
         # settlement drain (P0.1)
         "settlement_drain_action",
         "settlement_drain_finished",

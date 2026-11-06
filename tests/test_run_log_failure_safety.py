@@ -47,13 +47,16 @@ from kancollebot.expeditions.settlement_drain import (  # noqa: E402
     SettlementDrainRequest,
     SettlementDrainSession,
 )
-from kancollebot.observability.audit_policy import AuditLogUnavailable  # noqa: E402
+from kancollebot.observability.audit_policy import (  # noqa: E402
+    AuditLogUnavailable,
+    is_critical_event,
+)
 from kancollebot.observability.run_log import (  # noqa: E402
     RunLogPolicy,
     RunLogStore,
     SnapshotWriteError,
 )
-from kancollebot.observability.sink import build_run_log_sink  # noqa: E402
+from kancollebot.observability.sink import TeeEventSink, build_run_log_sink  # noqa: E402
 from tests.test_continuous_dispatch_controller import (  # noqa: E402
     BASE,
     FakeClock,
@@ -111,6 +114,51 @@ class SinkFailureTests(unittest.TestCase):
         self.assertEqual(errors[0][0], "fleet_monitor_transition")
         self.assertIn("No space left on device", errors[0][1])
         self.assertIsNotNone(sink.degraded_reason)
+
+    def test_a_successful_later_write_does_not_clear_a_prior_gap(self):
+        store = BrokenStore(
+            RunLogPolicy(directory=self.directory),
+            fail_on="fleet_monitor_transition",
+        )
+        sink, _ = self.make_sink(store)
+        sink("fleet_monitor_transition", {})  # non-critical gap is best-effort
+        store.fail_on = "never"
+        sink("supervisor_tick", {})  # storage recovered, but the run did not
+
+        attempts_before_critical = store.attempts
+        with self.assertRaises(AuditLogUnavailable):
+            sink("continuous_ui_click_attempted", {})
+        self.assertEqual(store.attempts, attempts_before_critical)
+
+    def test_tee_preflights_a_degraded_run_log_before_primary_write(self):
+        store = BrokenStore(
+            RunLogPolicy(directory=self.directory),
+            fail_on="fleet_monitor_transition",
+        )
+        run_log, _ = self.make_sink(store)
+        run_log("fleet_monitor_transition", {})
+        store.fail_on = "never"
+        primary_rows: list[str] = []
+        tee = TeeEventSink(
+            lambda event, fields: primary_rows.append(event),
+            run_log,
+        )
+
+        with self.assertRaises(AuditLogUnavailable):
+            tee("continuous_ui_click_attempted", {})
+
+        self.assertEqual(primary_rows, [])
+        self.assertEqual(store.attempts, 1)
+
+    def test_new_visible_ui_click_events_are_critical(self):
+        for event in (
+            "ui_refresh_click_attempted",
+            "ui_refresh_click_sent",
+            "expedition_list_click_attempted",
+            "expedition_list_click_sent",
+        ):
+            with self.subTest(event=event):
+                self.assertTrue(is_critical_event(event))
 
     def test_a_critical_write_failure_raises_instead_of_pretending(self):
         store = BrokenStore(RunLogPolicy(directory=self.directory))
