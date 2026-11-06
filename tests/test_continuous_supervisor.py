@@ -4,6 +4,10 @@ from types import SimpleNamespace
 
 from kancollebot.expeditions.continuous_supervisor import ContinuousExpeditionSupervisor
 from kancollebot.expeditions.continuous_scheduler import FleetPhase
+from kancollebot.expeditions.recovery_classification import (
+    RecoveryPauseGate,
+    classify_recovery_signals,
+)
 
 
 class FakeScheduler:
@@ -202,6 +206,23 @@ class ContinuousExpeditionSupervisorTests(unittest.TestCase):
                 monitor=monitor,
                 dispatch_controller=controller,
             )
+
+
+    def test_recovery_pause_gate_stops_tick_before_monitor_or_dispatch(self):
+        supervisor, _, monitor, controller = self.make_supervisor({
+            2: FleetPhase.READY,
+            3: FleetPhase.READY,
+        })
+        gate = RecoveryPauseGate()
+        gate.pause(classify_recovery_signals(observer_status="cdp_connection_closed"))
+        supervisor.recovery_gate = gate
+
+        report = supervisor.tick()
+
+        self.assertEqual(monitor.calls, 0)
+        self.assertEqual(controller.calls, [])
+        self.assertEqual(report.dispatches, ())
+        self.assertTrue(report.paused_reason.startswith("recovery_paused:cdp_unavailable:"))
 
 
 if __name__ == "__main__":
