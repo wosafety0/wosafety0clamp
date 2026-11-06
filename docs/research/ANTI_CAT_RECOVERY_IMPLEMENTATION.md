@@ -53,3 +53,31 @@ The classifier performs no network operation, CDP reconnect, UI input, page refr
 ### Next phase
 
 Implement P2 global pause gating before \`monitor.tick()\` and at visible UI action boundaries. Offline fault-injection tests must prove zero UI actions while paused, stale observation-generation rejection, and fail-closed handling of unknown state.
+
+
+## P2 — Global recovery pause gate
+
+### Implemented
+
+- \`RecoveryPauseGate\` is a thread-safe, latched pause gate. P2 intentionally has no resume/reset API; a later phase must add release only after explicit business reconciliation.
+- \`ContinuousExpeditionSupervisor.tick()\` checks the gate before \`monitor.tick()\`; a paused tick records a \`supervisor_paused\` decision and performs no monitor, settlement, resupply, or dispatch work.
+- \`MonitorRuntime\` owns one shared gate. \`run_monitor()\` stops before the next tick and reports \`RECOVERY_PAUSED\`.
+- The shared \`UiOperationArbiter\` checks the gate at operation entry and exposes a per-input permit.
+- The visible port-refresh path checks the permit before each click, including its one permitted no-effect repeat.
+- The expedition UI driver checks the permit for every dispatch, settlement, and resupply click. The production composition root also guards list-scroll clicks and pointer movement.
+- Each input permit holds the gate lock across one synchronous input and its click receipt. A concurrent pause waits for an already-authorized input to finish, then blocks the next input; it does not interrupt an in-flight click.
+- The monitor's modal-recovery callback refuses to start modal dismissal after the gate is paused.
+
+### Verification
+
+- GitHub Actions: [run 42142219592](https://github.com/wosafety0/wosafety0clamp/actions/runs/42142219592)
+- Exact tested HEAD and branch HEAD: \`d283b8a18e48f2a8def98133948871e56d1a01ba\`.
+- Result: success; full Python suite **1812 tests OK / 22 skipped**.
+- New/updated tests cover: supervisor pre-monitor pause, monitor runner pause, runtime/arbiter shared gate, first-click refusal, mid-refresh pause with no second click, CDP expedition click refusal, arbiter refusal, and thread-safe pause waiting for an in-flight input permit.
+- Python compileall, CLI smoke checks, and offline JavaScript checks passed.
+
+### Remaining boundary
+
+- The gate is now wired into production action paths, but no production observer currently calls \`RecoveryPauseGate.pause()\`; the gate remains open unless an upstream caller explicitly pauses it. P3 must connect the passive observer/classifier to this shared gate and preserve the evidence that caused the pause.
+- There is still no automatic CDP reconnect, retry/backoff, witness reacquisition, business ledger reconciliation, or automatic resume.
+- No Poi/CDP session or game UI action was performed. No live anti-cat verification.
