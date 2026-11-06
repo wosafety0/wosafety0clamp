@@ -756,6 +756,11 @@ class CdpContinuousExpeditionUiDriver:
                 "region": list(tab.region),
                 "locator": tab.locator,
             })
+            self._event_sink("continuous_ui_supply_tab_click_attempted", {
+                "fleet_id": fleet_id,
+                "target": tab.label,
+                "retry_allowed": False,
+            })
             self._input.click(RecordedPoint(tab.x, tab.y, tab.label))
             self._event_sink("continuous_ui_supply_tab_click_sent", {
                 "fleet_id": fleet_id,
@@ -801,6 +806,11 @@ class CdpContinuousExpeditionUiDriver:
             "bounds": list(target.bounds),
             "region": list(target.region),
             "locator": target.locator,
+        })
+        self._event_sink("continuous_ui_supply_click_attempted", {
+            "fleet_id": fleet_id,
+            "target": target.label,
+            "retry_allowed": False,
         })
         self._input.click(RecordedPoint(target.x, target.y, target.label))
         self._event_sink("continuous_ui_supply_click_sent", {
