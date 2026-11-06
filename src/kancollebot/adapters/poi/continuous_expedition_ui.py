@@ -71,7 +71,12 @@ SUPPLY_MENU = RecordedPoint(103, 340, "supply-menu")
 # Supply screens are verified with six samples, not the dispatch gate's three:
 # the checkbox/button regions are small and the screen repaints after the click.
 SUPPLY_VERIFY_SAMPLES = 6
-SUPPLY_SETTLE_SECONDS = 1.0
+# Live 2026-11-06 02:03Z: the return-home-port click fired about 1 s after the
+# supply click and the port navigation never happened - the supply animation
+# (bars filling, voice line) swallowed the click while the ledger shows it
+# "sent". Five seconds covers the observed animation with margin; the port is
+# still polled for afterwards rather than expected on one frame.
+SUPPLY_SETTLE_SECONDS = 5.0
 
 # The return notice and the result screen advance on a click in the empty area
 # under the roster. It sits well away from the 次 control in the bottom-right

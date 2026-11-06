@@ -77,6 +77,7 @@ from kancollebot.calibration import (  # noqa: E402
 )
 from kancollebot.core.task_attribution import merge_trusted_event_fields  # noqa: E402
 from kancollebot.observability.audit_policy import audit_gate  # noqa: E402
+from kancollebot.observability.sink import correlation_capability  # noqa: E402
 from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
 
 # Long enough for the Home Port scene to finish settling before a frame is
@@ -250,6 +251,37 @@ def _read_visual_document(path: Path) -> object:
         _VISUAL_DOCUMENT_CACHE.pop(next(iter(_VISUAL_DOCUMENT_CACHE)))
     _VISUAL_DOCUMENT_CACHE[cache_key] = document
     return document
+
+
+def _run_log_start_payload(
+    runtime: object,
+    *,
+    database: object,
+    game_actions_enabled: bool,
+    tool_run_id: str,
+) -> dict[str, object]:
+    """The durable ``run_started`` payload for the closed-loop entry.
+
+    Live 2026-11-06: this entry never wrote a durable run boundary - the
+    stdout ``run_started`` row never reached the run log, so the ledger had
+    neither a run delimiter nor the ``correlation_capable`` field the monitor
+    entry writes. The stdout emitter and the RunLogSink also mint separate
+    run ids (a kept production fact, not an accident to paper over):
+    ``tool_run_id`` writes the stdout domain into the ledger so a reader can
+    join the two streams without guessing from timestamps. The capability
+    fields come from the sink the components actually emit through, exactly
+    as the monitor entry computes them.
+    """
+    return {
+        "database": str(database),
+        "dispatch_fleets": list(runtime.scheduler.dispatch_fleet_ids),
+        "ui_navigation_enabled": bool(
+            getattr(runtime, "ui_refresh_enabled", False)
+        ),
+        "game_actions_enabled": bool(game_actions_enabled),
+        "tool_run_id": tool_run_id,
+        **correlation_capability(runtime.event_sink).as_fields(),
+    }
 
 
 def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra: object) -> None:
@@ -1310,6 +1342,19 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 adopt_unplanned_missions=args.adopt_observed_mission,
                 run_log_dir=args.run_log_dir,
             )
+            run_log_sink = getattr(runtime, "run_log_sink", None)
+            if run_log_sink is not None:
+                # The durable run boundary belongs here, right after the sink
+                # exists and before any component emits: every later row in
+                # the ledger can then name the run it belongs to.
+                run_log_sink.start(
+                    _run_log_start_payload(
+                        runtime,
+                        database=args.database,
+                        game_actions_enabled=bool(args.authorize_ui_actions),
+                        tool_run_id=RUN_ID,
+                    )
+                )
 
             def capture_frame() -> str:
                 game_session.transport.send(

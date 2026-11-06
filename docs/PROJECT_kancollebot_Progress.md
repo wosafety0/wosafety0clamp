@@ -4684,3 +4684,16 @@ The Hand plugin's read-only probe reported:
 - **结算结果验证（Poi 只读）:** 四舰队全部 `mission=[0,0,0,0]`；资源燃料 43854→43884、弹药 63282→63344（两支远征收益入账）。**两舰队派遣→返航→归投→结算→回港的生产闭环游戏侧完成**。
 - **VERIFIED（实机）:** ①`--run-log-dir` 下派遣/结算/恢复全链路事件落盘（JSONL + SQLite 双写）；②`refresh_id`/`attempted`/`sent`/`PRODUCTION_SUPERVISOR_PAUSED` 等身份与审计行在生产路径逐行出现；③fail-closed 五连：供给门禁、scope 不变量、远征占用识别、重复派遣屏障、UI_STUCK 不重试。
 - **LIMITS / 待办:** ①**drain 默认观察窗 2.5s 不足**（本次用 `--drain-action-interval-seconds 10` 重入仍因状态已变未走完两舰队全程；下次应一次带足参数从气泡页走完全程）；②**MissionResultWitness 未在 drain 路径落库**（P0.1 设计不接 witness，事件级身份关联是 P0.2 尾项）；③Fleet 4 补给 tab 未校准；④结算页本次由人工推进，drain 独立完成双链全程仍未实证；⑤`--global-drain` 离线测试通过 ≠ 生产闭环通过——本次生产验证恰好证实了这一判断。
+
+## 2026-11-06 — 生产验证 L3 后续：结算链走通 + 三个生产日志缺陷修复（实机 + 离线）
+
+- **触发:** 用户报告「游戏画面停留在远征成功界面」（10:00 GMT+8）。只读截图确认：遠征成功！结算页（練習航海 = Fleet 3 远征1）残留；Poi 显示四队 `mission=[0,0,0,0]`——游戏侧已推进完，纯 UI 残留。
+- **结算链独立走通（实机，02:02:10–02:02:39）:** 生产入口 `_probe_startup_screen` 检测到 `RETURN_RESULT` → `startup_settlement_entry`（阶段 5 新行首次实机落库）→ step1 `advance_bonus_items` → `BONUS_ITEMS` 两帧确认 → step2 `advance_reward` → `HOME_PORT` 两帧确认 → `startup_settlement_completed`。**L3 待办第 1 项（结算链独立走完全程）的实景证据**——此前 LIMIT ⑤「结算页由人工推进」就此关闭。
+- **实机发现 ①（真缺陷，已修）:** 结算后流程进入补给（`resupply_action_started`——闭环入口的正常步骤），补给 Fleet 3 点击生效（条已满），但 **`return_home_port` 点击在补给点击后 ~1–2 s 发出，被补给动画吞掉**（`SUPPLY_SETTLE_SECONDS=1.0` 过短；日志记 `sent` 但页面不变）→ `_await_state` 轮询 8 次 ~20 s 无果 → `supervisor_paused`（**阶段 1 关键事件首次实机落库**）→ fail-closed 零盲重试。修复：`SUPPLY_SETTLE_SECONDS` 1.0 → 5.0（附实机证据注释）+ 钉住下限的测试。
+- **实机发现 ②（真缺陷，已修）:** 闭环入口**从不向运行日志写持久 `run_started`**——stdout 的 `_print_event("run_started")` 不经过 sink。02:02/02:08 两轮 run 的 JSONL 均无 run 边界、无 `correlation_capable`（监控入口正确）。修复：`build_runtime` 后立即 `run_log_sink.start(_run_log_start_payload(...))`，payload 含 `database` / `dispatch_fleets` / `game_actions_enabled` / **`tool_run_id`**（stdout 域 run id，把两个身份域显式连接）+ `correlation_capability(runtime.event_sink).as_fields()`。
+- **实机发现 ③（记录，不修）:** 双 run_id 域：stdout 用进程 id（`20261106T020811…`）、JSONL 落盘行用 sink id（`run-…-hex`）；`tool_run_id` 字段解决 join。另：SQLite `dispatch_events` 账本**不承载 run 边界**（`start()` 只经 RunLogSink 写 JSONL；账本是任务事件记录，设计如此）。
+- **实机验证（02:19:32，settle-only 无派遣授权面）:** 修复后首轮 run——`run_started` **首次落入闭环入口的持久运行日志**：`tool_run_id=20261106T021932.529424Z`、`correlation_capable=true`、`correlation_sources=["RunLogSink"]`；随后 UI 刷新导航 3 次点击全部 `attempted/sent` 成对，`HOME_PORT` 0.9991/0.9992 双帧确认；末行 `PRODUCTION_SUPERVISOR_PAUSED, reason=ui_actions_disabled`（settle-only 设计内暂停）。游戏状态：四队在港、Fleet 3 满补、母港待机。
+- **恢复事实澄清:** 02:08 重入 run 的开头 22 s 无日志行、无恢复点击——把游戏从补给界面带回母港的是**用户手动点击**，不是工具（如实记录，不冒领）。
+- **TESTED:** 新增 3 条（payload 能力位与双域 join ×2、`SUPPLY_SETTLE_SECONDS >= 4.0` 钉住）；集成模块 10 OK；**全量 1794 OK / 2 skip**（1791 + 3）；`compileall` OK；`git diff --check` OK；`node --test` **25/25**。
+- **VERIFIED（实机）:** 结算链全程、run_started 落库、supervisor_paused 关键事件实机落库、修复后母港恢复确认。**VERIFIED（离线）:** 3 条新测试。两者已区分。
+- **LIMITS:** ①`run_stopped` 在闭环入口仍无持久落盘（`RunLogSink.stop()` 存在但未接线，正常/异常路径均无）——独立待办；②SQLite 账本无 run 边界是设计现状，是否要把 `run_started` 也写入 tee 侧留给后续裁决；③本轮 02:19 验证 run 的 `game_actions_enabled=true` 写实（有授权点击），`--settle-only` 下末尾的 paused 是设计而非故障。

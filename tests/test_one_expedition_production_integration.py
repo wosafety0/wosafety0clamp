@@ -657,5 +657,69 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
                 self.assertFalse(run.call_args.args[0].enable_ui_refresh)
 
 
+class RunLogStartPayloadTests(unittest.TestCase):
+    """The closed-loop entry must write a durable run boundary (live 2026-11-06).
+
+    Live evidence: the 02:02Z/02:08Z runs carried ``run_started`` only on
+    stdout - the ledger had neither a run delimiter nor the
+    ``correlation_capable`` field, while the monitor entry had both.
+    """
+
+    def test_the_payload_states_capability_and_joins_the_two_run_id_domains(self):
+        runtime = SimpleNamespace(
+            scheduler=SimpleNamespace(dispatch_fleet_ids=(3,)),
+            event_sink=lambda row: None,
+            ui_refresh_enabled=True,
+        )
+        payload = entry._run_log_start_payload(
+            runtime,
+            database=Path("prod.sqlite3"),
+            game_actions_enabled=True,
+            tool_run_id="20261106T020811.000000Z",
+        )
+        self.assertEqual(payload["database"], str(Path("prod.sqlite3")))
+        self.assertEqual(payload["dispatch_fleets"], [3])
+        self.assertTrue(payload["ui_navigation_enabled"])
+        self.assertTrue(payload["game_actions_enabled"])
+        self.assertEqual(payload["tool_run_id"], "20261106T020811.000000Z")
+        # A plain function sink cannot bind correlation: the payload says so
+        # explicitly instead of leaving the fields absent.
+        self.assertFalse(payload["correlation_capable"])
+        self.assertEqual(payload["correlation_sources"], [])
+
+    def test_a_correlation_capable_sink_reports_itself(self):
+        class TeeWithCorrelation:
+            def __call__(self, row: dict) -> None:
+                return None
+
+            def correlation(self, **updates: object) -> object:
+                raise AssertionError("the payload must not enter the scope")
+
+        runtime = SimpleNamespace(
+            scheduler=SimpleNamespace(dispatch_fleet_ids=()),
+            event_sink=TeeWithCorrelation(),
+            ui_refresh_enabled=False,
+        )
+        payload = entry._run_log_start_payload(
+            runtime,
+            database="x.sqlite3",
+            game_actions_enabled=False,
+            tool_run_id="t",
+        )
+        self.assertTrue(payload["correlation_capable"])
+        self.assertEqual(payload["correlation_sources"], ["TeeWithCorrelation"])
+
+    def test_supply_settle_covers_the_live_measured_animation(self):
+        # Live 2026-11-06 02:03Z: a ~1 s gap let the supply animation swallow
+        # the return-home-port click entirely - the ledger recorded it "sent"
+        # while the page never changed.
+        from kancollebot.adapters.poi.continuous_expedition_ui import (
+            SUPPLY_SETTLE_SECONDS,
+        )
+
+        self.assertGreaterEqual(SUPPLY_SETTLE_SECONDS, 4.0)
+
+
+
 if __name__ == "__main__":
     unittest.main()
