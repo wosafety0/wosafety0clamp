@@ -125,11 +125,12 @@ class FakeMarks:
 class FakeListSession:
     """The row locator, standing in for a walked position index."""
 
-    def __init__(self, *, scan, click, index, settle_seconds):
+    def __init__(self, *, scan, click, index, settle_seconds, event_sink=None):
         self.scan = scan
         self.click = click
         self.index = index
         self.settle_seconds = settle_seconds
+        self.event_sink = event_sink
 
     def locate_any_tab(self, expedition_id):
         return self.locate(expedition_id)
