@@ -35,6 +35,9 @@ from kancollebot.adapters.poi.visual_target import (
     locate_fleet_supply_all_button,
     locate_supply_fleet_tab,
 )
+from kancollebot.observability.event_envelope import new_action_id
+from kancollebot.observability.sink import correlation_scope
+
 from kancollebot.calibration import (
     DECISION_POINT,
     DEFAULT_CATALOG,
@@ -250,28 +253,42 @@ class CdpContinuousExpeditionUiDriver:
             raise
 
     def _click(self, point: RecordedPoint, *, action: str, step: int) -> None:
-        self._event_sink("continuous_ui_click_attempted", {
-            "step": step,
-            "action": action,
-            "target": point.label,
-        })
-        try:
-            self._input.click(point)
-        except Exception as exc:
-            self._event_sink("continuous_ui_click_ambiguous", {
+        """Send exactly one input, under exactly one action identity.
+
+        The id is minted *here* because this method is the only place in the
+        driver that actually dispatches an input; every row emitted while the
+        click is in flight - ``attempted``, ``ambiguous``, ``sent`` - inherits
+        the same ``action_id`` from the correlation scope. ``step`` is a legacy
+        retry index and is deliberately not used as identity: one dispatch
+        contains several clicks and they must be distinguishable.
+
+        The order is the safety property, not a detail: ``attempted`` is
+        emitted *before* the input call, so a sink that raises provably prevents
+        the click instead of merely failing to record one.
+        """
+        with correlation_scope(self._event_sink, action_id=new_action_id()):
+            self._event_sink("continuous_ui_click_attempted", {
                 "step": step,
                 "action": action,
                 "target": point.label,
-                "error_type": type(exc).__name__,
             })
-            raise
-        self._event_sink("continuous_ui_click_sent", {
-            "step": step,
-            "action": action,
-            "target": point.label,
-        })
-        if self._settle_seconds:
-            self._sleep(self._settle_seconds)
+            try:
+                self._input.click(point)
+            except Exception as exc:
+                self._event_sink("continuous_ui_click_ambiguous", {
+                    "step": step,
+                    "action": action,
+                    "target": point.label,
+                    "error_type": type(exc).__name__,
+                })
+                raise
+            self._event_sink("continuous_ui_click_sent", {
+                "step": step,
+                "action": action,
+                "target": point.label,
+            })
+            if self._settle_seconds:
+                self._sleep(self._settle_seconds)
 
     def _mission_row_point(self, expedition_id: str) -> RecordedPoint:
         """Where that expedition's row is *now*, proven by the list session."""
@@ -834,13 +851,21 @@ class CdpContinuousExpeditionUiDriver:
                 "region": list(tab.region),
                 "locator": tab.locator,
             })
-            self._input.click(RecordedPoint(tab.x, tab.y, tab.label))
+            # Routed through ``_click`` so this input has the same fail-closed
+            # ordering as every other one: ``attempted`` is written *before*
+            # the click, and ``ambiguous`` replaces ``sent`` when it throws.
+            # The hand-rolled version used to click first and log afterwards,
+            # which is exactly the ordering a broken log could not stop.
+            self._click(
+                RecordedPoint(tab.x, tab.y, tab.label),
+                action="select_supply_fleet_tab",
+                step=2,
+            )
             self._event_sink("continuous_ui_supply_tab_click_sent", {
                 "fleet_id": fleet_id,
                 "target": tab.label,
                 "retry_allowed": False,
             })
-            self._sleep(self._settle_seconds)
             self._confirm_supply_fleet_selected(
                 fleet_id, phase="after selecting the supply fleet tab"
             )
@@ -874,7 +899,11 @@ class CdpContinuousExpeditionUiDriver:
             "region": list(target.region),
             "locator": target.locator,
         })
-        self._input.click(RecordedPoint(target.x, target.y, target.label))
+        self._click(
+            RecordedPoint(target.x, target.y, target.label),
+            action="click_fleet_supply_all",
+            step=3,
+        )
         self._event_sink("continuous_ui_supply_click_sent", {
             "fleet_id": fleet_id,
             "retry_allowed": False,
@@ -887,7 +916,7 @@ class CdpContinuousExpeditionUiDriver:
         # the port is polled for rather than expected on the next frame: live
         # 2026-11-05 the screen was still the supply page 2.6 s after the click
         # and the single post-click check ended a resupply that had worked.
-        self._click(HOME_PORT, action="return_home_port", step=3)
+        self._click(HOME_PORT, action="return_home_port", step=4)
         evidence = self._await_state("HOME_PORT", phase="after resupply")
         self._event_sink("continuous_ui_resupply_completed", {
             "fleet_id": fleet_id,

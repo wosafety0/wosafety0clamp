@@ -277,9 +277,36 @@ def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra:
         payload["ship_count"] = len([ship_id for ship_id in state.ship_ids if ship_id > 0])
     line = json.dumps(payload, ensure_ascii=False)
     print(line, flush=True)
-    if LOG_PATH is not None:
-        with LOG_PATH.open("a", encoding="utf-8", newline="\n") as stream:
-            stream.write(line + "\n")
+    _append_log_line(line)
+
+
+def _append_log_line(line: str) -> None:
+    """Append one already-serialised row, rotating the file when it outgrows its cap.
+
+    This jsonl predates the unified run log and had no bound: a loop left running
+    appends forever and can only stop by filling the disk. Rotation keeps exactly
+    one previous file (``<name>.1``) so the current stream is always the one at
+    the configured path - readers that open ``LOG_PATH`` keep working.
+
+    Deliberately *not* a retention policy: nothing here deletes evidence, and the
+    three-day window belongs to the unified run log. A rotation failure
+    propagates, exactly like a failed append, because a log that silently stops
+    recording is worse than a loop that stops.
+    """
+    if LOG_PATH is None:
+        return
+    cap = RUNTIME_CONFIG.ui_loop_log_max_bytes
+    try:
+        size = LOG_PATH.stat().st_size
+    except FileNotFoundError:
+        size = 0
+    if size >= cap:
+        rotated = LOG_PATH.with_name(LOG_PATH.name + ".1")
+        if rotated.exists():
+            rotated.unlink()
+        os.replace(LOG_PATH, rotated)
+    with LOG_PATH.open("a", encoding="utf-8", newline="\n") as stream:
+        stream.write(line + "\n")
 
 
 def _write_diagnostic_capture(directory, state: str, payload_base64: str) -> None:
@@ -1423,6 +1450,9 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     allow_ui_actions=True,
                     max_state_age=timedelta(seconds=args.max_state_age_seconds),
                     dispatch_registry=dispatch_registry,
+                    # Same gate as dispatch: a settlement that cannot be
+                    # recorded must not click a reward chain.
+                    audit_gate=audit_gate(runtime.monitor.event_sink),
                 )
             else:
                 _print_event(
@@ -1454,6 +1484,9 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 event_sink=runtime.monitor.event_sink,
                 allow_ui_actions=True,
                 max_state_age=timedelta(seconds=args.max_state_age_seconds),
+                # A supply spends real resources; the log must be writable
+                # before the click, not after it.
+                audit_gate=audit_gate(runtime.monitor.event_sink),
             )
             supervisor_drain_session = None
             supervisor_drain_request = None

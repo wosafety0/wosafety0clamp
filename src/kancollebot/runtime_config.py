@@ -76,6 +76,12 @@ class RuntimeConfig:
     run_log_max_file_bytes: int = 8 * 1024 * 1024
     run_log_max_total_bytes: int = 64 * 1024 * 1024
     run_log_snapshot_name: str = "current_state.json"
+    # The legacy single-file loop log (`logs/one_expedition_ui_loop.jsonl`) is
+    # still the human-facing stream the one-shot tools print. Unlike the unified
+    # run log it had no bound at all, so a long-running loop could only stop by
+    # filling the disk. One rotation keeps a previous file as `.1`; this is a
+    # size guard, NOT a retention policy - the unified run log owns retention.
+    ui_loop_log_max_bytes: int = 16 * 1024 * 1024
 
     @property
     def observer_script(self) -> Path:
@@ -200,3 +206,5 @@ if RUNTIME_CONFIG.run_log_max_total_bytes < RUNTIME_CONFIG.run_log_max_file_byte
     raise RuntimeError("run_log_max_total_bytes must be at least run_log_max_file_bytes")
 if not RUNTIME_CONFIG.run_log_snapshot_name.endswith(".json"):
     raise RuntimeError("run_log_snapshot_name must end with .json")
+if RUNTIME_CONFIG.ui_loop_log_max_bytes < 1024:
+    raise RuntimeError("ui_loop_log_max_bytes must be at least 1024")

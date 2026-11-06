@@ -50,6 +50,8 @@ from kancollebot.expeditions.mission_result_witness import (
     evaluate_witness,
 )
 from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
+from kancollebot.observability.event_envelope import new_correlation_id
+from kancollebot.observability.sink import correlation_scope
 from kancollebot.expeditions.blocked_recovery import (
     DispatchEvidence,
     evaluate_blocked_recovery,
@@ -139,6 +141,7 @@ class ContinuousSettlementController:
         max_state_age: timedelta = timedelta(seconds=30),
         clock: Callable[[], datetime] | None = None,
         dispatch_registry: SqliteDispatchRegistry | None = None,
+        audit_gate: Callable[[], None] | None = None,
     ) -> None:
         if not callable(event_sink):
             raise ValueError("a durable event_sink is required")
@@ -148,6 +151,9 @@ class ContinuousSettlementController:
             dispatch_registry, SqliteDispatchRegistry
         ):
             raise ValueError("dispatch_registry must be a SqliteDispatchRegistry or None")
+        if audit_gate is not None and not callable(audit_gate):
+            raise ValueError("audit_gate must be callable when given")
+        self.audit_gate = audit_gate
         self.dispatch_registry = dispatch_registry
         self.scheduler = scheduler
         self.state_reader = state_reader
@@ -182,8 +188,27 @@ class ContinuousSettlementController:
             raise ContinuousSettlementError(
                 f"Fleet {fleet_id} is not a configured dispatch/settlement fleet"
             )
+        # The audit log must be provably writable before the first observation,
+        # let alone the first click: a settlement that cannot be recorded leaves
+        # a reward chain nobody can reconcile afterwards.
+        if self.audit_gate is not None:
+            self.audit_gate()
 
-        with self.ui_arbiter.operation(f"continuous-settlement-fleet-{fleet_id}"):
+        # A settlement is its own lifecycle, not part of any dispatch. It gets
+        # its own ``correlation_id`` and deliberately does not attach the
+        # dispatch id: a return can be settled in a process that never saw its
+        # dispatch, and the durable link between the two is the dispatch ledger,
+        # not a log field.
+        lifecycle_id = new_correlation_id()
+        with self.ui_arbiter.operation(
+            f"continuous-settlement-fleet-{fleet_id}"
+        ), correlation_scope(self.event_sink, correlation_id=lifecycle_id):
+            self.event_sink("settlement_started", {
+                "fleet_id": fleet_id,
+                "lifecycle_kind": "settlement",
+                "pages_drained_globally": bool(pages_drained_globally),
+                "game_api_requests": False,
+            })
             baseline, _ = self._read_observation(origin="settlement_baseline")
             snapshot = self._snapshot_for(baseline, fleet_id)
             returned = self._observed_return_state(fleet_id, snapshot)

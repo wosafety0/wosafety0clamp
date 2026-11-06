@@ -42,6 +42,8 @@ from kancollebot.expeditions.continuous_scheduler import (
     FleetPhase,
     UiOperationArbiter,
 )
+from kancollebot.observability.event_envelope import new_correlation_id
+from kancollebot.observability.sink import correlation_scope
 from kancollebot.runtime_config import RUNTIME_CONFIG
 
 
@@ -113,6 +115,7 @@ class ContinuousResupplyController:
         allow_ui_actions: bool = False,
         max_state_age: timedelta = timedelta(seconds=30),
         clock: Callable[[], datetime] | None = None,
+        audit_gate: Callable[[], None] | None = None,
     ) -> None:
         if not callable(fleet_data_provider):
             raise ValueError("fleet_data_provider must be callable")
@@ -120,6 +123,9 @@ class ContinuousResupplyController:
             raise ValueError("a durable event_sink is required")
         if max_state_age < timedelta(0):
             raise ValueError("max_state_age must not be negative")
+        if audit_gate is not None and not callable(audit_gate):
+            raise ValueError("audit_gate must be callable when given")
+        self.audit_gate = audit_gate
         self.scheduler = scheduler
         self.ui_driver = ui_driver
         self.fleet_data_provider = fleet_data_provider
@@ -159,8 +165,19 @@ class ContinuousResupplyController:
                 "dispatched, but its closed-loop resupply needs real-client calibration."
             )
         calibration_level = RUNTIME_CONFIG.resupply_calibration_level(fleet_id)
+        # The audit log must be provably writable before the read, the plan and
+        # certainly before the click: a supply that cannot be recorded is a
+        # resource change nobody can reconcile afterwards.
+        if self.audit_gate is not None:
+            self.audit_gate()
 
-        with self.ui_arbiter.operation(f"continuous-resupply-fleet-{fleet_id}"):
+        # One supply run is its own lifecycle. It gets a ``correlation_id`` of
+        # its own and never borrows a dispatch id: the supply happens after the
+        # reward chain of that dispatch is already closed.
+        lifecycle_id = new_correlation_id()
+        with self.ui_arbiter.operation(
+            f"continuous-resupply-fleet-{fleet_id}"
+        ), correlation_scope(self.event_sink, correlation_id=lifecycle_id):
             current = self.scheduler.fleet(fleet_id)
             if current.phase is not FleetPhase.RESUPPLY_REQUIRED:
                 raise ContinuousResupplyError(
@@ -186,6 +203,7 @@ class ContinuousResupplyController:
                 "resupply_action_started",
                 {
                     "fleet_id": fleet_id,
+                    "lifecycle_kind": "resupply",
                     "calibration_level": calibration_level,
                     # True only for a fleet whose supply screen has a captured
                     # fingerprint template; a structural-only fleet is proved

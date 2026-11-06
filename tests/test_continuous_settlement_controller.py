@@ -254,7 +254,9 @@ class ContinuousSettlementControllerTests(unittest.TestCase):
             self.assertEqual(
                 scheduler.fleet(FLEET).phase, FleetPhase.RETURNED_PENDING_UI
             )
-            self.assertEqual(events, [])
+            # The only row is the lifecycle start: the refusal happened before
+            # any attribution or block could be recorded.
+            self.assertEqual([name for name, _ in events], ["settlement_started"])
 
     def test_an_idle_fleet_alone_still_reaches_the_old_refusal(self):
         # The new guard must not swallow the ordinary path: with no other fleet
@@ -313,6 +315,9 @@ class ContinuousSettlementControllerTests(unittest.TestCase):
             self.assertEqual(
                 [name for name, _ in events],
                 [
+                    # A settlement is its own lifecycle and now opens with a
+                    # start row, so the chain has a beginning in the log too.
+                    "settlement_started",
                     "settlement_return_result_confirmed",
                     "settlement_bonus_items_confirmed",
                     "settlement_reward_claimed",
@@ -370,7 +375,10 @@ class ContinuousSettlementControllerTests(unittest.TestCase):
 
             self.assertEqual(ui.calls, [])
             self.assertEqual(scheduler.fleet(FLEET).phase, FleetPhase.BLOCKED)
-            self.assertEqual([name for name, _ in events], ["settlement_blocked"])
+            self.assertEqual(
+                [name for name, _ in events],
+                ["settlement_started", "settlement_blocked"],
+            )
 
     def test_non_idle_after_reward_claim_blocks_fleet(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -405,6 +413,9 @@ class ContinuousSettlementControllerTests(unittest.TestCase):
             self.assertEqual(
                 [name for name, _ in events],
                 [
+                    # A settlement is its own lifecycle and now opens with a
+                    # start row, so the chain has a beginning in the log too.
+                    "settlement_started",
                     "settlement_return_result_confirmed",
                     "settlement_bonus_items_confirmed",
                     "settlement_blocked",
