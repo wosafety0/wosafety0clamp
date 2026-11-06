@@ -47,7 +47,10 @@ from kancollebot.expeditions.settlement_drain import (  # noqa: E402
     SettlementDrainRequest,
     SettlementDrainSession,
 )
-from kancollebot.observability.audit_policy import AuditLogUnavailable  # noqa: E402
+from kancollebot.observability.audit_policy import (  # noqa: E402
+    AuditLogUnavailable,
+    is_critical_event,
+)
 from kancollebot.observability.run_log import (  # noqa: E402
     RunLogPolicy,
     RunLogStore,
@@ -336,6 +339,10 @@ class DispatchGateTests(unittest.TestCase):
 
 class RealClickPathTests(unittest.TestCase):
     """The click primitive must abort when its audit row cannot be written."""
+
+    def test_supply_click_attempt_events_are_critical(self):
+        self.assertTrue(is_critical_event("continuous_ui_supply_tab_click_attempted"))
+        self.assertTrue(is_critical_event("continuous_ui_supply_click_attempted"))
 
     def make_driver(self, event_sink):
         class Input:
