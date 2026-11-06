@@ -4781,3 +4781,13 @@ The Hand plugin's read-only probe reported:
 - **提交链（本 soak）:** `3458e87`(B) → `012276a`(C) → `903dd19`(D) → `fc0c56e`(E) → `2498ff5`(E.2/M2)，全部推送 + 远端 tree 回读一致。测试 1811 → **1818 OK / 2 skip**（+7）；node 25/25 保持。
 - **实机首验清单:** settle-only 单 tick 收口路径（c2c/c3e/c1c/c1d 四次）；settle-only×wait-for-return 不可跨 tick 等待（语义发现，见上节）；M2 变体生产分类；Fleet 4 远征 2 首次全链（派遣门禁→返航→结算→补给→READY）；变体机制「新远征首遇一次 fail-closed」的设计成本实证。
 - **LIMITS:** ①变体仍需按远征逐个补充（canonical=遠征 3、M1=遠征 1、M2=遠征 2；远征 4+ 未捕获）；②`CANONICAL_STATE_VARIANTS` 与 capture 工具 SUPPORTED_STATES 双处维护；③settle-only 收口后 `home_port_verified=0`（无派遣核验路径，属预期，非缺陷）；④P0.2 多舰队 Drain 迁移未开工（`other_returns` 屏障仍靠单返回前提）。
+
+
+## 2026-11-06 — P0：settle-only wait-for-return 跨 tick 等待修复（离线 CI）
+
+- **根因:** `SettleOnlyDispatcher` 刻意不提供派遣能力；`ContinuousExpeditionSupervisor._dispatch_ready_fleets()` 原先在检查是否存在 READY 舰队之前，就因 `allow_ui_actions=False` 返回 `ui_actions_disabled`。因此 `--wait-for-return` 在舰队仍处于 `EXPEDITION_ACTIVE` 且 `home_port_verified=True` 时，也会在第一个 tick 提前退出，无法跨 tick 等待返航。
+- **IMPLEMENTED:** supervisor 先按调度顺序收集 READY 舰队。派遣被禁用且确有 READY 舰队时，仍返回 `ui_actions_disabled`；若没有 READY 舰队，则返回无派遣、无暂停的空动作 tick，让调用方继续验证在途状态并等待。该改动不开放任何 UI 派遣能力。
+- **TESTED:** 新增 `test_ui_actions_disabled_does_not_pause_an_active_waiting_fleet`，覆盖 active + home-port verified + dispatch disabled 的空动作 tick；原有 `test_ui_actions_disabled_means_monitor_only` 继续覆盖 READY 时拒绝派遣。GitHub Actions 完整 CI 在提交 `0fcb5ac83e75269c058301723c635de907c378f0` 通过：Python 编译、CLI smoke、完整单元测试、离线 JavaScript 测试全部成功。CI: https://github.com/wosafety0/wosafety0clamp/actions/runs/42182939597
+- **VERIFIED:** GitHub CI 验证通过；代码与测试已从目标分支回读。**未做真实 Poi 长时间等待验证**，因此不把实机跨 tick 等待标为通过。
+- **LIMITS:** ①结算/补给完成后舰队进入 READY，settle-only 仍按设计以 `ui_actions_disabled` 停止，不会派遣；②全局 Drain 仍默认关闭；③当前 `one_expedition_ui_loop.py` 只把单个目标舰队传入 scheduler，不能据此宣称多舰队 Drain 已具备生产多舰队作用域。
+- **NEXT:** P0.2 先建立多舰队生产组合入口/作用域，使同一 scheduler 真正持有所有已解锁且策略允许的舰队；随后在不放宽唯一归属和 fail-closed 屏障的前提下，进行多舰队 Drain 的集成测试与受控实机验证。通用任务调度策略排在其后。
