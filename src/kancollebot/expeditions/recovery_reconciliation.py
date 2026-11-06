@@ -7,6 +7,7 @@ visible UI state and explicitly decide whether the gate may be released.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -60,6 +61,104 @@ def _parse_witness_time(snapshot: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _parse_event_time(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _lifecycle_issues(
+    events: tuple[Mapping[str, Any], ...],
+    *,
+    paused_at: datetime,
+) -> tuple[str, ...]:
+    """Fail closed on incomplete durable settlement/resupply lifecycles.
+
+    The SQLite event stream is append-only and ordered. Pairing is by fleet and
+    lifecycle kind because the UI arbiter serializes visible operations. A
+    lifecycle with an ambiguous/missing boundary is not considered complete.
+    """
+    starts = {
+        "settlement_started": "settlement",
+        "startup_settlement_started": "settlement",
+        "resupply_action_started": "resupply",
+    }
+    terminals = {
+        "settlement": {
+            "settlement_reward_claimed",
+            "settlement_closed_without_reward_screens",
+            "settlement_screens_gone_after_global_drain",
+            "startup_settlement_completed",
+        },
+        "resupply": {"resupply_confirmed"},
+    }
+    blockers = {
+        "settlement_blocked": "settlement",
+        "settlement_unattributed": "settlement",
+        "settlement_dispatch_record_not_closed": "settlement",
+        "startup_settlement_refused": "settlement",
+        "resupply_blocked": "resupply",
+    }
+    open_lifecycles: dict[tuple[int, str], tuple[int, str]] = {}
+    issues: list[str] = []
+
+    for index, row in enumerate(events):
+        if not isinstance(row, Mapping):
+            issues.append("lifecycle_event_row_invalid")
+            continue
+        event = row.get("event")
+        if event not in starts and event not in blockers and event not in {
+            name for names in terminals.values() for name in names
+        }:
+            continue
+        fields = row.get("fields")
+        if not isinstance(fields, Mapping):
+            issues.append(f"lifecycle_event_fields_invalid:{event}")
+            continue
+        fleet_id = fields.get("fleet_id")
+        if isinstance(fleet_id, bool) or not isinstance(fleet_id, int) or fleet_id < 1:
+            issues.append(f"lifecycle_event_fleet_invalid:{event}")
+            continue
+        created_at = _parse_event_time(row.get("created_at"))
+        key_kind = starts.get(event) or blockers.get(event)
+        if key_kind is None:
+            key_kind = next(
+                kind for kind, names in terminals.items() if event in names
+            )
+        key = (fleet_id, key_kind)
+
+        if event in starts:
+            if key in open_lifecycles:
+                issues.append(f"lifecycle_duplicate_start:{key_kind}:fleet_{fleet_id}")
+            else:
+                open_lifecycles[key] = (index, event)
+            continue
+
+        if event in blockers:
+            if key in open_lifecycles or created_at is None or created_at >= paused_at:
+                issues.append(f"lifecycle_blocked:{key_kind}:fleet_{fleet_id}:{event}")
+            continue
+
+        if key in open_lifecycles:
+            start_index, _ = open_lifecycles[key]
+            if index <= start_index:
+                issues.append(f"lifecycle_terminal_order_invalid:{key_kind}:fleet_{fleet_id}")
+            else:
+                del open_lifecycles[key]
+        elif created_at is None or created_at >= paused_at:
+            issues.append(f"lifecycle_terminal_without_start:{key_kind}:fleet_{fleet_id}:{event}")
+
+    for (fleet_id, kind), (_, start_event) in open_lifecycles.items():
+        issues.append(f"lifecycle_incomplete:{kind}:fleet_{fleet_id}:{start_event}")
+    return tuple(dict.fromkeys(issues))
+
+
 class RecoveryReconciliationCoordinator:
     """Read current Poi state and durable dispatch evidence after a pause."""
 
@@ -72,6 +171,7 @@ class RecoveryReconciliationCoordinator:
         scheduler: Any,
         dispatch_registry: Any,
         intent_store: Any,
+        event_log: Any = None,
         action_journal: Any = None,
         max_state_age: timedelta = timedelta(seconds=30),
         clock: Any = None,
@@ -89,6 +189,8 @@ class RecoveryReconciliationCoordinator:
         ):
             if value is None or not hasattr(value, method):
                 raise ValueError(f"{label} does not expose {method}")
+        if event_log is not None and not callable(getattr(event_log, "load_all", None)):
+            raise ValueError("event_log must expose load_all()")
         if action_journal is not None and not callable(
             getattr(action_journal, "load_unresolved", None)
         ):
@@ -99,6 +201,7 @@ class RecoveryReconciliationCoordinator:
         self.scheduler = scheduler
         self.dispatch_registry = dispatch_registry
         self.intent_store = intent_store
+        self.event_log = event_log
         self.action_journal = action_journal
         self.max_state_age = max_state_age
         self.clock = clock or (lambda: datetime.now(timezone.utc))
@@ -213,6 +316,10 @@ class RecoveryReconciliationCoordinator:
                 tuple(self.action_journal.load_unresolved())
                 if self.action_journal is not None else ()
             )
+            lifecycle_events = (
+                tuple(self.event_log.load_all())
+                if self.event_log is not None else None
+            )
         except Exception as exc:
             return self._report(
                 status="MANUAL_REQUIRED",
@@ -225,11 +332,23 @@ class RecoveryReconciliationCoordinator:
         reasons: list[str] = []
         if pending_intents:
             reasons.append("pending_dispatch_intents")
+        if self.action_journal is None:
+            reasons.append("action_journal_unavailable")
         if unresolved_actions:
             reasons.append("unresolved_action_journal")
+        if lifecycle_events is None:
+            reasons.append("lifecycle_event_log_unavailable")
+        else:
+            reasons.extend(_lifecycle_issues(lifecycle_events, paused_at=paused_at))
 
+        if not scheduler_states:
+            reasons.append("scheduler_has_no_fleet_states")
         observed_by_id = {}
-        for item in getattr(observation, "payload", ()):
+        payload = getattr(observation, "payload", None)
+        if not isinstance(payload, tuple) or not payload:
+            reasons.append("poi_fleet_payload_missing_or_empty")
+            payload = ()
+        for item in payload:
             fleet_id = getattr(item, "fleet_id", None)
             if isinstance(fleet_id, bool) or not isinstance(fleet_id, int) or fleet_id in observed_by_id:
                 reasons.append("poi_fleet_identity_missing_or_duplicated")
@@ -247,6 +366,12 @@ class RecoveryReconciliationCoordinator:
         scheduler_ids = {getattr(state, "fleet_id", None) for state in scheduler_states}
         if any(fleet_id not in scheduler_ids for fleet_id in dispatches_by_fleet):
             reasons.append("open_dispatch_outside_scheduler_scope")
+        for fleet_id, observed in observed_by_id.items():
+            if (
+                fleet_id not in scheduler_ids
+                and getattr(observed, "mission_status", None) in (1, 2)
+            ):
+                reasons.append(f"untracked_active_poi_fleet:{fleet_id}")
 
         fleet_reports: list[RecoveryFleetReconciliation] = []
         for state in scheduler_states:

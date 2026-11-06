@@ -56,6 +56,14 @@ class IntentStore:
         return self.intents
 
 
+class EventLog:
+    def __init__(self, events=()):
+        self.events = tuple(events)
+
+    def load_all(self):
+        return self.events
+
+
 class ActionJournal:
     def __init__(self, unresolved=()):
         self.unresolved = tuple(unresolved)
@@ -111,6 +119,9 @@ class RecoveryReconciliationTests(unittest.TestCase):
         dispatches=(),
         intents=(),
         unresolved_actions=(),
+        lifecycle_events=(),
+        action_journal=True,
+        event_log=True,
     ):
         reader = StateReader(
             self.observation if observation is None else observation
@@ -128,7 +139,8 @@ class RecoveryReconciliationTests(unittest.TestCase):
             ),
             dispatch_registry=DispatchRegistry(dispatches),
             intent_store=IntentStore(intents),
-            action_journal=ActionJournal(unresolved_actions),
+            event_log=EventLog(lifecycle_events) if event_log else None,
+            action_journal=(ActionJournal(unresolved_actions) if action_journal else None),
             max_state_age=timedelta(seconds=30),
             clock=lambda: self.now,
         )
@@ -306,6 +318,116 @@ class RecoveryReconciliationTests(unittest.TestCase):
 
         self.assertEqual(report.status, "MANUAL_REQUIRED")
         self.assertIn("witness_timestamp_is_future_dated", report.reason_codes)
+
+
+    def test_missing_action_journal_or_lifecycle_log_fails_closed(self):
+        no_journal, _ = self.make_coordinator(action_journal=False)
+        no_event_log, _ = self.make_coordinator(event_log=False)
+
+        journal_report = no_journal.evaluate()
+        event_report = no_event_log.evaluate()
+
+        self.assertIn("action_journal_unavailable", journal_report.reason_codes)
+        self.assertIn("lifecycle_event_log_unavailable", event_report.reason_codes)
+        self.assertEqual(journal_report.status, "MANUAL_REQUIRED")
+        self.assertEqual(event_report.status, "MANUAL_REQUIRED")
+
+    def test_empty_scheduler_state_cannot_be_reported_as_reconciled(self):
+        coordinator, _ = self.make_coordinator(scheduler_states=())
+
+        report = coordinator.evaluate()
+
+        self.assertEqual(report.status, "MANUAL_REQUIRED")
+        self.assertIn("scheduler_has_no_fleet_states", report.reason_codes)
+
+    def test_incomplete_settlement_lifecycle_blocks_reconciliation(self):
+        events = (
+            {
+                "created_at": (self.paused_at - timedelta(seconds=1)).isoformat(),
+                "event": "settlement_started",
+                "fields": {"fleet_id": 2},
+            },
+        )
+        coordinator, _ = self.make_coordinator(lifecycle_events=events)
+
+        report = coordinator.evaluate()
+
+        self.assertEqual(report.status, "MANUAL_REQUIRED")
+        self.assertIn(
+            "lifecycle_incomplete:settlement:fleet_2:settlement_started",
+            report.reason_codes,
+        )
+
+    def test_completed_settlement_lifecycle_is_accepted(self):
+        events = (
+            {
+                "created_at": (self.paused_at - timedelta(seconds=2)).isoformat(),
+                "event": "settlement_started",
+                "fields": {"fleet_id": 2},
+            },
+            {
+                "created_at": (self.paused_at - timedelta(seconds=1)).isoformat(),
+                "event": "settlement_reward_claimed",
+                "fields": {"fleet_id": 2},
+            },
+        )
+        coordinator, _ = self.make_coordinator(lifecycle_events=events)
+
+        report = coordinator.evaluate()
+
+        self.assertEqual(report.status, "RECONCILED")
+
+    def test_incomplete_resupply_lifecycle_blocks_reconciliation(self):
+        events = (
+            {
+                "created_at": (self.paused_at - timedelta(seconds=1)).isoformat(),
+                "event": "resupply_action_started",
+                "fields": {"fleet_id": 2, "lifecycle_kind": "resupply"},
+            },
+        )
+        coordinator, _ = self.make_coordinator(lifecycle_events=events)
+
+        report = coordinator.evaluate()
+
+        self.assertEqual(report.status, "MANUAL_REQUIRED")
+        self.assertIn(
+            "lifecycle_incomplete:resupply:fleet_2:resupply_action_started",
+            report.reason_codes,
+        )
+
+    def test_confirmed_resupply_lifecycle_is_accepted(self):
+        events = (
+            {
+                "created_at": (self.paused_at - timedelta(seconds=2)).isoformat(),
+                "event": "resupply_action_started",
+                "fields": {"fleet_id": 2, "lifecycle_kind": "resupply"},
+            },
+            {
+                "created_at": (self.paused_at - timedelta(seconds=1)).isoformat(),
+                "event": "resupply_confirmed",
+                "fields": {"fleet_id": 2},
+            },
+        )
+        coordinator, _ = self.make_coordinator(lifecycle_events=events)
+
+        report = coordinator.evaluate()
+
+        self.assertEqual(report.status, "RECONCILED")
+
+    def test_post_pause_settlement_blocker_requires_manual_review(self):
+        events = (
+            {
+                "created_at": (self.paused_at + timedelta(milliseconds=500)).isoformat(),
+                "event": "settlement_blocked",
+                "fields": {"fleet_id": 2, "reason": "ambiguous"},
+            },
+        )
+        coordinator, _ = self.make_coordinator(lifecycle_events=events)
+
+        report = coordinator.evaluate()
+
+        self.assertEqual(report.status, "MANUAL_REQUIRED")
+        self.assertTrue(any(code.startswith("lifecycle_blocked:settlement:fleet_2") for code in report.reason_codes))
 
     def test_unpaused_gate_never_produces_reconciled_report(self):
         gate = RecoveryPauseGate()
