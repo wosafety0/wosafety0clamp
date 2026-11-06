@@ -4806,3 +4806,14 @@ The Hand plugin's read-only probe reported:
 - **NEXT（#129）**: 用 `--fleet-missions "2:3,3:1" --exclude-fleets 4 --global-drain` 跑：派遣进程（F2/F3 READY→派遣→退出）→ 等双舰返航 → 结算进程（双舰 RETURNED→单 tick 全局 Drain 串行清空两舰→补给→再派遣→退出）。drain 预算 `--drain-action-interval-seconds 10 --drain-timeout-seconds 240 --drain-max-actions 24`。
 - **交付物**: `tools/one_expedition_ui_loop.py`、`tests/test_p02_dispatch_plan_resolution.py`。
 - **实机首启发现（已修）:** 首次启动派遣进程即 `STOPPED_FAIL_CLOSED`：`--mission-id` 的 argparse 默认值原为 `RUNTIME_CONFIG.production_mission_id`，使 all-fleets 模式下 `mission_id` 恒非 None → 误触发「--mission-id without --fleet-id is ambiguous」守卫。真实 CLI 此前从未跑过 all-fleets（单测用 `mission_id=None` 显式覆盖，未暴露）。修复：argparse `--mission-id` 默认值改 `None`，单舰队模式仍要求显式 `--mission-id`（与守卫语义一致；L4 真实运行历来显式传）。四道门禁复跑全绿（1835 OK）。
+
+
+## 2026-11-06 — 远征结算机制研究：结果响应与奖励收据边界
+
+- **RESEARCHED:** 远征到期、母港刷新、返航提示、结果请求、结果画面、额外道具画面和回港是不同阶段。正常 UI 点击返航提示后，客户端自然请求 `/kcsapi/api_req_mission/result`；请求侧 `api_deck_id` 与响应侧 `api_quest_name`、`api_clear_result`、`api_ship_id` 共同描述本次结算归属。不得主动请求或重放该 API。
+- **RULE FINDING:** 社区逆向实现将 `api_clear_result` 映射为 0=失败、2=大成功、其他非零=成功；本项目采用严格的 0/1/2 映射，未知值保持 UNKNOWN。结果响应奖励字段包括 `api_get_material`、`api_useitem_flag`、`api_get_item1`、`api_get_item2`；道具对象至少读取 `api_useitem_id` 与 `api_useitem_count`。这些字段来自社区逆向资料，仍需当前客户端实机响应复核。
+- **VERIFIED (existing live evidence):** 2026-11-05 Fleet 3 真实结果响应已捕获并与派遣记录逐位核对：`api_deck_id=3`、`api_quest_name=練習航海`、`api_clear_result=1`、舰船 ID 一致；结果接受后 Poi Fleet 3 变为 idle。2026-11-06 L4 soak 已在实机完成 Fleet 2/3/4 的单队结算/补给生命周期，所有实例 settled，三队最终 READY。
+- **IMPLEMENTED:** 新增 `docs/game-rules/EXPEDITION_SETTLEMENT.md`，归档状态机、结果码、奖励字段、证据分层和下一步验收；更新本 HANDOFF 的启动阅读清单，要求结算开发先读该规则档案。
+- **NOT IMPLEMENTED:** 结果观察器仍只持久化舰队/任务/结果/舰船身份，尚未捕获结构化资源与道具奖励收据。不能把 L4 的 UI 链完成和 READY 终态夸大为逐笔奖励明细已核对。
+- **TESTED:** 本轮仅新增/更新文档；未修改运行代码，未运行代码测试。远端文件内容将在提交后回读核验。
+- **NEXT:** 扩展被动结果观察器的最小奖励字段白名单；扩展 MissionResultWitness 奖励收据模型与测试；随后用单舰队自然结算验证响应奖励明细与 Poi 新鲜库存读回。
