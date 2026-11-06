@@ -40,6 +40,32 @@ class ExpeditionActionJournalTests(unittest.TestCase):
             journal.transition(2, 1, NOW, state="confirmed", detail="Mission observed")
             self.assertTrue(journal.reserve(2, 1, NOW + timedelta(minutes=10)))
 
+    def test_load_unresolved_returns_reserved_submitted_and_unknown_records(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal = self.make_journal(directory)
+            journal.reserve(2, 1, NOW)
+            journal.reserve(3, 2, NOW)
+            journal.transition(3, 2, NOW, state="submitted", detail="Input sent")
+            journal.reserve(4, 3, NOW)
+            journal.transition(4, 3, NOW, state="unknown", detail="Outcome ambiguous")
+
+            unresolved = journal.load_unresolved()
+
+            self.assertEqual(
+                [(row["fleet_id"], row["state"]) for row in unresolved],
+                [(2, "reserved"), (3, "submitted"), (4, "unknown")],
+            )
+
+    def test_load_unresolved_excludes_only_proven_terminal_states(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal = self.make_journal(directory)
+            journal.reserve(2, 1, NOW)
+            journal.transition(2, 1, NOW, state="confirmed", detail="Poi mission matched")
+            journal.reserve(3, 2, NOW)
+            journal.transition(3, 2, NOW, state="rejected", detail="Explicitly rejected")
+
+            self.assertEqual(journal.load_unresolved(), ())
+
     def test_transition_requires_a_prior_reservation(self):
         with tempfile.TemporaryDirectory() as directory:
             journal = self.make_journal(directory)
