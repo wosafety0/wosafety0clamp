@@ -3826,3 +3826,13 @@ Source: https://wikiwiki.jp/kancolle/遠征/詳細一覧表 (accessed 2026-11-06
 - Automation policy: unattended allowlist remains non-combat missions selected by resource deficit/net value. All Type I/II missions remain blocked from unattended dispatch. 220% is only a supervised candidate filter. Damaged ships are quarantined until recovery is verified.
 - Sources: KouryakuLab expedition requirements/calculator; maintained Japanese expedition, fatigue and repair wiki pages; 2025 monthly expedition player report; 2021 secondary guide. All remain community evidence.
 - Limits: no Poi data, live mission state, controlled damage test, repair-dock/resource inventory or game operation was inspected. Documentation only; no runtime code changed.
+
+## 2026-11-06 — Hard exclusion policy for combat expeditions
+
+**Status:** USER-DIRECTED PROJECT POLICY / DOCUMENTED; no runtime implementation yet.
+
+- Added EXP-025: automatic planning MUST exclude all combat/engagement expeditions (Type I and Type II) unless the user explicitly selects a named mission and configures its execution requirements.
+- Profitability, resource deficit, monthly urgency, 220% stat margins, fleet durability, or repair reserves cannot implicitly override the exclusion.
+- Ambiguous, missing, or stale mission classification fails closed as combat/UNKNOWN.
+- Manual selection is not dispatch authorization; a distinct confirmation and pre-dispatch risk/resource/fleet validation remain required.
+- Policy is documented in EXPEDITIONS.md and indexed in the game-rules README. Runtime candidate generation and pre-dispatch enforcement are not implemented or tested in this documentation-only change.
