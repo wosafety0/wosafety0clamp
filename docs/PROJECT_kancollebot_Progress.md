@@ -4791,3 +4791,14 @@ The Hand plugin's read-only probe reported:
 - **VERIFIED:** GitHub CI 验证通过；代码与测试已从目标分支回读。**未做真实 Poi 长时间等待验证**，因此不把实机跨 tick 等待标为通过。
 - **LIMITS:** ①结算/补给完成后舰队进入 READY，settle-only 仍按设计以 `ui_actions_disabled` 停止，不会派遣；②全局 Drain 仍默认关闭；③当前 `one_expedition_ui_loop.py` 只把单个目标舰队传入 scheduler，不能据此宣称多舰队 Drain 已具备生产多舰队作用域。
 - **NEXT:** P0.2 先建立多舰队生产组合入口/作用域，使同一 scheduler 真正持有所有已解锁且策略允许的舰队；随后在不放宽唯一归属和 fail-closed 屏障的前提下，进行多舰队 Drain 的集成测试与受控实机验证。通用任务调度策略排在其后。
+
+
+## 2026-11-06 — P0.2 多舰队生产入口架构审计（设计阶段，未实现）
+
+- **审计范围:** 对照 `continuous_supervisor.py`、`one_expedition_ui_loop.py`、多舰队 monitor runtime builder、settlement/resupply controller 与 CDP UI driver 检查生产组合层。
+- **已确认:** 全局 Drain 核心与逐队结算/补给协调路径已存在；CDP driver 支持 Fleet 2/3/4 按 fleet_id + mission_id 操作。无需重写 Drain 引擎。
+- **缺口:** 当前生产 `one_expedition_ui_loop.py` 仍只向 scheduler 传入单个 `target_fleet_id`；monitor 入口虽可观察多队但不具备派遣能力。启动奖励页归属逻辑也仍以单舰队为前提。
+- **设计产物:** `docs/DESIGN_multi_fleet_production_entry.md`，提交 `90972474aa8e3ff471996c6ad45845424ea0e229`，GitHub Actions run `42184081929` 成功。该文档状态为 DESIGN ONLY，不代表代码已实现。
+- **安全约束:** 多舰队入口必须共享 SQLite dispatch registry/action journal；不允许拼接各队独立数据库；启动时无法唯一归属的奖励页或在途远征必须 fail-closed；global Drain 必须显式启用；UI 操作串行；任务映射须显式配置并经 Poi 解锁状态、任务规则及舰队编成核验。
+- **NEXT:** P0.2a 实现独立多舰队 composition root，复用现有 supervisor/controllers/driver；先完成配置校验、共享 runtime、启动 HOME_PORT 门禁和离线多舰队测试，再进入受控 Poi 实机验收。
+- **STATUS:** DESIGN 已推送并远程回读；本条进度记录待提交、推送及远程回读；生产代码尚未开始。
