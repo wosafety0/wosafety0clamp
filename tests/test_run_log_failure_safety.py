@@ -340,9 +340,15 @@ class DispatchGateTests(unittest.TestCase):
 class RealClickPathTests(unittest.TestCase):
     """The click primitive must abort when its audit row cannot be written."""
 
-    def test_supply_click_attempt_events_are_critical(self):
-        self.assertTrue(is_critical_event("continuous_ui_supply_tab_click_attempted"))
-        self.assertTrue(is_critical_event("continuous_ui_supply_click_attempted"))
+    def test_supply_and_refresh_click_attempt_events_are_critical(self):
+        for event in (
+            "continuous_ui_supply_tab_click_attempted",
+            "continuous_ui_supply_click_attempted",
+            "ui_refresh_click_attempted",
+            "ui_refresh_click_sent",
+        ):
+            with self.subTest(event=event):
+                self.assertTrue(is_critical_event(event))
 
     def make_driver(self, event_sink):
         class Input:
