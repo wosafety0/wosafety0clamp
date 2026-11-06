@@ -164,6 +164,11 @@ def build_runtime(
     run_log_dir: str | Path | None = None,
     run_log_run_id: str | None = None,
     run_log_policy: RunLogPolicy | None = None,
+    # A sink built BEFORE this composition runs (the closed-loop entry
+    # prebuilds it so its startup recovery can write gate rows durably before
+    # any click). When given, it replaces the in-composition build and every
+    # other run_log_* argument is ignored.
+    prebuilt_run_log_sink: RunLogSink | None = None,
 ) -> MonitorRuntime:
     """Compose one read-only monitor with shared durable stores and witness source."""
     policy = require_task_enabled(task_kind)
@@ -230,8 +235,8 @@ def build_runtime(
     event_sink = SqliteDispatchEventLog(
         str(database), task_kind=policy.task_kind.value
     )
-    run_log_sink: RunLogSink | None = None
-    if run_log_dir is not None or run_log_policy is not None:
+    run_log_sink: RunLogSink | None = prebuilt_run_log_sink
+    if run_log_sink is None and (run_log_dir is not None or run_log_policy is not None):
         # One tee, not a second scheduler: the SQLite append-only ledger stays
         # the authoritative durable record and the run log is added beside it.
         run_log_sink = build_run_log_sink(
@@ -240,6 +245,7 @@ def build_runtime(
             task_kind=policy.task_kind.value,
             run_id=run_log_run_id,
         )
+    if run_log_sink is not None:
         event_sink = TeeEventSink(event_sink, run_log_sink)  # type: ignore[assignment]
     state_store = SqliteFleetStateStore(database)
     intent_store = SqliteDispatchIntentStore(database)

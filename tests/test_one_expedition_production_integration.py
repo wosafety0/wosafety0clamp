@@ -666,16 +666,13 @@ class RunLogStartPayloadTests(unittest.TestCase):
     """
 
     def test_the_payload_states_capability_and_joins_the_two_run_id_domains(self):
-        runtime = SimpleNamespace(
-            scheduler=SimpleNamespace(dispatch_fleet_ids=(3,)),
-            event_sink=lambda row: None,
-            ui_refresh_enabled=True,
-        )
         payload = entry._run_log_start_payload(
-            runtime,
+            dispatch_fleet_ids=(3,),
             database=Path("prod.sqlite3"),
+            ui_navigation_enabled=True,
             game_actions_enabled=True,
             tool_run_id="20261106T020811.000000Z",
+            emitting_sink=lambda row: None,
         )
         self.assertEqual(payload["database"], str(Path("prod.sqlite3")))
         self.assertEqual(payload["dispatch_fleets"], [3])
@@ -695,16 +692,13 @@ class RunLogStartPayloadTests(unittest.TestCase):
             def correlation(self, **updates: object) -> object:
                 raise AssertionError("the payload must not enter the scope")
 
-        runtime = SimpleNamespace(
-            scheduler=SimpleNamespace(dispatch_fleet_ids=()),
-            event_sink=TeeWithCorrelation(),
-            ui_refresh_enabled=False,
-        )
         payload = entry._run_log_start_payload(
-            runtime,
+            dispatch_fleet_ids=(),
             database="x.sqlite3",
+            ui_navigation_enabled=False,
             game_actions_enabled=False,
             tool_run_id="t",
+            emitting_sink=TeeWithCorrelation(),
         )
         self.assertTrue(payload["correlation_capable"])
         self.assertEqual(payload["correlation_sources"], ["TeeWithCorrelation"])
@@ -812,6 +806,126 @@ class RunStopLifecycleTests(unittest.TestCase):
         self.assertEqual(args[0], "loop_crashed")
         self.assertEqual(kwargs["error_type"], "RuntimeError")
         self.assertTrue(kwargs["tool_run_id"])
+
+
+
+class RecordingRecoverySink:
+    """A sink that records rows, and can be told to fail on chosen names."""
+
+    def __init__(self, fail_on=()):
+        self.rows: list[tuple[str, dict]] = []
+        self.fail_on = frozenset(fail_on)
+
+    def __call__(self, event, fields=None):
+        if event in self.fail_on:
+            raise RuntimeError("audit unavailable")
+        self.rows.append((event, dict(fields or {})))
+
+
+class HomePortRecoveryObservabilityTests(unittest.TestCase):
+    """The recovery must be visible in the durable run log, and fail closed.
+
+    Live 2026-11-06 02:08Z: a recovery ran (or did not - the log could not
+    tell) because every row went to stdout only. With an event_sink the
+    recovery leaves rows; a failed gate row must stop the click, like the
+    driver's ``_click``.
+    """
+
+    def _sink_and_session(self):
+        sink = RecordingRecoverySink()
+        session = SimpleNamespace(input=FakeGameInput())
+        return sink, session
+
+    def _run_recovery(self, sink, session, require_side_effects):
+        with (
+            patch.object(entry, "_require_ui_state", side_effect=require_side_effects),
+            patch.object(entry, "_reward_screen_on_any_layer", return_value=None),
+            patch.object(
+                entry, "home_port_candidates",
+                return_value=[entry.RecordedPoint(50, 50, "home-port")],
+            ),
+            patch.object(entry.time, "sleep", lambda seconds: None),
+            patch.object(entry, "_home_port_ui_layer_is_hidden", return_value=False),
+            patch.object(entry, "_recover_home_port_by_observation") as observed,
+        ):
+            entry._recover_home_port(session, event_sink=sink)
+        return observed
+
+    def test_an_already_home_port_confirms_durably_without_clicks(self):
+        sink, session = self._sink_and_session()
+        self._run_recovery(sink, session, require_side_effects=[None])
+        self.assertEqual(session.input.clicks, [])
+        self.assertEqual(
+            sink.rows, [("home_port_recovery_confirmed", {"attempt": 0})]
+        )
+
+    def test_a_reward_screen_refuses_without_any_click_row(self):
+        sink, session = self._sink_and_session()
+        with (
+            patch.object(
+                entry, "_require_ui_state",
+                side_effect=entry.UiStateGateError("not home"),
+            ),
+            patch.object(
+                entry, "_reward_screen_on_any_layer", return_value="BONUS_ITEMS"
+            ),
+        ):
+            with self.assertRaisesRegex(entry.LoopError, "reward screen"):
+                entry._recover_home_port(session, event_sink=sink)
+        self.assertEqual(session.input.clicks, [])
+        events = [event for event, _ in sink.rows]
+        self.assertNotIn("home_port_recovery_click_attempted", events)
+
+    def test_one_click_recovery_emits_attempted_before_sent(self):
+        sink, session = self._sink_and_session()
+        self._run_recovery(
+            sink, session,
+            require_side_effects=[entry.UiStateGateError("not home"), None],
+        )
+        self.assertEqual(len(session.input.clicks), 1)
+        events = [event for event, _ in sink.rows]
+        self.assertEqual(events, [
+            "home_port_state_not_confirmed",
+            "home_port_recovery_click_attempted",
+            "home_port_recovery_click_sent",
+            "home_port_recovery_confirmed",
+        ])
+        attempted = sink.rows[1][1]
+        sent = sink.rows[2][1]
+        self.assertEqual(attempted["attempt"], sent["attempt"])
+        self.assertEqual(attempted["point"], sent["point"])
+
+    def test_a_failed_gate_row_sends_no_click_at_all(self):
+        sink, session = self._sink_and_session()
+        sink.fail_on = frozenset({"home_port_recovery_click_attempted"})
+        with self.assertRaisesRegex(RuntimeError, "audit unavailable"):
+            self._run_recovery(
+                sink, session,
+                require_side_effects=[entry.UiStateGateError("not home")],
+            )
+        self.assertEqual(session.input.clicks, [])
+
+    def test_a_failed_diagnostic_row_does_not_break_recovery(self):
+        sink, session = self._sink_and_session()
+        sink.fail_on = frozenset({"home_port_recovery_confirmed"})
+        self._run_recovery(
+            sink, session,
+            require_side_effects=[entry.UiStateGateError("not home"), None],
+        )
+        self.assertEqual(len(session.input.clicks), 1)
+        events = [event for event, _ in sink.rows]
+        self.assertNotIn("home_port_recovery_confirmed", events)
+        self.assertIn("home_port_recovery_click_sent", events)
+
+    def test_exhausted_attempts_fall_through_to_observed_recovery_with_the_sink(self):
+        sink, session = self._sink_and_session()
+        observed = self._run_recovery(
+            sink, session,
+            require_side_effects=entry.UiStateGateError("never home"),
+        )
+        self.assertEqual(observed.call_args.kwargs.get("event_sink"), sink)
+        events = [event for event, _ in sink.rows]
+        self.assertEqual(events.count("home_port_recovery_retry"), 3)
 
 
 

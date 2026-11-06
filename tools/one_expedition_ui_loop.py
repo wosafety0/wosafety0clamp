@@ -77,7 +77,10 @@ from kancollebot.calibration import (  # noqa: E402
 )
 from kancollebot.core.task_attribution import merge_trusted_event_fields  # noqa: E402
 from kancollebot.observability.audit_policy import audit_gate  # noqa: E402
-from kancollebot.observability.sink import correlation_capability  # noqa: E402
+from kancollebot.observability.sink import (  # noqa: E402
+    build_run_log_sink,
+    correlation_capability,
+)
 from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
 
 # Long enough for the Home Port scene to finish settling before a frame is
@@ -254,11 +257,13 @@ def _read_visual_document(path: Path) -> object:
 
 
 def _run_log_start_payload(
-    runtime: object,
     *,
+    dispatch_fleet_ids,
     database: object,
+    ui_navigation_enabled: bool,
     game_actions_enabled: bool,
     tool_run_id: str,
+    emitting_sink: object,
 ) -> dict[str, object]:
     """The durable ``run_started`` payload for the closed-loop entry.
 
@@ -269,18 +274,19 @@ def _run_log_start_payload(
     run ids (a kept production fact, not an accident to paper over):
     ``tool_run_id`` writes the stdout domain into the ledger so a reader can
     join the two streams without guessing from timestamps. The capability
-    fields come from the sink the components actually emit through, exactly
-    as the monitor entry computes them.
+    fields come from the sink the components actually emit through. When the
+    sink is prebuilt (it must be, so the startup recovery's gate rows are
+    durable before the clicks they name) the tee that forms later inherits
+    its capability from this same member, so reporting the sink's own
+    capability here matches what the eventual tee would say.
     """
     return {
         "database": str(database),
-        "dispatch_fleets": list(runtime.scheduler.dispatch_fleet_ids),
-        "ui_navigation_enabled": bool(
-            getattr(runtime, "ui_refresh_enabled", False)
-        ),
+        "dispatch_fleets": list(dispatch_fleet_ids),
+        "ui_navigation_enabled": bool(ui_navigation_enabled),
         "game_actions_enabled": bool(game_actions_enabled),
         "tool_run_id": tool_run_id,
-        **correlation_capability(runtime.event_sink).as_fields(),
+        **correlation_capability(emitting_sink).as_fields(),
     }
 
 
@@ -290,7 +296,7 @@ _ACTIVE_RUN_LOG_SINK: list[object] = []
 def _remember_run_log_sink(sink: object | None) -> None:
     """Keep the one live run log of this process reachable from the stop path.
 
-    ``run()`` builds the sink deep inside a game session; the fail-closed
+    ``run()`` builds the sink before the game session opens; the fail-closed
     handler in ``_main_impl`` cannot see local names. At most one sink is
     ever live per process, so a one-slot list is enough, and ``None`` clears
     it so a later run cannot stop a sink that already ended.
@@ -298,6 +304,45 @@ def _remember_run_log_sink(sink: object | None) -> None:
     _ACTIVE_RUN_LOG_SINK.clear()
     if sink is not None:
         _ACTIVE_RUN_LOG_SINK.append(sink)
+
+
+def _active_run_log_sink() -> object | None:
+    """The live run log, or None when ``--run-log-dir`` is off.
+
+    The startup recovery calls this because it runs before ``build_runtime``
+    composes the tee - the sink is the only durable emitter that exists yet.
+    """
+    return _ACTIVE_RUN_LOG_SINK[0] if _ACTIVE_RUN_LOG_SINK else None
+
+
+def _build_and_start_run_log(args: argparse.Namespace) -> object | None:
+    """Build and start the run log before the game session opens.
+
+    Returns the sink for ``build_runtime`` to tee, or None (log off). The
+    ``isinstance`` guard keeps a stub's "unset" ``run_log_dir`` meaning off,
+    exactly like the CLI default.
+    """
+    run_log_dir = args.run_log_dir
+    if not isinstance(run_log_dir, (str, Path)):
+        return None
+    from kancollebot.task_scope import TaskKind  # local: mirrors the other use
+
+    run_log_sink = build_run_log_sink(
+        directory=run_log_dir,
+        task_kind=TaskKind.EXPEDITION.value,
+    )
+    _remember_run_log_sink(run_log_sink)
+    run_log_sink.start(
+        _run_log_start_payload(
+            dispatch_fleet_ids=(int(args.fleet_id),),
+            database=args.database,
+            ui_navigation_enabled=bool(args.enable_ui_refresh),
+            game_actions_enabled=bool(args.authorize_ui_actions),
+            tool_run_id=RUN_ID,
+            emitting_sink=run_log_sink,
+        )
+    )
+    return run_log_sink
 
 
 def _stop_run_log(reason: str, **fields: object) -> None:
@@ -833,20 +878,53 @@ def _probe_startup_attribution(args, runtime, target_fleet_id):
     return attribution, lookup, settlement_completed_at, witness
 
 
-def _recover_home_port(game_session, attempts: int = 3, force_click: bool = False) -> None:
+def _recovery_emit(
+    event_sink: object | None, event: str, *, gating: bool = False, **fields: object
+) -> None:
+    """Emit one home-port-recovery row; durable when a sink is supplied.
+
+    ``gating`` rows run BEFORE an irreversible click and fail closed: a broken
+    audit log stops the click, exactly like the driver's ``_click``. Every
+    other row is diagnostic - losing one must not break a recovery that is
+    already in motion.
+    """
+    if event_sink is None:
+        return
+    if gating:
+        event_sink(event, fields)
+        return
+    try:
+        event_sink(event, fields)
+    except Exception:
+        pass
+
+
+def _recover_home_port(
+    game_session, attempts: int = 3, force_click: bool = False, event_sink: object | None = None
+) -> None:
     """Use bounded top-left navigation retries, requiring state evidence after each click.
 
     The recovery cycles a bounded set of interior points within the large
     top-left 母港 button, then verifies the result with the UI state gate. An
     incorrect layout fails closed after the bounded set is exhausted.
+
+    Live 2026-11-06 02:08Z the tool recovered nothing because the operator had
+    already clicked home - and the durable log could not even tell, because
+    every recovery row went to stdout only. With an ``event_sink`` the whole
+    recovery (including "nothing needed to happen") lands in the run log.
     """
     if not force_click:
         try:
             _require_ui_state(game_session, UiState.HOME_PORT)
             _print_event("home_port_recovery_confirmed", attempt=0)
+            _recovery_emit(event_sink, "home_port_recovery_confirmed", attempt=0)
             return
         except (UiStateGateError, LoopError) as exc:
             _print_event("home_port_state_not_confirmed", attempt=0, error=str(exc))
+            _recovery_emit(
+                event_sink, "home_port_state_not_confirmed", attempt=0,
+                error=str(exc)[:200],
+            )
     settlement_screen = _reward_screen_on_any_layer(game_session)
     if settlement_screen is not None:
         raise LoopError(
@@ -859,17 +937,27 @@ def _recover_home_port(game_session, attempts: int = 3, force_click: bool = Fals
         point = candidates[(attempt - 1) % len(candidates)]
         _print_event("ui_action_precondition", action="click_home_port", attempt=attempt,
                      force_click=force_click, point=point.label)
+        _recovery_emit(event_sink, "home_port_recovery_click_attempted",
+                       gating=True, action="click_home_port", attempt=attempt,
+                       point=point.label)
         game_session.input.click(point)
         _print_event("ui_click_sent", point=point.label, attempt=attempt)
+        _recovery_emit(event_sink, "home_port_recovery_click_sent",
+                       attempt=attempt, point=point.label)
         time.sleep(2.0)
         _print_event("ui_action_wait_completed", point=point.label, attempt=attempt,
                      wait_seconds=2.0)
         try:
             _require_ui_state(game_session, UiState.HOME_PORT)
             _print_event("home_port_recovery_confirmed", attempt=attempt)
+            _recovery_emit(event_sink, "home_port_recovery_confirmed", attempt=attempt)
             return
         except (UiStateGateError, LoopError) as exc:
             _print_event("home_port_recovery_retry", attempt=attempt, error=str(exc))
+            _recovery_emit(
+                event_sink, "home_port_recovery_retry", attempt=attempt,
+                error=str(exc)[:200],
+            )
     # The 母港 control is part of the UI layer it hides, so no number of retries
     # on it can restore the layer. One click on the port background does - but
     # only after the frame has been proven to be a faded port and nothing else.
@@ -877,8 +965,13 @@ def _recover_home_port(game_session, attempts: int = 3, force_click: bool = Fals
         wake = RecordedPoint(600, 300, "home-port-ui-wake")
         _print_event("ui_action_precondition", action="wake_home_port_ui_layer",
                      attempt=1, force_click=False, point=wake.label)
+        _recovery_emit(event_sink, "home_port_recovery_click_attempted",
+                       gating=True, action="wake_home_port_ui_layer", attempt=1,
+                       point=wake.label)
         game_session.input.click(wake)
         _print_event("ui_click_sent", point=wake.label, attempt=1)
+        _recovery_emit(event_sink, "home_port_recovery_click_sent",
+                       attempt=1, point=wake.label)
         time.sleep(1.8)
         _print_event("ui_action_wait_completed", point=wake.label, attempt=1,
                      wait_seconds=1.8)
@@ -886,17 +979,23 @@ def _recover_home_port(game_session, attempts: int = 3, force_click: bool = Fals
             _require_ui_state(game_session, UiState.HOME_PORT)
         except (UiStateGateError, LoopError) as exc:
             _print_event("home_port_ui_wake_failed", error=str(exc))
+            _recovery_emit(
+                event_sink, "home_port_ui_wake_failed", error=str(exc)[:200],
+            )
         else:
             _print_event("home_port_recovery_confirmed", attempt=attempts + 1,
                          evidence="ui_layer_woken_by_area_click")
+            _recovery_emit(event_sink, "home_port_recovery_confirmed",
+                           attempt=attempts + 1, evidence="ui_layer_woken_by_area_click")
             return
     # The named-page proof failed on a page it cannot name. Click and observe
     # instead - bounded, and never while a reward screen is up.
-    _recover_home_port_by_observation(game_session)
+    _recover_home_port_by_observation(game_session, event_sink=event_sink)
 
 
 def _recover_home_port_by_observation(
-    game_session, attempts: int = 6, interval_seconds: float = 3.0
+    game_session, attempts: int = 6, interval_seconds: float = 3.0,
+    event_sink: object | None = None,
 ) -> None:
     """Click the 母港 control and look again, instead of naming the page.
 
@@ -915,6 +1014,8 @@ def _recover_home_port_by_observation(
             _require_ui_state(game_session, UiState.HOME_PORT)
             _print_event("home_port_recovery_confirmed", attempt=attempt,
                          evidence="observed_after_return_click")
+            _recovery_emit(event_sink, "home_port_recovery_confirmed",
+                           attempt=attempt, evidence="observed_after_return_click")
             return
         except (UiStateGateError, LoopError):
             pass
@@ -931,16 +1032,24 @@ def _recover_home_port_by_observation(
             # not understand.
             _print_event("home_port_recovery_settle_wait", attempt=attempt,
                          wait_seconds=interval_seconds, clicks_sent=0)
+            _recovery_emit(event_sink, "home_port_recovery_settle_wait",
+                           attempt=attempt, wait_seconds=interval_seconds, clicks_sent=0)
             time.sleep(interval_seconds)
             continue
         point = candidates[(attempt - 1) % len(candidates)]
         _print_event("ui_action_precondition", action="click_home_port_observed",
                      attempt=attempt, force_click=False, point=point.label)
+        _recovery_emit(event_sink, "home_port_recovery_click_attempted",
+                       gating=True, action="click_home_port_observed", attempt=attempt,
+                       point=point.label)
         game_session.input.click(point)
         _print_event("ui_click_sent", point=point.label, attempt=attempt)
+        _recovery_emit(event_sink, "home_port_recovery_click_sent",
+                       attempt=attempt, point=point.label)
         time.sleep(interval_seconds)
         _print_event("ui_action_wait_completed", point=point.label,
                      attempt=attempt, wait_seconds=interval_seconds)
+    _recovery_emit(event_sink, "home_port_recovery_exhausted", attempts=attempts)
     raise LoopError(
         f"Home Port was not reached after {attempts} observed return attempts; "
         "refusing to keep clicking"
@@ -1328,7 +1437,14 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     ),
                 )
             else:
-                _recover_home_port(game_session)
+                # Live 2026-11-06 02:08Z a recovery ran invisible: its rows
+                # went to stdout only, so the run log could not tell whether
+                # the tool or the operator brought the account home. The sink
+                # is prebuilt (it must be: these gate rows are durable before
+                # the clicks they name), so recovery can emit through it.
+                _recover_home_port(
+                    game_session, event_sink=_active_run_log_sink()
+                )
                 _capture_home_reference(game_session)
 
             def verify_state(expected: str, *, visual_attempts: int = 3) -> UiStateEvidence:
@@ -1374,21 +1490,8 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 ui_state_verifier=refresh_verify_state if args.enable_ui_refresh else None,
                 adopt_unplanned_missions=args.adopt_observed_mission,
                 run_log_dir=args.run_log_dir,
+                prebuilt_run_log_sink=_active_run_log_sink(),
             )
-            run_log_sink = getattr(runtime, "run_log_sink", None)
-            if run_log_sink is not None:
-                # The durable run boundary belongs here, right after the sink
-                # exists and before any component emits: every later row in
-                # the ledger can then name the run it belongs to.
-                run_log_sink.start(
-                    _run_log_start_payload(
-                        runtime,
-                        database=args.database,
-                        game_actions_enabled=bool(args.authorize_ui_actions),
-                        tool_run_id=RUN_ID,
-                    )
-                )
-            _remember_run_log_sink(run_log_sink)
 
             def capture_frame() -> str:
                 game_session.transport.send(
@@ -1893,6 +1996,11 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
 
 
 def run(args: argparse.Namespace) -> int:
+    # The run log must exist before any game action can happen: the startup
+    # recovery's gate rows have to be durable BEFORE the clicks they name,
+    # and that recovery runs before build_runtime composes the tee. The
+    # prebuilt sink reaches build_runtime through _active_run_log_sink().
+    _build_and_start_run_log(args)
     if not args.authorize_ui_actions:
         raise LoopError("Missing explicit --authorize-ui-actions flag")
     if args.settle_only and not args.adopt_observed_mission:
