@@ -64,6 +64,10 @@ from kancollebot.expeditions.expedition_rule_data import (  # noqa: E402
 from kancollebot.expeditions.fleet_availability import (  # noqa: E402
     resolve_fleet_availability,
 )
+from kancollebot.expeditions.recovery_classification import (  # noqa: E402
+    RecoveryPauseGate,
+    RecoveryPausedError,
+)
 # P0 R4: the SAME task-neutral normalizer that dispatch-once probes with. The
 # monitor cannot open a CDP game session in its default read-only mode, so the
 # operator may supply the observed account fact explicitly; ambiguity fails
@@ -117,6 +121,7 @@ class MonitorRuntime:
     # describes *its* correlation capability, not the run log writer's, because
     # that is the sink whose rows a reader will be looking at.
     event_sink: object | None = None
+    recovery_gate: RecoveryPauseGate | None = None
 
 
 def build_runtime(
@@ -164,8 +169,13 @@ def build_runtime(
     run_log_dir: str | Path | None = None,
     run_log_run_id: str | None = None,
     run_log_policy: RunLogPolicy | None = None,
+    recovery_gate: RecoveryPauseGate | None = None,
 ) -> MonitorRuntime:
     """Compose one read-only monitor with shared durable stores and witness source."""
+    if recovery_gate is None:
+        recovery_gate = RecoveryPauseGate()
+    elif not isinstance(recovery_gate, RecoveryPauseGate):
+        raise ValueError("recovery_gate must be a RecoveryPauseGate or None")
     policy = require_task_enabled(task_kind)
     if policy.task_kind is not TaskKind.EXPEDITION:
         raise ValueError(
@@ -294,7 +304,10 @@ def build_runtime(
                 "dispatchable fleet"
             )
         requirements = dict(mission_requirements)
-    ui_arbiter = UiOperationArbiter() if enable_ui_refresh else None
+    ui_arbiter = (
+        UiOperationArbiter(action_guard=recovery_gate.require_actions_allowed)
+        if enable_ui_refresh else None
+    )
     ui_refresh_driver = None
     state_reader = reader
     if enable_ui_refresh:
@@ -338,6 +351,7 @@ def build_runtime(
         run_id=run_log_sink.run_id if run_log_sink is not None else "",
         run_log_sink=run_log_sink,
         event_sink=event_sink,
+        recovery_gate=recovery_gate,
     )
 
 
@@ -387,7 +401,20 @@ def run_monitor(
     while True:
         tick_count += 1
         try:
+            if runtime.recovery_gate is not None:
+                runtime.recovery_gate.require_actions_allowed()
             report = runtime.monitor.tick()
+        except RecoveryPausedError as exc:
+            _emit({
+                "status": "RECOVERY_PAUSED",
+                "tick": tick_count,
+                "category": exc.category.value,
+                "generation": exc.generation,
+                "reason": exc.reason,
+                "game_actions_enabled": False,
+                "ui_navigation_enabled": runtime.ui_refresh_enabled,
+            }, output)
+            return 3
         except ContinuousMonitorError as exc:
             message = str(exc)
             status = (
