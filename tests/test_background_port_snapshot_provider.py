@@ -61,6 +61,28 @@ class RepeatingObserver:
         return None
 
 
+class AlwaysFailObserver:
+    def __init__(self):
+        self.calls = 0
+        self.last_status = "not_started"
+
+    def capture(self):
+        self.calls += 1
+        self.last_status = "cdp_connection_closed"
+        return None
+
+
+class NaturalTimeoutObserver:
+    def __init__(self):
+        self.calls = 0
+        self.last_status = "not_started"
+
+    def capture(self):
+        self.calls += 1
+        self.last_status = "natural_response_timeout"
+        return None
+
+
 class FalseCapturedObserver:
     last_status = "captured"
 
@@ -171,6 +193,44 @@ class BackgroundPortSnapshotProviderTests(unittest.TestCase):
         finally:
             provider.close(join_timeout_seconds=1)
 
+    def test_fast_connection_failures_use_backoff_and_stop_at_retry_budget(self):
+        observer = AlwaysFailObserver()
+        observed = []
+        provider = BackgroundPortSnapshotProvider(
+            observer,
+            retry_delay_seconds=0.001,
+            max_retry_delay_seconds=0.002,
+            max_consecutive_failures=3,
+            on_status=observed.append,
+        )
+        provider()
+        self.assertTrue(
+            self._wait_for(lambda: not provider.is_running, timeout=1.0)
+        )
+        self.assertEqual(observer.calls, 3)
+        self.assertTrue(provider.last_status.startswith("retry_budget_exhausted:"))
+        self.assertEqual(
+            observed,
+            ["cdp_connection_closed", "retry_budget_exhausted:cdp_connection_closed"],
+        )
+        provider.close(join_timeout_seconds=1)
+
+    def test_natural_response_timeout_does_not_consume_retry_budget(self):
+        observer = NaturalTimeoutObserver()
+        provider = BackgroundPortSnapshotProvider(
+            observer,
+            retry_delay_seconds=0.001,
+            max_retry_delay_seconds=0.002,
+            max_consecutive_failures=1,
+        )
+        try:
+            provider()
+            self.assertTrue(self._wait_for(lambda: observer.calls >= 3))
+            self.assertTrue(provider.is_running)
+            self.assertEqual(provider.last_status, "natural_response_timeout")
+        finally:
+            provider.close(join_timeout_seconds=1)
+
     def test_returned_witness_is_defensively_copied(self):
         observer = BlockingObserver()
         provider = BackgroundPortSnapshotProvider(observer, retry_delay_seconds=0.01)
@@ -208,6 +268,10 @@ class BackgroundPortSnapshotProviderTests(unittest.TestCase):
         self.assertEqual(observer.calls, 0)
         with self.assertRaisesRegex(ValueError, "retry_delay_seconds"):
             BackgroundPortSnapshotProvider(observer, retry_delay_seconds=0)
+        with self.assertRaisesRegex(ValueError, "max_retry_delay_seconds"):
+            BackgroundPortSnapshotProvider(observer, retry_delay_seconds=1, max_retry_delay_seconds=0.5)
+        with self.assertRaisesRegex(ValueError, "max_consecutive_failures"):
+            BackgroundPortSnapshotProvider(observer, max_consecutive_failures=0)
         with self.assertRaisesRegex(ValueError, "join_timeout_seconds"):
             provider.close(join_timeout_seconds=-1)
 
