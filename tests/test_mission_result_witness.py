@@ -273,5 +273,110 @@ class WitnessPayloadTests(unittest.TestCase):
         self.assertEqual(parsed.identity_key(), witness().identity_key())
 
 
+class ResultReceiptAndCycleIdentityTests(unittest.TestCase):
+    def test_result_codes_are_classified_strictly(self):
+        self.assertEqual(witness(clear_result=0).result_kind, "failure")
+        self.assertEqual(witness(clear_result=1).result_kind, "success")
+        self.assertEqual(witness(clear_result=2).result_kind, "great_success")
+        self.assertEqual(witness(clear_result=9).result_kind, "unknown")
+
+    def test_a_complete_reward_receipt_is_parsed_and_persisted(self):
+        receipt = {
+            "status": "complete",
+            "material": [10, 20, 30, 40],
+            "useitem_flags": [1, 0],
+            "items": [{"slot": 1, "useitem_id": 6, "count": 2}],
+        }
+        parsed = parse_witness(fields(reward_receipt=receipt))
+        self.assertEqual(parsed.reward_receipt.status, "complete")
+        self.assertEqual(parsed.reward_receipt.material, (10, 20, 30, 40))
+        self.assertEqual(parsed.reward_receipt.useitem_flags, (1, 0))
+        self.assertEqual(parsed.reward_receipt.items, ((1, 6, 2),))
+        persisted = witness_fields(parsed)
+        rebuilt = parse_witness(persisted)
+        self.assertEqual(rebuilt.reward_receipt, parsed.reward_receipt)
+
+    def test_incomplete_success_receipt_cannot_be_promoted_to_complete(self):
+        parsed = parse_witness(fields(reward_receipt={
+            "status": "complete",
+            "material": None,
+            "useitem_flags": [1, 0],
+            "items": [{"slot": 1, "useitem_id": 6, "count": 2}],
+        }))
+        self.assertEqual(parsed.reward_receipt.status, "incomplete")
+
+    def test_failed_result_requires_no_reward_receipt_status(self):
+        parsed = parse_witness(fields(
+            clear_result=0,
+            reward_receipt={
+                "status": "no_reward",
+                "material": None,
+                "useitem_flags": None,
+                "items": [],
+            },
+        ))
+        self.assertEqual(parsed.result_kind, "failure")
+        self.assertEqual(parsed.reward_receipt.status, "no_reward")
+
+    def test_legacy_witness_without_receipt_remains_readable(self):
+        parsed = parse_witness(fields())
+        self.assertIsNone(parsed.reward_receipt)
+
+    def test_same_fleet_mission_and_ships_on_distinct_cycles_are_not_deduplicated(self):
+        later = NOW + timedelta(seconds=30)
+        events = [
+            {
+                "event": MISSION_RESULT_EVENT,
+                "fields": fields(
+                    requested_at=(NOW - timedelta(seconds=1)).isoformat(),
+                    response_received_at=NOW.isoformat(),
+                ),
+            },
+            {
+                "event": MISSION_RESULT_EVENT,
+                "fields": fields(
+                    requested_at=(later - timedelta(seconds=1)).isoformat(),
+                    response_received_at=later.isoformat(),
+                ),
+            },
+        ]
+        observed = read_witnesses(events)
+        self.assertEqual(len(observed), 2)
+        latest = latest_witness_for_fleet(events, FLEET)
+        self.assertEqual(latest.response_received_at, later)
+
+    def test_dispatch_cross_check_rejects_a_witness_from_a_previous_cycle(self):
+        record = DispatchRecord(
+            fleet_id=FLEET,
+            mission_id=1,
+            ship_ids=SHIPS,
+            quest_name="練習航海",
+            observed_at=NOW + timedelta(seconds=10),
+        )
+        verdict = cross_check_with_dispatch(
+            witness=witness(response_received_at=NOW),
+            record=record,
+        )
+        self.assertFalse(verdict.allowed)
+        self.assertEqual(verdict.reason, "witness_predates_dispatch_record")
+
+    def test_dispatch_cross_check_rejects_missing_witness_time(self):
+        record = DispatchRecord(
+            fleet_id=FLEET,
+            mission_id=1,
+            ship_ids=SHIPS,
+            quest_name="練習航海",
+            observed_at=NOW,
+        )
+        verdict = cross_check_with_dispatch(
+            witness=witness(response_received_at=None),
+            record=record,
+        )
+        self.assertFalse(verdict.allowed)
+        self.assertEqual(
+            verdict.reason, "witness_time_missing_for_dispatch_cross_check"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
