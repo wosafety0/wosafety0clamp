@@ -1317,11 +1317,11 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 recovery_gate = RecoveryPauseGate()
 
             def capture_frame() -> str:
-                recovery_gate.require_actions_allowed()
-                game_session.transport.send(
-                    "Input.dispatchMouseEvent",
-                    {"type": "mouseMoved", "x": 1195, "y": 715},
-                )
+                with recovery_gate.action_permit():
+                    game_session.transport.send(
+                        "Input.dispatchMouseEvent",
+                        {"type": "mouseMoved", "x": 1195, "y": 715},
+                    )
                 time.sleep(HOME_REFERENCE_SETTLE_SECONDS)
                 return game_session.input.capture_screenshot()
 
@@ -1333,8 +1333,8 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 return scan_page(decode_png(scratch))
 
             def click_list_point(point, label):
-                recovery_gate.require_actions_allowed()
-                game_session.input.click(RecordedPoint(point[0], point[1], label))
+                with recovery_gate.action_permit():
+                    game_session.input.click(RecordedPoint(point[0], point[1], label))
 
             list_session = ExpeditionListSession(
                 scan=scan_list,
@@ -1360,6 +1360,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     ),
                 ),
                 action_guard=recovery_gate.require_actions_allowed,
+                action_permit=recovery_gate.action_permit,
             )
             dispatch_coordinator = DurableDispatchCoordinator(
                 runtime.scheduler,
@@ -1380,7 +1381,8 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
             # resupply controller must exclude one another, or two of them could
             # interleave clicks on the same screen.
             ui_arbiter = runtime.ui_arbiter or UiOperationArbiter(
-                action_guard=recovery_gate.require_actions_allowed
+                action_guard=recovery_gate.require_actions_allowed,
+                action_permit=recovery_gate.action_permit,
             )
             if args.settle_only:
                 dispatch_controller = SettleOnlyDispatcher(
