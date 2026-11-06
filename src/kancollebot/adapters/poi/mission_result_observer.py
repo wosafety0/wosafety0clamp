@@ -72,7 +72,7 @@ def _normalize_reward_receipt(value: object) -> dict[str, Any]:
         }
 
     status = value.get("status")
-    if status not in {"complete", "incomplete", "no_reward", "unknown"}:
+    if not isinstance(status, str) or status not in {"complete", "incomplete", "no_reward", "unknown"}:
         status = "incomplete"
 
     material = _nonnegative_int_list(value.get("material"), (4, 8))
