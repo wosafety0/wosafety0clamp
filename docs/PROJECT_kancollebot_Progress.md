@@ -4660,3 +4660,16 @@ The Hand plugin's read-only probe reported:
 - **LIMITS:** ①**降级路径的语义变化**：不可关联 sink 下 supervisor 不再给控制器 id，ledger 的 id 与日志不再同名（生产走 tee → capable，故实际未变；离线/降级下是有意的新行为）；②`capture_correlation` 对"能绑定但不发布上下文"的 sink 只能返回 `capable=True` + `context=None`，调用方须到 mint 处取（当前生产无此类 sink）；③未处理 asyncio 任务间继承（生产无 asyncio）；④本阶段**未做实机验证**，`correlation_capable` 在真实 tee 上的落库仍只有离线证据。
 - **六阶段提交链（本轮任务）:** 阶段 1 `79ca49f`（tree `9a5f4be8`）→ 阶段 2 `a585fa4`（tree `9db8fab6`）→ 阶段 3+4 `bf516f5`（tree `ff75edc6`）→ 阶段 5 `a4b7f82`（tree `f820f227`）→ 阶段 5b `4c1995f`（tree `75de741d`）→ 阶段 6 见下。每阶段独立提交、独立推送、独立回读，未推 main、未 force push、未删远端分支、未建/合 PR。
 - **COMMITTED / PUSHED / REMOTE_READBACK_VERIFIED:** 本地提交 **`14f6fb1`**（3 个源文件 + 1 个新测试文件 + 归档，5 个文件，+647/−16，tree `a42ef76d`）→ 显式推送到同名功能分支 `feat/production-settlement-resupply-wiring-20261105`（`git push origin HEAD:refs/heads/...`，显式 `-c http.proxy=http://127.0.0.1:7890`，本次代理一次成功）→ 三项独立回读全部一致：①`git ls-remote` 返回 `14f6fb1b4385a24f05a18decd791b677ead6e04f`，与本地 `HEAD` 逐字符相同；②`git fetch` 后远端 tree `a42ef76d5780ab15c5be6d658ea42d98dc1da223` 与本地 `HEAD^{tree}` 相同、`git diff --stat FETCH_HEAD HEAD` 为空；③GitHub API 按该 SHA 读取 `src/kancollebot/observability/sink.py` blob `250a4de28b9675334c269172d41ff55fd577cd1e` 与 `tests/test_correlation_scope_capability.py` blob `316ca5dcb5267ca053b0badaf2ffcb40c86b3a20`，均与本地 `git rev-parse HEAD:<path>` 相同（内容分别含新增的 `CorrelationSnapshot` / `capture_correlation` 与 18 条测试）。未推 main、未 force push、未删远端分支、未建/合 PR。本节该行由随后的 docs-only 提交补写。
+
+
+## 2026-11-06 — 防猫恢复 P1–P4 阶段进展
+
+- **工作分支：** \`dev/anti-cat-recovery-20261106\`，独立于远征开发分支。
+- **P1 IMPLEMENTED / TESTED：** 新增只读故障分类器，区分自然 port witness、无自然请求、CDP/observer 故障、猫画面、服务端拒绝/201、登录/维护及 UNKNOWN。自然响应超时不直接视为网络故障；分类器永不授权恢复。
+- **P2 IMPLEMENTED / TESTED：** 新增线程安全、锁存式 RecoveryPauseGate；门禁接入 Supervisor、monitor runtime、共享 UI arbiter、可见刷新和远征 UI driver。逐次输入持有原子许可，暂停等待当前输入完成并阻止后续点击；没有 resume/reset API。
+- **P3 IMPLEMENTED / TESTED：** 后台 Poi observer 状态变化接入分类器并自动锁存门禁。CDP 连接故障、observer 失败和未知状态暂停；重复状态不重复触发；无自然请求不消耗故障预算；无 witness 的 captured 状态降级为 UNKNOWN。
+- **P4 IMPLEMENTED / TESTED：** observer 快速失败采用指数退避，默认最多连续 6 次失败，延迟上限 8 秒；成功 witness 重置失败计数；自然响应超时不消耗预算；预算耗尽后停止 observer 并保持暂停。
+- **CI 验证：** P1 1798 tests OK / 22 skipped；P2 1812 / 22；P3 1815 / 22；P4 1817 / 22。各阶段 Python compileall、CLI smoke checks、离线 JavaScript 检查均通过。P4 最终测试提交 \`77fe29ff1f7b069fdc7d46ed126d1c35812b25c2\`，CI run [42143413592](https://github.com/wosafety0/wosafety0clamp/actions/runs/42143413592) 成功。
+- **代码与研究记录：** \`docs/research/ANTI_CAT_RECOVERY_IMPLEMENTATION.md\`，含 P1–P4 的实现范围、验证及限制。
+- **未实现 / 未验证：** 尚无恢复后的新 witness 时间证明、Poi mission tuple 与 Action Journal / Dispatch Registry / Settlement Drain 的完整对账、显式恢复许可或自动续跑。未接入视觉猫画面识别、独立 CDP target-crash 信号或从自然响应提取 API result 201。未启动 Poi/CDP、未点击、未刷新、未派遣、未补给；无实机防猫验证。
+- **下一阶段：** P5 只读恢复证据与业务对账。必须证明 witness 产生于暂停之后，并核对派遣、结算、补给账本；UNKNOWN/冲突继续人工处理。恢复许可仍需独立验收，不得因网络恢复自动放行。
