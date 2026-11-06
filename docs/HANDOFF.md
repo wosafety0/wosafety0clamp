@@ -32,11 +32,12 @@ PR #40 is a broad staging candidate (42 commits / 105 changed files), not a merg
 - P0.2 adds an event envelope, JSONL run log, bounded rotation/retention, redaction, atomic state snapshot, Tee integration, and a critical audit gate while retaining the SQLite Action Journal.
 - P0.2b restricts emitter-forged correlation IDs and binds a runtime-minted `dispatch_id` around one supervisor dispatch attempt.
 - P0.2c adds sticky degraded-state handling, oversized-event rejection, symlink-safe log/snapshot paths, unique snapshot temp files, fail-closed redaction fallback, provenance-field redaction, and malformed critical-event rejection.
+- P0.2d adds a strict SQLite row-ID receipt and links it to the JSONL envelope through sink-owned `sqlite_event_id`; the JSONL UUID `event_id` remains a separate namespace. Exact-head CI passed 1,637 Python tests with 21 optional vision tests skipped.
 
 ## Explicitly not verified / blocked
 
 - **Identity semantics:** PR #40's `dispatch_id` means one dispatch attempt; it is not persisted across restarts and does not propagate to settlement/resupply. PR #39's design defines `dispatch_id` as the complete expedition lifecycle. These contracts conflict.
-- **Event ID namespaces:** PR #40's JSONL `event_id` is a UUID string; PR #39 exposes SQLite's integer `event_id`. They are not joined or interchangeable.
+- **Event ID namespaces:** PR #40's JSONL `event_id` is a UUID string; SQLite `event_id` is an integer primary key. PR #41 adds `sqlite_event_id` to join the same event row across both logs; the IDs remain distinct and cannot be substituted.
 - **Action identity:** `action_id` is reserved but not bound per UI click.
 - **Run-log live validation:** `--run-log-dir` remains opt-in. No live log was produced or validated by this scheduled run.
 - **Lifecycle coverage:** settlement and resupply events lack a persisted lifecycle ID. An attempt ID is not proof that dispatch occurred; require intent, Poi confirmation, and subsequent state evidence.
@@ -50,7 +51,7 @@ PR #40 is a broad staging candidate (42 commits / 105 changed files), not a merg
 
 1. Review PR #40's 42-commit / 105-file diff by subsystem; split it if the scopes cannot be reviewed together.
 2. Resolve per-attempt versus full-lifecycle `dispatch_id` semantics. Preserve legacy rows as unknown; do not infer identity from fleet, mission, timestamps, or adjacency.
-3. Define the join between JSONL UUID `event_id` and SQLite integer `event_id`; review PR #39 against PR #40.
+3. Review PR #41's SQLite-to-JSONL row link, including primary-success/secondary-failure behavior; do not treat it as semantic deduplication.
 4. Design durable lifecycle recovery for settlement/reward/resupply and READY confirmation. Do not choose a schema migration or resolver without a compatibility design.
 5. Add per-action `action_id` only after the lifecycle contract is settled.
 6. Keep run-log wiring default-off until a separately authorized live validation is approved.
@@ -84,7 +85,8 @@ The feature matrix additionally tests Python 3.12/3.13 with and without optional
 The current remote inventory has 27 open PRs. No PR was merged or closed in this run.
 
 - [PR #40](https://github.com/wosafety0/wosafety0clamp/pull/40): 42 commits / 105 files, Draft, broad settlement/run-log integration candidate.
-- [PR #39](https://github.com/wosafety0/wosafety0clamp/pull/39): SQLite event ID readback, Draft, separate from #40.
+- [PR #39](https://github.com/wosafety0/wosafety0clamp/pull/39): SQLite event ID readback source candidate, Draft.
+- [PR #41](https://github.com/wosafety0/wosafety0clamp/pull/41): SQLite-to-JSONL row link, Draft, stacked on #40; final-head CI passed 1,637 tests / 21 optional skips.
 - [PR #27](https://github.com/wosafety0/wosafety0clamp/pull/27): current MVP safety base.
 - PR #34 / #35 and older scanner/M1 drafts are historical or stale; re-check each head/base comparison before reuse.
 - Do not bulk-close, rebase, merge, or force-move historical drafts without per-PR dependency and diff review.

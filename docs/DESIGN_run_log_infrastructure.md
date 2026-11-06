@@ -63,7 +63,8 @@ KanColle-Agent，也未阅读其源码。
   所以 `dispatch_id` 由运行时生成注入，绝不从 payload 推导，也绝不做"相同 payload
   合并"。测试 `test_two_identical_dispatches_are_never_merged` 锁定这一点。
 - `action_id`：一次 UI/业务动作。
-- `event_id`：一行事件。
+- `event_id`：一行 JSONL 事件的 UUID。
+- `sqlite_event_id`：同一事件在 SQLite `dispatch_events` 中的整数主键；由 Tee 从 primary sink 的返回值写入 JSONL，不与 JSONL `event_id` 混用。
 - `battle_id`：预留，当前不产生。
 - `correlation_id`：跨事件的临时串联，不代表唯一对象。
 
@@ -284,8 +285,17 @@ settlement / resupply / visible_ui_refresh / UI driver 六处注入点都**不�
 
 - 本候选的 `dispatch_id` 是 supervisor 一次派遣**尝试**的 ID；在门禁之前生成，因此 REJECT 尝试也有 ID。它不代表派遣已发生，也不是完整远征生命周期 ID。
 - PR #39 的 `docs/DESIGN_event_identity_and_dedup.md` 将 `dispatch_id` 定义为从派遣、返航、结算到补给完成的生命周期 ID。两种语义不能用同一个字段名混用。
-- 本候选 JSONL `event_id` 是 UUID 字符串；PR #39 暴露的 SQLite `event_id` 是整数主键。二者当前没有 join 字段。
+- 本候选 JSONL `event_id` 是 UUID 字符串；SQLite `event_id` 是整数主键。PR #41 增加 `sqlite_event_id` 作为显式行级 join；两种 ID 仍不可互换。
 - `action_id` 尚未逐点击绑定；settlement/resupply 事件也没有持久化 lifecycle ID。
 - `--run-log-dir` 仍为显式 opt-in，未做 live log 验证。
 
 在明确 attempt ID / lifecycle ID、JSONL / SQLite event ID 的关系之前，不应把当前字段描述成完整生命周期关联，也不应开启生产默认日志。
+
+
+## 10.2 SQLite row ID 与 JSONL event ID 的显式 join
+
+- SqliteDispatchEventLog.__call__() 在事务提交后返回严格正整数 event_id；load_all() 也回读该主键。既有四列表结构不变。
+- TeeEventSink 仅接受 None 或精确正整数 primary receipt。若 primary 返回整数，后续 RunLogSink 通过专用 emit_with_sqlite_event_id() 写入 sqlite_event_id；JSONL 自己生成的 UUID event_id 不变。
+- emitter 不能通过普通 fields 伪造 sqlite_event_id；无 primary receipt 时该字段为 null。bool、float、字符串、零和负数不能作为 row ID。
+- 如果 SQLite 已写入但关键 JSONL append 失败，Tee 仍传播 AuditLogUnavailable，调用方必须在点击前停止；这是一条明确的部分写入失败，不得声称双日志均成功。
+- 此链接只解决两种日志记录的一对一定位，不解决 dispatch lifecycle identity，也不提供语义去重。

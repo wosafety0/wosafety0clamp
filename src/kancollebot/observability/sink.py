@@ -161,6 +161,19 @@ class RunLogSink:
     # -- emit --------------------------------------------------------------
 
     def __call__(self, event: str, fields: Mapping[str, Any]) -> None:
+        self._emit(event, fields, sqlite_event_id=None)
+
+    def emit_with_sqlite_event_id(
+        self, event: str, fields: Mapping[str, Any], *, sqlite_event_id: int
+    ) -> None:
+        """Write a JSONL row linked to the primary SQLite event row."""
+        if type(sqlite_event_id) is not int or sqlite_event_id < 1:
+            raise ValueError("sqlite_event_id must be a positive int")
+        self._emit(event, fields, sqlite_event_id=sqlite_event_id)
+
+    def _emit(
+        self, event: str, fields: Mapping[str, Any], *, sqlite_event_id: int | None
+    ) -> None:
         critical = is_critical_event(event)
         try:
             if not isinstance(fields, Mapping):
@@ -172,10 +185,9 @@ class RunLogSink:
                 context=self.context,
                 event_id=new_event_id(now=moment),
                 timestamp_utc=moment.astimezone(timezone.utc).isoformat(),
+                sqlite_event_id=sqlite_event_id,
             )
             if self._redact:
-                # source / observed_at are descriptive values, not identity.
-                # Redact them too because emitters may promote them.
                 record = redact_event_record(
                     record,
                     envelope_fields=RESERVED_FIELDS - {"source", "observed_at"},
@@ -186,16 +198,12 @@ class RunLogSink:
                 self._degraded_reason = f"{type(exc).__name__}: {exc}"
             self._notify(event, exc)
             if critical:
-                # Fail closed: the caller emits this event before the click it
-                # describes, so the exception is what stops the action.
                 raise AuditLogUnavailable(
                     f"critical audit event {event!r} could not be written: "
                     f"{type(exc).__name__}: {exc}"
                 ) from exc
             return
         self._writes += 1
-        # A successful later append cannot repair an earlier missing row.
-        # Only a fresh run_id may start with a clean audit history.
         self._maybe_prune()
 
     def _notify(self, event: str, exc: BaseException) -> None:
@@ -334,13 +342,13 @@ class RunLogSink:
 class TeeEventSink:
     """Fan one event out to several sinks, primary first.
 
-    The first sink is the primary: its exceptions propagate exactly as before, so
-    the existing SQLite behaviour is unchanged. The run log is added after it.
-    A critical-event failure in *either* sink aborts the action, because both are
+    The primary SQLite sink may return its positive row ID; a linked RunLogSink
+    records that value as sqlite_event_id without conflating it with the JSONL UUID.
+    A critical-event failure in either sink aborts the action because both are
     emitted before the input.
     """
 
-    def __init__(self, primary: Callable[[str, Mapping[str, Any]], None], *others: Callable[[str, Mapping[str, Any]], None]) -> None:
+    def __init__(self, primary: Callable[[str, Mapping[str, Any]], int | None], *others: Callable[[str, Mapping[str, Any]], None]) -> None:
         for sink in (primary, *others):
             if not callable(sink):
                 raise ValueError("every sink must be callable")
@@ -348,9 +356,17 @@ class TeeEventSink:
         self._others = tuple(others)
 
     def __call__(self, event: str, fields: Mapping[str, Any]) -> None:
-        self._primary(event, fields)
+        primary_event_id = self._primary(event, fields)
+        if primary_event_id is not None and (
+            type(primary_event_id) is not int or primary_event_id < 1
+        ):
+            raise TypeError("primary event sink must return None or a positive int event ID")
         for sink in self._others:
-            sink(event, fields)
+            linked_emit = getattr(sink, "emit_with_sqlite_event_id", None)
+            if primary_event_id is not None and callable(linked_emit):
+                linked_emit(event, fields, sqlite_event_id=primary_event_id)
+            else:
+                sink(event, fields)
 
     @property
     def run_id(self) -> str | None:
