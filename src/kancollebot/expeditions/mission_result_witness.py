@@ -36,6 +36,8 @@ REJECTION_CODES: tuple[str, ...] = (
     "witness_not_yet_observed",
     "witness_conflicts_with_dispatch_record",
     "no_dispatch_record_to_cross_check",
+    "witness_predates_dispatch_record",
+    "witness_time_missing_for_dispatch_cross_check",
 )
 
 
@@ -56,6 +58,16 @@ def _parse_timestamp(value: object) -> datetime | None:
 
 
 @dataclass(frozen=True, slots=True)
+class MissionRewardReceipt:
+    """Allowlisted reward details returned by the game's result response."""
+
+    status: str
+    material: tuple[int, ...] | None
+    useitem_flags: tuple[int, ...] | None
+    items: tuple[tuple[int, int, int], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class MissionResultWitness:
     """One expedition-result exchange, as the game stated it."""
 
@@ -65,11 +77,31 @@ class MissionResultWitness:
     ship_ids: tuple[int, ...]
     requested_at: datetime | None
     response_received_at: datetime | None
+    reward_receipt: MissionRewardReceipt | None = None
     event_id: int | None = None
 
-    def identity_key(self) -> tuple[str, int, int, tuple[int, ...]]:
-        """What makes two witnesses the same observation."""
-        return (self.quest_name, self.fleet_id, self.clear_result, self.ship_ids)
+    @property
+    def result_kind(self) -> str:
+        """Strictly classify known game result codes; unknown values stay unknown."""
+        return {0: "failure", 1: "success", 2: "great_success"}.get(
+            self.clear_result, "unknown"
+        )
+
+    def identity_key(self) -> tuple[object, ...]:
+        """Identify one exchange, not merely a recurring fleet/mission pairing.
+
+        The same fleet can repeat the same mission with the same ships and
+        result. Request/response times distinguish those separate cycles while
+        duplicate records of one exchange retain the same key.
+        """
+        return (
+            self.quest_name,
+            self.fleet_id,
+            self.clear_result,
+            self.ship_ids,
+            self.requested_at,
+            self.response_received_at,
+        )
 
 
 def _int_of(fields: Mapping[str, object], key: str) -> int | None:
@@ -95,6 +127,73 @@ def _ship_ids_of(fields: Mapping[str, object]) -> tuple[int, ...] | None:
     return tuple(ship_ids)
 
 
+def _nonnegative_int_tuple(value: object, lengths: tuple[int, ...]) -> tuple[int, ...] | None:
+    if not isinstance(value, (list, tuple)) or len(value) not in lengths:
+        return None
+    cleaned: list[int] = []
+    for item in value:
+        if isinstance(item, bool) or not isinstance(item, int) or item < 0:
+            return None
+        cleaned.append(item)
+    return tuple(cleaned)
+
+
+def _parse_reward_receipt(
+    value: object, *, clear_result: int
+) -> MissionRewardReceipt | None:
+    """Parse optional reward details without discarding valid result identity."""
+    if not isinstance(value, Mapping):
+        return None
+    status = value.get("status")
+    if status not in {"complete", "incomplete", "no_reward", "unknown"}:
+        status = "incomplete"
+    if clear_result == 0 and status != "no_reward":
+        status = "unknown"
+    elif clear_result in (1, 2) and status == "no_reward":
+        status = "incomplete"
+    elif clear_result not in (0, 1, 2):
+        status = "unknown"
+
+    material = _nonnegative_int_tuple(value.get("material"), (4, 8))
+    flags = _nonnegative_int_tuple(value.get("useitem_flags"), (2,))
+    raw_items = value.get("items")
+    items: list[tuple[int, int, int]] = []
+    invalid_item = not isinstance(raw_items, (list, tuple))
+    seen_slots: set[int] = set()
+    if isinstance(raw_items, (list, tuple)):
+        for item in raw_items:
+            if not isinstance(item, Mapping):
+                invalid_item = True
+                continue
+            slot = _int_of(item, "slot")
+            item_id = _int_of(item, "useitem_id")
+            count = _int_of(item, "count")
+            if (
+                slot not in (1, 2)
+                or item_id is None or item_id <= 0
+                or count is None or count <= 0
+                or slot in seen_slots
+            ):
+                invalid_item = True
+                continue
+            seen_slots.add(slot)
+            items.append((slot, item_id, count))
+
+    if status == "complete":
+        if material is None or flags is None or invalid_item:
+            status = "incomplete"
+        elif any(flag > 0 and slot not in seen_slots
+                 for slot, flag in enumerate(flags, start=1)):
+            status = "incomplete"
+
+    return MissionRewardReceipt(
+        status=status,
+        material=material,
+        useitem_flags=flags,
+        items=tuple(items),
+    )
+
+
 def parse_witness(fields: Mapping[str, object]) -> MissionResultWitness:
     """Read one recorded witness, refusing anything that is not a result.
 
@@ -118,6 +217,9 @@ def parse_witness(fields: Mapping[str, object]) -> MissionResultWitness:
         raise MissionResultWitnessError("witness has no expedition ship")
     requested_at = _parse_timestamp(fields.get("requested_at"))
     response_received_at = _parse_timestamp(fields.get("response_received_at"))
+    reward_receipt = _parse_reward_receipt(
+        fields.get("reward_receipt"), clear_result=clear_result
+    )
     event_id = fields.get("event_id")
     if isinstance(event_id, bool) or not isinstance(event_id, int):
         event_id = None
@@ -128,6 +230,7 @@ def parse_witness(fields: Mapping[str, object]) -> MissionResultWitness:
         ship_ids=ship_ids,
         requested_at=requested_at,
         response_received_at=response_received_at,
+        reward_receipt=reward_receipt,
         event_id=event_id,
     )
 
@@ -142,7 +245,7 @@ def read_witnesses(
     keeps the order the events were written in.
     """
     witnesses: list[MissionResultWitness] = []
-    seen: set[tuple[str, int, int, tuple[int, ...]]] = set()
+    seen: set[tuple[object, ...]] = set()
     for row in events:
         if not isinstance(row, Mapping):
             continue
@@ -253,6 +356,11 @@ def cross_check_with_dispatch(
         )
     if witness.fleet_id != record.fleet_id:
         return _refuse("witness_conflicts_with_dispatch_record", witness)
+    if record.observed_at is not None:
+        if witness.response_received_at is None:
+            return _refuse("witness_time_missing_for_dispatch_cross_check", witness)
+        if witness.response_received_at < record.observed_at:
+            return _refuse("witness_predates_dispatch_record", witness)
     if set(witness.ship_ids) != set(record.ship_ids):
         return _refuse("witness_conflicts_with_dispatch_record", witness)
     if record.quest_name is not None and witness.quest_name != record.quest_name:
@@ -302,6 +410,27 @@ def witness_fields(
         "quest_name": witness.quest_name,
         "clear_result": witness.clear_result,
         "ship_ids": list(witness.ship_ids),
+        "reward_receipt": (
+            {
+                "status": witness.reward_receipt.status,
+                "material": (
+                    list(witness.reward_receipt.material)
+                    if witness.reward_receipt.material is not None
+                    else None
+                ),
+                "useitem_flags": (
+                    list(witness.reward_receipt.useitem_flags)
+                    if witness.reward_receipt.useitem_flags is not None
+                    else None
+                ),
+                "items": [
+                    {"slot": slot, "useitem_id": item_id, "count": count}
+                    for slot, item_id, count in witness.reward_receipt.items
+                ],
+            }
+            if witness.reward_receipt is not None
+            else None
+        ),
         "requested_at": (
             witness.requested_at.isoformat() if witness.requested_at else None
         ),
