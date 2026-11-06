@@ -3728,3 +3728,17 @@ Implementation consequences:
 
 Updated artifact: `docs/game-rules/EXPEDITIONS.md` (EXP-015–EXP-018).
 
+## 2026-11-06 — Expedition mission catalogue transcription
+
+**Status:** DOCUMENTED / COMMUNITY_REPORTED; not live-verified; no game code changed.
+
+Added a selected mission catalogue to `docs/game-rules/EXPEDITIONS.md`, transcribing 12 commonly useful missions from the Japanese community wiki's detailed table:
+
+- IDs 2, 3, 5, 6, 9, 11, 13, 17, 20, 21, 24, and 41.
+- Captured duration, per-ship fuel/ammunition consumption percentages, flagship/fleet level requirements, minimum or exact fleet size, required ship categories, special drum-can/stat constraints, and success reward baselines.
+- Explicitly documented that consumption percentages apply per ship to departure-time remaining supply (rounded down), not once to the fleet total.
+- Kept random item drops, great-success-only rewards, and success baseline rewards distinct.
+- Added a production gate: table data alone cannot authorize dispatch; current mission availability, Poi freshness, ship identity/type, and exact equipment/stat calculation remain required.
+
+Source: https://wikiwiki.jp/kancolle/遠征/詳細一覧表 (accessed 2026-11-06). This is community-maintained material. Some formulas and table entries cite older research or historical updates. No current Poi field mapping, live mission screen, or real expedition was checked. No game code or runtime behavior was changed.
+
