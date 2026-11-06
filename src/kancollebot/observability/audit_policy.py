@@ -85,7 +85,8 @@ class AuditLogUnavailable(RuntimeError):
 
 def is_critical_event(event: object) -> bool:
     """True when ``event`` must be durable before the action it describes."""
-    return isinstance(event, str) and event in CRITICAL_AUDIT_EVENTS
+    # Exact built-in strings only: a str subclass can run caller-defined __hash__/__eq__ during set membership.
+    return type(event) is str and event in CRITICAL_AUDIT_EVENTS
 
 
 def audit_gate(sink: Any) -> Callable[[], None] | None:
