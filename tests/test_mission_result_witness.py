@@ -378,5 +378,15 @@ class ResultReceiptAndCycleIdentityTests(unittest.TestCase):
         )
 
 
+    def test_a_non_string_receipt_status_is_treated_as_incomplete(self):
+        parsed = parse_witness(fields(reward_receipt={
+            "status": ["complete"],
+            "material": [1, 2, 3, 4],
+            "useitem_flags": [0, 0],
+            "items": [],
+        }))
+        self.assertEqual(parsed.reward_receipt.status, "incomplete")
+
+
 if __name__ == "__main__":
     unittest.main()
