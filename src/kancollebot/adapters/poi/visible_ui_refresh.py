@@ -266,7 +266,7 @@ class VisibleUiPortRefreshDriver:
                         })
                         clicks_attempted += 1
                         self._arbiter.require_actions_allowed()
-                    self._input.click(point)
+                        self._input.click(point)
                         clicks_completed += 1
                         if self._settle_seconds:
                             self._sleep(self._settle_seconds)
