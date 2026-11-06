@@ -617,10 +617,14 @@ def _run_monitor_with_session(
     elif budget is None:
         budget = _modal_budget(args)
     budget_exhausted_announced = {"done": False}
+    runtime = None
 
     def recover() -> bool:
         """Clear a blocking dialog that appeared mid-run, within the allowance."""
         if budget is None:
+            return False
+        recovery_gate = getattr(runtime, "recovery_gate", None)
+        if recovery_gate is not None and recovery_gate.is_paused:
             return False
         if not budget.available():
             # Announce the escalation once, not on every failing tick.
