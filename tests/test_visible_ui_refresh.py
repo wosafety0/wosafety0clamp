@@ -15,6 +15,10 @@ from kancollebot.adapters.poi.visible_ui_refresh import (
 )
 from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
 from kancollebot.expeditions.continuous_scheduler import UiOperationArbiter
+from kancollebot.expeditions.recovery_classification import (
+    RecoveryPauseGate,
+    classify_recovery_signals,
+)
 
 
 class FakeInput:
@@ -45,7 +49,7 @@ def observation(fresh: bool):
 
 
 class VisibleUiPortRefreshDriverTests(unittest.TestCase):
-    def make_driver(self, states, *, fail_click_at=None):
+    def make_driver(self, states, *, fail_click_at=None, action_guard=None):
         game_input = FakeInput(fail_at=fail_click_at)
         events = []
         sleeps = []
@@ -63,7 +67,7 @@ class VisibleUiPortRefreshDriverTests(unittest.TestCase):
         driver = VisibleUiPortRefreshDriver(
             game_input=game_input,
             verify_state=verify,
-            ui_arbiter=UiOperationArbiter(),
+            ui_arbiter=UiOperationArbiter(action_guard=action_guard),
             event_sink=lambda event, fields: events.append((event, dict(fields))),
             sleep=sleeps.append,
             settle_seconds=1.0,
@@ -184,6 +188,23 @@ class VisibleUiPortRefreshDriverTests(unittest.TestCase):
         self.assertEqual(events[-1][1]["clicks_attempted"], 1)
         self.assertEqual(events[-1][1]["clicks_completed"], 0)
         self.assertTrue(events[-1][1]["outcome_ambiguous"])
+
+
+    def test_recovery_pause_blocks_refresh_before_the_first_click(self):
+        gate = RecoveryPauseGate()
+        gate.pause(classify_recovery_signals(visual_state="cat"))
+        driver, game_input, events, _ = self.make_driver(
+            ["HOME_PORT"],
+            action_guard=gate.require_actions_allowed,
+        )
+
+        with self.assertRaises(VisibleUiRefreshError):
+            driver.refresh_port_state()
+
+        self.assertEqual(game_input.clicks, [])
+        self.assertEqual(events[-1][0], "ui_refresh_blocked")
+        self.assertEqual(events[-1][1]["clicks_attempted"], 0)
+        self.assertEqual(events[-1][1]["clicks_completed"], 0)
 
 
 class FreshnessRefreshingStateReaderTests(unittest.TestCase):
