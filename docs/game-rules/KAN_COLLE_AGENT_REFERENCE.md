@@ -111,7 +111,72 @@ Use the evidence vocabulary defined in `docs/game-rules/README.md`. Add these so
 - Do not enable upstream agent write/game-action capabilities; the upstream README explicitly says V1 does not implement automatic game actions.
 - No live experiment may risk ship loss, unwanted dispatch, resource consumption or irreversible state changes merely to fill a documentation gap.
 
-## 8. Upstream references inspected
+## 8. Reusable Skill design and workflow lessons
+
+The upstream Skills were inspected on 2026-11-07. They are useful primarily as **workflow contracts and routing rules**, not as a source of game-mechanics truth. Skills deliberately store concise procedures and load detailed data or source pages only when a request needs them.
+
+### 8.1 Main routing principles
+
+Adopt these patterns in KancolleBot documentation and future agent workflows:
+
+- **Separate responsibilities:** player-owned facts come from Poi; static entity/master facts come from the static data source; mechanics and strategy come from sourced Wiki research; the automation layer decides whether an action is safe under the project's own policy.
+- **Load only what the task needs:** start from a small router, select one relevant specialist workflow, and avoid loading every skill, full inventory, full database, or unrelated map/quest material.
+- **Use targeted lookup stages:** identify entities first, then fetch only the fields or instances needed for the decision. Prefer aggregate inventory for counts and distributions; fetch exact instances only when assigning a specific ship/equipment.
+- **Reuse verified results within a decision:** reuse same-turn results while the underlying player state is unchanged; refresh after a relevant state change or when freshness expires.
+- **Keep skills procedural:** store query order, decision sequence, required evidence, output contract and escalation path in a Skill. Keep large datasets, detailed formulas and page extracts in separately versioned data/reference files.
+
+These are workflow design lessons. They do not authorize replacing KancolleBot's existing Python/Poi/CDP architecture or adding an upstream runtime dependency.
+
+### 8.2 Domain workflow patterns worth reusing
+
+| Upstream Skill | Reusable workflow lesson | KancolleBot applicability / limit |
+|---|---|---|
+| `kancolle-main` | Central router; shared evidence rules; exact entity identity; minimum query routing; no guessing precise data | Adopt as the overall research workflow pattern. Keep KancolleBot's own state machine and UI executor separate. |
+| `quest-planner` | Resolve quest identity before planning; query compact player quest state first; then fetch only the relevant prerequisite graph; distinguish observed completion from inferred completion | Useful for future quest support. Upstream-specific statuses and `progress_flag` semantics must not be assumed to exist in KancolleBot or the game API. |
+| `fleet-builder` | Read current fleet composition before proposing changes; query candidate assets in stages; validate exact remodel form and equipment eligibility; calculate only the relevant map/air-power modules | Reusable for future sortie/fleet planning. It is not an expedition dispatch rule source and does not authorize game actions. |
+| `equipment-planner` | Separate owned aggregate inventory from exact equipment instances; use a designated authoritative source for time-sensitive daily improvement schedules; preserve exact remodel-form identity | Useful for future equipment planning. Do not substitute Wiki claims for a stronger structured source without documenting provenance and limitations. |
+| `progression-planner` | Start from the player's actual state; plan against functional gaps; verify directed remodel transitions and complete costs; allocate shared scarce resources cumulatively across ranked candidates | Reusable for account-development planning. Partial costs must never be interpreted as free or complete. |
+| `event-guide` | Treat current events and event maps as time-sensitive; require online confirmation with source and date; consider downstream map/ship-lock implications | Event guidance must be refreshed for the current event; static snapshots alone are insufficient. |
+| `combat-knowledge` | Keep exact formulas and conditional mechanics out of short routing Skills; research only the relevant mechanic and report evidence/uncertainty | Reusable for battle research; formulas remain source-attributed and are not promoted to production facts without required verification. |
+| `kcwiki-researcher` | Researcher gets a narrowly scoped question and minimal player summary; search precise pages, compare language/source revisions, extract only relevant facts and explicit conflicts | Reuse the research protocol. The researcher should not query Poi or receive full account inventories. |
+
+### 8.3 Data and status semantics that must be preserved
+
+- **Unknown is not empty:** `unknown`, `not_loaded`, `partial`, `not_ready`, `stale`, `missing` and `ambiguous` must not be collapsed into zero, false, absent or completed.
+- **Absence is not negative evidence:** an unreturned ship, quest, fleet or equipment field may reflect coverage or loading limits; it does not prove that the entity or condition does not exist.
+- **Observed and inferred history differ:** an explicitly observed completion is not the same as completion inferred from prerequisite/descendant graph state. Preserve the evidence path and do not present inference as an API record.
+- **Coarse progress is not an exact percentage:** the upstream quest `progress_flag` has only coarse bands; it must not be converted into an exact completion ratio.
+- **Exact identity matters:** distinguish player-owned instance IDs from static master IDs; preserve equipment/item namespaces and full item names; do not merge remodel forms by family or name prefix.
+- **Freshness is domain-specific:** a healthy/online Poi process or a newly emitted snapshot timestamp does not prove every underlying data domain has refreshed.
+- **Completeness is scoped:** `coverage=complete` only describes fields modelled by that dataset; it does not prove the game dataset is exhaustive or that live behavior matches it.
+
+A previously inspected upstream bridge defaulted missing `api_cond` to morale 49. **Do not reproduce this behavior.** Missing condition/morale data must remain unknown and block any decision that requires a known value. This is a software fallback, not a game mechanic.
+
+### 8.4 Researcher evidence protocol
+
+For a mechanic that affects a decision:
+
+1. State the exact question and affected domain.
+2. Check the current KancolleBot game-rule dossier and identify existing rule IDs/gaps.
+3. Restrict research to 二期 (post-May-2023 migration); isolate mixed-era passages and mark unclear-era sources UNKNOWN.
+4. Prefer precise, relevant pages over large overview pages. Search Chinese first; use Japanese/English sources when the Chinese page is missing, ambiguous or conflicted.
+5. Compare source dates, era, version, conditions and original wording; retain conflicts instead of silently selecting a convenient answer.
+6. Return a compact record: conclusion, era, preconditions, key values, uncertainty, source URLs and dates.
+7. Update the relevant KancolleBot dossier before relying on the finding in implementation.
+8. Keep source claims, static data, Poi observations, synthetic tests and automation policy as separate evidence classes.
+
+The upstream researcher is documented as Wiki-only and must not call Poi MCP. Player context is supplied by the main agent as a minimal relevant summary.
+
+### 8.5 What not to copy
+
+- Do not copy KanColle-Agent's MCP services, schemas, helper code or dependencies into KancolleBot merely because they are documented.
+- Do not treat its static dataset, counts, types, fixtures or tests as official game truth or current live verification.
+- Do not copy normalizer thresholds (for example HP-ratio damage labels) as game-mechanics thresholds without independent evidence.
+- Do not let a Skill's recommendation override the current Poi state, a stronger data source, the KancolleBot game-rule dossier, or the approved automation safety contract.
+- Do not enable automatic dispatch, sortie, equipment changes or other game actions through the upstream project. Its README explicitly describes V1 as read-only.
+- Do not infer that an upstream tool or status exists in KancolleBot until its local implementation and data contract are independently inspected.
+
+## 9. Upstream references inspected
 
 All were read from the upstream `main` branch on 2026-11-06:
 
