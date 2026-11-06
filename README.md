@@ -4,7 +4,16 @@ A local-first Python framework for safety-gated desktop game automation. The gam
 
 > **Handover entry point:** read [docs/HANDOFF.md](docs/HANDOFF.md) before changing code.
 
-## Development branches and integration state (2026-11-04)
+## Current remote state — 2026-11-07
+
+The current application source line is `feat/production-settlement-resupply-wiring-20261105` at `cdac285d2bc30ac32ceaa2e87cd56f9414ccc0a2`. The default `main` branch still contains only `.github`; it is not the application source baseline.
+
+The current narrow run-log safety candidate is Draft PR [#43](https://github.com/wosafety0/wosafety0clamp/pull/43), branch `feat/run-log-critical-ui-gate-current-base-20261107`. Its code/test head `5f9dc881a7a442721c5123117b18e1065985a0de` passed repository CI (1,936 Python tests, 22 optional vision tests skipped, Node 19/19) and the four-way Python 3.12/3.13 × vision with/without Feature CI matrix. The PR remains open and unmerged.
+
+The 2026-11-06 live evidence is bounded: one Fleet 2 closed-loop cycle completed; the next stability attempt stopped fail-closed at `unknown_page`. This is not three-cycle stability or multi-fleet acceptance. The drain observation-window change remains subject to a separate user decision. Run-log production wiring remains opt-in/default-off; no default-on decision is implied.
+
+
+## Historical integration snapshot (2026-11-04)
 
 The GitHub default branch **main** contains only the `.github` directory. It is not, and never was, the application source baseline.
 
@@ -47,7 +56,7 @@ Two rules protect the roadmap:
 
 Known work before a second task runs alongside expedition: fleet runtime state is keyed by `fleet_id` alone (`fleet_runtime`, `dispatch_intents`), so a shared fleet-lease / `(task_kind, fleet_id)` key is required; `dispatch_events` needs structured task attribution; and each new task needs its own screen registry (UI states, fingerprints, coordinates, click plans). These are documented in `docs/PROJECT_kancollebot_Progress.md` and are intentionally not implemented yet.
 
-## Current status — 2026-11-03
+## Historical status — 2026-11-03
 
 The repository is beyond the initial bootstrap stage. The current MVP includes an offline-tested fleet lifecycle state machine, shared-UI arbiter, SQLite fleet-state and dispatch-intent stores/recovery, an injected-port dispatch controller, a read-only continuous monitor, and a single-tick supervisor.
 
