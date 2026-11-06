@@ -242,15 +242,17 @@ class ResupplyChainTests(unittest.TestCase):
         self.assertIn("continuous_ui_supply_click_sent", events)
 
     def test_fleet_4_on_an_unidentifiable_supply_page_sends_no_tab_click(self):
-        """No fingerprint match and no decodable frame: the page is UNKNOWN.
+        """No template names the page: the chain stops before the tab click.
 
-        Fleet 4 has no template, so an unrecognised supply page must stop the
-        chain *before* the tab click rather than clicking a tab on a screen
-        that was never proven to be a supply page.
+        Fleet 4 has a template now (live 2026-11-06), so the old
+        "no template" refusal is gone - but an unrecognised supply page must
+        still stop the chain *before* the tab click rather than clicking a tab
+        on a screen that was never proven to be a supply page. A screen that
+        stays on HOME_PORT after the supply-menu click matches nothing.
         """
         screen = ScriptedScreen("HOME_PORT")
         events: list[str] = []
-        driver, clicks = build_driver(screen, events, menu_state="SUPPLY_FLEET_4_SELECTED")
+        driver, clicks = build_driver(screen, events, menu_state="HOME_PORT")
 
         with patch(
             "kancollebot.adapters.poi.continuous_expedition_ui.locate_fleet_supply_all_button",

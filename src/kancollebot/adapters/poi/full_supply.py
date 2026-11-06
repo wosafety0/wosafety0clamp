@@ -361,7 +361,12 @@ def verify_full_supply_complete(
 def select_full_supply_targets(
     plan: FullSupplyPlan,
     *,
-    supported_fleet_ids: tuple[int, ...] = (1, 2, 3),
+    # Fleet 4 joined the verified set live 2026-11-06: its supply tab has a
+    # bounded contour region, and the ``SUPPLY_FLEET_4_SELECTED`` fingerprint
+    # template (recorded that day) matches fleet-4 frames from two separate
+    # sessions at similarity 1.0 while a fleet-1-selected frame scores 0.91
+    # and classifies as fleet 1.
+    supported_fleet_ids: tuple[int, ...] = (1, 2, 3, 4),
     target_fleet_ids: tuple[int, ...] | None = None,
 ) -> tuple[FleetSupplyCost, ...]:
     """Select deficits only from explicit targets; reject unsupported targets."""

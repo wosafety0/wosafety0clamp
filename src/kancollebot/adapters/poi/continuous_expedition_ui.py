@@ -102,11 +102,16 @@ REWARD_VERIFY_SAMPLES = 6
 DEFAULT_SUPPORTED_FLEETS = (2, 3, 4)
 
 # Fleets whose supply tab can be located by its bounded region but which have
-# no captured ``SUPPLY_FLEET_<n>_SELECTED`` fingerprint template yet. Their
-# selection is verified by the relative-highlight check instead, which is
-# weaker evidence than a template match and is labelled as such in the log.
-# Fleets 2 and 3 keep their template path untouched.
-TEMPLATE_FREE_SUPPLY_FLEETS = (4,)
+# Every supply tab with a region now has a captured fingerprint template:
+# ``SUPPLY_FLEET_4_SELECTED`` was recorded live 2026-11-06 (crop 341,155,30,40,
+# the 46 px family spacing of tabs 1-3) and discriminates cleanly - it matches
+# fleet-4-selected frames from two separate sessions at similarity 1.0 while a
+# fleet-1-selected frame scores 0.91 and classifies as fleet 1. The
+# relative-highlight fallback is gone: the relative brightness of these tabs
+# is NOT a reliable selector on this account (the selected tab's margin over
+# the runner-up measured as low as 1.7, and on a fleet-1 page tab 4 outscored
+# tab 1), so the stronger template path answers for every fleet now.
+TEMPLATE_FREE_SUPPLY_FLEETS: tuple[int, ...] = ()
 
 
 class CdpContinuousExpeditionUiDriver:
@@ -734,6 +739,7 @@ class CdpContinuousExpeditionUiDriver:
             "SUPPLY_FLEET_1_SELECTED",
             "SUPPLY_FLEET_2_SELECTED",
             "SUPPLY_FLEET_3_SELECTED",
+            "SUPPLY_FLEET_4_SELECTED",
             "SUPPLY_MENU",
         ):
             try:
