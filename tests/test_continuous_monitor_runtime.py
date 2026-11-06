@@ -114,6 +114,34 @@ class ContinuousMonitorRuntimeTests(unittest.TestCase):
             finally:
                 runtime.provider.close(join_timeout_seconds=1)
 
+    def test_build_runtime_shares_recovery_gate_with_visible_ui_arbiter(self):
+        gate = RecoveryPauseGate()
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = build_runtime(
+                database_path=Path(temporary) / "recovery-gate.sqlite3",
+                client=object(),
+                observer=FakeObserver(),
+                unlocked_fleet_ids=(1, 2, 3),
+                enable_ui_refresh=True,
+                ui_input=FakeUiInput(),
+                ui_state_verifier=lambda expected: UiStateEvidence(
+                    state=expected,
+                    consecutive_states=(expected, expected),
+                    evidence="test",
+                ),
+                recovery_gate=gate,
+            )
+            try:
+                self.assertIs(runtime.recovery_gate, gate)
+                self.assertIsNotNone(runtime.ui_arbiter)
+                gate.pause(classify_recovery_signals(visual_state="cat"))
+                with self.assertRaises(Exception) as caught:
+                    with runtime.ui_arbiter.operation("must-not-enter"):
+                        self.fail("paused UI operation must not enter")
+                self.assertEqual(type(caught.exception).__name__, "RecoveryPausedError")
+            finally:
+                runtime.provider.close(join_timeout_seconds=1)
+
     def test_build_runtime_can_scope_the_production_tick_to_one_verified_fleet(self):
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "runtime" / "single-fleet.sqlite3"
