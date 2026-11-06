@@ -25,6 +25,7 @@ from kancollebot.expeditions.continuous_monitor import (  # noqa: E402
 from kancollebot.expeditions.continuous_scheduler import FleetPhase, UiOperationArbiter  # noqa: E402
 from kancollebot.expeditions.recovery_classification import (  # noqa: E402
     RecoveryPauseGate,
+    RecoveryPausedError,
     classify_recovery_signals,
 )
 from tools.run_continuous_expedition_monitor import (  # noqa: E402
@@ -135,10 +136,9 @@ class ContinuousMonitorRuntimeTests(unittest.TestCase):
                 self.assertIs(runtime.recovery_gate, gate)
                 self.assertIsNotNone(runtime.ui_arbiter)
                 gate.pause(classify_recovery_signals(visual_state="cat"))
-                with self.assertRaises(Exception) as caught:
+                with self.assertRaises(RecoveryPausedError):
                     with runtime.ui_arbiter.operation("must-not-enter"):
                         self.fail("paused UI operation must not enter")
-                self.assertEqual(type(caught.exception).__name__, "RecoveryPausedError")
             finally:
                 runtime.provider.close(join_timeout_seconds=1)
 
