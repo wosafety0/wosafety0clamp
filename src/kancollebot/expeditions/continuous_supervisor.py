@@ -9,6 +9,10 @@ from kancollebot.expeditions.settlement_drain import (
     SettlementDrainRequest,
 )
 from kancollebot.observability.event_envelope import new_dispatch_id
+from kancollebot.expeditions.recovery_classification import (
+    RecoveryPauseGate,
+    RecoveryPausedError,
+)
 from kancollebot.observability.sink import (
     correlation_capability,
     correlation_scope,
@@ -123,11 +127,15 @@ class ContinuousExpeditionSupervisor:
         *,
         drain_session: Any = None,
         drain_request: SettlementDrainRequest | None = None,
+        recovery_gate: RecoveryPauseGate | None = None,
     ) -> None:
         self.monitor = monitor
         self.dispatch_controller = dispatch_controller
         self.settlement_controller = settlement_controller
         self.resupply_controller = resupply_controller
+        if recovery_gate is not None and not isinstance(recovery_gate, RecoveryPauseGate):
+            raise ValueError("recovery_gate must be a RecoveryPauseGate or None")
+        self.recovery_gate = recovery_gate
 
         # A drain session is the only thing that can clear reward pages for more
         # than one fleet at a time, because the pages name the expedition and
@@ -405,7 +413,18 @@ class ContinuousExpeditionSupervisor:
         """
         progress = _TickProgress()
         try:
+            if self.recovery_gate is not None:
+                self.recovery_gate.require_actions_allowed()
             result = self._tick_once(progress)
+        except RecoveryPausedError as exc:
+            classification = self.recovery_gate.classification if self.recovery_gate else None
+            result = SupervisorTickResult(
+                monitor_result=None,
+                dispatches=tuple(progress.dispatches),
+                paused_reason=f"recovery_paused:{exc.category.value}:{exc.reason}",
+                settlements=tuple(progress.settlements),
+                resupplies=tuple(progress.resupplies),
+            )
         except Exception as exc:
             self._record_failure(exc, progress)
             raise
@@ -814,6 +833,12 @@ class ContinuousExpeditionSupervisor:
             # identity column below is only interpretable next to the fact that
             # this process could (or could not) bind one at all.
             "correlation_capable": self._correlation_capable(),
+            "recovery_paused": bool(self.recovery_gate and self.recovery_gate.is_paused),
+            "recovery_generation": self.recovery_gate.generation if self.recovery_gate else None,
+            "recovery_category": (
+                self.recovery_gate.classification.category.value
+                if self.recovery_gate and self.recovery_gate.classification else None
+            ),
         }
         event = "supervisor_paused" if result.paused_reason else "supervisor_tick"
         sink(event, fields)
