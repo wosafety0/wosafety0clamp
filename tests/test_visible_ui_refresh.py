@@ -91,6 +91,45 @@ class VisibleUiPortRefreshDriverTests(unittest.TestCase):
         self.assertEqual(events[-1][0], "ui_refresh_completed")
         self.assertEqual(events[-1][1]["clicks_sent"], 3)
 
+    def test_recovery_pause_between_steps_prevents_the_next_click(self):
+        gate = RecoveryPauseGate()
+        game_input = FakeInput()
+        events = []
+        states = ["HOME_PORT", "SORTIE_MENU"]
+        calls = [0]
+
+        def verify(expected):
+            actual = states.pop(0)
+            return UiStateEvidence(
+                state=actual,
+                consecutive_states=(actual, actual),
+                evidence="two_consecutive_test_frames",
+            )
+
+        def action_guard():
+            calls[0] += 1
+            if len(game_input.clicks) >= 1:
+                gate.pause(classify_recovery_signals(visual_state="cat"))
+            gate.require_actions_allowed()
+
+        driver = VisibleUiPortRefreshDriver(
+            game_input=game_input,
+            verify_state=verify,
+            ui_arbiter=UiOperationArbiter(action_guard=action_guard),
+            event_sink=lambda event, fields: events.append((event, dict(fields))),
+            sleep=lambda _seconds: None,
+            settle_seconds=0.0,
+        )
+
+        with self.assertRaises(VisibleUiRefreshError):
+            driver.refresh_port_state()
+
+        self.assertEqual(game_input.clicks, [SORTIE])
+        self.assertEqual(events[-1][0], "ui_refresh_blocked")
+        self.assertEqual(events[-1][1]["clicks_attempted"], 1)
+        self.assertEqual(events[-1][1]["clicks_completed"], 1)
+        self.assertFalse(events[-1][1]["outcome_ambiguous"])
+
     def test_initial_state_failure_sends_no_click(self):
         driver, game_input, events, _ = self.make_driver(["UNKNOWN"])
 
