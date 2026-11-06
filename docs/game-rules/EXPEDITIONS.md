@@ -297,3 +297,50 @@
 - **Mutation policy:** Freeze fleet equipment for the entire expedition lifecycle. If external/manual equipment changes are detected while a stat-gated fleet is away, mark the predicted outcome UNKNOWN and require the actual settlement result; do not auto-correct by changing gear mid-expedition.
 - **Sources:** [遠征 — stat-gated expedition improvement and aircraft handling](https://wikiwiki.jp/kancolle/遠征), accessed 2026-11-06, lines 209–215 and 339–425. The source itself labels the calculation as under investigation.
 - **Live verification:** Not performed. No Poi equipment inventory, improvement values, reinforcement slots, aircraft slot counts/proficiency, or controlled threshold experiment was inspected. No game code or game state changed.
+
+### EXP-024 — Profitability ranking and combat expedition risk
+
+**Evidence:** COMMUNITY_REPORTED; research only; no Poi/live verification.
+
+**Routine resource farming — headline gross hourly rates**
+| Resource | Mission | Gross rate | Main constraints |
+|---|---|---:|---|
+| Fuel | 38 東京急行(弐) | 144/h | Flagship Lv65, total Lv240, 5 destroyers, 8 drums on 4+ ships |
+| Fuel alternative | 21 北方鼠輸送作戦 | 137/h | Flagship Lv15, total Lv30, light cruiser + 4 destroyers, drum requirements |
+| Fuel accessible | 5 海上護衛任務 | 133/h | Flagship Lv3, accepted 4-ship composition |
+| Ammunition | 2 長距離練習航海 | 200/h | 30 min, 4 ships |
+| Steel | 3 警備任務 | 120/h | 20 min, 3 ships |
+| Bauxite | 6 防空射撃演習 | 120/h | 40 min, 4 ships |
+
+These are gross rates, not net profit. A weighted community score uses fuel + ammo + steel + 3×bauxite per hour; the 1:1:1:3 weighting is a convenience, not an official value. The scheduler must prioritize actual resource deficits and subtract fleet supply, UI turnaround, and any other explicit costs.
+
+**Net-value model:** keep a resource vector: rewards minus departure supply/replenishment minus expected repair costs and other explicit costs. Only calculate a scalar score after applying user-selected resource weights. Keep ordinary success and great-success scenarios separate if probability is unknown. Do not double-count mission consumption and replenishment.
+
+**Combat damage**
+- Type I: maintained wiki reports 0–3 ships may return with up to moderate-damage-class damage.
+- Type II: multiple heavily damaged ships are not uncommon; sixth-slot damage is reportedly lighter, but no reliable per-ship probability distribution or guaranteed safe slot exists.
+- Damage can reach 1 HP, but the wiki reports combat expeditions do not sink ships.
+- Higher stats reportedly reduce damage. The 2025 player report documents damage at 217%, 218%, and 219.1% of requirements, then no damage in 17 Type II runs at 220%. This is anecdotal, not a guarantee; older 217% claims conflict with it. Mark the safe threshold CONFLICTED.
+- A player's 2025 monthly route was resource-positive with its own ships and assumptions, but its screenshots were described as old. Do not generalize its aggregate result.
+
+**Fatigue**
+- Ordinary expedition return: reported -3 condition, independent of duration.
+- Damaged Type I ships: additional random -5 to -10; damaged Type II ships: additional random -10 to -18. Source ranges contain uncertainty markers.
+- Natural recovery: reported +3 every 3 minutes, capped at 49, including while away or in repair. Repair completion reportedly sets condition to 40.
+- Orange/red fatigue at result confirmation can cause expedition failure. Read actual condition; never infer it only from elapsed time.
+- Damage and extra fatigue are reported to occur even on combat-expedition failure. Abort reportedly avoids both, but gives no reward and is not a routine recovery mechanism.
+
+**Repair economics**
+Repair material cost is ship-specific coefficient × lost HP, rounded down; ship level does not affect material cost. Repair time separately scales with level, class multiplier and lost HP. Representative steel/fuel coefficients per HP: destroyer 0.9/0.48; light cruiser 1.5/0.80; heavy cruiser 2.4/1.28; aviation cruiser 3.0/1.60; submarine 0.6/0.32; Yamato-class 15.0/8.0; Musashi Kai Ni 16.5/8.8. These are examples, not class-wide defaults. Use the exact ship-specific row. Track steel, fuel, dock occupancy and buckets as separate costs.
+
+**Automation policy**
+1. Default unattended allowlist: non-combat expeditions selected by resource deficit and net value; consider IDs 2, 3, 5, 6, 21, 37 and 38 when all exact requirements pass.
+2. Keep every Type I/II combat expedition blocked from unattended dispatch. They may be presented for user-reviewed monthly execution only.
+3. The 220% Type II stat target is a supervised candidate filter, never a no-damage guarantee.
+4. Do not automatically sacrifice ships or assign expensive ships to slot six based only on community tendencies.
+5. After every return, re-read HP, condition, supplies, repair status and fleet membership. Quarantine damaged ships until repair/recovery is verified.
+6. Combat missions cannot be declared profitable while damage distribution and expected repair cost are UNKNOWN.
+
+**Sources:** [KouryakuLab requirements](https://kouryakulab.com/ja/games/kancolle/expedition-requirements/), [efficiency calculator](https://kouryakulab.com/ja/games/kancolle/expeditions/), [Japanese expedition wiki](https://wikiwiki.jp/kancolle/遠征), [fatigue wiki](https://wikiwiki.jp/kancolle/疲労度), [repair wiki](https://wikiwiki.jp/kancolle/入渠), [2025 monthly expedition report](https://senka.hatenadiary.jp/entry/2025/07/21/002334), [secondary combat guide](https://gameranbu.jp/kancolle/dc96d7cc9fa3e0ea09e3). Accessed 2026-11-06 except the player report (updated 2025-07-20) and secondary guide (updated 2021-02-07). All are community sources.
+
+**Live verification:** Not performed. No current Poi data, damage test, repair-dock state, or game operation was inspected.
