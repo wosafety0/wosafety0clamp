@@ -89,3 +89,16 @@ A community wiki is not an official source. Its revision date and its own uncert
 - Added research dossiers for expedition, battle, formations, fleet composition, and ship condition/supply/fatigue.
 - Current records are explicitly marked as community-source research; current Poi live verification is incomplete.
 - Added empty-scope dossiers for equipment/attributes, sortie/maps, repair/recovery, and resources/rewards/quests so missing knowledge is visible rather than silently guessed.
+
+## External structured-data and research reference
+
+The upstream [Yukikaze030/KanColle-Agent](https://github.com/Yukikaze030/KanColle-Agent) repository has been reviewed as a **research architecture and source-discovery reference**, not as a runtime dependency.
+
+- Read [KAN_COLLE_AGENT_REFERENCE.md](KAN_COLLE_AGENT_REFERENCE.md) before using its data-source model.
+- It separates current player state (Poi), static master data (Data MCP), and gameplay explanations (Wiki Researcher). These evidence classes must not substitute for one another.
+- Its project instructions restrict data and mechanics to **二期 (post-May-2023 server migration)**. KancolleBot must reject一期-only or era-unknown claims as current production assumptions until cross-checked.
+- Static data sources are mixed: pinned game master data, community-maintained ship/equipment/quest datasets, and third-party implementation logic. Preserve per-field provenance; do not label the entire dataset "official".
+- Third-party schemas, normalizer helpers, tests, and implementation behavior are implementation references, not game rules. In particular, do not copy HP-ratio normalization thresholds as game damage rules.
+- Static dataset completeness does not prove live behavior. Poi freshness is per domain; online/health status or a newly generated snapshot timestamp is not sufficient proof of current game state.
+- This integration is documentation-only. It does not authorize installing or connecting upstream MCP services or changing the current KancolleBot runtime.
+
