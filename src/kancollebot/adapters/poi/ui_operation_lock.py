@@ -13,7 +13,7 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 
 _MUTEX_NAME = "Local" + chr(92) + "KancolleBot.PoiUiOperation.v1"
@@ -136,20 +136,23 @@ def poi_ui_operation(
 class UiOperationArbiter:
     """Task-neutral admission wrapper around the shared Poi UI mutex.
 
-    P0 R1: this class used to live in
-    ``kancollebot.expeditions.continuous_scheduler``, which forced the adapters
-    layer to import an expedition module just to type-check a mutex. The mutex
-    itself (``poi_ui_operation``) is already declared TASK_NEUTRAL in
-    ``task_scope.SHARED_CAPABILITIES``; the wrapper has no task rule either, so
-    its canonical home is here. The scheduler re-exports the SAME class object
-    so every existing import and ``isinstance`` check keeps working.
-
-    This is the cross-process lock, NOT a task priority arbiter. Task ownership
-    and priority remain the separate design in
-    ``kancollebot.task_runtime.ui_arbitration``.
+    An optional action guard is checked after the shared lock is acquired.
+    Callers may also check it between individual clicks in a multi-step action,
+    so a recovery pause can stop the next input without interrupting a click
+    whose outcome is already in flight.
     """
+
+    def __init__(self, action_guard: Callable[[], None] | None = None) -> None:
+        if action_guard is not None and not callable(action_guard):
+            raise ValueError("action_guard must be callable or None")
+        self._action_guard = action_guard
+
+    def require_actions_allowed(self) -> None:
+        if self._action_guard is not None:
+            self._action_guard()
 
     @contextmanager
     def operation(self, label: str) -> Iterator[None]:
         with poi_ui_operation(label):
+            self.require_actions_allowed()
             yield
