@@ -1305,6 +1305,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 ),
                 index=load_position_index(args.position_index),
                 settle_seconds=0.55,
+                event_sink=runtime.monitor.event_sink,
             )
 
             ui_driver = CdpContinuousExpeditionUiDriver(
