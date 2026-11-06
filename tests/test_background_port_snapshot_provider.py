@@ -61,6 +61,17 @@ class RepeatingObserver:
         return None
 
 
+class StatusObserver:
+    def __init__(self):
+        self.calls = 0
+        self.last_status = "not_started"
+
+    def capture(self):
+        self.calls += 1
+        self.last_status = "cdp_connection_closed"
+        return None
+
+
 class CancellableObserver:
     def __init__(self):
         self.entered = threading.Event()
@@ -115,6 +126,22 @@ class BackgroundPortSnapshotProviderTests(unittest.TestCase):
             self.assertGreaterEqual(observer.calls, 2)
         finally:
             observer.release_second_call.set()
+            provider.close(join_timeout_seconds=1)
+
+    def test_status_callback_runs_only_when_observer_status_changes(self):
+        observer = StatusObserver()
+        observed = []
+        provider = BackgroundPortSnapshotProvider(
+            observer,
+            retry_delay_seconds=0.01,
+            on_status=observed.append,
+        )
+        try:
+            provider()
+            self.assertTrue(self._wait_for(lambda: observer.calls >= 3))
+            self.assertEqual(observed, ["cdp_connection_closed"])
+            self.assertEqual(provider.last_status, "cdp_connection_closed")
+        finally:
             provider.close(join_timeout_seconds=1)
 
     def test_returned_witness_is_defensively_copied(self):
