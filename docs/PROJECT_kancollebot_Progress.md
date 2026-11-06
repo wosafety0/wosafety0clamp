@@ -4746,3 +4746,11 @@ The Hand plugin's read-only probe reported:
 - **TESTED:** `StartupChainLedgerClosureTests` 2 条——①单 confirmed 实例：链成功 + 实例变 `settled` + scheduler 进 RESUPPLY_REQUIRED/READY；②歧义账本（两个 confirmed）：链仍以显式 composition 证据成功、两实例保持 `confirmed`（fail-closed 留给下次归属）。相关模块 23 OK；**全量 1813 OK / 2 skip**（1811+2）；`compileall` OK；`git diff --check` OK；`node --test` 25/25。
 - **SAFETY:** 闭合只走生产 API（`mark_settled` 仅接受 confirmed → settled）；零 API 注入；c3 的拒绝本身零点击（设计内）。
 - **LIMITS:** ①现存实例 2 需要一次运维闭合（结算事实已由 c2e 的 `STARTUP_SETTLEMENT_CLOSED` + scheduler phase 证明，闭合走生产 `mark_settled` API 并如实归档）——修复只防未来；②`BONUS_ITEMS` 模板跨远征泛化问题仍在（远征 1 獲得物品页 0.9021 < 0.97，c1b fail-closed 抓到；「次へ」按钮区跨远征稳定但与遠征成功页无区分度，内容区有区分度但随远征变化——结构性矛盾待专门设计）；③Fleet 2 第 3 次返航的结果页仍在场等待结算。
+
+## 2026-11-06 — L4 soak（进行中）：缺陷 D——中间结算 phase 的「页面已消失」恢复缺口（实机 + 离线修复）
+
+- **实机发现（soak 缺陷 D，真 bug，已修）:** Fleet 3 c1b 在远征 1 的獲得物品页确认 fail-closed 后，其奖励链被后续 run 的启动恢复点击推进掉（游戏侧结算完成、Poi idle）。c1c settle-only 重入 fail-closed：`Expected RETURN_RESULT; Ooi fingerprint classified HOME_PORT`——库 phase 停在中间态 `RETURN_RESULT`，而 `closed_without_reward_screens` 恢复条件只覆盖 `RETURNED_PENDING_UI`。**调度器不变量 `confirm_settlement_already_complete` 本就接受全部三个结算 phase**（RETURNED_PENDING_UI / RETURN_RESULT / BONUS_ITEMS），只是 controller 调用条件没对齐。
+- **IMPLEMENTED:** `settle_one_returned` 的「页面已消失」分支条件从单一 phase 扩到三个结算 phase——同一 fail-closed 语义不变：probe 证明奖励页不在场 + Poi idle + 归属唯一（attribution 在分支前已通过）→ `confirm_settlement_already_complete` 对账关闭 + 账本闭合。driver 无 probe 或页面在场时保持旧 fail-closed。
+- **TESTED:** `MidPhaseScreensGoneTests` 1 条（RETURN_RESULT phase + reader 恒 idle + probe None → 零点击关闭、实例 settled、phase 进 RESUPPLY_REQUIRED/READY）；归属模块 9 OK；**全量 1814 OK / 2 skip**（1813+1）；`compileall` OK；`git diff --check` OK；`node --test` 25/25。
+- **同时归档:** 实例 2 运维闭合已执行（生产 `mark_settled` API、settled_at=c2e 的 `STARTUP_SETTLEMENT_CLOSED` 时刻 04:58:52Z；结算事实链：ship_ids 逐位匹配 + scheduler phase 已推进 + 事件行在案）。
+- **LIMITS:** ①`BONUS_ITEMS` 模板跨远征泛化仍未解决（远征 1 獲得物品页 0.9021<0.97；正解方向「獲得アイテム标题区」需獲得页在场时捕获——Fleet 3 周期 2 将自然制造该现场）；②Fleet 2 第 4 次派遣在途（05:55Z 返航），收尾后需 settle-only 收口使终态为在港 READY。

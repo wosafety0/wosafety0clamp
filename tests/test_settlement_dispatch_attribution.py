@@ -284,5 +284,64 @@ class SettlementAttributionWiringTests(unittest.TestCase):
         self.assertEqual(rejection, "UNATTRIBUTED")
 
 
+class MidPhaseScreensGoneTests(unittest.TestCase):
+    """A chain interrupted mid-way whose screens are gone still closes.
+
+    Live 2026-11-06: a run died after the durable phase had advanced to
+    RETURN_RESULT but before the chain finished; the screens were then
+    advanced past while it was down. The already-complete close used to cover
+    only RETURNED_PENDING_UI, stranding a mid-phase fleet on fail-closed.
+    The scheduler invariant always allowed all three settlement phases; the
+    controller condition now matches it.
+    """
+
+    class ScreensGoneUi(RecordingUi):
+        def settlement_screen(self, *, fleet_id):
+            self.calls.append(("settlement_screen", fleet_id))
+            return None
+
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        self.path = Path(self.directory.name) / "dispatch.sqlite3"
+        self.registry = SqliteDispatchRegistry(self.path, task_kind="expedition")
+
+    def tearDown(self) -> None:
+        self.directory.cleanup()
+
+    def test_a_return_result_phase_with_no_screens_closes_without_clicks(self):
+        item = persist(self.registry)
+        clock = StepClock()
+        reader = PairedReader(clock)
+        reader.idle = True  # the game cleared api_mission; screens are gone
+        ui = self.ScreensGoneUi(reader)
+        scheduler = ContinuousExpeditionScheduler(
+            state_store=None, dispatch_fleet_ids=(FLEET,)
+        )
+        prepare_returned(scheduler)
+        scheduler.confirm_return_result(FLEET, ui_state="RETURN_RESULT")
+        controller = ContinuousSettlementController(
+            scheduler=scheduler,
+            state_reader=reader,
+            ui_driver=ui,
+            ui_arbiter=UiOperationArbiter(),
+            event_sink=lambda name, fields: None,
+            allow_ui_actions=True,
+            clock=clock,
+            dispatch_registry=self.registry,
+        )
+
+        execution = controller.settle_one_returned(FLEET)
+
+        self.assertEqual(execution.fleet_id, FLEET)
+        self.assertEqual(execution.reward_claimed_evidence,
+                         "home_port_without_reward_screen")
+        self.assertEqual(
+            [call for call in ui.calls if call[0] != "settlement_screen"], []
+        )
+        self.assertEqual(self.registry.get(item.dispatch_id).status, "settled")
+        self.assertIn(scheduler.fleet(FLEET).phase,
+                      (FleetPhase.RESUPPLY_REQUIRED, FleetPhase.READY))
+
+
 if __name__ == "__main__":
     unittest.main()

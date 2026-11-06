@@ -342,11 +342,23 @@ class ContinuousSettlementController:
                     "with zero clicks"
                 )
 
-            if current.phase is FleetPhase.RETURNED_PENDING_UI and returned is None:
+            if (
+                current.phase in (
+                    FleetPhase.RETURNED_PENDING_UI,
+                    FleetPhase.RETURN_RESULT,
+                    FleetPhase.BONUS_ITEMS,
+                )
+                and returned is None
+            ):
                 # Nothing left to click is a *result*, not a failure: the reward
                 # request is accepted when the result screen opens, so a restart
-                # after that point sees an idle fleet and a plain Home Port. Only
-                # the driver can prove the absence, so a driver without the probe
+                # after that point sees an idle fleet and a plain Home Port.
+                # Live 2026-11-06: this also covers a chain interrupted mid-way
+                # (durable phase RETURN_RESULT or BONUS_ITEMS) whose screens
+                # were advanced past while the process was down - the game
+                # clears api_mission on the first click either way, and only
+                # the scheduler knows which step it had recorded. Only the
+                # driver can prove the absence, so a driver without the probe
                 # keeps the old fail-closed behaviour.
                 if screens_proven_absent:
                     # Already proven above, on the frames this call purchased.
