@@ -9,7 +9,10 @@ from kancollebot.expeditions.settlement_drain import (
     SettlementDrainRequest,
 )
 from kancollebot.observability.event_envelope import new_dispatch_id
-from kancollebot.observability.sink import correlation_scope
+from kancollebot.observability.sink import (
+    correlation_capability,
+    correlation_scope,
+)
 
 #: Everything one fleet can still need from the loop, in the order that decides
 #: which single reason label describes the pause. The order is a *reporting*
@@ -722,22 +725,62 @@ class ContinuousExpeditionSupervisor:
         Binding happens on the shared sink the constructor already forces every
         component to use, so the UI driver's ``continuous_ui_click_*`` rows (same
         sink, emitted from inside the controller call) inherit the identity too.
-        A sink that cannot express correlation leaves ``dispatch_id`` null
-        rather than failing the dispatch: offline doubles keep working, and the
-        gap stays visible in the log instead of being papered over.
+
+        **The id is minted only if the sink can actually carry it.** An id that
+        no row can hold is an identity claimed nowhere: it would make the
+        supervisor look like it correlated an attempt while the log says
+        nothing, and a reader comparing the two would find no trace. So when the
+        real capability (not the mere presence of a ``correlation`` attribute -
+        see :func:`correlation_capability`) is missing, the attempt runs
+        uncorrelated, no id is minted here, and
+        ``dispatch_correlation_unavailable`` states the degradation before the
+        attempt starts. The dispatch itself is never blocked by this: the
+        durable ledger mints its own attempt id inside the controller, which is
+        a separate claim about a separate artifact.
 
         The same id is handed to the controller, which writes it into the
         durable dispatch ledger before the irreversible click. The scope and
         the ledger therefore name one attempt, and the id is minted once rather
         than at two call sites.
         """
+        sink = self._sink()
+        capable = sink is not None and correlation_capability(sink).capable
+        if not capable:
+            if sink is not None:
+                self._note_uncorrelated_dispatch(fleet_id, sink)
+            return self.dispatch_controller.dispatch_one_ready(fleet_id)
         dispatch_id = new_dispatch_id()
-        with correlation_scope(
-            self._sink(), dispatch_id=dispatch_id, fleet_id=fleet_id
-        ):
+        with correlation_scope(sink, dispatch_id=dispatch_id, fleet_id=fleet_id):
             return self.dispatch_controller.dispatch_one_ready(
                 fleet_id, dispatch_id=dispatch_id
             )
+
+    def _note_uncorrelated_dispatch(self, fleet_id: int, sink: Any) -> None:
+        """Say, before the attempt, that its rows will carry no identity.
+
+        A missing capability must be visible where the attempt starts, not
+        inferred later from a column full of nulls: a null ``dispatch_id`` is
+        also what an uncorrelated emitter and a dropped scope look like.
+        """
+        capability = correlation_capability(sink)
+        self._emit(
+            "dispatch_correlation_unavailable",
+            {
+                "fleet_id": fleet_id,
+                "correlation_capable": capability.capable,
+                "correlation_sources": list(capability.sources),
+                "reason": capability.reason,
+                "consequence": "no dispatch_id is minted for this attempt; its rows carry null",
+                "dispatch_allowed": True,
+            },
+        )
+
+    def _correlation_capable(self) -> bool | None:
+        """Whether this process can correlate at all, or ``None`` without a sink."""
+        sink = self._sink()
+        if sink is None:
+            return None
+        return correlation_capability(sink).capable
 
     def _record_decision(self, result: SupervisorTickResult) -> None:
         """Emit one row describing this tick's scheduling decision.
@@ -767,6 +810,10 @@ class ContinuousExpeditionSupervisor:
             ],
             "resupply_count": len(result.resupplies),
             "fleet_phases": self._fleet_phases(),
+            # Stated on every decision row, not only at startup: a null in any
+            # identity column below is only interpretable next to the fact that
+            # this process could (or could not) bind one at all.
+            "correlation_capable": self._correlation_capable(),
         }
         event = "supervisor_paused" if result.paused_reason else "supervisor_tick"
         sink(event, fields)
@@ -819,6 +866,7 @@ class ContinuousExpeditionSupervisor:
                 "resupply_count": len(progress.resupplies),
                 "fleet_phases": self._fleet_phases(),
                 "partial_result": progress.completed_anything,
+                "correlation_capable": self._correlation_capable(),
             })
         except Exception:
             # The original failure is what the caller must see.

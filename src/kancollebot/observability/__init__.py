@@ -44,8 +44,11 @@ from kancollebot.observability.event_envelope import (
     validate_event_name,
 )
 from kancollebot.observability.sink import (  # noqa: F401 - re-exported API
+    CorrelationSnapshot,
     RunLogSink,
     TeeEventSink,
+    capture_correlation,
+    correlation_capability,
     correlation_scope,
 )
 from kancollebot.observability.run_log import (
@@ -70,6 +73,9 @@ __all__ = [
     "SINK_OWNED_FIELDS",
     "RunLogSink",
     "TeeEventSink",
+    "CorrelationSnapshot",
+    "capture_correlation",
+    "correlation_capability",
     "correlation_scope",
     "DEFAULT_MAX_FILE_BYTES",
     "DEFAULT_MAX_TOTAL_BYTES",

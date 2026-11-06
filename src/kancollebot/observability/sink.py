@@ -53,9 +53,11 @@ from kancollebot.observability.run_log import (
 
 __all__ = [
     "CorrelationCapability",
+    "CorrelationSnapshot",
     "RunLogSink",
     "TeeEventSink",
     "build_run_log_sink",
+    "capture_correlation",
     "correlation_capability",
     "correlation_scope",
 ]
@@ -114,6 +116,95 @@ def correlation_capability(sink: Any) -> CorrelationCapability:
     return CorrelationCapability(
         True, (type(sink).__name__,), "sink exposes a callable correlation scope"
     )
+
+
+@dataclass(frozen=True)
+class CorrelationSnapshot:
+    """Identity captured on one thread, replayable on another - by hand only.
+
+    ``contextvars`` do not cross a thread boundary. A scope entered on the
+    supervisor's thread is invisible to a thread that thread starts: the worker
+    sees the sink's base context (``run_id`` / ``task_kind``) and null in every
+    slot the scope had filled. That is a property of the runtime, and this
+    repository leans on it rather than fighting it - the background threads
+    (CDP reader, port snapshot provider, the observers) never share the
+    ``event_sink``, so there is no identity for them to inherit. Nothing below
+    is wired into them, and nothing should be.
+
+    For the narrow case where the *same* sink is deliberately handed to work on
+    another thread, the identity has to be carried explicitly: capture it with
+    :func:`capture_correlation` on the thread that owns it, then ``rebind()`` it
+    inside the thread that needs it. A silent global propagation would attach
+    one thread's ``dispatch_id`` to another thread's rows, which is a false
+    correlation claim - worse than a null.
+    """
+
+    context: CorrelationContext | None
+    capable: bool
+    reason: str
+
+    def updates(self) -> dict[str, object]:
+        """The slots worth replaying: only the ones the context actually has."""
+        context = self.context
+        if context is None:
+            return {}
+        return {
+            name: getattr(context, name)
+            for name in (
+                "dispatch_id",
+                "action_id",
+                "battle_id",
+                "fleet_id",
+                "correlation_id",
+                "source",
+                "observed_at",
+            )
+            if getattr(context, name) is not None
+        }
+
+    @contextmanager
+    def rebind(self, sink: Any) -> Iterator[CorrelationContext | None]:
+        """Re-enter the captured identity on ``sink`` for this block only.
+
+        Explicit by construction: the caller of the new thread asks for it, and
+        the scope closes when the block does. A snapshot with no filled slot
+        (nothing was in force) rebinds nothing and yields ``None`` rather than
+        pretending a scope exists.
+        """
+        updates = self.updates()
+        if not updates:
+            yield None
+            return
+        with correlation_scope(sink, **updates) as effective:
+            yield effective
+
+
+def capture_correlation(sink: Any) -> CorrelationSnapshot:
+    """Read the identity currently in force on ``sink``, without changing it.
+
+    Capability and readability are two different questions, and both are
+    answered here instead of being guessed at a call site:
+
+    * a sink that binds correlation *and* publishes the value (``RunLogSink``,
+      and a tee whose member does) yields it;
+    * a sink that binds correlation but publishes nothing yields ``None`` with
+      ``capable=True`` and a reason saying so - the caller must capture the
+      identity where it is minted, not assume the absence means "no scope";
+    * a sink that cannot bind anything yields ``None`` with ``capable=False``.
+    """
+    capability = correlation_capability(sink)
+    context = getattr(sink, "context", None)
+    if isinstance(context, CorrelationContext):
+        return CorrelationSnapshot(context, capability.capable, capability.reason)
+    if capability.capable:
+        return CorrelationSnapshot(
+            None,
+            True,
+            "sink binds correlation but publishes no readable context; "
+            "capture the identity where it is minted instead",
+        )
+    return CorrelationSnapshot(None, False, capability.reason)
+
 
 
 class RunLogSink:
@@ -421,6 +512,24 @@ class TeeEventSink:
     def run_id(self) -> str | None:
         return self._first_attribute("run_id")
 
+    @property
+    def context(self) -> CorrelationContext | None:
+        """The identity in force, read back from a member that publishes one.
+
+        A tee owns no identity: it fans a scope out to the members that can
+        bind one. Reporting the *first* member's value is exact for the
+        production composition (one run-log sink behind the ledger) and honest
+        for any other - the value comes from a real sink and is never
+        synthesised here. ``None`` means no member publishes one, which is a
+        different fact from "no member could bind it"; ask
+        :func:`correlation_capability` for the latter.
+        """
+        for sink in (self._primary, *self._others):
+            context = getattr(sink, "context", None)
+            if isinstance(context, CorrelationContext):
+                return context
+        return None
+
     def _first_attribute(self, name: str) -> Any:
         for sink in (self._primary, *self._others):
             value = getattr(sink, name, None)
@@ -443,20 +552,33 @@ class TeeEventSink:
             raise AuditLogUnavailable("; ".join(problems))
 
     @contextmanager
-    def correlation(self, **updates: object) -> Iterator[None]:
-        """Enter every sub-sink's correlation scope that supports one."""
+    def correlation(self, **updates: object) -> Iterator[CorrelationContext | None]:
+        """Enter every sub-sink's correlation scope that supports one.
+
+        Yields the identity that actually took effect, taken from the first
+        member that reports one. Handing it back is not decoration: a caller
+        that gets nothing cannot tell "every member dropped this scope" from
+        "the scope was applied to a member that does not publish it", and those
+        two cases call for different recovery. ``None`` here means "no member
+        published an effective context" - use :func:`correlation_capability`
+        when the question is whether any member could bind at all.
+        """
         with ExitStack() as stack:
+            effective: CorrelationContext | None = None
             for sink in (self._primary, *self._others):
                 scope = getattr(sink, "correlation", None)
-                if callable(scope):
-                    stack.enter_context(scope(**updates))
-            yield
+                if not callable(scope):
+                    continue
+                bound = stack.enter_context(scope(**updates))
+                if effective is None and isinstance(bound, CorrelationContext):
+                    effective = bound
+            yield effective
 
 
 @contextmanager
 def correlation_scope(
     sink: Any, **updates: object
-) -> Iterator[None]:
+) -> Iterator[CorrelationContext | None]:
     """Bind correlation identity on ``sink`` for the duration of the block.
 
     The composition root - not the emitter and not the business object - owns
@@ -469,13 +591,23 @@ def correlation_scope(
     degraded case explicit in the code rather than hidden in a ``getattr`` at
     each call site: no scope means the envelope's ``dispatch_id`` stays null,
     which a reader can see.
+
+    Yields the effective :class:`CorrelationContext`, or ``None`` when no scope
+    was entered. A caller that needs the identity of the block (to log it, to
+    hand it to another thread, to assert it took) reads it from here instead of
+    re-deriving it - and a ``None`` result is the signal that this sink cannot
+    carry one.
+
+    The scope lives in a ``ContextVar``, so it does **not** reach a thread
+    started inside the block. That is intended: see
+    :class:`CorrelationSnapshot` for the explicit, opt-in way to carry it.
     """
     scope = getattr(sink, "correlation", None)
     if not callable(scope):
-        yield
+        yield None
         return
-    with scope(**updates):
-        yield
+    with scope(**updates) as effective:
+        yield effective if isinstance(effective, CorrelationContext) else None
 
 
 def build_run_log_sink(
