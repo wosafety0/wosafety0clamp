@@ -14,9 +14,9 @@
  * JavaScript and never asks the game for anything. It reads the exchange the
  * client has already made.
  *
- * Only one request field is read - api_deck_id - and only the four response
- * fields the attribution needs. The raw request body and the raw response
- * body are never written out.
+ * Only one request field is read - api_deck_id. The response is reduced to
+ * identity fields plus a small reward-receipt allowlist. Raw request and
+ * response bodies are never written out.
  */
 
 const { createCaptureCore } = require('./poi_cdp_capture_core.js');
@@ -101,10 +101,69 @@ function parseResultBody(rawText) {
   if (!shipIds.length) {
     throw new Error('Result response carries no expedition ship.');
   }
+
+  // Keep only the reward fields needed to verify the settlement receipt.
+  // Missing/malformed reward fields do not erase the independently useful
+  // fleet-attribution witness; they make the receipt explicitly incomplete.
+  const material = Array.isArray(data.api_get_material) &&
+      (data.api_get_material.length === 4 || data.api_get_material.length === 8) &&
+      data.api_get_material.every(value =>
+        Number.isSafeInteger(value) && value >= 0
+      )
+    ? data.api_get_material.slice()
+    : null;
+  const useitemFlags = Array.isArray(data.api_useitem_flag) &&
+      data.api_useitem_flag.length === 2 &&
+      data.api_useitem_flag.every(value =>
+        Number.isSafeInteger(value) && value >= 0
+      )
+    ? data.api_useitem_flag.slice()
+    : null;
+  const items = [];
+  let receiptStatus;
+  if (clearResult === 0) {
+    receiptStatus = 'no_reward';
+  } else if (clearResult !== 1 && clearResult !== 2) {
+    receiptStatus = 'unknown';
+  } else {
+    let complete = material !== null && useitemFlags !== null;
+    if (useitemFlags !== null) {
+      for (let index = 0; index < useitemFlags.length; index += 1) {
+        const flag = useitemFlags[index];
+        if (flag <= 0) continue;
+        const slot = index + 1;
+        const item = data['api_get_item' + slot];
+        if (!item || typeof item !== 'object') {
+          complete = false;
+          continue;
+        }
+        let useitemId = item.api_useitem_id;
+        const useitemCount = item.api_useitem_count;
+        // The legacy client parser falls back to the flag when the explicit
+        // item id is non-positive. Preserve that documented behavior.
+        if (Number.isSafeInteger(useitemId) && useitemId <= 0) {
+          useitemId = flag;
+        }
+        if (!Number.isSafeInteger(useitemId) || useitemId <= 0 ||
+            !Number.isSafeInteger(useitemCount) || useitemCount <= 0) {
+          complete = false;
+          continue;
+        }
+        items.push({ slot: slot, useitemId: useitemId, useitemCount: useitemCount });
+      }
+    }
+    receiptStatus = complete ? 'complete' : 'incomplete';
+  }
   return {
     questName: questName,
     clearResult: clearResult,
-    shipIds: shipIds
+    shipIds: shipIds,
+    rewardReceipt: {
+      status: receiptStatus,
+      material: material,
+      useitemFlags: useitemFlags,
+      items: items
+    }
   };
 }
 
@@ -162,7 +221,8 @@ module.exports = function() {
           apiDeckId: meta.request.apiDeckId,
           apiQuestName: parsed.questName,
           apiClearResult: parsed.clearResult,
-          apiShipId: parsed.shipIds
+          apiShipId: parsed.shipIds,
+          apiRewardReceipt: parsed.rewardReceipt
         },
         safety: {
           gameInputSent: false,
