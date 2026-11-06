@@ -4827,3 +4827,14 @@ The Hand plugin's read-only probe reported:
 - **TESTED:** GitHub Actions CI run #1670（commit `a845c2bdd53bf3e80805cc330f73a183db860170`）成功。Node 测试通过；CLI 冒烟通过；Python compileall 通过；unittest `1849` 项通过，`22` 项因可选视觉依赖缺失而跳过。
 - **LIMIT:** 这次只增加被动观察与持久化，不发送游戏 API 请求、不改变游戏 UI 动作。奖励收据尚未在当前客户端下一次自然结算中实机捕获；观察器尚未自动接入生产结算控制器，因此不能标记“奖励到账生产验收完成”。
 - **NEXT:** 建立后台 MissionResultWitness provider，在第一次结果 UI 点击前持续监听；将本轮结果见证与派遣记录绑定，并在结果/道具 UI 阶段结束后用 Poi 新鲜库存交叉核对，再进入补给和再次派遣。
+
+
+## 2026-11-06 — P0 只读验收：#129 双舰结算+再派遣实机链与奖励凭据缺口
+
+- **VERIFIED:** 结算+再派遣进程 `20261106T100800.670288Z` 于 10:08:00Z 启动、10:17:13Z 以退出码 0 结束，`run_stopped(reason=loop_completed)`，全程无 `STOPPED_FAIL_CLOSED`。`PRODUCTION_CLOSED_LOOP_ACTIONS` 记录 `settlement_fleet_ids=[2,3]`、`resupply_fleet_ids=[2,3]`、`resupply_already_supplied=[false,false]`、`game_api_requests=false`；`PRODUCTION_UI_CONTROLLER_INTEGRATION_VERIFIED` 为 `closed_loop=true`、`fleet_ids=[2,3]`、`mission_ids=[3,1]`、`home_port_verified=true`。这是**双舰队**运行，不是任务书要求的单舰队闭环。
+- **VERIFIED:** 账本终态：旧两笔 `dispatch_identities` 均 `status=settled`（`settled_at` 10:11:35Z / 10:11:44Z），新一轮两笔 `status=confirmed`、`settled_at=NULL`；`fleet_runtime` 两舰均 `EXPEDITION_ACTIVE` / `mission_status=1`。`dispatch_events` 含 `settlement_drain_started/finished` 各 1、`settlement_drain_action` 6、`settlement_drain_page_changed` 6、`resupply_confirmed` 2、`dispatch_confirmed_by_poi` 4、`dispatch_home_port_verified` 4。全局 Drain 单 tick 串行清空两舰后补给、再派遣，UI 链与调度链跑通。
+- **LIMITS:** 结果类别与奖励到账**缺机器凭据**：无 `api_clear_result`、无 `api_get_material` / `api_useitem_flag` / `api_get_item1/2` 收据、无结算前后 Poi 资源与道具库存逐笔对比；结算收口事件是 `settlement_closed_without_reward_screens`（evidence `home_port_without_reward_screen_and_idle_fleet`，属推断式收口）；补给确认未逐项落盘满补读回数值。按 `docs/game-rules/EXPEDITION_SETTLEMENT.md` 第 4 节，计时结束≠归港、返港≠奖励到账、点击领取≠领取成功、页面消失≠结算完成，因此**本次不得宣布完整闭环**。
+- **VERIFIED:** 本进程加载的是同步前的本地 `8ffc9f1`，不含远端奖励收据能力。权威远端 `feat/production-settlement-resupply-wiring-20261105` 曾领先本地 17 提交（`f2fe10c`）；进程结束后已按规则 3 解除冻结，执行纯快进同步（本地 0 独有提交，11 文件 +691/−18），本地 HEAD 与 `ls-remote` 远端 SHA 同为 `f2fe10c66855663fe8813f84be659f1d5083577c`。全局 `AGENTS.md` 远端 `6063584` 与本地缓存一致、无差异。
+- **TESTED:** 新基线四道门禁：`PYTHONPATH=src python -m unittest discover -s tests` **1849 OK / 2 skip**（本地可选依赖齐全）；`python -m compileall -q src tests tools` OK；`git diff --check` OK；`node --test tests/*.test.cjs` **29/29**。远端 CI #1670（1849 / 22 skip）是远端既有记录，非本轮执行结果。
+- **SAFETY:** 本轮只读：未修改生产源码、视觉模板或配置；未启动/重启/停止生产进程；未新增刷新循环；未发送或重放游戏 API；`ui_refresh` 导航经用户裁决属允许范围，本轮未新增任何导航操作。生产进程退出后仅做 git 快进同步。
+- **NEXT:** 在单舰队、无并发资源操作的窗口内，点击前保存 Poi 资源/道具基线 → 结算前就位被动结果观察器 → 取得结果响应 `api_clear_result` 与奖励明细 → 返港后用新鲜 Poi 库存交叉核对 → 再补给并读回满补数值 → 才允许再次派遣并宣布闭环。只有该链闭环后，才解锁探针单帧降噪与 `MISSION_SELECTED` / Fleet 4 补给模板校准。
