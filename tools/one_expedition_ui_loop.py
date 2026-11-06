@@ -1455,11 +1455,85 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 allow_ui_actions=True,
                 max_state_age=timedelta(seconds=args.max_state_age_seconds),
             )
+            supervisor_drain_session = None
+            supervisor_drain_request = None
+            # ``is True`` on purpose: a test double (or any Namespace-like) that
+            # carries a non-boolean attribute must not silently enable a path
+            # that sends UI inputs.
+            drain_requested = getattr(args, "global_drain", False) is True
+            if drain_requested and settlement_controller is not None:
+                drain_capabilities = (
+                    "probe_settlement_page",
+                    "probe_home_port",
+                    "advance_settlement_page",
+                )
+                missing_drain = [
+                    name
+                    for name in drain_capabilities
+                    if not callable(getattr(ui_driver, name, None))
+                ]
+                if missing_drain:
+                    _print_event(
+                        "global_drain_unavailable",
+                        reason=(
+                            "the UI driver cannot name or advance a settlement page "
+                            "without being told which fleet owns it; the per-fleet "
+                            "settlement path stays in use"
+                        ),
+                        missing_methods=missing_drain,
+                        game_api_requests=False,
+                    )
+                else:
+                    from kancollebot.expeditions.settlement_drain import (
+                        SettlementDrainRequest,
+                        SettlementDrainSession,
+                    )
+                    from kancollebot.expeditions.settlement_drain_ui import (
+                        PoiSettlementDrainDriver,
+                        PoiSettlementDrainObserver,
+                    )
+
+                    supervisor_drain_request = SettlementDrainRequest(
+                        max_actions=args.drain_max_actions,
+                        timeout_seconds=args.drain_timeout_seconds,
+                        action_interval_seconds=args.drain_action_interval_seconds,
+                        stable_frame_count=args.drain_stable_frame_count,
+                    )
+                    supervisor_drain_session = SettlementDrainSession(
+                        PoiSettlementDrainObserver(ui_driver),
+                        PoiSettlementDrainDriver(ui_driver),
+                        event_sink=runtime.monitor.event_sink,
+                    )
+                    _print_event(
+                        "global_drain_wired",
+                        max_actions=supervisor_drain_request.max_actions,
+                        timeout_seconds=supervisor_drain_request.timeout_seconds,
+                        action_interval_seconds=(
+                            supervisor_drain_request.action_interval_seconds
+                        ),
+                        stable_frame_count=supervisor_drain_request.stable_frame_count,
+                        passes_fleet_id=False,
+                        game_api_requests=False,
+                    )
+            elif drain_requested:
+                _print_event(
+                    "global_drain_unavailable",
+                    reason="no settlement controller is wired, so there is nothing to drain",
+                    game_api_requests=False,
+                )
+
+            supervisor_kwargs = {}
+            if supervisor_drain_session is not None:
+                supervisor_kwargs = {
+                    "drain_session": supervisor_drain_session,
+                    "drain_request": supervisor_drain_request,
+                }
             supervisor = ContinuousExpeditionSupervisor(
                 monitor=runtime.monitor,
                 dispatch_controller=dispatch_controller,
                 settlement_controller=settlement_controller,
                 resupply_controller=resupply_controller,
+                **supervisor_kwargs,
             )
 
             _print_event(
@@ -1472,6 +1546,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 fleet_availability_verified=runtime.fleet_availability_verified,
                 settlement_controller_wired=supervisor.settlement_controller is not None,
                 resupply_controller_wired=supervisor.resupply_controller is not None,
+                global_drain_wired=supervisor.drain_session is not None,
                 shared_ui_arbiter=(
                     dispatch_controller.ui_arbiter is ui_arbiter
                     and supervisor.resupply_controller.ui_arbiter is ui_arbiter
@@ -1776,6 +1851,38 @@ def _main_impl(argv: list[str] | None = None) -> int:
         default=True,
         help="Disable the six-sample visible freshness navigation (diagnostic only; "
              "without a fresh natural /api_port/port witness the supervisor fails closed)",
+    )
+    parser.add_argument(
+        "--global-drain",
+        action="store_true",
+        help="Settle returned fleets by walking the visible settlement pages once for "
+             "the whole account instead of once per fleet. Required before two "
+             "simultaneous returns can be resolved; off by default so the per-fleet "
+             "path stays exactly as verified.",
+    )
+    parser.add_argument(
+        "--drain-max-actions",
+        type=int,
+        default=8,
+        help="Upper bound on the inputs one global drain may send",
+    )
+    parser.add_argument(
+        "--drain-timeout-seconds",
+        type=float,
+        default=45.0,
+        help="Wall-clock budget for one global drain",
+    )
+    parser.add_argument(
+        "--drain-action-interval-seconds",
+        type=float,
+        default=2.5,
+        help="Observation window after each drain input; must exceed the page transition",
+    )
+    parser.add_argument(
+        "--drain-stable-frame-count",
+        type=int,
+        default=2,
+        help="Consecutive identical frames that make a drain page trustworthy",
     )
     parser.add_argument(
         "--fleet-id",

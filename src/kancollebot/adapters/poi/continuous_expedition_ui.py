@@ -1018,6 +1018,53 @@ class CdpContinuousExpeditionUiDriver:
             step=3,
         )
 
+    # -- fleet-agnostic settlement pages (P0.2 global drain) ----------------
+    #
+    # The three methods above take a fleet id; the two below deliberately do
+    # not. The reward pages name the expedition, not the fleet, so a drain that
+    # walks them cannot know - and must not guess - whose result it is advancing.
+    # Attribution happens afterwards, from the dispatch ledger.
+
+    def probe_settlement_page(self) -> str | None:
+        """Name the settlement screen on display, or ``None`` when none is.
+
+        Read-only: one bounded probe per screen, no clicks, no navigation.
+        """
+        for screen in self.SETTLEMENT_SCREENS:
+            if self._probe_state(screen, phase=f"drain probe {screen}") is not None:
+                self._event_sink("continuous_ui_drain_page_detected", {
+                    "state": screen,
+                    "clicks_sent": 0,
+                })
+                return screen
+        self._event_sink("continuous_ui_drain_page_absent", {
+            "probed": list(self.SETTLEMENT_SCREENS),
+            "clicks_sent": 0,
+        })
+        return None
+
+    def probe_home_port(self) -> bool:
+        """True when a stable Home Port is on display. Read-only."""
+        return self._probe_state("HOME_PORT", phase="drain probe HOME_PORT") is not None
+
+    def advance_settlement_page(self, screen: str) -> None:
+        """Send the single input that ``screen`` accepts, then return.
+
+        Refuses anything that is not one of the three settlement screens: a
+        drain that could be asked to "advance" a home port or an unknown page
+        would be a blind click, which is the one thing this chain must never do.
+        """
+        if screen not in self.SETTLEMENT_SCREENS:
+            raise ContinuousUiDriverError(
+                f"{screen!r} is not a settlement screen; refusing to click it"
+            )
+        self._confirm(screen, phase=f"drain advance {screen}", samples=REWARD_VERIFY_SAMPLES)
+        advance = BONUS_NEXT if screen == "BONUS_ITEMS" else REWARD_ADVANCE
+        # step 0 marks a drain-initiated input: the chain's own 1/2/3 belong to
+        # the per-fleet settlement path and must not be conflated with it.
+        self._click(advance, action=f"drain_advance_{screen.lower()}", step=0)
+        self._sleep(REWARD_SETTLE_SECONDS)
+
 
 class DetailSourceLike(Protocol):
     """The identity half of the evidence, as far as this driver needs it."""

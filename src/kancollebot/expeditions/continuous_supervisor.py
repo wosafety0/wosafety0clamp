@@ -4,8 +4,51 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from kancollebot.expeditions.settlement_drain import (
+    DrainResult,
+    SettlementDrainRequest,
+)
 from kancollebot.observability.event_envelope import new_dispatch_id
 from kancollebot.observability.sink import correlation_scope
+
+#: Everything one fleet can still need from the loop, in the order that decides
+#: which single reason label describes the pause. The order is a *reporting*
+#: convention only: which fleet gets acted on is now decided by the full list
+#: (``_pending_actions``), never by whichever entry came first.
+PENDING_KINDS: tuple[str, ...] = (
+    "blocked",
+    "dispatch_reconciliation",
+    "settlement",
+    "resupply",
+    "home_port_verification",
+)
+
+_PENDING_REASONS: dict[str, str] = {
+    "blocked": "fleet_{fleet_id}_blocked",
+    "dispatch_reconciliation": "fleet_{fleet_id}_dispatch_reconciliation_required",
+    "settlement": "fleet_{fleet_id}_settlement_pending",
+    "resupply": "fleet_{fleet_id}_resupply_pending",
+    "home_port_verification": "fleet_{fleet_id}_home_port_verification_required",
+}
+
+
+@dataclass(frozen=True)
+class FleetPendingAction:
+    """One fleet's outstanding need, collected from the shared scheduler.
+
+    Exists so the tick can act on **every** fleet that needs something. The old
+    shape parsed one pause reason back into one fleet id, which is `FirstOrDefault`
+    by another name: with two returned fleets the second was invisible, and a
+    fleet that could not be settled stranded every other fleet behind it.
+    """
+
+    fleet_id: Any
+    phase: str
+    kind: str
+
+    def pause_reason(self) -> str:
+        """The legacy pause label for this need; reporting only."""
+        return _PENDING_REASONS[self.kind].format(fleet_id=self.fleet_id)
 
 
 @dataclass(frozen=True)
@@ -15,6 +58,10 @@ class SupervisorTickResult:
     paused_reason: Optional[str] = None
     settlements: tuple[Any, ...] = ()
     resupplies: tuple[Any, ...] = ()
+    #: The one global drain that ran this tick, if any. ``None`` means the tick
+    #: used the per-fleet settlement path (no drain session wired) or had
+    #: nothing to drain.
+    drain: Optional[DrainResult] = None
 
 
 class ContinuousExpeditionSupervisor:
@@ -41,11 +88,33 @@ class ContinuousExpeditionSupervisor:
         dispatch_controller: Any,
         settlement_controller: Any = None,
         resupply_controller: Any = None,
+        *,
+        drain_session: Any = None,
+        drain_request: SettlementDrainRequest | None = None,
     ) -> None:
         self.monitor = monitor
         self.dispatch_controller = dispatch_controller
         self.settlement_controller = settlement_controller
         self.resupply_controller = resupply_controller
+
+        # A drain session is the only thing that can clear reward pages for more
+        # than one fleet at a time, because the pages name the expedition and
+        # not the fleet. It is optional: without it the loop keeps the per-fleet
+        # barrier, which is safer but cannot resolve two simultaneous returns.
+        if drain_session is not None:
+            if not callable(getattr(drain_session, "drain", None)):
+                raise ValueError("drain_session must expose a callable drain(request)")
+            if not isinstance(drain_request, SettlementDrainRequest):
+                # Every limit is explicit. A default here would be a silent
+                # click budget, which is exactly what this project refuses.
+                raise ValueError(
+                    "drain_request must be a SettlementDrainRequest whenever a "
+                    "drain_session is given"
+                )
+        elif drain_request is not None:
+            raise ValueError("drain_request requires a drain_session")
+        self.drain_session = drain_session
+        self.drain_request = drain_request
 
         monitor_scheduler = getattr(monitor, "scheduler", None)
         controller_scheduler = getattr(
@@ -170,33 +239,76 @@ class ContinuousExpeditionSupervisor:
 
         return result
 
-    def _pause_reason(self) -> Optional[str]:
-        for fleet_id, state in self._fleet_states():
-            phase = self._phase_name(state)
+    def _pending_kind(self, phase: str, state: Any) -> Optional[str]:
+        """Classify one fleet's phase into one outstanding need, if any."""
+        if phase == "BLOCKED":
+            return "blocked"
 
-            if phase == "BLOCKED":
-                return f"fleet_{fleet_id}_blocked"
+        if phase == "DISPATCHING":
+            return "dispatch_reconciliation"
 
-            if phase == "DISPATCHING":
-                return (
-                    f"fleet_{fleet_id}_dispatch_reconciliation_required"
-                )
+        if phase in self.SETTLEMENT_PHASES:
+            return "settlement"
 
-            if phase in self.SETTLEMENT_PHASES:
-                return f"fleet_{fleet_id}_settlement_pending"
+        if phase in self.RESUPPLY_PHASES:
+            return "resupply"
 
-            if phase in self.RESUPPLY_PHASES:
-                return f"fleet_{fleet_id}_resupply_pending"
-
-            if phase in self.ACTIVE_PHASES:
-                if not bool(
-                    getattr(state, "home_port_verified", False)
-                ):
-                    return (
-                        f"fleet_{fleet_id}_home_port_verification_required"
-                    )
+        if phase in self.ACTIVE_PHASES:
+            if not bool(getattr(state, "home_port_verified", False)):
+                return "home_port_verification"
 
         return None
+
+    def _pending_actions(self) -> tuple[FleetPendingAction, ...]:
+        """Every fleet that still needs something, in scheduler order.
+
+        This is the single place that interprets fleet phases. Everything else
+        (the pause label, which fleets to settle, which to resupply) reads this
+        list, so there is exactly one answer to "what is outstanding" instead of
+        one per call site.
+        """
+        actions: list[FleetPendingAction] = []
+        for fleet_id, state in self._fleet_states():
+            phase = self._phase_name(state)
+            kind = self._pending_kind(phase, state)
+            if kind is None:
+                continue
+            actions.append(
+                FleetPendingAction(
+                    fleet_id=self._fleet_id(state, fleet_id),
+                    phase=phase,
+                    kind=kind,
+                )
+            )
+        return tuple(actions)
+
+    def pending_settlement_fleets(self) -> tuple[Any, ...]:
+        """Every fleet waiting on a result, not just the first one found."""
+        return tuple(
+            action.fleet_id
+            for action in self._pending_actions()
+            if action.kind == "settlement"
+        )
+
+    def pending_resupply_fleets(self) -> tuple[Any, ...]:
+        return tuple(
+            action.fleet_id
+            for action in self._pending_actions()
+            if action.kind == "resupply"
+        )
+
+    def _pause_reason(self) -> Optional[str]:
+        """The one label that summarises why the loop cannot dispatch.
+
+        Derived from ``_pending_actions`` so the label can never disagree with
+        the work the tick actually does, and kept in scheduler order so the
+        label stays byte-identical to the pre-P0.2 behaviour. It is a
+        *description*, not a selection: the tick reads the whole list.
+        """
+        actions = self._pending_actions()
+        if not actions:
+            return None
+        return actions[0].pause_reason()
 
     @staticmethod
     def _settlement_fleet_id(pause_reason: str) -> Optional[int]:
@@ -231,6 +343,8 @@ class ContinuousExpeditionSupervisor:
         settlements: tuple[Any, ...],
         resupplies: tuple[Any, ...],
         dispatches: tuple[Any, ...] = (),
+        *,
+        drain: Any = None,
     ) -> SupervisorTickResult:
         return SupervisorTickResult(
             monitor_result=monitor_result,
@@ -238,6 +352,7 @@ class ContinuousExpeditionSupervisor:
             paused_reason=pause_reason,
             settlements=settlements,
             resupplies=resupplies,
+            drain=drain,
         )
 
     def tick(self) -> SupervisorTickResult:
@@ -268,6 +383,25 @@ class ContinuousExpeditionSupervisor:
     def _tick_once(self) -> SupervisorTickResult:
         monitor_result = self.monitor.tick()
 
+        # Two ways to resolve a returned fleet, chosen by whether the loop owns
+        # a global drain session:
+        #
+        # * with one, every pending fleet is settled after a single page-driven
+        #   drain, because the drain does not care which fleet owns a page;
+        # * without one, the legacy path runs unchanged, one fleet per tick, and
+        #   keeps the ``other_returns`` barrier (the reward screens cannot be
+        #   attributed to one fleet, so the second return must wait).
+        if self.drain_session is not None and self.pending_settlement_fleets():
+            return self._tick_with_global_drain(monitor_result)
+        return self._tick_per_fleet(monitor_result)
+
+    def _tick_per_fleet(self, monitor_result: Any) -> SupervisorTickResult:
+        """Legacy path: one settlement + one resupply per tick, then dispatch.
+
+        Unchanged on purpose. It is safe but cannot resolve two simultaneous
+        returns; the drain path exists for that, and this stays the default so
+        an unwired loop behaves exactly as it did before P0.2.
+        """
         settlements: tuple[Any, ...] = ()
         resupplies: tuple[Any, ...] = ()
         pause_reason = self._pause_reason()
@@ -334,6 +468,116 @@ class ContinuousExpeditionSupervisor:
                 monitor_result, pause_reason, settlements, resupplies
             )
 
+        return self._dispatch_ready_fleets(monitor_result, settlements, resupplies)
+
+    def _tick_with_global_drain(self, monitor_result: Any) -> SupervisorTickResult:
+        """Settle every returned fleet behind one drain, then serve the rest.
+
+        The order matters and is the point of this path:
+
+        1. drain the visible settlement pages **once** - no fleet id is passed,
+           because the pages belong to the account and not to a fleet;
+        2. only if a stable Home Port was proven, close every pending fleet's
+           settlement (each one attributed through the dispatch ledger, never by
+           arrival order);
+        3. resupply every fleet that needs it, then dispatch every READY fleet.
+
+        A drain that stops early ends the tick with zero settlement clicks and
+        zero dispatches: the pages are in an unknown state, so nothing else may
+        be touched until a human looks.
+        """
+        settlements: tuple[Any, ...] = ()
+        resupplies: tuple[Any, ...] = ()
+
+        pending = self.pending_settlement_fleets()
+        if self.settlement_controller is None or not bool(
+            getattr(self.settlement_controller, "allow_ui_actions", False)
+        ):
+            return self._paused(
+                monitor_result,
+                FleetPendingAction(pending[0], "settlement", "settlement").pause_reason(),
+                settlements,
+                resupplies,
+            )
+
+        drain = self.drain_session.drain(self.drain_request)
+        self._emit("supervisor_settlement_drain", {
+            "pending_fleets": list(pending),
+            "reached_home": drain.reached_home,
+            "completed_pages": drain.completed_pages,
+            "actions_performed": drain.actions_performed,
+            "final_page": drain.final_page.value,
+            "error": (
+                drain.error_encountered.value
+                if drain.error_encountered is not None
+                else None
+            ),
+            "requires_manual_intervention": drain.requires_manual_intervention,
+        })
+        if not drain.reached_home:
+            error = (
+                drain.error_encountered.value
+                if drain.error_encountered is not None
+                else "unknown"
+            )
+            return SupervisorTickResult(
+                monitor_result=monitor_result,
+                dispatches=(),
+                paused_reason=f"settlement_drain_stopped:{error}",
+                settlements=(),
+                resupplies=(),
+                drain=drain,
+            )
+
+        results = []
+        for fleet_id in self.pending_settlement_fleets():
+            # ``pages_drained_globally`` replaces the fleet-level "only one
+            # return may be pending" barrier with ledger attribution: the pages
+            # are gone, and the ledger says which instance this fleet's return
+            # closes. A non-unique answer still refuses with zero clicks.
+            results.append(
+                self.settlement_controller.settle_one_returned(
+                    fleet_id, pages_drained_globally=True
+                )
+            )
+        settlements = tuple(results)
+
+        resupply_fleet_ids = self.pending_resupply_fleets()
+        if resupply_fleet_ids:
+            if self.resupply_controller is None or not bool(
+                getattr(self.resupply_controller, "allow_ui_actions", False)
+            ):
+                return self._paused(
+                    monitor_result,
+                    FleetPendingAction(
+                        resupply_fleet_ids[0], "RESUPPLY_REQUIRED", "resupply"
+                    ).pause_reason(),
+                    settlements,
+                    resupplies,
+                    drain=drain,
+                )
+            resupplies = tuple(
+                self.resupply_controller.resupply_one_needed(fleet_id)
+                for fleet_id in resupply_fleet_ids
+            )
+
+        result = self._dispatch_ready_fleets(monitor_result, settlements, resupplies)
+        return SupervisorTickResult(
+            monitor_result=result.monitor_result,
+            dispatches=result.dispatches,
+            paused_reason=result.paused_reason,
+            settlements=result.settlements,
+            resupplies=result.resupplies,
+            drain=drain,
+        )
+
+    def _dispatch_ready_fleets(
+        self,
+        monitor_result: Any,
+        settlements: tuple[Any, ...],
+        resupplies: tuple[Any, ...],
+    ) -> SupervisorTickResult:
+        """Dispatch every READY fleet in scheduler order, stopping on surprise."""
         if not bool(
             getattr(
                 self.dispatch_controller,
@@ -400,6 +644,13 @@ class ContinuousExpeditionSupervisor:
         """The one sink every component of this process shares, or ``None``."""
         sink = getattr(self.monitor, "event_sink", None)
         return sink if callable(sink) else None
+
+    def _emit(self, event: str, fields: dict[str, Any]) -> None:
+        """Log one supervisor-level fact; a monitor double may have no sink."""
+        sink = self._sink()
+        if sink is None:
+            return
+        sink(event, dict(fields))
 
     def _dispatch_with_identity(self, fleet_id: int) -> Any:
         """Run one dispatch attempt under one freshly minted dispatch identity.

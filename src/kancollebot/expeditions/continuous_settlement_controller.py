@@ -158,13 +158,23 @@ class ContinuousSettlementController:
         self.max_state_age = max_state_age
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
-    def settle_one_returned(self, fleet_id: int) -> SettlementExecution:
+    def settle_one_returned(
+        self, fleet_id: int, *, pages_drained_globally: bool = False
+    ) -> SettlementExecution:
         """Settle one returned fleet through the reward screens.
 
         Fails closed unless ``allow_ui_actions`` is enabled and the fleet is in a
         settlement phase with a returned mission identity that matches the
         scheduler's persisted dispatch. Each UI advance is re-verified against a
         fresh Poi observation; an ambiguous outcome blocks instead of retrying.
+
+        ``pages_drained_globally`` says a global drain has already cleared the
+        reward pages for the whole account. It does **not** relax attribution -
+        it replaces the fleet-level "only one return may be pending" barrier
+        with the stronger question the ledger can answer: is there exactly one
+        confirmed, unsettled dispatch instance that this fleet's return closes?
+        Without a ledger the barrier stays, because nothing else can tell two
+        simultaneously returned fleets apart.
         """
         if not self.allow_ui_actions:
             raise ContinuousSettlementError("UI actions are disabled; explicit enablement is required")
@@ -198,6 +208,41 @@ class ContinuousSettlementController:
                     f"Fleet {fleet_id} observed returned mission does not match the "
                     f"dispatched identity; settlement blocked"
                 )
+            # Set when the screens have already been proven gone below, so the
+            # same frames are not purchased twice.
+            screens_proven_absent = False
+            if pages_drained_globally:
+                # A drain has already clicked through every settlement page on
+                # the account. Poi's ``mission_status`` is not proof that the
+                # chain is gone (it advances on the client's own port request),
+                # so the *screen* is asked instead - and a chain that is still
+                # on display means this drain did not clear it, which is a stop,
+                # not a second run of the same clicks.
+                probe = getattr(self.ui_driver, "settlement_screen", None)
+                if not callable(probe):
+                    raise ContinuousSettlementError(
+                        f"Fleet {fleet_id} was settled after a global drain, but the "
+                        "driver cannot prove the settlement screens are gone; "
+                        "refusing to run the reward chain a second time"
+                    )
+                visible = probe(fleet_id=fleet_id)
+                if visible is not None:
+                    raise ContinuousSettlementError(
+                        f"Fleet {fleet_id} still shows {visible} after a global drain; "
+                        "the drain did not clear this chain and settlement is refused "
+                        "with zero clicks"
+                    )
+                self.event_sink("settlement_screens_gone_after_global_drain", {
+                    "fleet_id": fleet_id,
+                    "phase": current.phase.value,
+                    "mission_id": persisted.mission_id,
+                    "final_time_ms": persisted.final_time_ms,
+                    "game_api_requests": False,
+                })
+                # Reused below instead of probing the same screens twice: each
+                # probe is a fresh composited frame, not a cheap read.
+                screens_proven_absent = True
+                returned = None
             if returned is None:
                 # The server clears api_mission the moment the expedition result
                 # is accepted, which happens on the first click of the reward
@@ -215,12 +260,34 @@ class ContinuousSettlementController:
                 # credited fleet 4.
                 other_returns = self._other_fleets_awaiting_result(baseline, fleet_id)
                 if other_returns:
-                    raise ContinuousSettlementError(
-                        f"Fleet {fleet_id} reads idle but fleets {other_returns} are "
-                        "waiting for their expedition result; the reward screens "
-                        "cannot be attributed to one fleet, so settlement is "
-                        "refused until only one return is pending"
-                    )
+                    # P0.2: the barrier is migrated, not deleted. With a global
+                    # drain the pages are gone and the ambiguity it protected
+                    # against no longer exists - but only the ledger can say
+                    # which instance this fleet's return closes, so no ledger
+                    # means the old refusal.
+                    if not pages_drained_globally:
+                        raise ContinuousSettlementError(
+                            f"Fleet {fleet_id} reads idle but fleets {other_returns} are "
+                            "waiting for their expedition result; the reward screens "
+                            "cannot be attributed to one fleet, so settlement is "
+                            "refused until only one return is pending"
+                        )
+                    if self.dispatch_registry is None:
+                        raise ContinuousSettlementError(
+                            f"Fleet {fleet_id} reads idle but fleets {other_returns} are "
+                            "waiting for their expedition result, and no dispatch "
+                            "ledger is wired to attribute the result; settlement is "
+                            "refused"
+                        )
+                    self.event_sink("settlement_pages_drained_globally", {
+                        "fleet_id": fleet_id,
+                        "phase": current.phase.value,
+                        "mission_id": persisted.mission_id,
+                        "final_time_ms": persisted.final_time_ms,
+                        "other_fleets_awaiting_result": list(other_returns),
+                        "attribution_source": "dispatch_ledger",
+                        "game_api_requests": False,
+                    })
                 self.event_sink("settlement_resumed_after_result_taken", {
                     "fleet_id": fleet_id,
                     "phase": current.phase.value,
@@ -256,14 +323,18 @@ class ContinuousSettlementController:
                 # after that point sees an idle fleet and a plain Home Port. Only
                 # the driver can prove the absence, so a driver without the probe
                 # keeps the old fail-closed behaviour.
-                probe = getattr(self.ui_driver, "settlement_screen", None)
-                if not callable(probe):
-                    # No probe means "cannot prove the chain is over", and an
-                    # unprovable absence keeps the old fail-closed answer.
-                    raise ContinuousSettlementError(
-                        f"Fleet {fleet_id} has no returned mission tuple to settle"
-                    )
-                visible = probe(fleet_id=fleet_id)
+                if screens_proven_absent:
+                    # Already proven above, on the frames this call purchased.
+                    visible = None
+                else:
+                    probe = getattr(self.ui_driver, "settlement_screen", None)
+                    if not callable(probe):
+                        # No probe means "cannot prove the chain is over", and an
+                        # unprovable absence keeps the old fail-closed answer.
+                        raise ContinuousSettlementError(
+                            f"Fleet {fleet_id} has no returned mission tuple to settle"
+                        )
+                    visible = probe(fleet_id=fleet_id)
                 if visible is None:
                     updated = self.scheduler.confirm_settlement_already_complete(
                         fleet_id,
