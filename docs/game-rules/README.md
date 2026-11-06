@@ -137,3 +137,9 @@ The upstream [Yukikaze030/KanColle-Agent](https://github.com/Yukikaze030/KanColl
 - Added EXP-021 with mission records for IDs 37, 38, 40, 44 and E2: duration, per-ship supply cost, flagship/fleet levels, exact fleet composition, drum-can and aggregate-stat success requirements, and success reward baselines.
 - Kept great-success thresholds separate from success requirements and cross-referenced EXP-020.
 - Flagged ID 44's source-marked composition ambiguity, the EXP-019 stat-calculation dependency, and E2's engagement-type damage risk. All entries remain COMMUNITY_REPORTED and unavailable as production dispatch authority.
+
+
+## Related automation contract
+
+The game-rule records above define game mechanics and their evidence status. The approved automation lifecycle is documented separately in [EXPEDITION_AUTOMATION_CORE_LOGIC.md](../EXPEDITION_AUTOMATION_CORE_LOGIC.md). That document defines the project's dispatch, timer, return-refresh, global settlement, and continuous-loop behavior; it does not upgrade community-reported game rules into verified mechanics.
+
