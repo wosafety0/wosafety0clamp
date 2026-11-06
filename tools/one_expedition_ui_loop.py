@@ -1343,6 +1343,13 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 settle_seconds=0.55,
             )
 
+            def neutralize_pointer() -> None:
+                with recovery_gate.action_permit():
+                    game_session.transport.send(
+                        "Input.dispatchMouseEvent",
+                        {"type": "mouseMoved", "x": 1195, "y": 715},
+                    )
+
             ui_driver = CdpContinuousExpeditionUiDriver(
                 game_input=game_session.input,
                 verify_state=verify_state,
@@ -1352,13 +1359,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 capture=capture_frame,
                 locate_row=list_session.locate_any_tab,
                 supported_fleets=(2, 3, 4),
-                neutralize_pointer=lambda: (
-                    recovery_gate.require_actions_allowed(),
-                    game_session.transport.send(
-                        "Input.dispatchMouseEvent",
-                        {"type": "mouseMoved", "x": 1195, "y": 715},
-                    ),
-                ),
+                neutralize_pointer=neutralize_pointer,
                 action_guard=recovery_gate.require_actions_allowed,
                 action_permit=recovery_gate.action_permit,
             )
