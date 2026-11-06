@@ -292,6 +292,15 @@ settlement / resupply / visible_ui_refresh / UI driver 六处注入点都**不�
 在明确 attempt ID / lifecycle ID、JSONL / SQLite event ID 的关系之前，不应把当前字段描述成完整生命周期关联，也不应开启生产默认日志。
 
 
+## 10.2 SQLite row ID 与 JSONL event ID 的显式 join
+
+- SqliteDispatchEventLog.__call__() 在事务提交后返回严格正整数 event_id；load_all() 也回读该主键。既有四列表结构不变。
+- TeeEventSink 仅接受 None 或精确正整数 primary receipt。若 primary 返回整数，后续 RunLogSink 通过专用 emit_with_sqlite_event_id() 写入 sqlite_event_id；JSONL 自己生成的 UUID event_id 不变。
+- emitter 不能通过普通 fields 伪造 sqlite_event_id；无 primary receipt 时该字段为 null。bool、float、字符串、零和负数不能作为 row ID。
+- 如果 SQLite 已写入但关键 JSONL append 失败，Tee 仍传播 AuditLogUnavailable，调用方必须在点击前停止；这是一条明确的部分写入失败，不得声称双日志均成功。
+- 此链接只解决两种日志记录的一对一定位，不解决 dispatch lifecycle identity，也不提供语义去重。
+
+
 ## 10.3 Sticky degraded latch on every critical action path
 
 - A failed non-critical JSONL append leaves the current run incomplete even if storage later becomes writable. Subsequent diagnostic rows may still be attempted, but they do not repair the gap.
@@ -301,10 +310,3 @@ settlement / resupply / visible_ui_refresh / UI driver 六处注入点都**不�
 - A storage failure occurring after the preflight probe is still a possible race: the primary row may be committed before the secondary append fails. In that case AuditLogUnavailable propagates and the caller must not click; the partial row remains detectable and is not represented as dual-sink success.
 - Every irreversible input path must emit a critical `*_click_attempted` event before calling the input object. The supply-tab and supply-all-button paths previously emitted only `*_click_sent` after the click; they now have dedicated critical pre-click events, with regression tests proving an audit exception leaves those controls untouched.
 
-## 10.2 SQLite row ID 与 JSONL event ID 的显式 join
-
-- SqliteDispatchEventLog.__call__() 在事务提交后返回严格正整数 event_id；load_all() 也回读该主键。既有四列表结构不变。
-- TeeEventSink 仅接受 None 或精确正整数 primary receipt。若 primary 返回整数，后续 RunLogSink 通过专用 emit_with_sqlite_event_id() 写入 sqlite_event_id；JSONL 自己生成的 UUID event_id 不变。
-- emitter 不能通过普通 fields 伪造 sqlite_event_id；无 primary receipt 时该字段为 null。bool、float、字符串、零和负数不能作为 row ID。
-- 如果 SQLite 已写入但关键 JSONL append 失败，Tee 仍传播 AuditLogUnavailable，调用方必须在点击前停止；这是一条明确的部分写入失败，不得声称双日志均成功。
-- 此链接只解决两种日志记录的一对一定位，不解决 dispatch lifecycle identity，也不提供语义去重。
