@@ -3812,3 +3812,17 @@ Source: https://wikiwiki.jp/kancolle/遠征/詳細一覧表 (accessed 2026-11-06
 - **AUTOMATION GATE:** No production stat calculator may treat unresearched coefficients as zero or reuse ordinary battle formulas. Equipment should remain frozen during a stat-gated expedition; an observed mid-mission equipment change makes the predicted result UNKNOWN.
 - **SOURCE:** Maintained Japanese expedition overview, accessed 2026-11-06; its own section title marks the calculation as under investigation. No current Poi equipment/proficiency data or controlled experiment was collected.
 - **LIMITS:** Documentation only. No game code, Poi state, UI, or game-server state changed. EXP-023 remains COMMUNITY_REPORTED.
+
+## 2026-11-06 — Expedition profitability and combat-risk research
+
+**Status:** DOCUMENTED / COMMUNITY_REPORTED; not live-verified; no game code changed.
+
+- Added EXP-024 to docs/game-rules/EXPEDITIONS.md, separating routine resource farming from monthly combat expeditions.
+- Captured headline gross rates: fuel ID38 144/h (ID21 137/h, ID5 133/h alternatives), ammunition ID2 200/h, steel ID3 120/h, bauxite ID6 120/h. These are gross rates, not net profit. Added a resource-vector model including supply costs, UI turnaround, great-success expectation, repairs, buckets and fatigue opportunity cost.
+- Type I damage is reported as 0–3 ships up to moderate-damage class. Type II can return multiple heavily damaged ships; sixth-slot and high-stat mitigation are only tendencies. No reliable per-ship damage distribution was found.
+- A 2025 player report recorded damage at 217%, 218% and 219.1% of Type II stat requirements, then no damage in 17 runs at 220%. This conflicts with older 217% claims and remains anecdotal, not a guarantee.
+- Recorded ordinary return fatigue (-3), reported damage-related additional ranges (-5 to -10 for Type I; -10 to -18 for Type II), and natural recovery (+3 every 3 minutes, capped at 49).
+- Recorded ship-specific repair material coefficients multiplied by lost HP and rounded down. Ship level affects repair time, not material cost; dock occupancy and buckets are separate costs.
+- Automation policy: unattended allowlist remains non-combat missions selected by resource deficit/net value. All Type I/II missions remain blocked from unattended dispatch. 220% is only a supervised candidate filter. Damaged ships are quarantined until recovery is verified.
+- Sources: KouryakuLab expedition requirements/calculator; maintained Japanese expedition, fatigue and repair wiki pages; 2025 monthly expedition player report; 2021 secondary guide. All remain community evidence.
+- Limits: no Poi data, live mission state, controlled damage test, repair-dock/resource inventory or game operation was inspected. Documentation only; no runtime code changed.
