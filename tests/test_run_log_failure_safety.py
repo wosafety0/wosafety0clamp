@@ -23,6 +23,10 @@ if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 if str(ROOT / "tests") not in sys.path:
     sys.path.insert(0, str(ROOT / "tests"))
+if str(ROOT / "tools") not in sys.path:
+    sys.path.insert(0, str(ROOT / "tools"))
+
+import one_expedition_ui_loop as production_loop  # noqa: E402
 
 from kancollebot.adapters.poi.continuous_expedition_ui import (  # noqa: E402
     CdpContinuousExpeditionUiDriver,
@@ -156,9 +160,65 @@ class SinkFailureTests(unittest.TestCase):
             "ui_refresh_click_sent",
             "expedition_list_click_attempted",
             "expedition_list_click_sent",
+            "home_port_recovery_click_attempted",
+            "home_port_recovery_click_sent",
         ):
             with self.subTest(event=event):
                 self.assertTrue(is_critical_event(event))
+
+    def test_home_port_recovery_attempt_log_failure_blocks_before_click(self):
+        store = BrokenStore(
+            RunLogPolicy(directory=self.directory),
+            fail_on="home_port_recovery_click_attempted",
+        )
+        sink, errors = self.make_sink(store)
+        game_session = SimpleNamespace(input=SimpleNamespace(click=lambda point: self.fail(
+            f"click reached after failed audit attempt: {point}"
+        )))
+
+        with (
+            patch.object(
+                production_loop, "_require_ui_state",
+                side_effect=production_loop.LoopError("not home"),
+            ),
+            patch.object(production_loop, "_reward_screen_on_any_layer", return_value=None),
+            patch.object(production_loop.time, "sleep"),
+        ):
+            with self.assertRaises(AuditLogUnavailable):
+                production_loop._recover_home_port(
+                    game_session, attempts=1, event_sink=sink
+                )
+
+        self.assertEqual(store.attempts, 1)
+        self.assertEqual(errors[0][0], "home_port_recovery_click_attempted")
+
+    def test_home_port_recovery_sent_log_failure_stops_after_one_click(self):
+        store = BrokenStore(
+            RunLogPolicy(directory=self.directory),
+            fail_on="home_port_recovery_click_sent",
+        )
+        sink, errors = self.make_sink(store)
+        clicks = []
+        game_session = SimpleNamespace(
+            input=SimpleNamespace(click=lambda point: clicks.append(point))
+        )
+
+        with (
+            patch.object(
+                production_loop, "_require_ui_state",
+                side_effect=production_loop.LoopError("not home"),
+            ),
+            patch.object(production_loop, "_reward_screen_on_any_layer", return_value=None),
+            patch.object(production_loop.time, "sleep"),
+        ):
+            with self.assertRaises(AuditLogUnavailable):
+                production_loop._recover_home_port(
+                    game_session, attempts=3, event_sink=sink
+                )
+
+        self.assertEqual(len(clicks), 1)
+        self.assertEqual(store.attempts, 2)
+        self.assertEqual(errors[0][0], "home_port_recovery_click_sent")
 
     def test_a_critical_write_failure_raises_instead_of_pretending(self):
         store = BrokenStore(RunLogPolicy(directory=self.directory))
