@@ -59,6 +59,7 @@ from kancollebot.adapters.poi.visual_state_gate import (
     home_reference_similarity,
 )  # noqa: E402
 from kancollebot.adapters.poi.visual_fingerprint import (  # noqa: E402
+    FingerprintRanking,
     VisualFingerprintError,
     classify_screenshot_fingerprints,
     classify_supply_checkbox_state,
@@ -400,6 +401,28 @@ def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra:
     line = json.dumps(payload, ensure_ascii=False)
     print(line, flush=True)
     _append_log_line(line)
+
+
+def _single_frame_ranking_fields(ranking: FingerprintRanking) -> dict[str, object]:
+    """Diagnostic fields for one all-state ranking; probe only, never a click gate.
+
+    ``_print_event`` reserves ``state`` for a ``PoiFleetMissionState`` and reads
+    ``state.fleet_id``. The probe's UI state is a plain string, so sending it as
+    ``state=`` raises ``AttributeError``. The drain probe then fails closed to
+    ``UNKNOWN`` and the global drain performs zero actions (live 2026-11-06
+    stage-0 run). Keep the string under ``observed`` instead.
+    """
+    return {
+        "observed": ranking.state,
+        "best_name": ranking.best_name,
+        "best_score": round(ranking.best_score, 4),
+        "second_name": ranking.second_name,
+        "second_score": round(ranking.second_score, 4),
+        "accepted": ranking.accepted,
+        "minimum_score": 0.97,
+        "minimum_margin": 0.04,
+        "authorizes_click": False,
+    }
 
 
 def _append_log_line(line: str) -> None:
@@ -1799,15 +1822,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 ranking = rank_screenshot_fingerprints(payload, drain_probe_document)
                 _print_event(
                     "single_frame_all_state_ranking",
-                    state=ranking.state,
-                    best_name=ranking.best_name,
-                    best_score=round(ranking.best_score, 4),
-                    second_name=ranking.second_name,
-                    second_score=round(ranking.second_score, 4),
-                    accepted=ranking.accepted,
-                    minimum_score=0.97,
-                    minimum_margin=0.04,
-                    authorizes_click=False,
+                    **_single_frame_ranking_fields(ranking),
                 )
                 return ranking.state, ranking.scores
 

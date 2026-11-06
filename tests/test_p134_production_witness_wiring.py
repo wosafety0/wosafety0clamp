@@ -13,6 +13,8 @@ receipt part of the loop rather than an external helper process:
 """
 from __future__ import annotations
 
+import ast
+import json
 import sys
 import tempfile
 import threading
@@ -510,6 +512,65 @@ class WitnessCompositionConfigurationTests(unittest.TestCase):
             ),
             custom,
         )
+
+
+class SingleFrameProbeEventContractTests(unittest.TestCase):
+    """Live stage-0 regression: the probe event must not shadow ``state``.
+
+    ``_print_event`` uses its ``state`` parameter for a PoiFleetMissionState and
+    reads ``state.fleet_id``. Sending the probe's UI state name as ``state=``
+    raised ``AttributeError``; the drain probe then failed closed to UNKNOWN and
+    the global drain performed zero actions. No game connection here.
+    """
+
+    def make_ranking(self) -> object:
+        from kancollebot.adapters.poi.visual_fingerprint import FingerprintRanking
+
+        return FingerprintRanking(
+            best_name="HOME_PORT",
+            best_score=0.9845,
+            second_name="SORTIE_MENU",
+            second_score=0.7733,
+            scores={"HOME_PORT": 0.9845, "SORTIE_MENU": 0.7733},
+            accepted=True,
+        )
+
+    def test_ranking_fields_do_not_occupy_the_state_parameter(self):
+        fields = entry._single_frame_ranking_fields(self.make_ranking())
+        self.assertNotIn("state", fields)
+        self.assertEqual(fields["observed"], "HOME_PORT")
+        self.assertEqual(fields["best_score"], 0.9845)
+        self.assertEqual(fields["second_score"], 0.7733)
+        self.assertEqual(fields["minimum_score"], 0.97)
+        self.assertEqual(fields["minimum_margin"], 0.04)
+        self.assertFalse(fields["authorizes_click"])
+
+    def test_real_event_emitter_accepts_the_probe_fields(self):
+        fields = entry._single_frame_ranking_fields(self.make_ranking())
+        with patch("builtins.print") as printed, patch.object(
+            entry, "_append_log_line"
+        ):
+            entry._print_event("single_frame_all_state_ranking", **fields)
+        printed.assert_called_once()
+        row = json.loads(printed.call_args.args[0])
+        self.assertEqual(row["observed"], "HOME_PORT")
+        self.assertEqual(row["event"], "single_frame_all_state_ranking")
+        self.assertNotIn("fleet_id", row)
+
+    def test_no_print_event_call_passes_a_state_keyword(self):
+        source = (ROOT / "tools" / "one_expedition_ui_loop.py").read_text(
+            encoding="utf-8"
+        )
+        tree = ast.parse(source)
+        offenders = [
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_print_event"
+            and any(keyword.arg == "state" for keyword in node.keywords)
+        ]
+        self.assertEqual(offenders, [], f"_print_event(state=...) at lines {offenders}")
 
 
 if __name__ == "__main__":
