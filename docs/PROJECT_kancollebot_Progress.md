@@ -3773,3 +3773,19 @@ The dossier also records a source conflict for ID 24: the maintained overview li
 Source: https://wikiwiki.jp/kancolle/遠征 (great-success conditions; accessed 2026-11-06) and https://wikiwiki.jp/kancolle/遠征/複製 (historical conflicting value). Community-maintained research; the drum probability model cites 2020 work and the flagship-level model cites older community investigations.
 
 No current Poi morale/equipment state, in-game mission details, or real expedition outcome was inspected. No game state was changed and no runtime code was modified. Production great-success prediction remains blocked until mission class, morale freshness, equipment placement, and current client behavior are independently verified.
+
+
+## 2026-11-06 — Additional logistics expedition mission records
+
+**Status:** DOCUMENTED / COMMUNITY_REPORTED; not live-verified; no game code changed.
+
+Added EXP-021 to `docs/game-rules/EXPEDITIONS.md`, transcribing five additional missions from the maintained Japanese detailed expedition table:
+
+- ID 37 東京急行 and ID 38 東京急行(弐), including exact fleet composition, flagship/fleet level, drum-can success thresholds and separate great-success thresholds.
+- ID 40 水上機前線輸送, including the light-cruiser flagship restriction and two-seaplane-tender composition.
+- ID 44 航空装備輸送任務, including monthly status, A4 appearance prerequisite, stat and drum requirements; the source's own composition uncertainty is retained.
+- ID E2 強行鼠輸送作戦, including monthly/engagement-type status, fleet/stat/drum requirements, and the warning that engagement expeditions may damage ships.
+
+Success requirements and great-success thresholds are explicitly separated. All entries remain COMMUNITY_REPORTED. Stat-gated entries still depend on the unresolved EXP-019 calculator; engagement-type missions remain excluded from unattended operation until damage/recovery handling is verified.
+
+Source: https://wikiwiki.jp/kancolle/遠征/詳細一覧表 (accessed 2026-11-06) and https://wikiwiki.jp/kancolle/遠征. No Poi state, live UI, or real expedition outcome was inspected. No game state or runtime code changed.
