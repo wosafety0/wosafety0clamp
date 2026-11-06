@@ -108,3 +108,10 @@ The upstream [Yukikaze030/KanColle-Agent](https://github.com/Yukikaze030/KanColl
 - Expanded `EXPEDITIONS.md` with EXP-015–EXP-018 covering per-ship fuel/ammunition consumption, Fleet 2 and mission unlock prerequisites, reward-item display semantics, and monthly completion cutoff.
 - Retained COMMUNITY_REPORTED status; the source is a community wiki and several underlying calculations/tables cite 2020/2021 or 2023 material.
 - No current Poi live verification or game operation was performed. No game code may rely on these records as production-grade mechanics until independently verified.
+
+
+### 2026-11-06 — Expedition mission catalogue
+
+- Added a selected 12-mission catalogue (IDs 2, 3, 5, 6, 9, 11, 13, 17, 20, 21, 24, 41) to `EXPEDITIONS.md`.
+- Captured mission duration, supply-consumption rates, flagship/fleet levels, fleet composition, special equipment/stat requirements, and success reward baselines.
+- All entries remain COMMUNITY_REPORTED. This is a transcription of a community wiki table, not a current live game verification or an official rules dataset.
