@@ -223,6 +223,19 @@ class RecoveryPauseGateTests(unittest.TestCase):
             with gate.action_permit():
                 self.fail("a later action must not acquire the paused permit")
 
+    def test_pause_timestamp_is_aware_and_latched_with_first_cause(self):
+        gate = RecoveryPauseGate()
+        first = classify_recovery_signals(observer_status="cdp_connection_closed")
+        second = classify_recovery_signals(visual_state="cat")
+        self.assertIsNone(gate.paused_at_utc)
+        gate.pause(first)
+        paused_at = gate.paused_at_utc
+        self.assertIsNotNone(paused_at)
+        self.assertIsNotNone(paused_at.tzinfo)
+        gate.pause(second)
+        self.assertEqual(gate.paused_at_utc, paused_at)
+        self.assertIs(gate.classification, first)
+
     def test_gate_has_no_implicit_resume_or_reset_api(self):
         gate = RecoveryPauseGate()
         gate.pause(classify_recovery_signals(visual_state="cat"))
