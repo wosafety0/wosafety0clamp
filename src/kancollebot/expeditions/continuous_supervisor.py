@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from kancollebot.expeditions.settlement_drain import (
@@ -49,6 +49,35 @@ class FleetPendingAction:
     def pause_reason(self) -> str:
         """The legacy pause label for this need; reporting only."""
         return _PENDING_REASONS[self.kind].format(fleet_id=self.fleet_id)
+
+
+@dataclass
+class _TickProgress:
+    """What this tick had already finished when it stopped.
+
+    The tick used to record its decision only after ``_tick_once()`` returned,
+    so any raise - and the most common one in production is a fresh-baseline
+    refusal from the monitor - left no row at all, and a tick that dispatched
+    the first fleet before failing on the second lost the first fleet's result.
+
+    This carrier is written *as the tick advances*, so the failure row can say
+    "fleet 2 was dispatched, fleet 3 failed" instead of "something failed".
+    It holds no identity of its own: no ids are minted here.
+    """
+
+    phase: str = "monitor"
+    fleet_id: Any = None
+    settlements: list[Any] = field(default_factory=list)
+    resupplies: list[Any] = field(default_factory=list)
+    dispatches: list[Any] = field(default_factory=list)
+
+    def note(self, phase: str, fleet_id: Any = None) -> None:
+        self.phase = phase
+        self.fleet_id = fleet_id
+
+    @property
+    def completed_anything(self) -> bool:
+        return bool(self.settlements or self.resupplies or self.dispatches)
 
 
 @dataclass(frozen=True)
@@ -365,22 +394,23 @@ class ContinuousExpeditionSupervisor:
         can be reconstructed after the fact. A monitor double that exposes no
         callable sink is left alone rather than crashed on.
 
-        The row is written on the **failure** path too. A fresh-baseline
-        refusal is the most common production outcome, and it leaves no
-        ``supervisor_tick`` behind; without this, the log ends at
-        ``run_started`` exactly when the operator most needs to know why the
-        loop stopped. A partially completed tick (first fleet dispatched,
-        second refused) therefore also keeps its summary row.
+        The row is written on the **failure** path too, as ``supervisor_paused``
+        with a ``*_failed:<ErrorType>`` reason: a fresh-baseline refusal is the
+        most common production outcome and it must be as findable as a deliberate
+        stop. The partial progress of the tick travels with it, so "fleet 2 was
+        dispatched, fleet 3 failed" is one readable row instead of a guess.
         """
+        progress = _TickProgress()
         try:
-            result = self._tick_once()
+            result = self._tick_once(progress)
         except Exception as exc:
-            self._record_failure(exc)
+            self._record_failure(exc, progress)
             raise
         self._record_decision(result)
         return result
 
-    def _tick_once(self) -> SupervisorTickResult:
+    def _tick_once(self, progress: _TickProgress) -> SupervisorTickResult:
+        progress.note("monitor")
         monitor_result = self.monitor.tick()
 
         # Two ways to resolve a returned fleet, chosen by whether the loop owns
@@ -392,10 +422,12 @@ class ContinuousExpeditionSupervisor:
         #   keeps the ``other_returns`` barrier (the reward screens cannot be
         #   attributed to one fleet, so the second return must wait).
         if self.drain_session is not None and self.pending_settlement_fleets():
-            return self._tick_with_global_drain(monitor_result)
-        return self._tick_per_fleet(monitor_result)
+            return self._tick_with_global_drain(monitor_result, progress)
+        return self._tick_per_fleet(monitor_result, progress)
 
-    def _tick_per_fleet(self, monitor_result: Any) -> SupervisorTickResult:
+    def _tick_per_fleet(
+        self, monitor_result: Any, progress: _TickProgress
+    ) -> SupervisorTickResult:
         """Legacy path: one settlement + one resupply per tick, then dispatch.
 
         Unchanged on purpose. It is safe but cannot resolve two simultaneous
@@ -425,10 +457,12 @@ class ContinuousExpeditionSupervisor:
                     return self._paused(
                         monitor_result, pause_reason, settlements, resupplies
                     )
+                progress.note("settlement", settlement_fleet_id)
                 settlement = self.settlement_controller.settle_one_returned(
                     settlement_fleet_id
                 )
                 settlements = (settlement,)
+                progress.settlements.append(settlement)
                 # A fleet that just finished claiming its reward becomes
                 # RESUPPLY_REQUIRED; advance the pause reason so the resupply
                 # branch below can close the loop in the same tick.
@@ -455,10 +489,12 @@ class ContinuousExpeditionSupervisor:
                     return self._paused(
                         monitor_result, pause_reason, settlements, resupplies
                     )
+                progress.note("resupply", resupply_fleet_id)
                 resupply = self.resupply_controller.resupply_one_needed(
                     resupply_fleet_id
                 )
                 resupplies = (resupply,)
+                progress.resupplies.append(resupply)
                 pause_reason = self._pause_reason()
 
         # Still paused after the one settlement + following resupply we allow
@@ -468,9 +504,13 @@ class ContinuousExpeditionSupervisor:
                 monitor_result, pause_reason, settlements, resupplies
             )
 
-        return self._dispatch_ready_fleets(monitor_result, settlements, resupplies)
+        return self._dispatch_ready_fleets(
+            monitor_result, settlements, resupplies, progress
+        )
 
-    def _tick_with_global_drain(self, monitor_result: Any) -> SupervisorTickResult:
+    def _tick_with_global_drain(
+        self, monitor_result: Any, progress: _TickProgress
+    ) -> SupervisorTickResult:
         """Settle every returned fleet behind one drain, then serve the rest.
 
         The order matters and is the point of this path:
@@ -500,6 +540,7 @@ class ContinuousExpeditionSupervisor:
                 resupplies,
             )
 
+        progress.note("drain")
         drain = self.drain_session.drain(self.drain_request)
         self._emit("supervisor_settlement_drain", {
             "pending_fleets": list(pending),
@@ -535,11 +576,12 @@ class ContinuousExpeditionSupervisor:
             # return may be pending" barrier with ledger attribution: the pages
             # are gone, and the ledger says which instance this fleet's return
             # closes. A non-unique answer still refuses with zero clicks.
-            results.append(
-                self.settlement_controller.settle_one_returned(
-                    fleet_id, pages_drained_globally=True
-                )
+            progress.note("settlement", fleet_id)
+            settlement = self.settlement_controller.settle_one_returned(
+                fleet_id, pages_drained_globally=True
             )
+            progress.settlements.append(settlement)
+            results.append(settlement)
         settlements = tuple(results)
 
         resupply_fleet_ids = self.pending_resupply_fleets()
@@ -557,11 +599,13 @@ class ContinuousExpeditionSupervisor:
                     drain=drain,
                 )
             resupplies = tuple(
-                self.resupply_controller.resupply_one_needed(fleet_id)
+                self._resupply_one(fleet_id, progress)
                 for fleet_id in resupply_fleet_ids
             )
 
-        result = self._dispatch_ready_fleets(monitor_result, settlements, resupplies)
+        result = self._dispatch_ready_fleets(
+            monitor_result, settlements, resupplies, progress
+        )
         return SupervisorTickResult(
             monitor_result=result.monitor_result,
             dispatches=result.dispatches,
@@ -571,11 +615,19 @@ class ContinuousExpeditionSupervisor:
             drain=drain,
         )
 
+    def _resupply_one(self, fleet_id: Any, progress: _TickProgress) -> Any:
+        """Resupply one fleet, noting the phase so a failure is attributable."""
+        progress.note("resupply", fleet_id)
+        result = self.resupply_controller.resupply_one_needed(fleet_id)
+        progress.resupplies.append(result)
+        return result
+
     def _dispatch_ready_fleets(
         self,
         monitor_result: Any,
         settlements: tuple[Any, ...],
         resupplies: tuple[Any, ...],
+        progress: _TickProgress,
     ) -> SupervisorTickResult:
         """Dispatch every READY fleet in scheduler order, stopping on surprise."""
         if not bool(
@@ -605,8 +657,10 @@ class ContinuousExpeditionSupervisor:
             if self._phase_name(state) != "READY":
                 continue
 
+            progress.note("dispatch", fleet_id)
             result = self._dispatch_with_identity(fleet_id)
             dispatches.append(result)
+            progress.dispatches.append(result)
 
             updated_state = scheduler.fleet(fleet_id)
 
@@ -717,27 +771,66 @@ class ContinuousExpeditionSupervisor:
         event = "supervisor_paused" if result.paused_reason else "supervisor_tick"
         sink(event, fields)
 
-    def _record_failure(self, error: Exception) -> None:
-        """Emit the summary row for a tick that raised before deciding.
+    def _record_failure(self, error: Exception, progress: _TickProgress) -> None:
+        """Record the tick that stopped, as the pause it really was.
 
-        The exception a monitor or controller raises is never converted into a
-        result - it still propagates - but a run that stops here must not leave
-        only ``run_started`` on disk. No reason is invented: the error type and
-        the fleet phases are the facts.
+        A raise from the monitor or from a controller ends the tick, so the row
+        this writes **is** the decision row: ``supervisor_paused`` with a
+        ``*_failed:<ErrorType>`` reason, the phase and fleet that failed, and
+        the work that had already completed before it. The audit called
+        ``supervisor_paused`` one of the 26 critical events and then pointed out
+        that the most common production stop - a fresh-baseline refusal - never
+        reached it; this closes that.
+
+        Two rules, both about not lying in either direction:
+
+        * the original failure is never converted into a result or a reason
+          string. The reason names the error *type* and the phase; the message
+          is carried verbatim in ``error``. Nothing is invented;
+        * a failure to write this row is swallowed. The caller is about to
+          receive the original exception, and replacing it with
+          ``AuditLogUnavailable`` would hide the cause of the stop. Fail-closed
+          is already satisfied here: the loop stopped. On the *success* path the
+          same event is deliberately not swallowed (see ``_record_decision``),
+          because there the write failure is the only thing that can stop a
+          paused tick from proceeding silently.
         """
         sink = self._sink()
         if sink is None:
             return
         try:
-            sink("supervisor_tick_failed", {
+            sink("supervisor_paused", {
+                "paused_reason": self._failure_reason(error, progress),
                 "error_type": type(error).__name__,
-                "paused_reason": None,
+                "error": str(error)[:400],
+                "failed_phase": progress.phase,
+                "failed_fleet_id": progress.fleet_id,
+                "dispatch_fleet_ids": [
+                    getattr(item, "fleet_id", None) for item in progress.dispatches
+                ],
+                "dispatch_count": len(progress.dispatches),
+                "settlement_fleet_ids": [
+                    getattr(item, "fleet_id", None) for item in progress.settlements
+                ],
+                "settlement_count": len(progress.settlements),
+                "resupply_fleet_ids": [
+                    getattr(item, "fleet_id", None) for item in progress.resupplies
+                ],
+                "resupply_count": len(progress.resupplies),
                 "fleet_phases": self._fleet_phases(),
-                "dispatch_count": 0,
+                "partial_result": progress.completed_anything,
             })
         except Exception:
             # The original failure is what the caller must see.
             pass
+
+    @staticmethod
+    def _failure_reason(error: Exception, progress: _TickProgress) -> str:
+        """A reason label a reader can filter on, derived from facts only."""
+        error_type = type(error).__name__
+        if progress.fleet_id is None:
+            return f"{progress.phase}_failed:{error_type}"
+        return f"fleet_{progress.fleet_id}_{progress.phase}_failed:{error_type}"
 
     def _fleet_phases(self) -> dict[str, str]:
         phases: dict[str, str] = {}
