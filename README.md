@@ -94,6 +94,7 @@ The GitHub Actions workflow runs the corresponding offline checks on pushes to m
 - [Single-loop design contract and chronological implementation notes](docs/MVP_EXPEDITION_SINGLE_LOOP.md)
 - [Passive port-response observer contract](docs/POI_PORT_RESPONSE_OBSERVER.md)
 - [Game Rules Knowledge Base — mandatory reference before game-logic development](docs/game-rules/README.md)
+- [Expedition Scheduler Modes — fixed per-fleet assignment P0, resource-adaptive planning P1](docs/EXPEDITION_SCHEDULER_MODES.md)
 - [Research notes](docs/research/)
 - [Authoritative global collaboration rules](https://github.com/wosafety0/Agents-global/blob/main/AGENTS.md)
 
