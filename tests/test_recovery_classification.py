@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 import unittest
 
 from kancollebot.expeditions.recovery_classification import (
@@ -186,6 +188,40 @@ class RecoveryPauseGateTests(unittest.TestCase):
             gate.pause(healthy)
         self.assertFalse(gate.is_paused)
         self.assertEqual(gate.generation, 0)
+
+    def test_pause_waits_for_an_in_flight_input_permit_then_blocks_next_input(self):
+        gate = RecoveryPauseGate()
+        entered = threading.Event()
+        release = threading.Event()
+        pause_finished = threading.Event()
+        classification = classify_recovery_signals(visual_state="cat")
+
+        def in_flight_action():
+            with gate.action_permit():
+                entered.set()
+                release.wait(2.0)
+
+        def pause_gate():
+            gate.pause(classification)
+            pause_finished.set()
+
+        action_thread = threading.Thread(target=in_flight_action)
+        action_thread.start()
+        self.assertTrue(entered.wait(1.0))
+        pause_thread = threading.Thread(target=pause_gate)
+        pause_thread.start()
+        time.sleep(0.05)
+        self.assertFalse(pause_finished.is_set())
+        release.set()
+        action_thread.join(1.0)
+        pause_thread.join(1.0)
+
+        self.assertFalse(action_thread.is_alive())
+        self.assertFalse(pause_thread.is_alive())
+        self.assertTrue(pause_finished.is_set())
+        with self.assertRaises(RecoveryPausedError):
+            with gate.action_permit():
+                self.fail("a later action must not acquire the paused permit")
 
     def test_gate_has_no_implicit_resume_or_reset_api(self):
         gate = RecoveryPauseGate()
