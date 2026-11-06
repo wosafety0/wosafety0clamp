@@ -23,15 +23,24 @@ class BackgroundPortSnapshotProvider:
         observer: PassivePortResponseObserver,
         *,
         retry_delay_seconds: float = 0.25,
+        max_retry_delay_seconds: float = 8.0,
+        max_consecutive_failures: int = 6,
         on_status: Callable[[str], None] | None = None,
     ) -> None:
         if not math.isfinite(retry_delay_seconds) or retry_delay_seconds <= 0:
             raise ValueError("retry_delay_seconds must be finite and positive")
+        if not math.isfinite(max_retry_delay_seconds) or max_retry_delay_seconds < retry_delay_seconds:
+            raise ValueError("max_retry_delay_seconds must be finite and >= retry_delay_seconds")
+        if (isinstance(max_consecutive_failures, bool) or
+                not isinstance(max_consecutive_failures, int) or max_consecutive_failures < 1):
+            raise ValueError("max_consecutive_failures must be a positive integer")
         if on_status is not None and not callable(on_status):
             raise ValueError("on_status must be callable or None")
         self._observer = observer
         self._on_status = on_status
         self._retry_delay_seconds = retry_delay_seconds
+        self._max_retry_delay_seconds = max_retry_delay_seconds
+        self._max_consecutive_failures = max_consecutive_failures
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -82,6 +91,7 @@ class BackgroundPortSnapshotProvider:
             thread.join(join_timeout_seconds)
 
     def _run(self) -> None:
+        consecutive_failures = 0
         while not self._stop_event.is_set():
             try:
                 cancellable_capture = getattr(self._observer, "capture_cancellable", None)
@@ -94,14 +104,32 @@ class BackgroundPortSnapshotProvider:
                 snapshot = None
                 status = f"observer_exception:{type(exc).__name__}"
 
-            callback = None
             status = str(status)
+            if snapshot is not None:
+                status = "captured"
+            elif status == "captured":
+                status = "invalid_status_without_snapshot"
+
+            if status == "captured":
+                consecutive_failures = 0
+                retry_delay = self._retry_delay_seconds
+            elif status == "natural_response_timeout":
+                # No natural request is not a transport failure. Keep observing
+                # without consuming the bounded connection-failure budget.
+                retry_delay = self._retry_delay_seconds
+            elif status in {"not_started", "cancelled"}:
+                retry_delay = self._retry_delay_seconds
+            else:
+                consecutive_failures += 1
+                retry_delay = min(
+                    self._retry_delay_seconds * (2 ** (consecutive_failures - 1)),
+                    self._max_retry_delay_seconds,
+                )
+
+            callback = None
             with self._lock:
                 if snapshot is not None:
                     self._snapshot = copy.deepcopy(snapshot)
-                    status = "captured"
-                elif status == "captured":
-                    status = "invalid_status_without_snapshot"
                 if status != self._last_status:
                     callback = self._on_status
                 self._last_status = status
@@ -112,5 +140,16 @@ class BackgroundPortSnapshotProvider:
             if callback is not None:
                 callback(status)
 
-            if self._stop_event.wait(self._retry_delay_seconds):
+            if consecutive_failures >= self._max_consecutive_failures:
+                exhausted_status = f"retry_budget_exhausted:{status}"
+                exhausted_callback = None
+                with self._lock:
+                    if exhausted_status != self._last_status:
+                        exhausted_callback = self._on_status
+                    self._last_status = exhausted_status
+                if exhausted_callback is not None:
+                    exhausted_callback(exhausted_status)
+                break
+
+            if self._stop_event.wait(retry_delay):
                 break
