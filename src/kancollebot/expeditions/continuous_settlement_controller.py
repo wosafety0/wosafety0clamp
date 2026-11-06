@@ -466,14 +466,73 @@ class ContinuousSettlementController:
         asked for anything.
         """
         if not self.allow_ui_actions:
-            raise ContinuousSettlementError("UI actions are disabled; explicit enablement is required")
-        if fleet_id not in self.scheduler.dispatch_fleet_ids:
-            raise ContinuousSettlementError(
-                f"Fleet {fleet_id} is not a configured dispatch/settlement fleet"
+            reason = "UI actions are disabled; explicit enablement is required"
+            self._refuse_startup(
+                fleet_id,
+                reason,
+                self._screen_name(screen),
+                failed_check="ui_actions_disabled",
             )
+            raise ContinuousSettlementError(reason)
+        if fleet_id not in self.scheduler.dispatch_fleet_ids:
+            reason = f"Fleet {fleet_id} is not a configured dispatch/settlement fleet"
+            self._refuse_startup(
+                fleet_id,
+                reason,
+                self._screen_name(screen),
+                failed_check="fleet_not_configured",
+            )
+            raise ContinuousSettlementError(reason)
         if not isinstance(screen, StartupScreen):
-            raise ContinuousSettlementError("a proven startup screen is required")
+            reason = "a proven startup screen is required"
+            raise ContinuousSettlementError(reason)
 
+        # One startup settlement is its own lifecycle, exactly like
+        # ``settle_one_returned``: its own ``correlation_id`` and its own start
+        # row, so a chain that ends in a refusal is still readable from its
+        # beginning. Deliberately no ``dispatch_id``: this entry exists for a
+        # process that never saw the dispatch, and the durable link between the
+        # two is the dispatch ledger, not a log field.
+        lifecycle_id = new_correlation_id()
+        with correlation_scope(self.event_sink, correlation_id=lifecycle_id):
+            self.event_sink("startup_settlement_started", {
+                "fleet_id": fleet_id,
+                "lifecycle_kind": "settlement",
+                "entry": "visible_reward_chain",
+                "screen": self._screen_name(screen),
+                "game_api_requests": False,
+                "automatic_retry": False,
+            })
+            return self._settle_visible_reward_chain(
+                fleet_id=fleet_id,
+                screen=screen,
+                expected_ship_ids=expected_ship_ids,
+                expected_ship_ids_source=expected_ship_ids_source,
+                blocked_evidence=blocked_evidence,
+                blocked_evidence_rejection=blocked_evidence_rejection,
+                settlement_completed_at=settlement_completed_at,
+                mission_result_witness=mission_result_witness,
+            )
+
+    @staticmethod
+    def _screen_name(screen: object) -> str | None:
+        """The screen's own label, whatever enum/string the caller passed."""
+        if screen is None:
+            return None
+        return str(getattr(screen, "value", screen))
+
+    def _settle_visible_reward_chain(
+        self,
+        *,
+        fleet_id: int,
+        screen: StartupScreen,
+        expected_ship_ids: tuple[int, ...] | None = None,
+        expected_ship_ids_source: str | None = None,
+        blocked_evidence: DispatchEvidence | None = None,
+        blocked_evidence_rejection: str | None = None,
+        settlement_completed_at: datetime | None = None,
+        mission_result_witness: MissionResultWitness | None = None,
+    ) -> VisibleRewardSettlement:
         with self.ui_arbiter.operation(f"startup-settlement-fleet-{fleet_id}"):
             observation = self._read_observation_read_only()
             snapshot = self._snapshot_for(observation, fleet_id)
