@@ -10,7 +10,7 @@ from __future__ import annotations
 import copy
 import math
 import threading
-from typing import Any
+from typing import Any, Callable
 
 from kancollebot.adapters.poi.port_response_observer import PassivePortResponseObserver
 
@@ -23,10 +23,14 @@ class BackgroundPortSnapshotProvider:
         observer: PassivePortResponseObserver,
         *,
         retry_delay_seconds: float = 0.25,
+        on_status: Callable[[str], None] | None = None,
     ) -> None:
         if not math.isfinite(retry_delay_seconds) or retry_delay_seconds <= 0:
             raise ValueError("retry_delay_seconds must be finite and positive")
+        if on_status is not None and not callable(on_status):
+            raise ValueError("on_status must be callable or None")
         self._observer = observer
+        self._on_status = on_status
         self._retry_delay_seconds = retry_delay_seconds
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
@@ -90,11 +94,21 @@ class BackgroundPortSnapshotProvider:
                 snapshot = None
                 status = f"observer_exception:{type(exc).__name__}"
 
+            callback = None
+            status = str(status)
             with self._lock:
                 if snapshot is not None:
                     self._snapshot = copy.deepcopy(snapshot)
                     status = "captured"
-                self._last_status = str(status)
+                if status != self._last_status:
+                    callback = self._on_status
+                self._last_status = status
+
+            # The callback is deliberately limited to thread-safe in-memory
+            # state (the recovery gate); background observer threads must not
+            # share the event sink or inherit a foreground correlation scope.
+            if callback is not None:
+                callback(status)
 
             if self._stop_event.wait(self._retry_delay_seconds):
                 break
