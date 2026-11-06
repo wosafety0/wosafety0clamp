@@ -269,3 +269,19 @@ The purpose of this inventory is to prevent a new developer from mistaking an ol
 - **RETAINED INTENTIONALLY:** `docs/PROJECT_PATH_INDEX_STATUS.md` is an explicit compatibility placeholder retained to avoid breaking existing links. `docs/PROJECT_kancollebot_Progress.md` remains historical progress evidence; its size alone is not a reason to delete it. Current handoff and design documents remain authoritative for present status.
 - **BRANCH/PR AUDIT:** the repository currently has 74 branches and 24 open PRs. Open PR head/base refs and stacked development chains were protected. Branch comparisons show remaining non-PR branches are not all ancestors of the active MVP branch; no branch refs were deleted. Branch deletion was not available through the connected GitHub action set, so no branch was rewritten or force-moved.
 - **VALIDATION:** cleanup commit CI is pending; verify workflow and remotely re-read all changed paths before treating repository cleanup as complete.
+
+
+## Mandatory game-mechanics evidence gate (updated 2026-11-06)
+
+Before changing any code that makes or influences a game-state decision, read `docs/game-rules/README.md`, the relevant domain dossier, and `docs/game-rules/KAN_COLLE_AGENT_REFERENCE.md`.
+
+Use the source separation documented by Yukikaze030/KanColle-Agent:
+
+1. **Poi = current player state**; validate per-domain freshness, coverage, identity and refresh semantics.
+2. **Data MCP/static master data = entity definitions and structured fields**; preserve exact refs, source pins, era and partial/missing semantics.
+3. **Wiki/research sources = gameplay mechanics and edge cases**; cite exact current 二期 pages and retain uncertainty.
+4. **KancolleBot policy = automation safety decision**; label it separately from the game's actual rule.
+
+Current-mechanics decisions are 二期-only (post-May-2023 migration).一期-only or era-unknown material, third-party code behavior, synthetic fixtures, and model memory must not be silently promoted to current game rules. `coverage=complete` is not live verification; Poi online is not proof that every data domain is fresh. If the necessary mechanic or source field is UNKNOWN, INFERRED, stale, partial, or CONFLICTED, stop that decision path and research it first.
+
+Do not copy upstream code or install/connect its MCP services as part of this reference review. This project remains on its existing read-only passive API observation and permitted visible-UI boundary. Update the relevant rule dossier and evidence before relying on a newly researched mechanic in implementation.
