@@ -201,7 +201,12 @@ class RecoveryReconciliationCoordinator:
             )
 
         try:
-            scheduler_states = tuple(self.scheduler.states())
+            scheduler_state_source = self.scheduler.states
+            scheduler_states = tuple(
+                scheduler_state_source()
+                if callable(scheduler_state_source)
+                else scheduler_state_source
+            )
             open_dispatches = tuple(self.dispatch_registry.load_open())
             pending_intents = tuple(self.intent_store.load_all())
             unresolved_actions = (
