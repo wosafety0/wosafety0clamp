@@ -4,6 +4,8 @@ import unittest
 
 from kancollebot.expeditions.recovery_classification import (
     RecoveryCategory,
+    RecoveryPauseGate,
+    RecoveryPausedError,
     classify_recovery_signals,
 )
 
@@ -144,6 +146,56 @@ class RecoveryClassificationTests(unittest.TestCase):
         self.assertEqual(result.category, RecoveryCategory.HEALTHY_WITNESS)
         self.assertFalse(result.pause_required)
         self.assert_never_resumes(result)
+
+
+class RecoveryPauseGateTests(unittest.TestCase):
+    def test_gate_starts_open_and_does_not_invent_a_pause(self):
+        gate = RecoveryPauseGate()
+        self.assertFalse(gate.is_paused)
+        self.assertEqual(gate.generation, 0)
+        self.assertIsNone(gate.classification)
+        gate.require_actions_allowed()
+
+    def test_pause_latches_and_refuses_future_actions(self):
+        gate = RecoveryPauseGate()
+        classification = classify_recovery_signals(
+            observer_status="cdp_connection_closed"
+        )
+        generation = gate.pause(classification)
+        self.assertEqual(generation, 1)
+        self.assertTrue(gate.is_paused)
+        with self.assertRaises(RecoveryPausedError) as caught:
+            gate.require_actions_allowed()
+        self.assertEqual(caught.exception.category, RecoveryCategory.CDP_UNAVAILABLE)
+        self.assertEqual(caught.exception.generation, 1)
+        self.assertEqual(caught.exception.reason, classification.reason)
+
+    def test_repeated_pause_is_idempotent_and_keeps_first_evidence(self):
+        gate = RecoveryPauseGate()
+        first = classify_recovery_signals(observer_status="cdp_connection_closed")
+        second = classify_recovery_signals(visual_state="cat")
+        self.assertEqual(gate.pause(first), 1)
+        self.assertEqual(gate.pause(second), 1)
+        self.assertIs(gate.classification, first)
+        self.assertEqual(gate.generation, 1)
+
+    def test_non_pausing_classification_cannot_close_gate(self):
+        gate = RecoveryPauseGate()
+        healthy = classify_recovery_signals(observer_status="captured")
+        with self.assertRaisesRegex(ValueError, "pause-required"):
+            gate.pause(healthy)
+        self.assertFalse(gate.is_paused)
+        self.assertEqual(gate.generation, 0)
+
+    def test_gate_has_no_implicit_resume_or_reset_api(self):
+        gate = RecoveryPauseGate()
+        gate.pause(classify_recovery_signals(visual_state="cat"))
+        self.assertFalse(hasattr(gate, "resume"))
+        self.assertFalse(hasattr(gate, "reset"))
+        with self.assertRaises(RecoveryPausedError):
+            gate.require_actions_allowed()
+
+
 
 
 if __name__ == "__main__":
