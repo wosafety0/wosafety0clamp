@@ -207,6 +207,7 @@ class VisibleUiPortRefreshDriver:
                         "clicks_attempted": clicks_attempted,
                         "clicks_completed": clicks_completed,
                     })
+                    self._arbiter.require_actions_allowed()
                     clicks_attempted += 1
                     self._emit("ui_refresh_click_attempted", {
                         "step": index,
@@ -214,7 +215,6 @@ class VisibleUiPortRefreshDriver:
                         "target": point.label,
                         "clicks_attempted": clicks_attempted,
                     })
-                    self._arbiter.require_actions_allowed()
                     self._input.click(point)
                     clicks_completed += 1
                     self._emit("ui_refresh_click_sent", {
@@ -257,6 +257,7 @@ class VisibleUiPortRefreshDriver:
                                 "clicks_sent": 0,
                             })
                         self._confirm(current_state, phase=f"{action} had no effect")
+                        self._arbiter.require_actions_allowed()
                         self._emit("ui_refresh_click_repeated", {
                             "step": index,
                             "action": action,
@@ -265,7 +266,6 @@ class VisibleUiPortRefreshDriver:
                             "reason": "precondition re-proven after the click",
                         })
                         clicks_attempted += 1
-                        self._arbiter.require_actions_allowed()
                         self._input.click(point)
                         clicks_completed += 1
                         if self._settle_seconds:
