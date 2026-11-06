@@ -10,6 +10,7 @@ from kancollebot.adapters.poi.visual_fingerprint import (
     VisualFingerprintError,
     average_fingerprints,
     classify_screenshot_fingerprints,
+    classify_screenshot_fingerprints_detailed,
     classify_supply_checkbox_state,
     classify_fingerprints,
     compute_grid_fingerprint,
@@ -181,6 +182,48 @@ class VisualFingerprintTests(unittest.TestCase):
         label, scores = classify_screenshot_fingerprints(self.image, document)
         self.assertEqual(label, "HOME_PORT")
         self.assertEqual(scores["HOME_PORT"], 1.0)
+
+    def test_detailed_classifier_exposes_best_score_and_margin(self):
+        current = [255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255]
+        document = {
+            "version": 1,
+            "viewport": [2, 2],
+            "states": {
+                "HOME_PORT": {
+                    "crop": [0, 0, 2, 2], "grid": [2, 2], "fingerprint": current,
+                },
+                "SORTIE_MENU": {
+                    "crop": [0, 0, 2, 2], "grid": [2, 2], "fingerprint": [0, 0, 0] * 4,
+                },
+            },
+        }
+        result = classify_screenshot_fingerprints_detailed(self.image, document)
+        self.assertEqual(result.state, "HOME_PORT")
+        self.assertEqual(result.best_state, "HOME_PORT")
+        self.assertEqual(result.best_score, 1.0)
+        self.assertGreaterEqual(result.margin, 0.04)
+        self.assertEqual(result.minimum_score, 0.97)
+        self.assertEqual(result.minimum_margin, 0.04)
+
+    def test_detailed_classifier_keeps_best_candidate_when_margin_is_too_small(self):
+        current = [255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255]
+        document = {
+            "version": 1,
+            "viewport": [2, 2],
+            "states": {
+                "HOME_PORT": {
+                    "crop": [0, 0, 2, 2], "grid": [2, 2], "fingerprint": current,
+                },
+                "SORTIE_MENU": {
+                    "crop": [0, 0, 2, 2], "grid": [2, 2], "fingerprint": current,
+                },
+            },
+        }
+        result = classify_screenshot_fingerprints_detailed(self.image, document)
+        self.assertEqual(result.state, "UNKNOWN")
+        self.assertEqual(result.best_state, "HOME_PORT")
+        self.assertEqual(result.best_score, 1.0)
+        self.assertEqual(result.margin, 0.0)
 
     def test_supply_fleet1_child_state_ignores_only_its_parent_menu_for_margin(self):
         current = [255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255]

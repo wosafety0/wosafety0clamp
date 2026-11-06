@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import math
+from dataclasses import dataclass
 import struct
 import zlib
 from collections.abc import Mapping, Sequence
@@ -228,14 +229,27 @@ def compute_grid_fingerprint(
 CANONICAL_STATE_VARIANTS = {"BONUS_ITEMS": ("BONUS_ITEMS_M1", "BONUS_ITEMS_M2")}
 
 
-def classify_screenshot_fingerprints(
+@dataclass(frozen=True, slots=True)
+class FingerprintClassification:
+    """One-frame, all-state fingerprint decision with its ranking evidence."""
+
+    state: str
+    best_state: str | None
+    best_score: float
+    margin: float
+    scores: dict[str, float]
+    minimum_score: float
+    minimum_margin: float
+
+
+def classify_screenshot_fingerprints_detailed(
     screenshot_base64: str,
     document: Mapping[str, object],
     *,
     minimum_score: float = 0.97,
     minimum_margin: float = 0.04,
-) -> tuple[str, dict[str, float]]:
-    """Classify one screenshot against state-specific crops stored as RGB descriptors."""
+) -> FingerprintClassification:
+    """Classify one frame and expose the best candidate plus its decision margin."""
     if not math.isfinite(minimum_score) or not 0 < minimum_score <= 1:
         raise ValueError("minimum_score must be finite and in (0, 1]")
     if not math.isfinite(minimum_margin) or not 0 <= minimum_margin <= 1:
@@ -247,7 +261,9 @@ def classify_screenshot_fingerprints(
         raise VisualFingerprintError("fingerprint viewport does not match the screenshot")
     states = document.get("states")
     if not isinstance(states, Mapping) or not states:
-        return "UNKNOWN", {}
+        return FingerprintClassification(
+            "UNKNOWN", None, 0.0, 0.0, {}, minimum_score, minimum_margin
+        )
 
     scores: dict[str, float] = {}
     for name, template in states.items():
@@ -281,7 +297,9 @@ def classify_screenshot_fingerprints(
         reverse=True,
     )
     if not ranked:
-        return "UNKNOWN", scores
+        return FingerprintClassification(
+            "UNKNOWN", None, 0.0, 0.0, scores, minimum_score, minimum_margin
+        )
     best_name, best_score = ranked[0]
     # Supply fleet selections are child states of the supply page. Their
     # shared header intentionally resembles SUPPLY_MENU, so do not let that
@@ -303,9 +321,38 @@ def classify_screenshot_fingerprints(
         if name != parent_state
     ]
     second_score = competitors[0] if competitors else -1.0
-    if best_score < minimum_score or best_score - second_score < minimum_margin:
-        return "UNKNOWN", scores
-    return best_name, scores
+    margin = best_score - second_score
+    state = (
+        best_name
+        if best_score >= minimum_score and margin >= minimum_margin
+        else "UNKNOWN"
+    )
+    return FingerprintClassification(
+        state,
+        best_name,
+        best_score,
+        margin,
+        scores,
+        minimum_score,
+        minimum_margin,
+    )
+
+
+def classify_screenshot_fingerprints(
+    screenshot_base64: str,
+    document: Mapping[str, object],
+    *,
+    minimum_score: float = 0.97,
+    minimum_margin: float = 0.04,
+) -> tuple[str, dict[str, float]]:
+    """Backward-compatible state/scores view of the detailed one-frame classifier."""
+    result = classify_screenshot_fingerprints_detailed(
+        screenshot_base64,
+        document,
+        minimum_score=minimum_score,
+        minimum_margin=minimum_margin,
+    )
+    return result.state, result.scores
 
 
 def classify_supply_checkbox_state(
