@@ -451,6 +451,25 @@ class CanonicalVariantMergeTests(unittest.TestCase):
         self.assertEqual(scores["BONUS_ITEMS"], 1.0)
         self.assertIn("BONUS_ITEMS_M1", scores)
 
+    def test_two_variants_both_merge_and_neither_answers_alone(self):
+        # Live 2026-11-06 (L4 soak, expedition 2): a second per-expedition
+        # variant joins the registry; the canonical answer must be reachable
+        # through either variant and no variant name may win the ranking.
+        self.document["states"]["BONUS_ITEMS_M2"] = dict(
+            self.document["states"]["BONUS_ITEMS_M1"]
+        )
+        label, scores = classify_screenshot_fingerprints(self.image, self.document)
+        self.assertEqual(label, "BONUS_ITEMS")
+        self.assertEqual(scores["BONUS_ITEMS"], 1.0)
+        self.assertGreaterEqual(scores["BONUS_ITEMS_M1"], 0.0)
+        self.assertGreaterEqual(scores["BONUS_ITEMS_M2"], 0.0)
+        # Suppress the canonical template itself so only the variant can
+        # match; the merged canonical score must still carry the answer.
+        self.document["states"]["BONUS_ITEMS"]["fingerprint"] = [0] * 12
+        label, scores = classify_screenshot_fingerprints(self.image, self.document)
+        self.assertEqual(label, "BONUS_ITEMS")
+        self.assertEqual(scores["BONUS_ITEMS"], 1.0)
+
     def test_a_low_variant_score_never_lowers_or_wins_the_ranking(self):
         variant = self.document["states"]["BONUS_ITEMS_M1"]["fingerprint"]
         # The variant template matches a *different* page worse than the

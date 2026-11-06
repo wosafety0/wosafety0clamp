@@ -4762,3 +4762,13 @@ The Hand plugin's read-only probe reported:
 - **区分度实证（离线，真实帧）:** 远征 1 獲得页 → `BONUS_ITEMS 1.0000`（M1 并入）；遠征成功页 → `RETURN_RESULT 0.9930`（合并后 BI=0.6732 不进 top3）——两个历史卡点同时正确。
 - **TESTED:** `CanonicalVariantMergeTests` 3 条（变体命中以主名作答、低变体分不抬高/不夺名、无 canonical 时变体保留本名）；指纹模块 20 OK；**全量 1817 OK / 2 skip**（1814+3）；`compileall` OK；`git diff --check` OK；`node --test` 25/25。
 - **LIMITS:** ①变体按远征逐个补充（当前 M1=远征 1）；远征 2（Fleet 4 待跑）若内容区与远征 3 模板 <0.97 需再补 M2——实战决定；②变体指纹同样录自当前账号渲染；③`CANONICAL_STATE_VARIANTS` 是硬编码映射（与 capture 工具的 SUPPORTED_STATES 同一层），新增变体需同时更新两处+JSON。
+
+## 2026-11-06 — L4 soak（进行中）：Fleet 4 / 远征 2 与 BONUS_ITEMS_M2 变体（缺陷 E 机制实战扩展）
+
+- **实机过程:** Fleet 4 补给前置（override `TARGET_FLEET_IDS=(4,)`，dry-run 因无自然 port witness 失败属预期）→ `full_supply_not_needed`（全舰队 deficit=0）。派遣 c1（06:44-06:48Z）：`PRODUCTION_UI_CONTROLLER_INTEGRATION_VERIFIED`（fleet 4 / 遠征 2 / ship_ids=[16859,14882,12794,1325]，R3-I cross_checked 门禁过，dispatchable=[2,3,4]）。
+- **关键发现（settle-only × wait-for-return 真实语义）:** c1b settle-only wait-for-return 在 tick 1 即 pause `ui_actions_disabled` EXIT=2——`continuous_supervisor._dispatch_ready_fleets` 对 `dispatch_controller.allow_ui_actions` 无条件检查，SettleOnlyDispatcher 不满足 → **settle-only 每个 tick 必 pause**，wait 循环的「继续等待」分支不可达。**该组合只在「返航先于 tick 1」时有效**（c3e 恰好如此）；不能等一支在途舰队。且管道 `| grep | tail` 会把真实 exit code 掩蔽成 0——成败判定必须看末尾事件与库状态。
+- **实机发现（远征 2 獲得页，缺陷 E 预测命中）:** 07:18Z 定时单 tick settle-only 收口：RETURN_RESULT 判定通过（内容区模板对遠征成功页正确）→ 推进到獲得页 → fail-closed `Expected BONUS_ITEMS; no stable fingerprint match after 6 attempts`（远征 2 内容区 vs 远征 3 模板 0.9076 / vs M1 0.9060，均 <0.97）。零点击，库 phase 停 RETURN_RESULT、画面留在獲得页。**帧已捕获**（`logs/soak_bonus_page_e2_live.png`，BONUS_ITEMS 0.9076 top-1 确认页面身份后才生成模板）。
+- **IMPLEMENTED（M2 变体）:** ①JSON 新增 `BONUS_ITEMS_M2`（同一内容区 crop，从实机帧离线生成，`compute_grid_fingerprint` 生产函数）；②`CANONICAL_STATE_VARIANTS` 扩为 `("BONUS_ITEMS_M1", "BONUS_ITEMS_M2")`。三帧离线验证：远征 2 獲得页 → `BONUS_ITEMS 1.0000`（M2 并入）；远征 1 獲得页 → `BONUS_ITEMS 1.0000`（M1 并入，M2 0.9060 不干扰）；遠征成功页 → `RETURN_RESULT 0.9930` 不翻转。
+- **TESTED:** `CanonicalVariantMergeTests` +1（双变体都并入、抑制 canonical 模板后仍由 canonical 作答）；指纹模块 21 OK；**全量 1818 OK / 2 skip**；`compileall` OK；`git diff --check` OK；`node --test` 25/25。
+- **重入路径分析（已代码核证）:** scheduler phase `RETURN_RESULT` 语义 = 遠征成功页已确认、下一步动作即 bonus 推进——与留在獲得页的物理画面**逐动作对齐**（`settle_one_returned` 第 412 行分支 `claim_bonus_items` expected BONUS_ITEMS），M2 就位后重入即可完成结算，无需额外代码。
+- **LIMITS:** ①变体按远征逐个补充（M1=远征 1、M2=远征 2、canonical=远征 3），新远征首遇必然一次 fail-closed（安全成本，非缺陷）；②变体指纹录自当前账号渲染；③`CANONICAL_STATE_VARIANTS` 与 capture 工具 SUPPORTED_STATES 双处维护仍在；④Fleet 4 结算重入与 READY 终态待下轮执行。

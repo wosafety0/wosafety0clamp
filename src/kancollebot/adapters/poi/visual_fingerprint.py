@@ -225,7 +225,7 @@ def compute_grid_fingerprint(
 # still answers with one name. A variant never wins the ranking itself: its
 # evidence travels under the canonical name, and on a *success* page the
 # merged score stays low (0.6732 / 0.6427), leaving that decision unchanged.
-CANONICAL_STATE_VARIANTS = {"BONUS_ITEMS": ("BONUS_ITEMS_M1",)}
+CANONICAL_STATE_VARIANTS = {"BONUS_ITEMS": ("BONUS_ITEMS_M1", "BONUS_ITEMS_M2")}
 
 
 def classify_screenshot_fingerprints(
