@@ -633,6 +633,27 @@ class ContinuousExpeditionSupervisor:
         progress: _TickProgress,
     ) -> SupervisorTickResult:
         """Dispatch every READY fleet in scheduler order, stopping on surprise."""
+        scheduler = self.monitor.scheduler
+        dispatch_order = tuple(
+            getattr(scheduler, "dispatch_fleet_ids", ())
+        )
+
+        # A controller that cannot dispatch (notably SettleOnlyDispatcher)
+        # must not turn an otherwise healthy in-flight fleet into a pause.
+        # --wait-for-return relies on a clean, no-action tick while every
+        # configured fleet is still EXPEDITION_ACTIVE. Only refuse when there
+        # is actually a READY fleet whose dispatch this controller would need
+        # to perform; the caller can then distinguish "keep waiting" from
+        # "settlement/resupply is complete, but dispatch is intentionally off".
+        ready_fleet_ids = []
+        for fleet_id in dispatch_order:
+            try:
+                state = scheduler.fleet(fleet_id)
+            except (KeyError, LookupError):
+                continue
+            if self._phase_name(state) == "READY":
+                ready_fleet_ids.append(fleet_id)
+
         if not bool(
             getattr(
                 self.dispatch_controller,
@@ -640,18 +661,21 @@ class ContinuousExpeditionSupervisor:
                 False,
             )
         ):
-            return self._paused(
-                monitor_result, "ui_actions_disabled", settlements, resupplies
+            if ready_fleet_ids:
+                return self._paused(
+                    monitor_result, "ui_actions_disabled", settlements, resupplies
+                )
+            return SupervisorTickResult(
+                monitor_result=monitor_result,
+                dispatches=(),
+                paused_reason=None,
+                settlements=settlements,
+                resupplies=resupplies,
             )
-
-        scheduler = self.monitor.scheduler
-        dispatch_order = tuple(
-            getattr(scheduler, "dispatch_fleet_ids", ())
-        )
 
         dispatches = []
 
-        for fleet_id in dispatch_order:
+        for fleet_id in ready_fleet_ids:
             try:
                 state = scheduler.fleet(fleet_id)
             except (KeyError, LookupError):
