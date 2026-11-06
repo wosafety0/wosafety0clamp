@@ -93,6 +93,7 @@ The GitHub Actions workflow runs the corresponding offline checks on pushes to m
 - [Developer handoff and current status](docs/HANDOFF.md)
 - [Single-loop design contract and chronological implementation notes](docs/MVP_EXPEDITION_SINGLE_LOOP.md)
 - [Passive port-response observer contract](docs/POI_PORT_RESPONSE_OBSERVER.md)
+- [Game Rules Knowledge Base — mandatory reference before game-logic development](docs/game-rules/README.md)
 - [Research notes](docs/research/)
 - [Authoritative global collaboration rules](https://github.com/wosafety0/Agents-global/blob/main/AGENTS.md)
 
