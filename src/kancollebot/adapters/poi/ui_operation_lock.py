@@ -142,14 +142,30 @@ class UiOperationArbiter:
     whose outcome is already in flight.
     """
 
-    def __init__(self, action_guard: Callable[[], None] | None = None) -> None:
+    def __init__(
+        self,
+        action_guard: Callable[[], None] | None = None,
+        action_permit: Callable[[], Iterator[None]] | None = None,
+    ) -> None:
         if action_guard is not None and not callable(action_guard):
             raise ValueError("action_guard must be callable or None")
+        if action_permit is not None and not callable(action_permit):
+            raise ValueError("action_permit must be callable or None")
         self._action_guard = action_guard
+        self._action_permit_factory = action_permit
 
     def require_actions_allowed(self) -> None:
         if self._action_guard is not None:
             self._action_guard()
+
+    @contextmanager
+    def action_permit(self) -> Iterator[None]:
+        if self._action_permit_factory is None:
+            self.require_actions_allowed()
+            yield
+            return
+        with self._action_permit_factory():
+            yield
 
     @contextmanager
     def operation(self, label: str) -> Iterator[None]:
