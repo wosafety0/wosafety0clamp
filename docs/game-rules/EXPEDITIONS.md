@@ -150,3 +150,33 @@
 - **Automation consequence:** A monthly mission must not be scheduled near the cutoff based solely on dispatch eligibility. Use the current in-game monthly state and leave a safety margin; do not infer a reset from local calendar time alone.
 - **Live verification:** Not performed; current server reset behavior and UI status remain to be confirmed.
 
+## Mission catalogue — selected expedition records
+
+**Source:** [Japanese Kancolle Wiki — 遠征/詳細一覧表](https://wikiwiki.jp/kancolle/遠征/詳細一覧表), accessed 2026-11-06. The entries below transcribe selected rows for planning and research. The page is community-maintained; table freshness and underlying formulas are not independently verified. All records below are **COMMUNITY_REPORTED**, not production-authoritative.
+
+| Mission ID | Name | Duration | Fuel / ammo cost | Flagship Lv / fleet total Lv | Fleet composition | Rewards on success |
+|---|---|---:|---|---|---|---|
+| 2 | 長距離練習航海 | 00:30 | 50% / 0% | 2 / — | At least 4 ships; any types | Ammo 100, steel 30, repair bucket 0–1; 20 admiral EXP |
+| 3 | 警備任務 | 00:20 | 30% / 20% | 3 / — | At least 3 ships; any types | Fuel 30, ammo 30, steel 40; 30 admiral EXP |
+| 5 | 海上護衛任務 | 01:30 | 50% / 0% | 3 / — | At least 4; light cruiser 1, destroyer/escort 2, other 1 | Fuel 200, ammo 200, steel 20, bauxite 20; 40 admiral EXP |
+| 6 | 防空射撃演習 | 00:40 | 30% / 20% | 4 / — | At least 4 ships; any types | Bauxite 80, furniture box (small) 0–1; 30 admiral EXP |
+| 9 | タンカー護衛任務 | 04:00 | 50% / 0% | 3 / — | At least 4; light cruiser 1, destroyer/escort 2, other 1 | Fuel 350, furniture box (small) 0–1, repair bucket 0–2; 60 admiral EXP |
+| 11 | ボーキサイト輸送任務 | 05:00 | 50% / 0% | 6 / — | At least 4; destroyer/escort 2, other 2 | Bauxite 250, furniture box (small) 0–1, repair bucket 0–1; 40 admiral EXP |
+| 13 | 鼠輸送作戦 | 04:00 | 50% / 40% | 5 / — | Exactly 6; light cruiser 1, destroyer 4, other 1 | Fuel 240, ammo 300, repair bucket 0–2, furniture box (small) 0–1; 70 admiral EXP |
+| 17 | 敵地偵察作戦 | 00:45 | 30% / 40% | 20 / — | Exactly 6; light cruiser 1, destroyer 3, other 2 | Fuel 70, ammo 90, steel 50; 30 admiral EXP |
+| 20 | 潜水艦哨戒任務 | 02:00 | 50% / 40% | 1 / — | At least 2; submarine 1, light cruiser 1 | Steel 150, development material 0–1, furniture box (medium) 0–1; 40 admiral EXP |
+| 21 | 北方鼠輸送作戦 | 02:20 | 80% / 70% | 15 / 30 | At least 5; light cruiser 1, destroyer 4; at least 3 ships carry at least 3 drum cans total | Fuel 320, ammo 270, furniture box (small) 0–1; 45 admiral EXP |
+| 24 | 北方航路海上護衛 | 08:20 | 90% / 60% | 50 / 200 | Exactly 6; light cruiser must be flagship, destroyer/escort 4, other 1; at least 2 drum cans total | Fuel 500, bauxite 150, development material 0–2, repair bucket 0–1; 65 admiral EXP |
+| 41 | ブルネイ泊地沖哨戒 | 01:00 | 50% / 50% | 30 / 100 | At least 3; destroyer/escort 3; aggregate firepower ≥60, AA ≥80, ASW ≥210 | Fuel 100, bauxite 20, development material 0–1, repair bucket 0–1; 30 admiral EXP |
+
+**Interpretation and limitations**
+
+1. Cost percentages are applied per participating ship to its departure-time remaining fuel/ammunition, with fractional amounts rounded down (the wiki notes exceptions for support-fleet expeditions). Do not estimate costs by applying the percentage once to a fleet total.
+2. “Other” means an unrestricted slot only where the row says so. It does not permit replacing a specifically required ship class with a similar class.
+3. “Destroyer/escort” follows the wiki's stated combined category for the relevant mission. Do not generalize this to all expedition requirements.
+4. Mission 21 and 24 have drum-can conditions in addition to ship composition. Mission 41 has equipment-included aggregate stat thresholds; aircraft stats have special modifiers described elsewhere on the source page.
+5. Resource rewards above are success baselines, not great-success predictions. Random item drops and great-success-only items must be tracked separately (see EXP-017).
+6. The table includes entries whose source notes cite older research and historical updates. Before any production use, compare the mission row against current in-game mission details and current Poi master/player data. A table transcription test can verify our parser, not prove game mechanics.
+
+**Automation gate:** These rows are planning references only. Do not dispatch based solely on this table. A production candidate must additionally pass current mission availability, fleet eligibility, live ship identity/type mapping, per-domain Poi freshness, damage/fatigue/supply policy, and exact equipment/stat calculation. Unknown or stale inputs must block the action.
+
