@@ -346,6 +346,8 @@ class RealClickPathTests(unittest.TestCase):
             "continuous_ui_supply_click_attempted",
             "ui_refresh_click_attempted",
             "ui_refresh_click_sent",
+            "expedition_list_click_attempted",
+            "expedition_list_click_sent",
         ):
             with self.subTest(event=event):
                 self.assertTrue(is_critical_event(event))
