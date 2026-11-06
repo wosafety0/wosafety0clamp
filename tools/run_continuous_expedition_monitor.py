@@ -401,8 +401,9 @@ def run_monitor(
     while True:
         tick_count += 1
         try:
-            if runtime.recovery_gate is not None:
-                runtime.recovery_gate.require_actions_allowed()
+            recovery_gate = getattr(runtime, "recovery_gate", None)
+            if recovery_gate is not None:
+                recovery_gate.require_actions_allowed()
             report = runtime.monitor.tick()
         except RecoveryPausedError as exc:
             _emit({
