@@ -11,6 +11,11 @@ from kancollebot.adapters.poi.continuous_expedition_ui import (
 from kancollebot.adapters.poi.ui_state_gate import UiState
 from kancollebot.calibration import DetailMatch, MarkMatch, RowLocation
 from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
+from kancollebot.expeditions.recovery_classification import (
+    RecoveryPauseGate,
+    RecoveryPausedError,
+    classify_recovery_signals,
+)
 
 
 class FakeInput:
@@ -188,6 +193,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
         marks=None,
         fleet_after_confirm=2,
         supported_fleets=(2, 3, 4),
+        action_guard=None,
     ):
         game_input = FakeInput()
         events = []
@@ -228,6 +234,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
             sleep=lambda _seconds: None,
             locate_row=locate_row,
             supported_fleets=supported_fleets,
+            action_guard=action_guard,
         )
         return driver, game_input, events, marks, details
 
@@ -243,6 +250,21 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
             tab_clicks=1,
             detail="list position on a page starting at 0",
         )
+
+
+    def test_recovery_pause_blocks_the_next_expedition_click(self):
+        gate = RecoveryPauseGate()
+        gate.pause(classify_recovery_signals(visual_state="cat"))
+        driver, game_input, _, _, _ = self.make_driver(
+            locate_row=lambda expedition_id: self.location(expedition_id),
+            action_guard=gate.require_actions_allowed,
+        )
+
+        with self.assertRaises(RecoveryPausedError):
+            driver.prepare_dispatch(fleet_id=3, mission_id=3)
+
+        self.assertEqual(game_input.clicks, [])
+
 
     def test_fleet_tab_fingerprints_use_disjoint_tab_only_crops(self):
         root = Path(__file__).resolve().parents[1]
