@@ -1409,7 +1409,17 @@ def _resolve_dispatch_plan(args: argparse.Namespace) -> tuple[tuple[int, ...], d
     and multi-fleet paths cannot silently diverge.
     """
     fleet_id = getattr(args, "fleet_id", None)
+    excluded_raw = getattr(args, "exclude_fleets", None)
+    # The test harness builds args as a MagicMock, where an unset attribute is a
+    # truthy MagicMock rather than None; only a real string means "set".
+    if excluded_raw is not None and not isinstance(excluded_raw, str):
+        excluded_raw = None
     if fleet_id is not None:
+        if excluded_raw is not None:
+            raise LoopError(
+                "--exclude-fleets cannot be combined with --fleet-id "
+                "(single-fleet mode)"
+            )
         mission_id = getattr(args, "mission_id", None)
         if mission_id is None:
             raise LoopError("--fleet-id requires --mission-id")
@@ -1423,6 +1433,30 @@ def _resolve_dispatch_plan(args: argparse.Namespace) -> tuple[tuple[int, ...], d
             "fleet to its expedition"
         )
     target_fleet_ids = tuple(int(f) for f in RUNTIME_CONFIG.dispatchable_fleet_ids)
+    if excluded_raw:
+        try:
+            excluded_ids = {
+                int(tok) for tok in excluded_raw.split(",") if tok.strip()
+            }
+        except ValueError as exc:
+            raise LoopError(
+                f"--exclude-fleets must be comma-separated integers: {exc}"
+            )
+        unknown = excluded_ids - set(RUNTIME_CONFIG.dispatchable_fleet_ids)
+        if unknown:
+            raise LoopError(
+                f"--exclude-fleets names non-dispatchable fleet ids "
+                f"{sorted(unknown)}; only {RUNTIME_CONFIG.dispatchable_fleet_ids} "
+                "may be excluded"
+            )
+        target_fleet_ids = tuple(
+            f for f in target_fleet_ids if f not in excluded_ids
+        )
+        if not target_fleet_ids:
+            raise LoopError(
+                "--exclude-fleets removed every dispatchable fleet; refusing an "
+                "empty plan"
+            )
     fleet_missions = getattr(args, "fleet_missions", None)
     if fleet_missions:
         mission_map = _parse_fleet_missions(fleet_missions)
@@ -2303,6 +2337,17 @@ def _main_impl(argv: list[str] | None = None) -> int:
         help="Multi-fleet expedition map, e.g. \"2:3,3:1,4:2\" (fleet:mission). "
              "Only used in all-fleets mode; each expedition id may appear at "
              "most once across fleets, or the run is refused before any click.",
+    )
+    parser.add_argument(
+        "--exclude-fleets",
+        type=str,
+        default=None,
+        metavar="IDS",
+        help="Comma-separated dispatchable fleet ids to leave out of all-fleets "
+             "mode, e.g. \"4\" runs only fleets 2 and 3. Must name a subset of "
+             "the dispatchable fleets; the remaining set must be non-empty and "
+             "still obey the no-duplicate-mission rule. Cannot be combined with "
+             "--fleet-id.",
     )
     parser.add_argument(
         "--mission-id",

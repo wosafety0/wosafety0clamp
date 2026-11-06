@@ -29,6 +29,7 @@ def _args(**overrides) -> SimpleNamespace:
         "fleet_id": None,
         "mission_id": None,
         "fleet_missions": None,
+        "exclude_fleets": None,
         "global_drain": False,
         "minimum_ships": None,
         "flagship_level": None,
@@ -88,6 +89,36 @@ class DispatchPlanResolutionTests(unittest.TestCase):
         # Fleet 1 is reserved / non-dispatchable.
         with self.assertRaises(entry.LoopError):
             entry._parse_fleet_missions("1:3")
+
+    def test_exclude_fleets_removes_one(self):
+        fleets, missions = entry._resolve_dispatch_plan(
+            _args(fleet_id=None, exclude_fleets="4")
+        )
+        self.assertEqual(fleets, (2, 3))
+        self.assertEqual(len(set(missions.values())), len(missions))
+
+    def test_exclude_fleets_with_explicit_map(self):
+        fleets, missions = entry._resolve_dispatch_plan(
+            _args(fleet_id=None, fleet_missions="2:3,3:1", exclude_fleets="4")
+        )
+        self.assertEqual(fleets, (2, 3))
+        self.assertEqual(missions, {2: 3, 3: 1})
+
+    def test_exclude_fleets_non_dispatchable_is_refused(self):
+        with self.assertRaises(entry.LoopError):
+            entry._resolve_dispatch_plan(_args(fleet_id=None, exclude_fleets="1"))
+
+    def test_exclude_fleets_all_is_refused(self):
+        with self.assertRaises(entry.LoopError):
+            entry._resolve_dispatch_plan(
+                _args(fleet_id=None, exclude_fleets="2,3,4")
+            )
+
+    def test_exclude_fleets_with_fleet_id_is_refused(self):
+        with self.assertRaises(entry.LoopError):
+            entry._resolve_dispatch_plan(
+                _args(fleet_id=3, mission_id=3, exclude_fleets="4")
+            )
 
 
 class MultiFleetRequiresGlobalDrainTests(unittest.TestCase):

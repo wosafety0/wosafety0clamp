@@ -4794,3 +4794,14 @@ The Hand plugin's read-only probe reported:
 - **提交链（本 soak）:** `3458e87`(B) → `012276a`(C) → `903dd19`(D) → `fc0c56e`(E) → `2498ff5`(E.2/M2)，全部推送 + 远端 tree 回读一致。测试 1811 → **1818 OK / 2 skip**（+7）；node 25/25 保持。
 - **实机首验清单:** settle-only 单 tick 收口路径（c2c/c3e/c1c/c1d 四次）；settle-only×wait-for-return 不可跨 tick 等待（语义发现，见上节）；M2 变体生产分类；Fleet 4 远征 2 首次全链（派遣门禁→返航→结算→补给→READY）；变体机制「新远征首遇一次 fail-closed」的设计成本实证。
 - **LIMITS:** ①变体仍需按远征逐个补充（canonical=遠征 3、M1=遠征 1、M2=遠征 2；远征 4+ 未捕获）；②`CANONICAL_STATE_VARIANTS` 与 capture 工具 SUPPORTED_STATES 双处维护；③settle-only 收口后 `home_port_verified=0`（无派遣核验路径，属预期，非缺陷）；④P0.2 多舰队 Drain 迁移未开工（`other_returns` 屏障仍靠单返回前提）。
+
+## 2026-11-06 — #129 使能：--exclude-fleets 开关（仅 F2+F3 的 Soak 配置）
+
+- **背景**: #129 L4 验收用户选「仅 Fleet 2+3，排除 Fleet 4」（Fleet 4 补给未校准，`resupply_verified_fleet_ids=(2,3)`，反复循环会在补给环节 fail-closed 暂停）。但 `_resolve_dispatch_plan` 在 all-fleets 模式下 `target_fleet_ids` 固定为全部可派遣舰队 `(2,3,4)`，`--fleet-missions` 只覆盖任务映射、不缩减目标集合 → 无法表达「只跑 2+3」。新增 `--exclude-fleets` 开关。
+- **IMPLEMENTED（`tools/one_expedition_ui_loop.py`）**: ①argparse 新增 `--exclude-fleets`（逗号分隔整数，如 `"4"`）；②`_resolve_dispatch_plan` 在 all-fleets 分支（--fleet-id 为 None）按 `RUNTIME_CONFIG.dispatchable_fleet_ids` 取全集后剔除排除项：排除项必须 ⊆ 可派遣舰队（否则 refuse）、剔除后非空（否则 refuse empty plan）、与 `--fleet-id` 互斥（否则 refuse）；③读取对 MagicMock 鲁棒（仅真实字符串算「已设置」），不破坏既有集成测试。
+- **SAFETY**: 排除只在 all-fleets 分支生效；单舰队 `--fleet-id` 模式不受影响（互斥守卫 + 早返回）；默认行为完全不变（不传 `--exclude-fleets` 仍跑全 (2,3,4)）；无游戏连接、无点击。
+- **TESTED**: 新增 5 项（`tests/test_p02_dispatch_plan_resolution.py`）：排除单舰队→(2,3)、排除+显式 map→(2,3)/{2:3,3:1}、排除非派遣舰队 refuse、排除全部 refuse、与 --fleet-id 互斥 refuse。**全量 1835 OK / 2 skip**（1830+5）；`compileall` OK；`git diff --check` OK；`node --test` 25/25。
+- **VERIFIED**: 单舰队 legacy 路径（`test_one_expedition_production_integration` 全套）零回归；多舰队默认 map 无重复仍成立。
+- **LIMITS**: 仍零实机；#129 Soak 尚未启动（需游戏窗口 + 用户确认环境就绪）。
+- **NEXT（#129）**: 用 `--fleet-missions "2:3,3:1" --exclude-fleets 4 --global-drain` 跑：派遣进程（F2/F3 READY→派遣→退出）→ 等双舰返航 → 结算进程（双舰 RETURNED→单 tick 全局 Drain 串行清空两舰→补给→再派遣→退出）。drain 预算 `--drain-action-interval-seconds 10 --drain-timeout-seconds 240 --drain-max-actions 24`。
+- **交付物**: `tools/one_expedition_ui_loop.py`、`tests/test_p02_dispatch_plan_resolution.py`。
