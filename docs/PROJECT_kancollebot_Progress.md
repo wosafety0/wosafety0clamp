@@ -4671,5 +4671,18 @@ The Hand plugin's read-only probe reported:
 - **P4 IMPLEMENTED / TESTED：** observer 快速失败采用指数退避，默认最多连续 6 次失败，延迟上限 8 秒；成功 witness 重置失败计数；自然响应超时不消耗预算；预算耗尽后停止 observer 并保持暂停。
 - **CI 验证：** P1 1798 tests OK / 22 skipped；P2 1812 / 22；P3 1815 / 22；P4 1817 / 22。各阶段 Python compileall、CLI smoke checks、离线 JavaScript 检查均通过。P4 最终测试提交 \`77fe29ff1f7b069fdc7d46ed126d1c35812b25c2\`，CI run [42143413592](https://github.com/wosafety0/wosafety0clamp/actions/runs/42143413592) 成功。
 - **代码与研究记录：** \`docs/research/ANTI_CAT_RECOVERY_IMPLEMENTATION.md\`，含 P1–P4 的实现范围、验证及限制。
-- **未实现 / 未验证：** 尚无恢复后的新 witness 时间证明、Poi mission tuple 与 Action Journal / Dispatch Registry / Settlement Drain 的完整对账、显式恢复许可或自动续跑。未接入视觉猫画面识别、独立 CDP target-crash 信号或从自然响应提取 API result 201。未启动 Poi/CDP、未点击、未刷新、未派遣、未补给；无实机防猫验证。
-- **下一阶段：** P5 只读恢复证据与业务对账。必须证明 witness 产生于暂停之后，并核对派遣、结算、补给账本；UNKNOWN/冲突继续人工处理。恢复许可仍需独立验收，不得因网络恢复自动放行。
+- **未实现 / 未验证：** P5 只读对账器尚未接入生产恢复入口；没有可释放暂停门禁的 API，也没有显式恢复许可或自动续跑。未接入视觉猫画面识别、独立 CDP target-crash 信号或从自然响应提取 API result 201。未启动 Poi/CDP、未点击、未刷新、未派遣、未补给；无实机防猫验证。
+- **下一阶段：** P6 将只读对账器接入受控恢复入口，并核验可见 UI 状态；只有独立验证和明确操作授权后，才评估是否提供人工释放门禁。不得因网络恢复或 P5 对账通过而自动放行。
+
+
+## 2026-11-06 — 防猫恢复 P5：暂停后的只读证据与业务对账
+
+- **IMPLEMENTED：** 新增 `src/kancollebot/expeditions/recovery_reconciliation.py` 的 `RecoveryReconciliationCoordinator`。它只读取 observer 的最新自然 port witness、Poi 只读 fleet observation、scheduler 状态、Dispatch Registry、pending intent、Action Journal 和 SQLite 生命周期事件；不写账本、不改 scheduler、不点击、不刷新、不释放 `RecoveryPauseGate`。
+- **证据时序：** witness 的 `source.responseReceivedAt` 必须严格晚于首次暂停时间，且不能是未来时间；Poi observation 必须由 `PoiExpeditionReader` 标记 source freshness verified、来源为 `poi-redux:`、观察时间晚于暂停，并通过最大状态年龄检查。没有暂停后 witness 时返回 `WAITING_FOR_WITNESS`。
+- **舰队对账：** 对每个 scheduler fleet 比对 Poi 的 mission status / mission id / ship ids / reserved / return timestamp，与 scheduler mission tuple 及唯一 confirmed Dispatch Registry identity。空 scheduler 状态、缺失/重复舰队、未登记的活动舰队、多个 open dispatch、pending/unknown dispatch、派遣意图未清理、Action Journal unresolved、READY 与补给状态冲突等均 fail-closed。
+- **结算/补给生命周期：** 读取 append-only SQLite dispatch event log，按 fleet 与 lifecycle kind 检查 `settlement_started` / `startup_settlement_started` 与结算终态，以及 `resupply_action_started` 与 `resupply_confirmed`。重复起点、未闭合生命周期、暂停后的 blocker 或无法判定的事件边界均要求人工处理。缺少 Action Journal 或 lifecycle event log 时也不能报告对账成功。
+- **缺陷修复：** `ContinuousExpeditionScheduler.states` 是只读属性而非方法；P5 首版误调用 `states()` 会恒定返回 `MANUAL_REQUIRED`。现已兼容属性读取，并加入空 scheduler 状态 fail-closed 检查。
+- **TESTED：** 新增 `tests/test_recovery_reconciliation.py`，16 个定向测试覆盖暂停后 witness 时序、Poi freshness、scheduler property、活动任务身份一致性、dispatch 冲突、pending intent、Action Journal、结算/补给生命周期、缺失证据和 gate 不自动释放。最新全量 CI [run 42148382256](https://github.com/wosafety0/wosafety0clamp/actions/runs/42148382256) 成功；Python compileall、CLI smoke checks、离线 JavaScript 检查及完整 unittest suite 均通过。
+- **VERIFIED（远端代码与 CI）：** 分支 `dev/anti-cat-recovery-20261106` 最新实现提交 `87f71bc8fd4ddc8f965ad74ce13999374b1db799`；代码和测试已从 GitHub 远端回读核验。此为离线自动化验证，不代表 Poi/CDP 实机恢复。
+- **限制：** P5 是可注入的只读对账组件，尚未接入生产恢复入口；`resume_allowed` 永远为 false，RecoveryPauseGate 仍无 release/reset API。没有真实网络中断、猫画面、CDP 重连或游戏内恢复测试。
+- **下一阶段：** P6 先接入只读对账与可见 UI 状态核验；任何门禁释放都必须单独设计为人工明确授权的动作，不得自动续跑。

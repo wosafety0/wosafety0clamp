@@ -135,3 +135,44 @@ Implement P2 global pause gating before \`monitor.tick()\` and at visible UI act
 - Retry exhaustion stops the observer thread; the process remains paused and requires operator intervention/restart. No request replay or page refresh is attempted.
 - A successful new witness still does not release the gate. P5 must prove the witness was captured after the pause, then reconcile Poi fleet mission tuples and durable dispatch/settlement/resupply ledgers before any explicit release.
 - No Poi/CDP session or game UI action was performed. No live anti-cat verification.
+
+
+## P5 — Read-only post-pause evidence and business reconciliation
+
+### Implemented
+
+- Added `RecoveryReconciliationCoordinator` in `src/kancollebot/expeditions/recovery_reconciliation.py`.
+- The coordinator reads the latest in-memory natural port witness, a read-only Poi fleet observation, scheduler fleet states, open Dispatch Registry records, pending dispatch intents, unresolved Action Journal records, and the append-only SQLite dispatch event log.
+- A witness must have a valid `source.responseReceivedAt` strictly later than `RecoveryPauseGate.paused_at_utc` and no later than the reconciliation clock. No post-pause witness returns `WAITING_FOR_WITNESS`.
+- Poi state must pass `ObservedState.require_fresh()`, carry `source_freshness_verified=True`, use the `poi-redux:` source namespace, and have an observation timestamp later than the pause.
+- Each scheduler fleet is checked against Poi mission status, mission id, ordered ship ids, reserved slot, return timestamp, and the unique confirmed Dispatch Registry identity. Idle/ready/resupply phases require an idle Poi mission and no open dispatch. Active/returned phases require an exact mission and dispatch match; active fleets also require the persisted Home Port verification.
+- Pending dispatch intents, unresolved Action Journal rows, empty/invalid fleet state, untracked active Poi fleets, open dispatch conflicts, and scheduler/Poi disagreement all fail closed.
+- Settlement and resupply lifecycle events are checked from the append-only SQLite event log. Settlement start events must close with a recognized settlement terminal; resupply start events must close with `resupply_confirmed`. Duplicate starts, incomplete lifecycles, post-pause blocker events, and missing lifecycle evidence require manual review. The event log is paired by fleet and lifecycle kind in append order because the SQLite-only sink does not necessarily publish correlation context.
+- Missing Action Journal or lifecycle event log is not interpreted as an empty ledger; it yields `MANUAL_REQUIRED`.
+- The report has `WAITING_FOR_WITNESS`, `MANUAL_REQUIRED`, or `RECONCILED` status. Its `resume_allowed` property is hard-coded to false.
+
+### Safety boundary
+
+1. The coordinator is read-only: it does not mutate scheduler state or any ledger.
+2. It performs no CDP reconnect, page refresh, request replay, UI click, dispatch, settlement, or resupply.
+3. It never releases or resets `RecoveryPauseGate`.
+4. A `RECONCILED` report means the supplied business evidence agrees; it is not permission to resume. Visible UI verification and a separate, explicitly authorized release design remain future work.
+5. No live Poi/CDP or real-game recovery was performed.
+
+### Verification
+
+- Latest implementation commit: `87f71bc8fd4ddc8f965ad74ce13999374b1db799`.
+- GitHub Actions: [run 42148382256](https://github.com/wosafety0/wosafety0clamp/actions/runs/42148382256), success.
+- Added `tests/test_recovery_reconciliation.py`: 16 focused tests covering post-pause witness timing, Poi freshness, scheduler property access, active mission/dispatch identity, pending intents, Action Journal, settlement/resupply lifecycle pairing, missing evidence, and the no-auto-resume contract.
+- The full CI workflow also completed Python compilation, CLI smoke checks, offline JavaScript checks, and the full Python unit suite.
+
+### Remaining boundary
+
+- P5 is a tested read-only component but is not yet wired into the production recovery entry point.
+- No visual cat-frame recognition, independent CDP target-crash signal, or API result 201 extraction from natural responses.
+- No operator-visible UI checkpoint or explicit gate-release API.
+- No real network interruption, Poi/CDP reconnect, game UI action, or live anti-cat verification.
+
+### Next phase
+
+P6 should expose the read-only report in a controlled recovery entry point and verify the visible UI state. Any gate release must be a separate action requiring explicit operator approval; a healthy network or a reconciled report alone must never release the gate.
