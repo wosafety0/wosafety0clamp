@@ -14,6 +14,7 @@ from kancollebot.expeditions.mission_result_witness import (
     MissionResultWitnessError,
     cross_check_with_dispatch,
     evaluate_witness,
+    latest_witness_for_fleet,
     parse_witness,
     read_witnesses,
     witness_fields,
