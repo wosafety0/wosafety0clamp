@@ -83,6 +83,15 @@ A community wiki is not an official source. Its revision date and its own uncert
 
 ## Update history
 
+### 2026-11-07 — KanColle-Agent Skill workflow review
+
+- Reviewed the upstream `docs/SKILLS.md`, all seven specialist Skills, and `kcwiki-researcher` on the upstream `main` branch.
+- Expanded `KAN_COLLE_AGENT_REFERENCE.md` with reusable routing/query patterns, domain workflow lessons, evidence and identity semantics, researcher protocol, and explicit non-copy boundaries.
+- This is documentation-only. No upstream MCP package was installed or connected; no KancolleBot runtime or game behavior changed.
+- Preserved the upstream-specific `api_cond` missing-value default-to-49 finding as an anti-pattern; KancolleBot must retain unknown morale rather than fabricate a value.
+- Skill workflow recommendations are not game-mechanics evidence and do not upgrade any existing rule's evidence status.
+
+
 ### 2026-11-06 — Initial domain registry
 
 - Established this directory as the game-mechanics reference entry point.
@@ -94,8 +103,9 @@ A community wiki is not an official source. Its revision date and its own uncert
 
 The upstream [Yukikaze030/KanColle-Agent](https://github.com/Yukikaze030/KanColle-Agent) repository has been reviewed as a **research architecture and source-discovery reference**, not as a runtime dependency.
 
-- Read [KAN_COLLE_AGENT_REFERENCE.md](KAN_COLLE_AGENT_REFERENCE.md) before using its data-source model.
+- Read [KAN_COLLE_AGENT_REFERENCE.md](KAN_COLLE_AGENT_REFERENCE.md) before using its data-source model or Skill workflows.
 - It separates current player state (Poi), static master data (Data MCP), and gameplay explanations (Wiki Researcher). These evidence classes must not substitute for one another.
+- The reference also summarizes reusable upstream Skills: task-scoped routing, minimum/targeted queries, staged aggregate-to-instance lookup, explicit unknown/partial/freshness semantics, directed remodel/cost verification, current-event online checks, and compact source-attributed Wiki research. These are workflow patterns, not imported runtime behavior or game rules.
 - Its project instructions restrict data and mechanics to **二期 (post-May-2023 server migration)**. KancolleBot must reject一期-only or era-unknown claims as current production assumptions until cross-checked.
 - Static data sources are mixed: pinned game master data, community-maintained ship/equipment/quest datasets, and third-party implementation logic. Preserve per-field provenance; do not label the entire dataset "official".
 - Third-party schemas, normalizer helpers, tests, and implementation behavior are implementation references, not game rules. In particular, do not copy HP-ratio normalization thresholds as game damage rules.
