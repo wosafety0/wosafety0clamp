@@ -110,6 +110,39 @@ class ContinuousSettlementUiDriver(Protocol):
         ...
 
 
+class SettlementWitnessProvider(Protocol):
+    """The in-process passive observer consumed at settlement close-out.
+
+    Production arms it before the first result UI click. The controller only
+    *reads* what the game itself stated; it never starts, stops or retries the
+    observer, and never treats a missing witness as a confirmed reward.
+    """
+
+    def wait_for_fleet(self, fleet_id: int, timeout_seconds: float) -> bool: ...
+
+    def verdict_for(
+        self,
+        *,
+        fleet_id: int,
+        expected_ship_ids: tuple[int, ...] | None = None,
+        expected_quest_name: str | None = None,
+        dispatch_record: DispatchRecord | None = None,
+        observed_at: datetime | None = None,
+    ) -> WitnessVerdict: ...
+
+    def receipt_actionable_for(self, fleet_id: int) -> bool: ...
+
+
+@dataclass(frozen=True, slots=True)
+class RewardReceiptCheck:
+    """What the passive witness proved about one fleet's reward receipt."""
+
+    verified: bool
+    verdict_reason: str
+    receipt_actionable: bool
+    dispatch_record_bound: bool
+
+
 @dataclass(frozen=True, slots=True)
 class SettlementExecution:
     """Evidence returned by a completed settlement transaction for one fleet."""
@@ -119,6 +152,10 @@ class SettlementExecution:
     return_result_evidence: str
     bonus_items_evidence: str
     reward_claimed_evidence: str
+    #: False means "not proven", never "no reward": an unwired provider, a
+    #: missed exchange and a rejected witness all leave it False.
+    reward_receipt_verified: bool = False
+    reward_receipt_reason: str | None = None
 
 
 class ContinuousSettlementController:
@@ -142,6 +179,8 @@ class ContinuousSettlementController:
         clock: Callable[[], datetime] | None = None,
         dispatch_registry: SqliteDispatchRegistry | None = None,
         audit_gate: Callable[[], None] | None = None,
+        witness_provider: SettlementWitnessProvider | None = None,
+        witness_wait_seconds: float = 2.0,
     ) -> None:
         if not callable(event_sink):
             raise ValueError("a durable event_sink is required")
@@ -153,6 +192,18 @@ class ContinuousSettlementController:
             raise ValueError("dispatch_registry must be a SqliteDispatchRegistry or None")
         if audit_gate is not None and not callable(audit_gate):
             raise ValueError("audit_gate must be callable when given")
+        if witness_provider is not None:
+            for method in ("wait_for_fleet", "verdict_for", "receipt_actionable_for"):
+                if not callable(getattr(witness_provider, method, None)):
+                    raise ValueError(f"witness_provider must expose {method}()")
+        if (
+            isinstance(witness_wait_seconds, bool)
+            or not isinstance(witness_wait_seconds, (int, float))
+            or witness_wait_seconds < 0
+        ):
+            raise ValueError("witness_wait_seconds must be a non-negative number")
+        self.witness_provider = witness_provider
+        self.witness_wait_seconds = float(witness_wait_seconds)
         self.audit_gate = audit_gate
         self.dispatch_registry = dispatch_registry
         self.scheduler = scheduler
@@ -396,6 +447,10 @@ class ContinuousSettlementController:
                         "current_phase": updated.phase.value,
                         "game_api_requests": False,
                     })
+                    receipt = self._verify_reward_receipt(
+                        fleet_id, persisted, attribution,
+                        evidence="home_port_without_reward_screen",
+                    )
                     self._close_dispatch_record(fleet_id, attribution, persisted)
                     return SettlementExecution(
                         fleet_id=fleet_id,
@@ -403,6 +458,12 @@ class ContinuousSettlementController:
                         return_result_evidence="",
                         bonus_items_evidence="",
                         reward_claimed_evidence="home_port_without_reward_screen",
+                        reward_receipt_verified=(
+                            receipt.verified if receipt is not None else False
+                        ),
+                        reward_receipt_reason=(
+                            receipt.verdict_reason if receipt is not None else None
+                        ),
                     )
             return_result_evidence = ""
             bonus_items_evidence = ""
@@ -444,6 +505,10 @@ class ContinuousSettlementController:
                     idle_after=True,
                 )
 
+            receipt = self._verify_reward_receipt(
+                fleet_id, persisted, attribution,
+                evidence="reward_chain_completed",
+            )
             self._close_dispatch_record(fleet_id, attribution, persisted)
             return SettlementExecution(
                 fleet_id=fleet_id,
@@ -451,6 +516,12 @@ class ContinuousSettlementController:
                 return_result_evidence=return_result_evidence,
                 bonus_items_evidence=bonus_items_evidence,
                 reward_claimed_evidence=reward_claimed_evidence,
+                reward_receipt_verified=(
+                    receipt.verified if receipt is not None else False
+                ),
+                reward_receipt_reason=(
+                    receipt.verdict_reason if receipt is not None else None
+                ),
             )
 
     def settle_visible_reward_chain(
@@ -1033,6 +1104,103 @@ class ContinuousSettlementController:
                 })
             except Exception:
                 pass
+
+    # -- in-process passive reward receipt ----------------------------------
+    #
+    # The UI chain proves the screens are gone; only the game's own result
+    # response proves WHICH fleet completed WHICH expedition and whether a
+    # complete reward receipt came back. That response happens on the first
+    # result click, so it can only be checked at close-out - never as a
+    # pre-click gate. Nothing here advances the state machine and nothing here
+    # rewinds a settlement that already happened (P0.2 red line).
+
+    def _dispatch_record_from_attribution(
+        self, attribution: AttributionVerdict | None
+    ) -> DispatchRecord | None:
+        """Bind a witness to the one dispatch instance the ledger attributed."""
+        if attribution is None or not attribution.allowed or attribution.record is None:
+            return None
+        record = attribution.record
+        return DispatchRecord(
+            fleet_id=record.fleet_id,
+            mission_id=record.mission_id,
+            ship_ids=record.ship_ids,
+            quest_name=record.quest_name,
+            observed_at=record.confirmed_at,
+        )
+
+    def _verify_reward_receipt(
+        self,
+        fleet_id: int,
+        mission: MissionTuple,
+        attribution: AttributionVerdict | None,
+        *,
+        evidence: str,
+    ) -> RewardReceiptCheck | None:
+        """Record whether this fleet's reward receipt was actually proven.
+
+        Returns ``None`` when no provider is wired, which keeps every existing
+        offline double and the legacy path byte-for-byte unchanged. With a
+        provider, every failure direction - no capture, a witness naming a
+        different fleet, no dispatch record, an incomplete receipt, an observer
+        error, an unwritable audit row - ends as ``verified=False``.
+        """
+        provider = self.witness_provider
+        if provider is None:
+            return None
+        try:
+            provider.wait_for_fleet(fleet_id, self.witness_wait_seconds)
+        except Exception:
+            pass  # a failed wait is just "no witness yet", never a capture
+        dispatch_record = self._dispatch_record_from_attribution(attribution)
+        allowed = False
+        reason = "witness_provider_error"
+        try:
+            verdict = provider.verdict_for(
+                fleet_id=fleet_id,
+                expected_ship_ids=mission.ship_ids,
+                dispatch_record=dispatch_record,
+                observed_at=self.clock(),
+            )
+            allowed = bool(verdict.allowed)
+            reason = verdict.reason
+        except Exception as exc:
+            reason = f"witness_provider_error:{type(exc).__name__}"
+        actionable = False
+        try:
+            actionable = bool(provider.receipt_actionable_for(fleet_id))
+        except Exception as exc:
+            actionable = False
+            reason = f"receipt_check_error:{type(exc).__name__}"
+        verified = allowed and actionable
+        if not actionable and reason.startswith("witness_agrees"):
+            reason = "reward_receipt_not_actionable"
+        event = (
+            "settlement_reward_receipt_verified"
+            if verified else "settlement_reward_receipt_unverified"
+        )
+        try:
+            self.event_sink(event, {
+                "fleet_id": fleet_id,
+                "mission_id": mission.mission_id,
+                "final_time_ms": mission.final_time_ms,
+                "evidence": evidence,
+                "witness_verdict_reason": reason,
+                "witness_allowed": allowed,
+                "receipt_actionable": actionable,
+                "dispatch_record_bound": dispatch_record is not None,
+                "game_api_requests": False,
+            })
+        except Exception:
+            # An unrecordable verdict is not evidence either.
+            verified = False
+            reason = "receipt_audit_row_unwritable"
+        return RewardReceiptCheck(
+            verified=verified,
+            verdict_reason=reason,
+            receipt_actionable=actionable,
+            dispatch_record_bound=dispatch_record is not None,
+        )
 
     def _expected_ship_ids_from_registry(
         self, fleet_id: int, mission_id: int, observed_ship_ids: tuple[int, ...]

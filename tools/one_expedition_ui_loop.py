@@ -88,6 +88,16 @@ from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
 # classified; the same settle the state gate uses between its two samples.
 HOME_REFERENCE_SETTLE_SECONDS = 0.3
 
+# The passive api_req_mission/result observer that the real single-fleet
+# closed loop used as an EXTERNAL process (logs/single_fleet_witness_run1.log,
+# 10:36:50Z). Production now owns it in-process; the script, the allowlist and
+# the durable ``mission_result_observed`` row format are unchanged.
+DEFAULT_MISSION_RESULT_OBSERVER = (
+    ROOT / "tools" / "hand_sandbox" / "poi_mission_result_observer_20261105.js"
+)
+DEFAULT_MISSION_RESULT_TIMEOUT_SECONDS = 180.0
+DEFAULT_WITNESS_WAIT_SECONDS = 2.0
+
 
 # Legacy helper/test path only; production target is RUNTIME_CONFIG.
 LEGACY_HELPER_FLEET_ID = 2
@@ -1480,6 +1490,44 @@ def _resolve_dispatch_plan(args: argparse.Namespace) -> tuple[tuple[int, ...], d
     return target_fleet_ids, mission_map
 
 
+def _witness_observer_script(args: argparse.Namespace) -> Path:
+    """Resolve the passive result-observer script, ignoring MagicMock stubs."""
+    raw = getattr(args, "mission_result_observer_script", None)
+    if isinstance(raw, (str, Path)) and str(raw).strip():
+        return Path(raw)
+    return DEFAULT_MISSION_RESULT_OBSERVER
+
+
+def _witness_configuration(
+    args: argparse.Namespace, fleet_count: int
+) -> tuple[float, int]:
+    """Observer timeout and the number of result exchanges to expect.
+
+    One exchange per returning fleet is the default, so a three-fleet run does
+    not silently stop listening after the first fleet's receipt. A MagicMock
+    attribute (offline doubles) is never coerced into a real setting.
+    """
+    raw_timeout = getattr(args, "mission_result_timeout_seconds", None)
+    if (
+        isinstance(raw_timeout, (int, float))
+        and not isinstance(raw_timeout, bool)
+        and raw_timeout > 0
+    ):
+        timeout = float(raw_timeout)
+    else:
+        timeout = DEFAULT_MISSION_RESULT_TIMEOUT_SECONDS
+    raw_captures = getattr(args, "witness_captures", None)
+    if (
+        isinstance(raw_captures, int)
+        and not isinstance(raw_captures, bool)
+        and raw_captures > 0
+    ):
+        captures = min(raw_captures, 16)
+    else:
+        captures = max(1, fleet_count)
+    return timeout, captures
+
+
 def _run_production_supervisor_once(args: argparse.Namespace) -> int:
     """Compose the durable monitor/controller/supervisor with the visible CDP driver."""
     from datetime import timedelta
@@ -1525,6 +1573,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
     from run_continuous_expedition_monitor import build_runtime
 
     runtime = None
+    witness_provider = None
     try:
         target_fleet_ids, mission_map = _resolve_dispatch_plan(args)
         target_fleet_id = target_fleet_ids[0]
@@ -1666,6 +1715,51 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 run_log_dir=args.run_log_dir,
                 prebuilt_run_log_sink=_active_run_log_sink(),
             )
+
+            # #134: production now owns the passive result observer itself.
+            # Arm here: the durable event sink exists, and every result-screen
+            # click (the startup settlement below, the supervisor's global
+            # drain) is still ahead of us. It reuses the already-verified
+            # observer script, the existing ``mission_result_observed`` row
+            # format, the single-frame drain probe and the calibrated
+            # fingerprint asset. No new template, screenshot or game request.
+            if getattr(args, "in_process_witness", False) is True:
+                from kancollebot.adapters.poi.mission_result_observer import (
+                    PassiveMissionResultObserver,
+                )
+                from kancollebot.expeditions.mission_result_witness_provider import (
+                    MissionResultWitnessProvider,
+                )
+
+                observer_script = _witness_observer_script(args)
+                if not observer_script.is_file():
+                    raise LoopError(
+                        "in-process mission-result witness is enabled but its "
+                        f"passive observer script is missing: {observer_script}"
+                    )
+                observer_timeout, expected_captures = _witness_configuration(
+                    args, len(target_fleet_ids)
+                )
+                witness_provider = MissionResultWitnessProvider(
+                    observer=PassiveMissionResultObserver(
+                        observer_script, timeout_seconds=observer_timeout
+                    ),
+                    # The SAME durable sink the monitor and controllers use:
+                    # a witness that cannot be recorded is not evidence.
+                    event_log=runtime.monitor.event_sink,
+                    event_sink=runtime.monitor.event_sink,
+                    expected_captures=expected_captures,
+                )
+                witness_provider.arm()
+                _print_event(
+                    "in_process_witness_wired",
+                    observer_script=str(observer_script),
+                    expected_captures=expected_captures,
+                    timeout_seconds=observer_timeout,
+                    armed_before_result_click=True,
+                    game_api_requests=False,
+                    game_input_sent=False,
+                )
 
             def capture_frame() -> str:
                 game_session.transport.send(
@@ -1867,6 +1961,11 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     # Same gate as dispatch: a settlement that cannot be
                     # recorded must not click a reward chain.
                     audit_gate=audit_gate(runtime.monitor.event_sink),
+                    # #134: the armed in-process observer is consumed at
+                    # close-out. Optional: without it the controller behaves
+                    # exactly as the previously verified production path.
+                    witness_provider=witness_provider,
+                    witness_wait_seconds=DEFAULT_WITNESS_WAIT_SECONDS,
                 )
             else:
                 _print_event(
@@ -2123,6 +2222,12 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                             bool(execution.already_supplied)
                             for execution in result.resupplies
                         ],
+                        # #134: the loop now states which settlements carry a
+                        # game-authored, dispatch-bound, complete receipt.
+                        reward_receipts_verified=[
+                            bool(getattr(execution, "reward_receipt_verified", False))
+                            for execution in result.settlements
+                        ],
                         game_api_requests=False,
                     )
 
@@ -2237,6 +2342,10 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     home_port_verified=True,
                     tick=tick_index,
                     closed_loop=bool(result.settlements),
+                    reward_receipts_verified=[
+                        bool(getattr(execution, "reward_receipt_verified", False))
+                        for execution in result.settlements
+                    ],
                     evidence="fresh_poi_before_after_and_two_frame_home_port",
                 )
                 return 0
@@ -2256,6 +2365,29 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
             f"Production UI controller stopped fail-closed: {type(exc).__name__}: {exc}"
         ) from exc
     finally:
+        if witness_provider is not None:
+            # A passive observer child must not outlive its run. Cancellation
+            # sets a signal only; it never fabricates a capture.
+            witness_provider.cancel()
+            # Give the cancellable observer child a bounded chance to terminate
+            # so it cannot outlive the run as an orphan process.
+            try:
+                witness_provider.wait(timeout_seconds=1.0)
+            except Exception:
+                pass
+            try:
+                captured = witness_provider.witnesses
+                _print_event(
+                    "in_process_witness_stopped",
+                    captured=len(captured),
+                    captured_fleet_ids=[item.fleet_id for item in captured],
+                    status=witness_provider.status,
+                    game_api_requests=False,
+                    game_input_sent=False,
+                )
+            except Exception:
+                # Diagnostics in a finally block must never mask the outcome.
+                pass
         if runtime is not None:
             runtime.provider.close(join_timeout_seconds=1.0)
 
@@ -2329,6 +2461,36 @@ def _main_impl(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--observer-timeout-seconds", type=float, default=RUNTIME_CONFIG.observer_timeout_seconds)
     parser.add_argument("--max-state-age-seconds", type=float, default=RUNTIME_CONFIG.max_state_age_seconds)
+    parser.add_argument(
+        "--no-in-process-witness",
+        dest="in_process_witness",
+        action="store_false",
+        default=True,
+        help="Disable the in-process passive api_req_mission/result observer. "
+             "It is on by default so a run can confirm its own reward receipt "
+             "without an external helper process; it sends no game input and "
+             "initiates no game API request.",
+    )
+    parser.add_argument(
+        "--mission-result-observer-script",
+        type=Path,
+        default=DEFAULT_MISSION_RESULT_OBSERVER,
+    )
+    parser.add_argument(
+        "--mission-result-timeout-seconds",
+        type=float,
+        default=DEFAULT_MISSION_RESULT_TIMEOUT_SECONDS,
+        help="How long one passive result-observer child waits for a natural exchange",
+    )
+    parser.add_argument(
+        "--witness-captures",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Natural result exchanges to capture in one run (default: one per "
+             "fleet in the dispatch plan). Each is durably recorded before the "
+             "settlement close-out may adopt it.",
+    )
     parser.add_argument(
         "--no-ui-refresh",
         dest="enable_ui_refresh",

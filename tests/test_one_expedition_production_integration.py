@@ -180,6 +180,48 @@ def make_snapshot(*, status=0, mission_id=None, return_at=None):
     )
 
 
+class FakeWitnessObserver:
+    """Stand-in for the passive node child; no process is ever started."""
+
+    def __init__(self, script, *, timeout_seconds=0.0):
+        self.script = script
+        self.timeout_seconds = timeout_seconds
+
+
+class FakeWitnessProvider:
+    instances: list["FakeWitnessProvider"] = []
+    trace: list[str] = []
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.armed = False
+        self.cancelled = False
+        self.status = "armed"
+        self.witnesses: tuple[object, ...] = ()
+        FakeWitnessProvider.instances.append(self)
+
+    def arm(self):
+        self.armed = True
+        FakeWitnessProvider.trace.append("arm")
+
+    def cancel(self):
+        self.cancelled = True
+
+    def wait(self, timeout_seconds=None):
+        return True
+
+    def wait_for_fleet(self, fleet_id, timeout_seconds):
+        return False
+
+    def verdict_for(self, **kwargs):
+        from kancollebot.expeditions.mission_result_witness import WitnessVerdict
+
+        return WitnessVerdict(False, "witness_not_yet_observed")
+
+    def receipt_actionable_for(self, fleet_id):
+        return False
+
+
 class OneExpeditionProductionIntegrationTests(unittest.TestCase):
     def make_runtime(self, snapshots, *, fresh=True):
         scheduler = ContinuousExpeditionScheduler(
@@ -523,6 +565,117 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
             provider = instance.resupply_controller.fleet_data_provider
             self.assertIsNotNone(provider.port_witness_provider)
             self.assertIs(provider.port_witness_provider, runtime.provider)
+
+    def test_in_process_witness_is_armed_before_clicks_and_cancelled_on_exit(self):
+        """#134: production owns the passive observer, not an external helper.
+
+        The provider must be armed while the durable sink exists and BEFORE the
+        first visible click, injected into the real settlement controller, and
+        cancelled in the finally block. The node child is patched out, so this
+        stays a purely offline composition proof.
+        """
+        return_at = datetime.now(timezone.utc) + timedelta(minutes=20)
+        idle = make_snapshot()
+        active = make_snapshot(status=1, mission_id=3, return_at=return_at)
+        runtime, _, _ = self.make_runtime([idle, idle, active, active])
+        marks = FakeMarks(selected=2)
+        real_supervisor = supervisor_module.ContinuousExpeditionSupervisor
+        built_supervisors: list[object] = []
+        FakeWitnessProvider.instances = []
+        FakeWitnessProvider.trace = []
+        trace = FakeWitnessProvider.trace
+
+        def capture_real_supervisor(*pos, **kw):
+            instance = real_supervisor(*pos, **kw)
+            built_supervisors.append(instance)
+            return instance
+
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "production" / "state.sqlite3"
+            database.parent.mkdir(parents=True)
+            args = self.make_args(database)
+            args.in_process_witness = True
+            game_session = MagicMock()
+            game_input = FakeGameInput(marks=marks, fleet_after_confirm=2)
+            real_click = game_input.click
+
+            def traced_click(point):
+                trace.append("click")
+                return real_click(point)
+
+            game_input.click = traced_click
+            game_session.input = game_input
+            game_session.__enter__.return_value = game_session
+            game_session.__exit__.return_value = False
+
+            with ExitStack() as stack:
+                stack.enter_context(
+                    patch.object(entry, "connect_game_webview", return_value=game_session)
+                )
+                stack.enter_context(patch.object(entry, "_capture_home_reference"))
+                stack.enter_context(
+                    patch.object(
+                        entry, "_require_ui_state",
+                        return_value="two_consecutive_in_memory_ooi_fingerprints",
+                    )
+                )
+                print_event = stack.enter_context(patch.object(entry, "_print_event"))
+                stack.enter_context(
+                    patch("kancollebot.adapters.poi.visual_target.require_visual_dependencies")
+                )
+                stack.enter_context(
+                    patch.object(
+                        entry, "_probe_unlocked_fleet_ids",
+                        return_value=(1, 2, 3, 4),
+                    )
+                )
+                self.patch_evidence_sources(stack, marks=marks)
+                stack.enter_context(
+                    patch.object(monitor_runtime, "build_runtime", return_value=runtime)
+                )
+                stack.enter_context(
+                    patch.object(
+                        supervisor_module, "ContinuousExpeditionSupervisor",
+                        side_effect=capture_real_supervisor,
+                    )
+                )
+                stack.enter_context(
+                    patch(
+                        "kancollebot.adapters.poi.mission_result_observer."
+                        "PassiveMissionResultObserver",
+                        FakeWitnessObserver,
+                    )
+                )
+                stack.enter_context(
+                    patch(
+                        "kancollebot.expeditions.mission_result_witness_provider."
+                        "MissionResultWitnessProvider",
+                        FakeWitnessProvider,
+                    )
+                )
+                self.assertEqual(entry.run(args), 0)
+
+            names = [call.args[0] for call in print_event.call_args_list
+                     if call.args]
+            self.assertIn("in_process_witness_wired", names)
+            self.assertIn("in_process_witness_stopped", names)
+            # Arming must precede the first visible click of the run.
+            self.assertIn("arm", trace)
+            self.assertIn("click", trace)
+            self.assertLess(trace.index("arm"), trace.index("click"))
+            self.assertEqual(len(FakeWitnessProvider.instances), 1)
+            provider = FakeWitnessProvider.instances[0]
+            self.assertTrue(provider.armed)
+            self.assertTrue(provider.cancelled)
+            self.assertIs(provider.kwargs["event_log"], runtime.monitor.event_sink)
+            self.assertIs(provider.kwargs["event_sink"], runtime.monitor.event_sink)
+            self.assertEqual(provider.kwargs["expected_captures"], 1)
+            # The REAL controller received it, not just a local variable.
+            self.assertEqual(len(built_supervisors), 1)
+            self.assertIs(
+                built_supervisors[0].settlement_controller.witness_provider,
+                provider,
+            )
 
     def test_unfresh_monitor_observation_stops_before_any_ui_click(self):
         runtime, reader, provider = self.make_runtime([make_snapshot()], fresh=False)
