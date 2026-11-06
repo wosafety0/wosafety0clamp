@@ -4893,3 +4893,35 @@ The Hand plugin's read-only probe reported:
 - **SAFETY:** 观察器只被动读取游戏客户端自己产生的请求/响应，不发输入、不发游戏 API、不重放；`0.97` / `0.04` / 点击前双帧确认原样未动，网络事件只决定探测时机；单帧探针 `authorizes_click=False` 从未进入点击路径；arm 在首个结果点击之前；所有失败方向均 `verified=False`，绝不把「未证明」说成「已到账」；`--no-in-process-witness` 可完全关闭该能力。
 - **LIMITS:** ①**无实机验证**：进程内观察器与真实 CDP 的并发附着、多返航连续重挂、收口 2s 等待是否足够，均待受控 A/B；②每轮捕获后重启观察器子进程存在短暂重挂窗口，若两次结果响应间隔极短理论上可能漏捕，漏捕只会产生 `unverified`，不会误判；③`start-up` 可见奖励链仍只消费历史事件日志中的见证，进程内 provider 不覆盖「进程启动前结果响应已发生」的场景；④收据与 Poi 库存的自动交叉核对仍未接入；⑤`resupply_verified_fleet_ids=(2,3)` 未改，Fleet 4 仍为 `structural_only`（不是被禁用：`resupply_enabled_fleet_ids` 含 4，且有动作后 Poi 复核），但生产补给路径未实机复验；⑥「receipt 未验证是否应硬性阻止再次派遣」是有意保留为**策略决策**，本轮只做证据、不改退出码，需用户授权后再定。
 - **NEXT:** ①申请一次受控实机 A/B（单舰队优先）：核对 `in_process_witness_wired` → `mission_result_witness_finished` → `settlement_reward_receipt_verified` 全链与零误点击；②三舰队并发（10 条 `cross_checked` 白名单内任意组合）实机复验，核对每舰队各自的收据；③Fleet 4 补给生产路径复验后再考虑提升其 `live_verified`；④收据↔库存自动交叉核对、37 条 `single_source` 规则核验与更多奖励页变体后置。
+
+## 2026-11-06 - 收据验证策略裁决与单舰队实机 A/B 验收标准（用户裁决，未改实现）
+
+> **状态（AGENTS.md 8.6.3）：** 本条目是**用户裁决 + 只读核查 + 下一轮验收标准**，`0c28ba5` 的实现**一行未改**；没有实机、没有游戏点击、没有游戏 API、没有新增测试、没有重采资产。不得把任何「待实现 / 待实机」项描述为已具备。
+
+- **裁决前提（两个事实必须分开）：** ①「远征是否已经结算」由游戏 UI 与真实状态机确认；②「结算收据是否捕获」由观察器提供独立证据。漏捕不得让已完成的远征卡死，也不得被写成结算成功。
+- **IMPLEMENTED：** 无。用户明确「先不修改现有收据策略，保留本轮实现」；`_verify_reward_receipt()` / `MissionResultWitnessProvider` / 组合根 arm 保持 `0c28ba5` 原样。
+- **裁决规则（下一轮策略基线，本次不接线）：**
+
+  | 情况 | 处理 |
+  | --- | --- |
+  | `verified` | 正常允许下一次派遣 |
+  | `unverified` 且 UI 结算已确认 | 允许继续，但**必须进入受控降级状态并记录告警** |
+  | 观察器捕获超时 | **有界重试**，失败后降级 |
+  | 收据属于其他舰队 | 拒绝作为本舰队见证 |
+  | 收据与 `DispatchRecord` 冲突 | **阻止该舰队再次派遣** |
+  | 远征结算状态本身不确定 | **阻止派遣**，等待重新核验 |
+
+- **VERIFIED（本轮只读核查：裁决规则 ↔ `0c28ba5` 实际行为，逐条不粉饰）：** ①`verified` → `SettlementExecution.reward_receipt_verified=True`，当前不反向阻断派遣，符合「正常允许」。②`unverified` + UI 已确认 → `_verify_reward_receipt` 发 `settlement_reward_receipt_unverified` 后仍照常 `_close_dispatch_record`，**「允许继续」已具备**；但当前**没有显式 `degraded` 状态、告警等级、重试计数与预算**，只有一条事件行 →「受控降级状态」**待下一轮实现**。③捕获超时 → `wait_for_fleet(fleet_id, 2.0)`（`DEFAULT_WITNESS_WAIT_SECONDS=2.0`，0.05s 轮询）与观察器子进程 180s 超时是有界的，但 `run_once()` 一轮 `no_capture` 即 `break`，**完全没有重试** →「有界重试 + 失败后降级」**待实现**，当前直接落到 `unverified`。④其他舰队收据 → `witness_for_fleet()` 按 `fleet_id` 过滤、`receipt_actionable_for()` 绝不跨舰队借用；`verdict_for()` 无匹配时回退最新见证让 `evaluate_witness` 报 `witness_fleet_mismatch` 而拒绝 → **拒绝采信已具备**（实机待验）。⑤与 `DispatchRecord` 冲突 → `cross_check_with_dispatch()` 校验 `fleet_id` / `ship_ids` / `quest_name` / `response_received_at >= record.observed_at`，冲突即 `_refuse`；无 record 时 `witness_without_dispatch_record` 也拒绝 → **拒绝采信已具备**；但「阻止该舰队再次派遣」属策略层，**当前未接线**（按裁决保留）。⑥结算状态本身不确定 → 由 UI 状态门禁与 `_attribute_returned` 决定，见证链不参与、未放松 → 实机确认。
+- **VERIFIED（只读核查发现的两个真实风险，必须进实机验收）：** ①**重复收据可能被重复消费**：当前**没有 consumed / consumed_by 标记**，`witness_for_fleet()` 返回该舰队**最新**见证，`latest_witness_for_fleet()` 按时间 last-wins；`cross_check_with_dispatch` 只有下界 `response_received_at >= record.observed_at`，**没有 per-dispatch 唯一绑定或上界**。主要防线是 `witness_predates_dispatch_record`（新一次派遣的 `confirmed_at` 晚于上一次结果响应）。若第二次返航漏捕且编成/远征完全一致，理论上存在旧收据被再次采信的窗口，**不能声称已防住**。②**观察器启动失败的两个层次不同**：脚本路径缺失 → 组合根在 arm 前抛 `LoopError`（`one_expedition_ui_loop.py:1735`），零结果点击；但**脚本存在却无法附着 CDP**只表现为 `mission_result_witness_finished(observer_status=no_capture / observer_error)` → `unverified`，**不会中止 UI 结算**（与规则②一致，须实机确认事件确实落盘）。离线测试只断言默认脚本存在（`tests/test_p134_production_witness_wiring.py:505`），**没有脚本缺失的负例测试**。
+- **TESTED：** 本轮未新增、未修改任何测试，未重跑门禁（无源码改动）：沿用 `0c28ba5` 的 1912 OK / 2 skip、compileall OK、`git diff --check` OK、node 29/29。
+- **ACCEPTANCE（下一轮实机必测，逐项绑定事件/判据；A 组 = 默认开启进程内观察器，B 组 = `--no-in-process-witness`，其余参数一致）：**
+  1. **启动失败 fail-closed**：A 组以 `--mission-result-observer-script <不存在的路径>` 跑一次 → 必须在 `in_process_witness_wired` 之前 `LoopError`，`ui_click_sent=0`、`game_api_requests=false`；恢复默认路径后正常运行。补一条离线负例测试。
+  2. **重挂期间是否漏捕**：`--witness-captures 2`（单舰队默认只有 1，两次返航必须显式给 2）+ 同一舰队连续两次返航 → `mission_result_witness_finished` 的 `capture_index` 必须为 0/1，`mission_result_observed` 行数 = 2，两条 `response_received_at` 分别落在两次派遣之后；`run_once` 是**顺序串行重挂、无重叠监听**，重挂空隙必须实测。
+  3. **零误点击与完整事件链**：`in_process_witness_wired` → `mission_result_witness_armed` → `mission_result_witness_finished` → `settlement_reward_receipt_verified` → `PRODUCTION_UI_CONTROLLER_INTEGRATION_VERIFIED`；所有点击仍须 `two_consecutive_in_memory_ooi_fingerprints`，`0.97` / `0.04` 不变，`game_input_sent` 只在真实点击处为真。
+  4. **2 秒收口等待是否足够**：测 `mission_result_witness_finished.timestamp` 与 `settlement_reward_receipt_*.timestamp` 差值分布；若 `wait_for_fleet` 经常超时，按实机数据调 `DEFAULT_WITNESS_WAIT_SECONDS`，不猜。
+  5. **收据缺失是否影响正常 UI 结算**：A/B 对照 —— B 组关闭观察器后 UI 结算、`_close_dispatch_record`、补给、再派遣仍须完成，库存增量与 A 组一致；A 组 `unverified` 时不得回退或阻断。
+  6. **重复收据是否重复消费**：同一个 `dispatch_id` 不得出现两条 `settlement_reward_receipt_verified`；同一 `response_received_at` 不得被两个不同 `DispatchRecord` 采信；第二次返航若漏捕必须 `unverified`，不得借用第一次的收据。
+  7. **连续两次返航分别归属正确舰队**：需 ≥2 舰队，故**排在单舰队 A/B 通过之后**；每条 `settlement_reward_receipt_verified` 的 `fleet_id` 与账本 `dispatch_identities` 一一对应，`dispatch_record_bound=True`、`witness_verdict_reason=witness_agrees_with_dispatch_record`。
+- **SAFETY / 阶段准入：** 顺序固定为 **单舰队受控实机 A/B → 连续重挂 / 多次返航 → 完整事件链与零误点击 → 三舰队并发 + 10 条 `cross_checked` 白名单 → Fleet 4 补给生产路径复验**。用户明确：**三舰队通用化必须建立在单舰队完整生命周期经过真实客户端验证的基础上**，本轮与下一轮都不得跳过单舰队直接进并发。降级状态的三条不变量：不得把 UI 已确认的结算回退；不得把 `unverified` 写成 `verified`；「收据冲突」与「结算状态不确定」两种情形仍硬阻断派遣。建议降级状态至少带 `fleet_id` / `dispatch_id` / `reason` / `retry_count` / `retry_budget` / `ui_settlement_confirmed` / `receipt_verified=False` / `alert_emitted`。
+- **LIMITS / 当前实机准入阻塞（2026-11-06 20:04 +08:00 只读预检）：** Poi 在运行（pid 7792，`--remote-debugging-port=9222`，CDP 9222 LISTEN，艦これ webview 页签在），Nanodesu MCP 12450 `health=ok / storeReady=true`，`logs/one_expedition_ui_loop.jsonl` 最后写入 18:45 本地（10:45:15Z），**无活跃生产进程**。但 Poi `info.fleets` 显示 F2 遠征3 `api_mission=[1,3,1793962916909,0]`（返航 19:01:56 本地）、F3 遠征1 `api_mission=[1,1,1793962736300,0]`（返航 18:58:56 本地）**均已过期但仍为 `[1,...]`**（Poi 只在自然 `api_port/port` 推进），账本两条 `dispatch_identities` 均为 `status=confirmed, settled_at=NULL`。**当前是「两支舰队待结算」，不是干净的单舰队 A/B 起点**；须先由用户裁决如何清到只剩一支、并显式授权 `--authorize-ui-actions` 后才会启动，本轮未发任何点击。
+- **NEXT:** ①用户裁决起始状态与授权；②单舰队 A/B（F2/遠征3 为既有实机闭环基线）按上述主判据执行；③通过后才进入双/三舰队归属与并发；④之后才接线「受控降级状态 + 有界重试 + 冲突硬阻断」的策略层实现。
