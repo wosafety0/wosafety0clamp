@@ -484,7 +484,7 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
             assembly = supervisor_cls.call_args.kwargs
             self.assertEqual(
                 set(assembly),
-                {"monitor", "dispatch_controller", "settlement_controller", "resupply_controller"},
+                {"monitor", "dispatch_controller", "settlement_controller", "resupply_controller", "recovery_gate"},
             )
             self.assertIs(assembly["monitor"], runtime.monitor)
             self.assertEqual(len(built_supervisors), 1)
