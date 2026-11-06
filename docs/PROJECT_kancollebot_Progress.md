@@ -3756,3 +3756,20 @@ Key findings:
 
 Source: https://wikiwiki.jp/kancolle/遠征 and https://wikiwiki.jp/kancolle/遠征/詳細一覧表 (accessed 2026-11-06). Community-maintained and partly investigation-based. No Poi live state, equipment inventory, or expedition result was inspected; no runtime code was changed.
 
+
+
+## 2026-11-06 — Expedition great-success mechanism research
+
+**Status:** DOCUMENTED / COMMUNITY_REPORTED; not live-verified; no game code changed.
+
+Added EXP-020 to EXPEDITIONS.md, separating three reported great-success mechanism classes:
+
+- **Ordinary missions:** six sparkled ships at dispatch are reported to guarantee great success; five- and four-ship estimates are approximately 95% and 80%, respectively. These estimates are not deterministic guarantees.
+- **Drum-can missions:** recorded the current overview's mission-specific combination thresholds for IDs 21, 24, 37, 38, 40, 44 and E2 (sparkled-ship count, drum-equipped ship count, and total drum count).
+- **Flagship-level missions:** recorded the reported formula and the Lv128 + four sparkled / Lv33 + five sparkled thresholds, while retaining the source's 2020 applicability list and question-mark uncertainty.
+
+The dossier also records a source conflict for ID 24: the maintained overview lists 2 drums for its reported guaranteed great-success combination, while an older duplicated page lists 4. The current overview value is retained with an explicit conflict note; neither value is treated as live-verified.
+
+Source: https://wikiwiki.jp/kancolle/遠征 (great-success conditions; accessed 2026-11-06) and https://wikiwiki.jp/kancolle/遠征/複製 (historical conflicting value). Community-maintained research; the drum probability model cites 2020 work and the flagship-level model cites older community investigations.
+
+No current Poi morale/equipment state, in-game mission details, or real expedition outcome was inspected. No game state was changed and no runtime code was modified. Production great-success prediction remains blocked until mission class, morale freshness, equipment placement, and current client behavior are independently verified.
