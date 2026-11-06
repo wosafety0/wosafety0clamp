@@ -49,7 +49,7 @@ def observation(fresh: bool):
 
 
 class VisibleUiPortRefreshDriverTests(unittest.TestCase):
-    def make_driver(self, states, *, fail_click_at=None, action_guard=None):
+    def make_driver(self, states, *, fail_click_at=None, action_guard=None, action_permit=None):
         game_input = FakeInput(fail_at=fail_click_at)
         events = []
         sleeps = []
@@ -67,7 +67,10 @@ class VisibleUiPortRefreshDriverTests(unittest.TestCase):
         driver = VisibleUiPortRefreshDriver(
             game_input=game_input,
             verify_state=verify,
-            ui_arbiter=UiOperationArbiter(action_guard=action_guard),
+            ui_arbiter=UiOperationArbiter(
+                action_guard=action_guard,
+                action_permit=action_permit,
+            ),
             event_sink=lambda event, fields: events.append((event, dict(fields))),
             sleep=sleeps.append,
             settle_seconds=1.0,
@@ -108,14 +111,25 @@ class VisibleUiPortRefreshDriverTests(unittest.TestCase):
 
         def action_guard():
             calls[0] += 1
-            if len(game_input.clicks) >= 1:
-                gate.pause(classify_recovery_signals(visual_state="cat"))
             gate.require_actions_allowed()
+
+        from contextlib import contextmanager
+        def action_permit():
+            @contextmanager
+            def permit():
+                if len(game_input.clicks) >= 1:
+                    gate.pause(classify_recovery_signals(visual_state="cat"))
+                with gate.action_permit():
+                    yield
+            return permit()
 
         driver = VisibleUiPortRefreshDriver(
             game_input=game_input,
             verify_state=verify,
-            ui_arbiter=UiOperationArbiter(action_guard=action_guard),
+            ui_arbiter=UiOperationArbiter(
+                action_guard=action_guard,
+                action_permit=action_permit,
+            ),
             event_sink=lambda event, fields: events.append((event, dict(fields))),
             sleep=lambda _seconds: None,
             settle_seconds=0.0,
