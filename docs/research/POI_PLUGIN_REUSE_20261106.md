@@ -4,7 +4,7 @@
 
 - **检查类型：** 本机插件只读盘点 + 当前运行实例只读 MCP 协议/数据验证。
 - **插件目录：** 用户授权的 Poi 插件安装目录；本文不记录本机用户名和绝对路径。
-- **仓库分支：** `feat/production-settlement-resupply-wiring-20261105`。
+- **仓库分支：** `feat/mission-result-reward-proof-20261106`。
 - **结论：** Nanodesu MCP 已安装并运行，且 KancolleBot 已有对应的只读客户端与远征读取适配器；禁止重复开发同类 Poi Store 读取插件。
 - **变更范围：** 未修改、安装、卸载或配置任何 Poi 插件；未执行游戏 UI 操作；未发起或重放游戏 API 请求。
 
@@ -17,7 +17,7 @@
 | `poi-plugin-nanodesu-mcp` | 0.2.0 | 将 Poi Redux Store 通过本机 MCP Streamable HTTP 暴露；支持读取、结构描述和主数据查表 | **主复用接口** |
 | `poi-plugin-akashic-records` | 8.3.2 | 监听自然的远征结果响应并保存结果、四项资源和两种额外道具名称/数量 | **结算辅助证据** |
 | `poi-plugin-hand` | 0.0.1 | 每 5 秒读取 `window.getStore('info')`，舰队快照变化时写控制台日志 | 不再作为数据源；它是用户自有的最小骨架，没有外部调用 API |
-| `poi-plugin-ezexped` | 1.9.2 | 远征编成/装备要求、大成功条件和收益估算；含自动切换相关 UI 行为 | 规则参考，不作为控制器；注意其 UI 自动切换可能改变当前焦点 |
+| poi-plugin-ezexped | 1.9.2 | 远征编成/装备要求、大成功条件和收益估算；含自动切换相关 UI 行为 | 当前配置 enable=false；只作规则参考，不作为控制器，也不自动启用 |
 | `poi-plugin-forwarder` | 1.1.1 | 监听并将完整游戏 API 请求/响应转发至自定义 webhook | **不接入**：没有当前项目所需的奖励字段白名单边界 |
 | `poi-plugin-battle-detail` | 6.0.7 | 保存战斗详细记录；Nanodesu MCP 提供 `poi_battle` 读取工具 | 与远征结算主链无关，出击战斗分析时再复用 |
 | `poi-plugin-hensei-nikki` | 5.0.5 | 保存舰队编成记录 | 当前 MCP 未注册 `poi_hensei_save`；不调用写入能力 |
@@ -68,7 +68,7 @@
 
 `ext.poi-plugin-akashic-records._.mission.data`
 
-当前读取到 31 条历史记录。插件源码 `views/api-resolver.js` 对 `/kcsapi/api_req_mission/result` 的处理逻辑为：
+当前 poi_describe 显示总数为 34 条历史记录；poi_get(limit=1) 返回的样本行宽为 11 列。
 
 - 结果记录时间戳；
 - 远征名称；
@@ -101,17 +101,20 @@
   - MCP initialize / initialized / tools/list 协议处理；
   - 只允许调用 `poi_describe`、`poi_get`、`poi_lookup`。
 - `src/kancollebot/adapters/poi/expedition_reader.py`
-  - 检查 health 的服务身份、状态和 `storeReady`；
-  - 检查必需只读工具；
-  - 校验集合类型、总数、返回数和 `truncated`；
-  - 归一化舰队、舰船、装备状态；缺失/畸形/截断数据拒绝放行。
+  - 检查 health 的服务身份、状态和 storeReady；
+  - 检查必需只读工具；校验集合类型、总数、返回数和 truncated；
+  - 归一化舰队、舰船、装备状态；缺失/畸形/截断数据拒绝放行；
+  - lookup_mission_name() 通过 poi_lookup(kind=missions) 复用游戏任务主数据；
+  - read_reward_inventory() 通过 poi_get(info.resources/info.useitems) 读取奖励库存。
+- `tools/one_expedition_ui_loop.py`
+  - 派遣控制器强制解析任务名并写入持久化派遣记录；结算控制器复用库存读取器和精确 dispatch_id 库存基线。
 - `src/kancollebot/adapters/poi/mission_result_observer.py` 与 `tools/hand_sandbox/poi_mission_result_observer_20261105.js`
   - 被动监听客户端自然产生的远征结果响应；
   - 只提取白名单字段，不保存原始请求/响应体。
 - `src/kancollebot/expeditions/mission_result_witness.py`
   - 对舰队、任务、舰船、结果码、请求/响应时间和奖励收据进行结构化建模与核验。
 
-本次通过当前 Poi 实例直接验证了 MCP health、协议初始化、工具列表和若干 Store 路径/数据形状；**尚未在本机直接执行仓库中的 `PoiMcpClient` + `PoiExpeditionReader` 完整调用链**。因此不能把“直接 MCP 运行验证”扩大描述为“项目适配器端到端实机验收”。
+本次已通过当前 Poi 实例直接运行仓库中的 PoiMcpClient + PoiExpeditionReader，完成 health、MCP 初始化、任务主数据查表和奖励库存读取；这不代表舰队完整读取或派遣/结算闭环实机验收。
 
 ## 5. 给生产闭环的接入约定
 
@@ -139,7 +142,7 @@
 
 ### 尚未验证
 
-- 当前分支中的 `PoiMcpClient` 与 `PoiExpeditionReader` 在本机 Poi 进程上的完整端到端调用。
+- PoiExpeditionReader.read_fleets() 的完整舰队/舰船/装备读取在本机当前会话中的全链验证。
 - Akashic 历史行与某次自然结算响应的逐笔匹配；由于日志缺少舰队/舰船身份，这种匹配只能作为辅助，不可作为主归属。
 - 新奖励收据与当前客户端自然结算、结算前后 Poi 库存的逐笔实机核对。
 
@@ -151,12 +154,12 @@
 - 未修改 KancolleBot 运行代码；本文件仅记录复用接口和验证证据。
 
 
-## 7. Follow-up: live adapter reuse and settlement wiring?2026-11-06?
+## 7. Follow-up: live adapter verification (2026-11-06 12:37 UTC)
 
-- ?????????????????? PoiMcpClient + PoiExpeditionReader ?????? Nanodesu MCP?lookup_mission_name(3) ?? ?????read_reward_inventory() ?? 8 ????? 19 ????????????????? UI ????? API ???
-- ???????? Poi ??? Store ??????????????? mcp_client.py?expedition_reader.py?????? lookup_mission_name ? read_reward_inventory ?????????????????????
-- ?????????????????????????????????????? Poi ???????
-- ???????? fleet_id + dispatch_id ???????????????? UI ?????????????? Poi ??/???????????????????
-- ?????Python unittest 1,886 ????20 ????Node 29/29?Python compileall?git diff --check ???
-- VERIFIED?GitHub Actions??CI run #42209064553?commit d8154cf37c66bd747c641a74099cf1ee6d22ec42????Node ???????????????CLI ???Python compileall ? unittest ????1,886 ? OK?22 ??????????????
-- ????????????????????????????????????????????????????????Poi ??????????????????? read_reward_inventory ? observed_at ?????????? Poi Redux ??????????
+- VERIFIED: 本机 PoiMcpClient.health() 返回 poi-nanodesu-mcp / ok / storeReady=true；MCP tools/list 返回 poi_get、poi_lookup、poi_battle、poi_describe。项目客户端只开放 poi_get、poi_lookup、poi_describe。
+- VERIFIED: PoiExpeditionReader.lookup_mission_name(3) 返回 警備任務；read_reward_inventory() 来源为 poi-nanodesu-mcp:info.resources+info.useitems，读取 8 个资源槽和 19 条道具记录。observed_at 是本地读取时间，不证明 Redux 源状态刚刷新。
+- VERIFIED: 生产入口将任务名解析接入派遣/结算控制器；派遣侧强制任务名解析，结算侧复用库存读取和按 dispatch_id 加载的库存基线。
+- VERIFIED: Akashic mission.data 当前总数 34，样本行 11 列；缺少舰队、舰船和请求/响应配对身份，只能作辅助证据。
+- VERIFIED: EZ Exped 当前配置 enable=false，未启用或修改。
+- SAFETY: 未修改 Poi 插件/配置，未执行游戏 UI 操作，未主动发起或重放游戏 API 请求。
+- LIMIT: 未执行完整 read_fleets() 链，未取得新的自然结算收据，也未逐笔核对结算前后库存。
