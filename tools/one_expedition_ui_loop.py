@@ -78,7 +78,11 @@ from kancollebot.calibration import (  # noqa: E402
     scan_page,
 )
 from kancollebot.core.task_attribution import merge_trusted_event_fields  # noqa: E402
-from kancollebot.observability.audit_policy import audit_gate  # noqa: E402
+from kancollebot.observability.audit_policy import (  # noqa: E402
+    AuditLogUnavailable,
+    audit_gate,
+    is_critical_event,
+)
 from kancollebot.observability.sink import (  # noqa: E402
     build_run_log_sink,
     correlation_capability,
@@ -926,6 +930,10 @@ def _recovery_emit(
     if event_sink is None:
         return
     if gating:
+        if not is_critical_event(event):
+            raise AuditLogUnavailable(
+                f"home-port recovery gate event {event!r} is not classified as critical"
+            )
         event_sink(event, fields)
         return
     try:
