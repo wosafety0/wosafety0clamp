@@ -3836,3 +3836,15 @@ Source: https://wikiwiki.jp/kancolle/遠征/詳細一覧表 (accessed 2026-11-06
 - Ambiguous, missing, or stale mission classification fails closed as combat/UNKNOWN.
 - Manual selection is not dispatch authorization; a distinct confirmation and pre-dispatch risk/resource/fleet validation remain required.
 - Policy is documented in EXPEDITIONS.md and indexed in the game-rules README. Runtime candidate generation and pre-dispatch enforcement are not implemented or tested in this documentation-only change.
+
+## 2026-11-06 — Expedition scheduler mode requirements
+
+**Status:** USER-DIRECTED DESIGN / DOCUMENTED; runtime implementation and tests pending.
+
+- Recorded two distinct scheduler modes in `docs/EXPEDITION_SCHEDULER_MODES.md`.
+- **P0 — Fixed Assignment Mode:** operator maps each fleet independently to a selected mission (example: Fleet 2 → A, Fleet 3 → B, Fleet 4 → C). The scheduler maintains those assignments and must not silently substitute a more profitable mission. Unassigned fleets can remain disabled.
+- **P1 — Resource-Adaptive Mode:** later mode that evaluates fresh current fuel/ammunition/steel/bauxite inventory against operator-configured targets/reserves/weights, then jointly allocates suitable missions across fleets using reward vectors and net value.
+- Both modes share the existing durable lifecycle, freshness checks, mission eligibility, serialized UI arbiter, settlement verification and action journals. Multi-fleet state may be concurrent; shared UI interaction remains serial.
+- EXP-025 remains a higher-priority hard filter: combat expeditions stay excluded unless separately and explicitly opted into and authorized; a stored fixed assignment alone cannot bypass this.
+- Added the scheduler design to README and the mandatory developer handoff reading list.
+- **LIMITS:** Documentation only. No scheduler/runtime code, configuration schema or tests changed. Fixed Assignment Mode and Resource-Adaptive Mode are both PLANNED / NOT IMPLEMENTED / NOT TESTED.
