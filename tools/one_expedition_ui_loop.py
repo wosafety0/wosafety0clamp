@@ -284,6 +284,39 @@ def _run_log_start_payload(
     }
 
 
+_ACTIVE_RUN_LOG_SINK: list[object] = []
+
+
+def _remember_run_log_sink(sink: object | None) -> None:
+    """Keep the one live run log of this process reachable from the stop path.
+
+    ``run()`` builds the sink deep inside a game session; the fail-closed
+    handler in ``_main_impl`` cannot see local names. At most one sink is
+    ever live per process, so a one-slot list is enough, and ``None`` clears
+    it so a later run cannot stop a sink that already ended.
+    """
+    _ACTIVE_RUN_LOG_SINK.clear()
+    if sink is not None:
+        _ACTIVE_RUN_LOG_SINK.append(sink)
+
+
+def _stop_run_log(reason: str, **fields: object) -> None:
+    """Record why this run ended - never raise.
+
+    Live 2026-11-06: the closed-loop entry wrote a durable ``run_started``
+    but no ``run_stopped`` on any path, so a reader could not tell a run
+    that finished from one that died. The monitor entry already stops its
+    sink in a ``finally``; this is the same lifecycle row for this entry.
+    Lifecycle rows are diagnostics, not a gate: a stop record that fails to
+    write must never replace the exception that actually ended the run.
+    """
+    for sink in _ACTIVE_RUN_LOG_SINK:
+        try:
+            sink.stop(reason, fields)
+        except Exception:
+            pass
+
+
 def _print_event(event: str, state: PoiFleetMissionState | None = None, **extra: object) -> None:
     # P0 R2: the envelope is TRUSTED. Previously ``**extra`` came last, so any
     # caller could overwrite ``event`` / ``run_id`` / ``timestamp_utc`` /
@@ -1355,6 +1388,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                         tool_run_id=RUN_ID,
                     )
                 )
+            _remember_run_log_sink(run_log_sink)
 
             def capture_frame() -> str:
                 game_session.transport.send(
@@ -2057,8 +2091,9 @@ def _main_impl(argv: list[str] | None = None) -> int:
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         _print_event("run_started", log_path=str(LOG_PATH), output_policy="append-only-jsonl; no screenshots or other runtime files")
-        return run(args)
+        result = run(args)
     except (LoopError, CdpInputError, CdpFleetStateError, UiStateGateError, OSError, TimeoutError, ValueError) as exc:
+        _stop_run_log("loop_failed_closed", error_type=type(exc).__name__, tool_run_id=RUN_ID)
         try:
             _print_event("STOPPED_FAIL_CLOSED", error_type=type(exc).__name__, error=str(exc))
         except OSError as log_error:
@@ -2072,6 +2107,14 @@ def _main_impl(argv: list[str] | None = None) -> int:
                 "log_error_type": type(log_error).__name__,
             }, ensure_ascii=False), flush=True)
         return 2
+    except BaseException as exc:
+        # Outside the controlled tuple the process is dying anyway; leave a
+        # stop row behind, then propagate the original exception unchanged.
+        _stop_run_log("loop_crashed", error_type=type(exc).__name__, tool_run_id=RUN_ID)
+        raise
+    else:
+        _stop_run_log("loop_completed", tool_run_id=RUN_ID)
+        return result
 
 
 def main(argv: list[str] | None = None) -> int:

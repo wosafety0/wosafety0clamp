@@ -721,5 +721,99 @@ class RunLogStartPayloadTests(unittest.TestCase):
 
 
 
+class RunStopLifecycleTests(unittest.TestCase):
+    """Every exit of the closed-loop entry leaves a durable stop row.
+
+    Live 2026-11-06: the entry wrote ``run_started`` (after the earlier fix)
+    but never ``run_stopped``, so a reader could not tell a run that finished
+    from one that died mid-tick. The monitor entry already stops its sink in
+    a ``finally``; the closed-loop entry must do the same on all three exits.
+    """
+
+    COMMON = ["--authorize-ui-actions", "--fleet-id", "3", "--mission-id", "3"]
+
+    def tearDown(self):
+        # The stop helpers mutate a module-level one-slot holder; leave it
+        # empty so no other test stops a sink that does not exist.
+        entry._remember_run_log_sink(None)
+
+    def test_the_stop_helper_is_a_noop_without_a_live_sink(self):
+        entry._remember_run_log_sink(None)
+        entry._stop_run_log("loop_completed")
+
+    def test_the_stop_helper_hands_reason_and_fields_to_the_sink(self):
+        recorded: list[tuple[str, dict]] = []
+
+        class FakeSink:
+            def stop(self, reason, fields=None):
+                recorded.append((reason, dict(fields or {})))
+
+        entry._remember_run_log_sink(FakeSink())
+        entry._stop_run_log("loop_completed", tool_run_id="t")
+        self.assertEqual(recorded, [("loop_completed", {"tool_run_id": "t"})])
+
+    def test_a_broken_sink_never_masks_the_outcome(self):
+        class BrokenSink:
+            def stop(self, reason, fields=None):
+                raise RuntimeError("disk gone")
+
+        entry._remember_run_log_sink(BrokenSink())
+        entry._stop_run_log("loop_crashed", error_type="RuntimeError")
+
+    def _exits(self, run_patch, expect_code=None):
+        with tempfile.TemporaryDirectory() as temporary:
+            log = Path(temporary) / "loop.jsonl"
+            with (
+                patch.object(entry, "LOG_PATH", entry.LOG_PATH),
+                patch.object(entry, "RUN_ID", entry.RUN_ID),
+                patch.object(entry, "HOME_REFERENCE_BASE64", entry.HOME_REFERENCE_BASE64),
+                patch.object(entry, "_print_event"),
+                patch.object(entry, "_stop_run_log") as stop,
+                patch.object(entry, "run", run_patch) as run,
+            ):
+                code = entry._main_impl([*self.COMMON, "--log-path", str(log)])
+                if expect_code is not None:
+                    self.assertEqual(code, expect_code)
+            return stop, run
+
+    def test_a_normal_return_stops_the_run_log_as_completed(self):
+        stop, _ = self._exits(MagicMock(return_value=0), expect_code=0)
+        (call,) = stop.call_args_list
+        self.assertEqual(call.args[0], "loop_completed")
+        self.assertTrue(call.kwargs["tool_run_id"])
+
+    def test_a_fail_closed_exit_stops_the_run_log_with_the_error_type(self):
+        stop, _ = self._exits(
+            MagicMock(side_effect=entry.LoopError("gate refused")), expect_code=2
+        )
+        (call,) = stop.call_args_list
+        self.assertEqual(call.args[0], "loop_failed_closed")
+        self.assertEqual(call.kwargs["error_type"], "LoopError")
+        self.assertTrue(call.kwargs["tool_run_id"])
+
+    def test_an_uncontrolled_crash_stops_the_run_log_then_propagates(self):
+        captured: list[object] = []
+        with tempfile.TemporaryDirectory() as temporary:
+            log = Path(temporary) / "loop.jsonl"
+            with (
+                patch.object(entry, "LOG_PATH", entry.LOG_PATH),
+                patch.object(entry, "RUN_ID", entry.RUN_ID),
+                patch.object(entry, "HOME_REFERENCE_BASE64", entry.HOME_REFERENCE_BASE64),
+                patch.object(entry, "_print_event"),
+                patch.object(
+                    entry, "_stop_run_log",
+                    side_effect=lambda *a, **k: captured.append((a, k)),
+                ),
+                patch.object(entry, "run", MagicMock(side_effect=RuntimeError("boom"))),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "boom"):
+                    entry._main_impl([*self.COMMON, "--log-path", str(log)])
+        ((args, kwargs),) = captured
+        self.assertEqual(args[0], "loop_crashed")
+        self.assertEqual(kwargs["error_type"], "RuntimeError")
+        self.assertTrue(kwargs["tool_run_id"])
+
+
+
 if __name__ == "__main__":
     unittest.main()

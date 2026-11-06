@@ -4697,3 +4697,12 @@ The Hand plugin's read-only probe reported:
 - **TESTED:** 新增 3 条（payload 能力位与双域 join ×2、`SUPPLY_SETTLE_SECONDS >= 4.0` 钉住）；集成模块 10 OK；**全量 1794 OK / 2 skip**（1791 + 3）；`compileall` OK；`git diff --check` OK；`node --test` **25/25**。
 - **VERIFIED（实机）:** 结算链全程、run_started 落库、supervisor_paused 关键事件实机落库、修复后母港恢复确认。**VERIFIED（离线）:** 3 条新测试。两者已区分。
 - **LIMITS:** ①`run_stopped` 在闭环入口仍无持久落盘（`RunLogSink.stop()` 存在但未接线，正常/异常路径均无）——独立待办；②SQLite 账本无 run 边界是设计现状，是否要把 `run_started` 也写入 tee 侧留给后续裁决；③本轮 02:19 验证 run 的 `game_actions_enabled=true` 写实（有授权点击），`--settle-only` 下末尾的 paused 是设计而非故障。
+
+## 2026-11-06 — P0：闭环入口 run_stopped 持久落盘（实机 + 离线）
+
+- **用户指令:** 按序推进四项——P0 run_stopped 落盘 → P1 `_recover_home_port` 中间态 → P1 Fleet 4 补给 tab 校准 → P1 L4 soak（Fleet 2/3/4 全参与）。本节为第一项。
+- **现状审计:** `RunLogSink.stop()`（sink.py，永不抛出、finally 安全）**只有监控入口调用**（`finally: stop("monitor_exited")`，覆盖全部退出路径）；闭环入口三条路径（正常完成、fail-closed 元组、元组外崩溃）**全部缺失**——`run_started` 之后进程死了，读者无法区分"跑完"与"死在半路"。
+- **IMPLEMENTED:** `_remember_run_log_sink(sink|None)`（单槽 holder，`run()` 在 `run_log_sink.start()` 后记忆；`None` 清槽防跨 run 泄漏）+ `_stop_run_log(reason, **fields)`（永不抛出：stop 写失败不得掩盖真正结束 run 的异常——沿用监控入口 finally 注释的同一纪律）。`_main_impl` 三路接线：元组内异常 → `loop_failed_closed`（带 `error_type`）；`BaseException` → `loop_crashed`（带 `error_type`，**原异常原样上抛**）；正常返回 → `loop_completed`。所有 stop 行带 `tool_run_id`（与 run_started 同法连接 stdout 域与 sink 域）。
+- **TESTED:** `RunStopLifecycleTests` 6 条——无 sink 时 no-op、reason+fields 原样递交、坏 sink 不上抛、正常返回 `loop_completed`、fail-closed `loop_failed_closed`+error_type、元组外崩溃 `loop_crashed`+error_type 且**异常穿透**。集成模块 16 OK；**全量 1800 OK / 2 skip**（1794+6）；`compileall` OK；`git diff --check` OK；`node --test` **25/25**。
+- **VERIFIED（实机，02:38:28 settle-only 无派遣授权面）:** 修复后首轮 run 以 `run_stopped, reason=loop_completed, tool_run_id=20261106T023828.410163Z` 收尾，与同 run 的 `run-20261106T023838Z-9d2ddfd21bf7` 在同一 JSONL 内可 join。**run 生命周期首次在闭环入口完整闭合**（run_started → … → run_stopped）。
+- **LIMITS:** ①SQLite `dispatch_events` 账本仍不承载 run 生命周期行（`start()`/`stop()` 只经 RunLogSink 写 JSONL——设计现状，是否写入 tee 侧留待裁决）；②`loop_crashed` 同时覆盖 KeyboardInterrupt（reason 语义上略宽，production 中该场景罕见）；③监控入口的 stop reason 恒为 `monitor_exited`（含 Ctrl-C），未区分——现有行为，未改动。
