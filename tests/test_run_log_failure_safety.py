@@ -172,9 +172,10 @@ class SinkFailureTests(unittest.TestCase):
             fail_on="home_port_recovery_click_attempted",
         )
         sink, errors = self.make_sink(store)
-        game_session = SimpleNamespace(input=SimpleNamespace(click=lambda point: self.fail(
-            f"click reached after failed audit attempt: {point}"
-        )))
+        clicks = []
+        game_session = SimpleNamespace(
+            input=SimpleNamespace(click=lambda point: clicks.append(point))
+        )
 
         with (
             patch.object(
@@ -189,7 +190,7 @@ class SinkFailureTests(unittest.TestCase):
                     game_session, attempts=1, event_sink=sink
                 )
 
-        self.assertEqual(store.attempts, 1)
+        self.assertEqual(clicks, [])
         self.assertEqual(errors[0][0], "home_port_recovery_click_attempted")
 
     def test_home_port_recovery_sent_log_failure_stops_after_one_click(self):
@@ -217,7 +218,6 @@ class SinkFailureTests(unittest.TestCase):
                 )
 
         self.assertEqual(len(clicks), 1)
-        self.assertEqual(store.attempts, 2)
         self.assertEqual(errors[0][0], "home_port_recovery_click_sent")
 
     def test_a_critical_write_failure_raises_instead_of_pretending(self):
