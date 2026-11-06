@@ -169,6 +169,20 @@ class ContinuousExpeditionSupervisorTests(unittest.TestCase):
         self.assertEqual(controller.calls, [])
         self.assertEqual(report.paused_reason, "ui_actions_disabled")
 
+    def test_ui_actions_disabled_does_not_pause_an_active_waiting_fleet(self):
+        supervisor, _, monitor, controller = self.make_supervisor(
+            {2: FleetPhase.EXPEDITION_ACTIVE},
+            home_verified={2: True},
+            enabled=False,
+        )
+
+        report = supervisor.tick()
+
+        self.assertEqual(monitor.calls, 1)
+        self.assertEqual(controller.calls, [])
+        self.assertEqual(report.dispatches, ())
+        self.assertIsNone(report.paused_reason)
+
     def test_failed_post_dispatch_home_port_proof_stops_next_fleet(self):
         supervisor, scheduler, _, controller = self.make_supervisor(
             {
