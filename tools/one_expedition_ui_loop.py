@@ -62,6 +62,7 @@ from kancollebot.adapters.poi.visual_fingerprint import (  # noqa: E402
     VisualFingerprintError,
     classify_screenshot_fingerprints,
     classify_supply_checkbox_state,
+    rank_screenshot_fingerprints,
 )
 from kancollebot.calibration import (  # noqa: E402
     DEFAULT_CATALOG,
@@ -1674,6 +1675,58 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 time.sleep(HOME_REFERENCE_SETTLE_SECONDS)
                 return game_session.input.capture_screenshot()
 
+            # P1 single-frame, all-state drain probe. ONE screenshot is scored
+            # against EVERY state with the unchanged 0.97 score / 0.04 margin;
+            # the result is a probe only and never authorises a click. The
+            # two-consecutive-frame verifier above remains the sole click gate.
+            drain_probe_document = None
+            try:
+                fingerprint_path = Path(
+                    os.environ.get(
+                        "KANCOLLEBOT_FINGERPRINTS_PATH",
+                        ROOT / "src" / "kancollebot" / "adapters" / "poi"
+                        / "ooi_1200x720_fingerprints.json",
+                    )
+                )
+                if fingerprint_path.is_file():
+                    drain_probe_document = _read_visual_document(fingerprint_path)
+                else:
+                    _print_event(
+                        "single_frame_probe_unavailable",
+                        reason=f"fingerprint document missing: {fingerprint_path}",
+                    )
+            except (OSError, ValueError) as exc:
+                _print_event(
+                    "single_frame_probe_unavailable",
+                    reason=f"{type(exc).__name__}: {exc}",
+                )
+
+            def classify_frame(payload: str) -> tuple[str, dict[str, float]]:
+                ranking = rank_screenshot_fingerprints(payload, drain_probe_document)
+                _print_event(
+                    "single_frame_all_state_ranking",
+                    state=ranking.state,
+                    best_name=ranking.best_name,
+                    best_score=round(ranking.best_score, 4),
+                    second_name=ranking.second_name,
+                    second_score=round(ranking.second_score, 4),
+                    accepted=ranking.accepted,
+                    minimum_score=0.97,
+                    minimum_margin=0.04,
+                    authorizes_click=False,
+                )
+                return ranking.state, ranking.scores
+
+            def capture_composited() -> str:
+                # HOME_PORT_RETURN_NOTICE lives on the composited overlay that
+                # the default fromSurface=True capture drops (live 2026-11-05).
+                game_session.transport.send(
+                    "Input.dispatchMouseEvent",
+                    {"type": "mouseMoved", "x": 1195, "y": 715},
+                )
+                time.sleep(HOME_REFERENCE_SETTLE_SECONDS)
+                return game_session.input.capture_screenshot(from_surface=False)
+
             scratch = Path(tempfile.mkdtemp(prefix="dispatch_row_")) / "frame.png"
 
             def scan_list():
@@ -1697,6 +1750,12 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 details=load_detail_index(args.detail_index),
                 marks=load_marks(args.marks),
                 capture=capture_frame,
+                classify_frame=(
+                    classify_frame if drain_probe_document is not None else None
+                ),
+                capture_composited=(
+                    capture_composited if drain_probe_document is not None else None
+                ),
                 locate_row=list_session.locate_any_tab,
                 supported_fleets=(2, 3, 4),
                 neutralize_pointer=lambda: game_session.transport.send(

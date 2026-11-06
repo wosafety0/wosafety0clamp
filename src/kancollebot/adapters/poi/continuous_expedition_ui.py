@@ -131,6 +131,8 @@ class CdpContinuousExpeditionUiDriver:
         details: "DetailSourceLike",
         marks: "DispatchMarksLike",
         capture: Callable[[], str],
+        classify_frame: Callable[[str], tuple[str, Mapping[str, float]]] | None = None,
+        capture_composited: Callable[[], str] | None = None,
         neutralize_pointer: Callable[[], None] | None = None,
         sleep: Callable[[float], None] = time.sleep,
         settle_seconds: float = 1.0,
@@ -157,6 +159,12 @@ class CdpContinuousExpeditionUiDriver:
             raise ValueError("settle_seconds must be non-negative")
         if locate_row is not None and not callable(locate_row):
             raise ValueError("locate_row must be callable or None")
+        for name, value in (
+            ("classify_frame", classify_frame),
+            ("capture_composited", capture_composited),
+        ):
+            if value is not None and not callable(value):
+                raise ValueError(f"{name} must be callable or None")
         if not supported_fleets:
             raise ValueError("supported_fleets must not be empty")
         self._input = game_input
@@ -165,6 +173,8 @@ class CdpContinuousExpeditionUiDriver:
         self._details = details
         self._marks = marks
         self._capture = capture
+        self._classify_frame = classify_frame
+        self._capture_composited = capture_composited
         self._neutralize_pointer = neutralize_pointer or (lambda: None)
         self._sleep = sleep
         self._settle_seconds = settle_seconds
@@ -1013,6 +1023,21 @@ class CdpContinuousExpeditionUiDriver:
                 f"fleet {fleet_id} is not a supported dispatch/settlement fleet; "
                 f"supported fleets are {list(self._supported_fleets)}"
             )
+        state = self.probe_drain_state()
+        if state is not None:
+            if state in self.SETTLEMENT_SCREENS:
+                self._event_sink("continuous_ui_settlement_screen_detected", {
+                    "fleet_id": fleet_id,
+                    "state": state,
+                    "clicks_sent": 0,
+                })
+                return state
+            self._event_sink("continuous_ui_settlement_screen_absent", {
+                "fleet_id": fleet_id,
+                "probed": list(self.SETTLEMENT_SCREENS),
+                "clicks_sent": 0,
+            })
+            return None
         for screen in self.SETTLEMENT_SCREENS:
             if self._probe_state(screen, phase=f"probe {screen}") is not None:
                 self._event_sink("continuous_ui_settlement_screen_detected", {
@@ -1065,11 +1090,88 @@ class CdpContinuousExpeditionUiDriver:
     # walks them cannot know - and must not guess - whose result it is advancing.
     # Attribution happens afterwards, from the dispatch ledger.
 
+    # -- one-frame, all-state probe (P1 noise reduction) --------------------
+    #
+    # The historical probe walked SETTLEMENT_SCREENS one state at a time, and
+    # each state asked the two-frame verifier for up to six samples: nine or
+    # more screenshots in a round where a single screenshot already yields the
+    # score of EVERY state. The injected classifier (production binds
+    # rank_screenshot_fingerprints, same 0.97 score / 0.04 margin thresholds)
+    # answers all candidates from that one frame.
+    #
+    # Layer note, proven live 2026-11-05/06: HOME_PORT_RETURN_NOTICE lives on a
+    # composited overlay that the default fromSurface=True capture drops, while
+    # RETURN_RESULT / BONUS_ITEMS / HOME_PORT descriptors were captured on the
+    # default surface and classify UNKNOWN on the composited one. A strict
+    # single screenshot cannot prove both families without breaking calibration,
+    # so the default frame decides everything except the notice, and ONE extra
+    # composited frame is taken only when the default reads HOME_PORT or UNKNOWN
+    # (exactly the cases where an unnoticed return bubble can hide). That is
+    # 1-2 captures instead of >= 9, with no threshold relaxed.
+    def probe_drain_state(self) -> str | None:
+        """Return the state proven by an all-state probe, or ``None``.
+
+        ``None`` means the single-frame capability is not installed and the
+        caller must use the legacy per-state probes. ``"UNKNOWN"`` is a real
+        fail-closed answer. This method NEVER authorises a fixed-coordinate
+        click: every input still goes through ``_confirm`` -> the injected
+        two-consecutive-frame verifier.
+        """
+        if self._classify_frame is None:
+            return None
+
+        def classify(payload: str, layer: str) -> str:
+            observed, scores = self._classify_frame(payload)
+            self._event_sink("continuous_ui_single_frame_probe", {
+                "layer": layer,
+                "observed": observed,
+                "scores": {
+                    key: round(float(value), 4) for key, value in scores.items()
+                },
+                "screenshots": 1,
+                "clicks_sent": 0,
+                "authorizes_click": False,
+            })
+            return observed
+
+        try:
+            observed = classify(self._frame(), "default")
+            if (
+                observed in ("HOME_PORT", "UNKNOWN")
+                and self._capture_composited is not None
+            ):
+                self._neutralize_pointer()
+                notice_state = classify(self._capture_composited(), "composited")
+                if notice_state == "HOME_PORT_RETURN_NOTICE":
+                    return notice_state
+            return observed
+        except Exception as exc:  # noqa: BLE001 - a broken probe must refuse, never guess
+            self._event_sink("continuous_ui_single_frame_probe_failed", {
+                "reason": f"{type(exc).__name__}: {exc}",
+                "clicks_sent": 0,
+                "authorizes_click": False,
+            })
+            return "UNKNOWN"
+
     def probe_settlement_page(self) -> str | None:
         """Name the settlement screen on display, or ``None`` when none is.
 
-        Read-only: one bounded probe per screen, no clicks, no navigation.
+        Read-only: one all-state probe when the capability is wired, otherwise
+        the historical one bounded probe per screen. No clicks, no navigation.
         """
+        state = self.probe_drain_state()
+        if state is not None:
+            if state in self.SETTLEMENT_SCREENS:
+                self._event_sink("continuous_ui_drain_page_detected", {
+                    "state": state,
+                    "clicks_sent": 0,
+                })
+                return state
+            self._event_sink("continuous_ui_drain_page_absent", {
+                "probed": list(self.SETTLEMENT_SCREENS),
+                "clicks_sent": 0,
+            })
+            return None
         for screen in self.SETTLEMENT_SCREENS:
             if self._probe_state(screen, phase=f"drain probe {screen}") is not None:
                 self._event_sink("continuous_ui_drain_page_detected", {
@@ -1085,6 +1187,9 @@ class CdpContinuousExpeditionUiDriver:
 
     def probe_home_port(self) -> bool:
         """True when a stable Home Port is on display. Read-only."""
+        state = self.probe_drain_state()
+        if state is not None:
+            return state == "HOME_PORT"
         return self._probe_state("HOME_PORT", phase="drain probe HOME_PORT") is not None
 
     def advance_settlement_page(self, screen: str) -> None:

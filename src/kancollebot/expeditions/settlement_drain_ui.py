@@ -51,6 +51,18 @@ def _require_driver(driver: Any, *methods: str) -> Any:
     return driver
 
 
+def _map_drain_state(state: str) -> DrainPageState:
+    """Map a proven UI state name onto the drain vocabulary, fail-closed."""
+    page = SCREEN_TO_PAGE.get(state)
+    if page is not None:
+        return page
+    if state == "HOME_PORT":
+        return DrainPageState.HOME_PORT
+    # Any other proven screen is UNKNOWN, never a best guess: the drain stops
+    # rather than clicks something it does not recognise.
+    return DrainPageState.UNKNOWN
+
+
 class PoiSettlementDrainObserver:
     """Answer "which page is visible right now" without side effects."""
 
@@ -60,6 +72,16 @@ class PoiSettlementDrainObserver:
         self._driver = _require_driver(driver, "probe_settlement_page", "probe_home_port")
 
     def observe(self) -> DrainPageState:
+        # One probe round = one screenshot (plus at most one composited frame
+        # when a hidden return notice could be present). The single-frame
+        # classifier scores every candidate state from that same frame. It is
+        # a PROBE ONLY: ``PoiSettlementDrainDriver.advance`` still demands two
+        # consecutive independently captured frames before any click.
+        probe = getattr(self._driver, "probe_drain_state", None)
+        if callable(probe):
+            state = probe()
+            if state is not None:
+                return _map_drain_state(state)
         screen = self._driver.probe_settlement_page()
         if screen is not None:
             page = SCREEN_TO_PAGE.get(screen)

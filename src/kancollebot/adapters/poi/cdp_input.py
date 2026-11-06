@@ -40,9 +40,11 @@ _APPROVED_VISUAL_TARGETS = {
     "supply-fleet3-tab": (285, 155, 50, 50),
     # Derived, not templated: the supply tab strip is evenly spaced at 45 px
     # (195/240/285), and Fleet 4's tab was confirmed on screen on 2026-11-06.
-    # The region is approved so the locator can reach it; the *selection* of
-    # this tab still has to be proven separately (relative-highlight check),
-    # because no fingerprint template exists for it.
+    # The region is approved so the locator can reach it. Since 2026-11-06
+    # Fleet 4 also has a captured SUPPLY_FLEET_4_SELECTED fingerprint, so tab
+    # selection is proven by the same template gate as Fleets 1-3 (the
+    # relative-highlight fallback is retired). Note FLEET_4_SELECTED, the
+    # *dispatch* tab, is a different state and still has no template.
     "supply-fleet4-tab": (330, 155, 50, 50),
     "fleet-supply-all-button": (1050, 590, 145, 60),
 }

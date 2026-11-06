@@ -312,12 +312,14 @@ def locate_square_checkbox(
 
 # -- template-free fleets -----------------------------------------------------
 #
-# Fleet 4 has a supply tab on this account but no captured
-# ``SUPPLY_FLEET_4_SELECTED`` fingerprint: producing one needs a live capture
-# of that exact screen, which is a real-client operation this change is not
-# allowed to claim. Refusing Fleet 4 outright would leave the closed loop
-# unable to resupply a fleet it can already dispatch, so the selected tab is
-# instead identified *relative to its neighbours*, which needs no template.
+# RETIRED 2026-11-06: ``SUPPLY_FLEET_4_SELECTED`` was captured live and the
+# relative-highlight path was measured to be unreliable on this account (the
+# selected tab's margin over the runner-up fell as low as 1.7, and on a
+# fleet-1 page tab 4 outscored tab 1). ``TEMPLATE_FREE_SUPPLY_FLEETS`` is now
+# empty, so the code below is retained only for historical/offline reference
+# and is never reached from the production supply path.
+# Historically: Fleet 4 had a supply tab but no captured fingerprint, so the
+# selected tab was identified relative to its neighbours instead.
 #
 # What this proves: exactly one tab in the strip is painted in the
 # selected style, and it is the requested one.

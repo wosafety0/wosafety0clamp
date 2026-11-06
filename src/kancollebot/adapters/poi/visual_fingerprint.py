@@ -11,6 +11,7 @@ import math
 import struct
 import zlib
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -225,17 +226,56 @@ def compute_grid_fingerprint(
 # still answers with one name. A variant never wins the ranking itself: its
 # evidence travels under the canonical name, and on a *success* page the
 # merged score stays low (0.6732 / 0.6427), leaving that decision unchanged.
-CANONICAL_STATE_VARIANTS = {"BONUS_ITEMS": ("BONUS_ITEMS_M1", "BONUS_ITEMS_M2")}
+CANONICAL_STATE_VARIANTS = {
+    "BONUS_ITEMS": ("BONUS_ITEMS_M1", "BONUS_ITEMS_M2"),
+    # Live 2026-11-06 (L4 soak): the expedition-list panel changes its centre
+    # content with the selected mission, so a whole-panel descriptor captured
+    # from one mission scores a stable but sub-threshold 0.9546-0.9607 on
+    # other missions (all other states' scores stayed constant, ruling out a
+    # DPI / ROI / preprocessing shift). A descriptor recaptured from those
+    # pages merges into the canonical name exactly like the bonus variants do:
+    # it never wins the ranking under its own name, and it changes no threshold.
+    "MISSION_SELECTED": ("MISSION_SELECTED_M1",),
+}
 
 
-def classify_screenshot_fingerprints(
+@dataclass(frozen=True)
+class FingerprintRanking:
+    """The decision made from ONE screenshot, with its two highest states.
+
+    ``accepted`` is false whenever the best score misses ``minimum_score`` or
+    the Top 1 / Top 2 gap misses ``minimum_margin``. Callers use ``state`` for
+    the fail-closed answer; ``scores`` is the full per-state audit trail.
+    """
+
+    best_name: str | None
+    best_score: float
+    second_name: str | None
+    second_score: float
+    scores: dict[str, float]
+    accepted: bool
+
+    @property
+    def state(self) -> str:
+        return self.best_name if self.accepted and self.best_name is not None else "UNKNOWN"
+
+
+def rank_screenshot_fingerprints(
     screenshot_base64: str,
     document: Mapping[str, object],
     *,
     minimum_score: float = 0.97,
     minimum_margin: float = 0.04,
-) -> tuple[str, dict[str, float]]:
-    """Classify one screenshot against state-specific crops stored as RGB descriptors."""
+) -> FingerprintRanking:
+    """Score EVERY state from ONE screenshot and rank Top 1 / Top 2.
+
+    This is a single-frame probe. It never relaxes the decision thresholds and
+    its result is never, by itself, authority to send a fixed-coordinate click:
+    the click gates still require two independent consecutive frames.
+
+    The body is the historical ``classify_screenshot_fingerprints`` decision,
+    kept verbatim so that delegating to it cannot change any existing verdict.
+    """
     if not math.isfinite(minimum_score) or not 0 < minimum_score <= 1:
         raise ValueError("minimum_score must be finite and in (0, 1]")
     if not math.isfinite(minimum_margin) or not 0 <= minimum_margin <= 1:
@@ -247,7 +287,7 @@ def classify_screenshot_fingerprints(
         raise VisualFingerprintError("fingerprint viewport does not match the screenshot")
     states = document.get("states")
     if not isinstance(states, Mapping) or not states:
-        return "UNKNOWN", {}
+        return FingerprintRanking(None, -1.0, None, -1.0, {}, False)
 
     scores: dict[str, float] = {}
     for name, template in states.items():
@@ -281,7 +321,7 @@ def classify_screenshot_fingerprints(
         reverse=True,
     )
     if not ranked:
-        return "UNKNOWN", scores
+        return FingerprintRanking(None, -1.0, None, -1.0, scores, False)
     best_name, best_score = ranked[0]
     # Supply fleet selections are child states of the supply page. Their
     # shared header intentionally resembles SUPPLY_MENU, so do not let that
@@ -299,13 +339,39 @@ def classify_screenshot_fingerprints(
         "HOME_PORT_RETURN_NOTICE": "HOME_PORT",
     }.get(best_name)
     competitors = [
-        score for name, score in ranked[1:]
+        (name, score) for name, score in ranked[1:]
         if name != parent_state
     ]
-    second_score = competitors[0] if competitors else -1.0
-    if best_score < minimum_score or best_score - second_score < minimum_margin:
-        return "UNKNOWN", scores
-    return best_name, scores
+    second_name, second_score = competitors[0] if competitors else (None, -1.0)
+    accepted = (
+        best_score >= minimum_score
+        and best_score - second_score >= minimum_margin
+    )
+    return FingerprintRanking(
+        best_name=best_name,
+        best_score=best_score,
+        second_name=second_name,
+        second_score=second_score,
+        scores=scores,
+        accepted=accepted,
+    )
+
+
+def classify_screenshot_fingerprints(
+    screenshot_base64: str,
+    document: Mapping[str, object],
+    *,
+    minimum_score: float = 0.97,
+    minimum_margin: float = 0.04,
+) -> tuple[str, dict[str, float]]:
+    """Classify one screenshot against state-specific crops stored as RGB descriptors."""
+    ranking = rank_screenshot_fingerprints(
+        screenshot_base64,
+        document,
+        minimum_score=minimum_score,
+        minimum_margin=minimum_margin,
+    )
+    return ranking.state, ranking.scores
 
 
 def classify_supply_checkbox_state(

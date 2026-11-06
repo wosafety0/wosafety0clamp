@@ -46,9 +46,12 @@ class RuntimeConfig:
     non_dispatchable_fleet_ids: tuple[int, ...] = (1,)
     # EXPEDITION closed-loop only: fleets with a calibrated, unambiguous visual
     # gate for real resupply clicks (tab region, checkbox fingerprints, UI state
-    # enum). Fleet 4 has a supply tab that is locatable and a template-free
-    # selection check, but no captured fingerprint template, so it is NOT in
-    # this set: membership here is a claim about live evidence.
+    # enum). Fleet 4's SUPPLY_FLEET_4_SELECTED template WAS captured on
+    # 2026-11-06 (crop 341,155,30,40, two-session similarity 1.0), so the
+    # template-free relative-highlight fallback is retired. Fleet 4 is still
+    # NOT in this set because the *production resupply path* has not been
+    # re-verified on the real client: membership here is a claim about live
+    # evidence, not about code or template availability.
     resupply_verified_fleet_ids: tuple[int, ...] = (2, 3)
     # EXPEDITION closed-loop only: fleets whose supply *chain* is calibrated in
     # code - the tab has a bounded region, the locator accepts its index, and

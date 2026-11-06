@@ -19,11 +19,11 @@ class UiState(str, Enum):
     SUPPLY_FLEET_1_SELECTED = "SUPPLY_FLEET_1_SELECTED"
     SUPPLY_FLEET_2_SELECTED = "SUPPLY_FLEET_2_SELECTED"
     SUPPLY_FLEET_3_SELECTED = "SUPPLY_FLEET_3_SELECTED"
-    # Fleet 4's supply tab exists on this account (live 2026-11-06) but has no
-    # captured fingerprint template yet. The enum member is declared so the
-    # page classifier can name it; without a template the fingerprint check
-    # simply never matches and the caller falls back to the relative-highlight
-    # check (see visual_target.classify_supply_tab_selection).
+    # Fleet 4's supply tab has a captured fingerprint template since
+    # 2026-11-06 (crop 341,155,30,40). The enum member is what lets the page
+    # classifier name that state; the relative-highlight fallback it once
+    # needed is retired (TEMPLATE_FREE_SUPPLY_FLEETS is empty). The *dispatch*
+    # tab state FLEET_4_SELECTED below is a different, still-untemplated page.
     SUPPLY_FLEET_4_SELECTED = "SUPPLY_FLEET_4_SELECTED"
     SUPPLY_FLEET_2_SHIP_1_CHECKED = "SUPPLY_FLEET_2_SHIP_1_CHECKED"
     SUPPLY_FLEET_2_SHIP_1_UNCHECKED = "SUPPLY_FLEET_2_SHIP_1_UNCHECKED"
