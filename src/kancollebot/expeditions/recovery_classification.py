@@ -135,9 +135,10 @@ def classify_recovery_signals(
             RecoveryCategory.INACTIVE, False, False, False, f"observer_{status}",
         )
     if status in _INVALID_STATUSES or not status:
+        status_label = status or "missing"
         return RecoveryClassification(
             RecoveryCategory.UNKNOWN, True, False, True,
-            f"untrusted_observer_signal:{status or \"missing\"}",
+            f"untrusted_observer_signal:{status_label}",
         )
     return RecoveryClassification(
         RecoveryCategory.UNKNOWN, True, False, True,
