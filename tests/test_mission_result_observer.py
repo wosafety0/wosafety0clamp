@@ -198,5 +198,58 @@ class ObserverTests(unittest.TestCase):
             PassiveMissionResultObserver("x.js", timeout_seconds=0)
 
 
+    def test_a_complete_reward_receipt_is_normalized(self):
+        payload = json.loads(json.dumps(WITNESS))
+        payload["data"]["apiRewardReceipt"] = {
+            "status": "complete",
+            "material": [10, 20, 30, 40],
+            "useitemFlags": [1, 0],
+            "items": [{"slot": 1, "useitemId": 6, "useitemCount": 2}],
+        }
+        with __import__("tempfile").TemporaryDirectory() as directory:
+            observer = self.make_observer(directory, stdout="")
+            witness = self.consume(observer, child_output(witness=payload))
+        receipt = witness["data"]["apiRewardReceipt"]
+        self.assertEqual(receipt["status"], "complete")
+        self.assertEqual(receipt["material"], [10, 20, 30, 40])
+        self.assertEqual(receipt["useitemFlags"], [1, 0])
+        self.assertEqual(
+            receipt["items"],
+            [{"slot": 1, "useitemId": 6, "useitemCount": 2}],
+        )
+
+    def test_a_declared_complete_receipt_with_missing_material_is_downgraded(self):
+        payload = json.loads(json.dumps(WITNESS))
+        payload["data"]["apiRewardReceipt"] = {
+            "status": "complete",
+            "material": None,
+            "useitemFlags": [1, 0],
+            "items": [{"slot": 1, "useitemId": 6, "useitemCount": 2}],
+        }
+        with __import__("tempfile").TemporaryDirectory() as directory:
+            observer = self.make_observer(directory, stdout="")
+            witness = self.consume(observer, child_output(witness=payload))
+        self.assertEqual(witness["data"]["apiRewardReceipt"]["status"], "incomplete")
+
+    def test_a_flagged_item_without_a_valid_item_payload_is_incomplete(self):
+        payload = json.loads(json.dumps(WITNESS))
+        payload["data"]["apiRewardReceipt"] = {
+            "status": "complete",
+            "material": [10, 20, 30, 40],
+            "useitemFlags": [1, 0],
+            "items": [],
+        }
+        with __import__("tempfile").TemporaryDirectory() as directory:
+            observer = self.make_observer(directory, stdout="")
+            witness = self.consume(observer, child_output(witness=payload))
+        self.assertEqual(witness["data"]["apiRewardReceipt"]["status"], "incomplete")
+
+    def test_a_legacy_identity_witness_without_receipt_stays_readable(self):
+        with __import__("tempfile").TemporaryDirectory() as directory:
+            observer = self.make_observer(directory, stdout="")
+            witness = self.consume(observer, child_output())
+        self.assertNotIn("apiRewardReceipt", witness["data"])
+
+
 if __name__ == "__main__":
     unittest.main()
