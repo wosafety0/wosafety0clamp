@@ -100,6 +100,8 @@ class BackgroundPortSnapshotProvider:
                 if snapshot is not None:
                     self._snapshot = copy.deepcopy(snapshot)
                     status = "captured"
+                elif status == "captured":
+                    status = "invalid_status_without_snapshot"
                 if status != self._last_status:
                     callback = self._on_status
                 self._last_status = status
