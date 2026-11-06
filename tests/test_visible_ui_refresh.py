@@ -45,7 +45,7 @@ def observation(fresh: bool):
 
 
 class VisibleUiPortRefreshDriverTests(unittest.TestCase):
-    def make_driver(self, states, *, fail_click_at=None):
+    def make_driver(self, states, *, fail_click_at=None, event_sink=None):
         game_input = FakeInput(fail_at=fail_click_at)
         events = []
         sleeps = []
@@ -60,11 +60,16 @@ class VisibleUiPortRefreshDriverTests(unittest.TestCase):
                 evidence="two_consecutive_test_frames",
             )
 
+        def emit(event, fields):
+            events.append((event, dict(fields)))
+            if event_sink is not None:
+                event_sink(event, fields)
+
         driver = VisibleUiPortRefreshDriver(
             game_input=game_input,
             verify_state=verify,
             ui_arbiter=UiOperationArbiter(),
-            event_sink=lambda event, fields: events.append((event, dict(fields))),
+            event_sink=emit,
             sleep=sleeps.append,
             settle_seconds=1.0,
         )
@@ -86,6 +91,19 @@ class VisibleUiPortRefreshDriverTests(unittest.TestCase):
         self.assertEqual(result.consecutive_states, ("HOME_PORT", "HOME_PORT"))
         self.assertEqual(events[-1][0], "ui_refresh_completed")
         self.assertEqual(events[-1][1]["clicks_sent"], 3)
+
+    def test_audit_failure_before_refresh_click_prevents_input(self):
+        def fail_attempt(event, fields):
+            if event == "ui_refresh_click_attempted":
+                raise RuntimeError("audit unavailable")
+
+        driver, game_input, events, _ = self.make_driver(
+            ["HOME_PORT"], event_sink=fail_attempt
+        )
+        with self.assertRaises(VisibleUiRefreshError):
+            driver.refresh_port_state()
+        self.assertEqual(game_input.clicks, [])
+        self.assertIn("ui_refresh_click_attempted", [name for name, _ in events])
 
     def test_initial_state_failure_sends_no_click(self):
         driver, game_input, events, _ = self.make_driver(["UNKNOWN"])
@@ -152,9 +170,14 @@ class VisibleUiPortRefreshDriverTests(unittest.TestCase):
         self.assertEqual(result.state, "HOME_PORT")
         names = [name for name, _ in events]
         self.assertIn("ui_refresh_click_repeated", names)
+        self.assertEqual(names.count("ui_refresh_click_attempted"), 4)
+        self.assertEqual(names.count("ui_refresh_click_sent"), 4)
         repeated = next(fields for name, fields in events if name == "ui_refresh_click_repeated")
         self.assertEqual(repeated["target"], SORTIE.label)
         self.assertEqual(repeated["state_after_first_click"], "HOME_PORT")
+        repeated_index = names.index("ui_refresh_click_repeated")
+        self.assertEqual(names[repeated_index + 1], "ui_refresh_click_attempted")
+        self.assertEqual(names[repeated_index + 2], "ui_refresh_click_sent")
         self.assertEqual(events[-1][0], "ui_refresh_completed")
         self.assertEqual(events[-1][1]["clicks_sent"], 4)
 
