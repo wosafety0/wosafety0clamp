@@ -251,5 +251,19 @@ class ObserverTests(unittest.TestCase):
         self.assertNotIn("apiRewardReceipt", witness["data"])
 
 
+    def test_a_non_string_receipt_status_is_downgraded_without_crashing(self):
+        payload = json.loads(json.dumps(WITNESS))
+        payload["data"]["apiRewardReceipt"] = {
+            "status": ["complete"],
+            "material": [10, 20, 30, 40],
+            "useitemFlags": [0, 0],
+            "items": [],
+        }
+        with __import__("tempfile").TemporaryDirectory() as directory:
+            observer = self.make_observer(directory, stdout="")
+            witness = self.consume(observer, child_output(witness=payload))
+        self.assertEqual(witness["data"]["apiRewardReceipt"]["status"], "incomplete")
+
+
 if __name__ == "__main__":
     unittest.main()
