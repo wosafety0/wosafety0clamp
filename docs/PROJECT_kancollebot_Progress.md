@@ -4652,9 +4652,9 @@ The Hand plugin's read-only probe reported:
 - **基线:** 从远征功能分支 `feat/production-settlement-resupply-wiring-20261105` 的 HEAD `4c1995f9af26799aabd1f2eb8b43055ce00ac679` 创建独立分支 `feat/anti-cat-recovery-gate-20261106`；未改远征分支。
 - **IMPLEMENTED:** 新增 `src/kancollebot/core/network_fault_classifier.py`。故障类别分为 HEALTHY、SUSPECT、DISCONNECTED、OBSERVER_UNAVAILABLE、SERVER_REJECTED、UNKNOWN；恢复状态分为 RUNNING、SUSPECT、PAUSED、RECONCILE_REQUIRED、MANUAL_REQUIRED。自然响应超时仅归类为 SUSPECT，不谎称网络断开；CDP target/连接故障进入 PAUSED；服务端/会话拒绝进入 MANUAL_REQUIRED；恢复后新的 captured witness 只进入 RECONCILE_REQUIRED，必须由调用方完成业务账本对账并显式确认后才能恢复。
 - **SAFETY:** 分类器是无副作用纯逻辑，不创建 CDP/HTTP 连接、不发游戏请求、不执行点击/刷新。观察 revision 必须单调递增，重复/迟到 revision 不会覆盖较新判断。MANUAL_REQUIRED 为锁存状态，后续 witness 不能自动清除。
-- **TESTED:** 新增 `tests/test_network_fault_classifier.py`，15 个用例覆盖状态分类、超时歧义、CDP 断连、观察器不可用、服务端拒绝、未知状态、重复 revision、恢复后强制对账和人工熔断。GitHub Actions 运行 `42139640262` 的 Python compileall 与定向 15 项测试已通过；全量测试仍在运行，待最终结果。
+- **TESTED:** 新增 `tests/test_network_fault_classifier.py`，15 个用例覆盖状态分类、超时歧义、CDP 断连、观察器不可用、服务端拒绝、未知状态、重复 revision、恢复后强制对账和人工熔断。GitHub Actions 运行 `42139640262` 已完成：Python compileall 通过、定向测试 **15/15 通过**、全量单元测试 **1782 OK / 22 skip**；运行链接：https://github.com/wosafety0/wosafety0clamp/actions/runs/42139640262。该运行覆盖代码提交 `26c0fdb37fb759b02c3626e12a73dd77e6bee058`；之后的 `a37cdac` 仅更新本进度记录，不改代码。
 - **验证边界:** 此阶段未把门禁接入 `ContinuousExpeditionMonitor` / `ContinuousExpeditionSupervisor`，因此尚不能宣称生产调度已被防猫门禁保护；无实机网络中断、CDP 重连或 UI 恢复验证。
 - **CI 工作流:** 新增 `.github/workflows/anti-cat-recovery-ci.yml`，专门覆盖该功能分支及后续面向 main/dev 的 PR；包含编译、定向测试和全量单元测试。
 - **代码提交:** 分类器 `4cbcc36e087e219d9ef6eb9603eb67dc934bc98a`；测试/CI 后续修正提交 `26c0fdb37fb759b02c3626e12a73dd77e6bee058`（以分支 HEAD 为准）。之前早期提交在 CI 暴露测试文件拼写错误，已修正；不把早期失败运行作为成功证据。
-- **当前状态:** 分类器与测试代码已推送至独立远端分支；远端回读已核对源码、测试和工作流文件。项目进度记录正在更新；全量 CI、运行时接线和真实环境验证尚未完成。
+- **当前状态:** 分类器与测试代码已推送至独立远端分支；远端回读已核对源码、测试和工作流文件。项目进度记录正在更新；本阶段代码/全量离线 CI 已通过；运行时接线和真实环境验证尚未完成。
 - **下一步:** 先取得本轮全量 CI 结果；随后实现 observer attempt revision/status 的可靠暴露，并在任何可见刷新之前加入全局 gate。运行时必须区分“CDP 观察连接可用”与“自然 port 响应暂未发生”，避免以超时误判断网，也避免在连接状态未知时先点击导航。
