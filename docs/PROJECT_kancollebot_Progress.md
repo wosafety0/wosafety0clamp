@@ -4801,4 +4801,4 @@ The Hand plugin's read-only probe reported:
 - **设计产物:** `docs/DESIGN_multi_fleet_production_entry.md`，提交 `90972474aa8e3ff471996c6ad45845424ea0e229`，GitHub Actions run `42184081929` 成功。该文档状态为 DESIGN ONLY，不代表代码已实现。
 - **安全约束:** 多舰队入口必须共享 SQLite dispatch registry/action journal；不允许拼接各队独立数据库；启动时无法唯一归属的奖励页或在途远征必须 fail-closed；global Drain 必须显式启用；UI 操作串行；任务映射须显式配置并经 Poi 解锁状态、任务规则及舰队编成核验。
 - **NEXT:** P0.2a 实现独立多舰队 composition root，复用现有 supervisor/controllers/driver；先完成配置校验、共享 runtime、启动 HOME_PORT 门禁和离线多舰队测试，再进入受控 Poi 实机验收。
-- **STATUS:** DESIGN 已推送并远程回读；本条进度记录待提交、推送及远程回读；生产代码尚未开始。
+- **STATUS:** 设计文档、进度记录均已提交、推送并从 GitHub 远程回读；设计文档 CI 已通过。生产代码尚未开始。
