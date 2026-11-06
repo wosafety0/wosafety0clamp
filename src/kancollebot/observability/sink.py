@@ -175,6 +175,11 @@ class RunLogSink:
         self, event: str, fields: Mapping[str, Any], *, sqlite_event_id: int | None
     ) -> None:
         critical = is_critical_event(event)
+        if critical and self._degraded_reason is not None:
+            # A successful later append cannot repair an earlier missing row.
+            # Refuse every subsequent critical event in this run, even when a
+            # caller does not have an explicit action-preflight hook.
+            raise AuditLogUnavailable(f"run log is degraded: {self._degraded_reason}")
         try:
             if not isinstance(fields, Mapping):
                 raise TypeError("event fields must be a mapping")
@@ -356,6 +361,11 @@ class TeeEventSink:
         self._others = tuple(others)
 
     def __call__(self, event: str, fields: Mapping[str, Any]) -> None:
+        if is_critical_event(event):
+            # Probe all capable sinks before writing the primary SQLite row.
+            # This prevents a known-degraded secondary log from creating a
+            # partial row immediately before an irreversible UI action.
+            self.ensure_writable()
         primary_event_id = self._primary(event, fields)
         if primary_event_id is not None and (
             type(primary_event_id) is not int or primary_event_id < 1
