@@ -52,7 +52,7 @@ When a source itself says "under investigation", "estimated", or "not fully veri
 
 | Domain | File | Coverage | Current status |
 |---|---|---|---|
-| Expeditions | [EXPEDITIONS.md](EXPEDITIONS.md) | Mission catalogue, resource-yield ranking, net-value model, stat gates, great success, monthly prerequisites, combat damage/fatigue/repair economics | Partial; community source researched, live verification pending |
+| Expeditions | [EXPEDITIONS.md](EXPEDITIONS.md) | Mission catalogue, resource-yield ranking, net-value model, stat gates, monthly prerequisites, combat damage/fatigue/repair economics, explicit combat opt-in policy | Partial; community source researched, live verification pending |
 | Battle | [BATTLE.md](BATTLE.md) | Battle node types, phase order, day/night transitions, battle result | Partial; community source researched, live verification pending |
 | Formation and battle formations | [FORMATIONS.md](FORMATIONS.md) | Standard formations, selection constraints, combined-fleet formations | Partial; community source researched, live verification pending |
 | Fleet composition | [FLEET_COMPOSITION.md](FLEET_COMPOSITION.md) | Fleet slots, expedition eligibility, combined-fleet composition and restrictions | Partial; community source researched, live verification pending |
