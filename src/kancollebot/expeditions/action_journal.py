@@ -106,3 +106,30 @@ class ExpeditionActionJournal:
                 (key,),
             ).fetchone()
         return None if row is None else {"state": row[0], "detail": row[1], "updated_at": row[2]}
+
+    def load_unresolved(self) -> tuple[dict[str, object], ...]:
+        """Return every action not proven confirmed or rejected, oldest first.
+
+        Unknown state strings are included rather than ignored so corrupt or
+        newer journal rows cannot silently pass a recovery reconciliation.
+        """
+        with self._connection() as db:
+            rows = db.execute(
+                """SELECT action_key, fleet_id, mission_id, observed_at,
+                          state, detail, updated_at
+                   FROM expedition_actions
+                   WHERE state NOT IN ('confirmed', 'rejected')
+                   ORDER BY updated_at, action_key"""
+            ).fetchall()
+        return tuple(
+            {
+                "action_key": row[0],
+                "fleet_id": row[1],
+                "mission_id": row[2],
+                "observed_at": row[3],
+                "state": row[4],
+                "detail": row[5],
+                "updated_at": row[6],
+            }
+            for row in rows
+        )
