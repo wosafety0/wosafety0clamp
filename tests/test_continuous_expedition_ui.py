@@ -194,6 +194,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
         fleet_after_confirm=2,
         supported_fleets=(2, 3, 4),
         action_guard=None,
+        action_permit=None,
     ):
         game_input = FakeInput()
         events = []
@@ -235,6 +236,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
             locate_row=locate_row,
             supported_fleets=supported_fleets,
             action_guard=action_guard,
+            action_permit=action_permit,
         )
         return driver, game_input, events, marks, details
 
@@ -258,6 +260,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
         driver, game_input, _, _, _ = self.make_driver(
             locate_row=lambda expedition_id: self.location(expedition_id),
             action_guard=gate.require_actions_allowed,
+            action_permit=gate.action_permit,
         )
 
         with self.assertRaises(RecoveryPausedError):
