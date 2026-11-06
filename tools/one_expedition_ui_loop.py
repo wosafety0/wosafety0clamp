@@ -2352,9 +2352,10 @@ def _main_impl(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--mission-id",
         type=int,
-        default=RUNTIME_CONFIG.production_mission_id,
-        help="Master-data mission id for --fleet-id (ignored in all-fleets mode, "
-             "where --fleet-missions or the default map selects each mission)",
+        default=None,
+        help="Master-data mission id for --fleet-id; required whenever --fleet-id "
+             "is given. Ignored in all-fleets mode, where --fleet-missions or the "
+             "default map selects each mission.",
     )
     parser.add_argument(
         "--position-index",

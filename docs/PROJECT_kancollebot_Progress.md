@@ -4805,3 +4805,4 @@ The Hand plugin's read-only probe reported:
 - **LIMITS**: 仍零实机；#129 Soak 尚未启动（需游戏窗口 + 用户确认环境就绪）。
 - **NEXT（#129）**: 用 `--fleet-missions "2:3,3:1" --exclude-fleets 4 --global-drain` 跑：派遣进程（F2/F3 READY→派遣→退出）→ 等双舰返航 → 结算进程（双舰 RETURNED→单 tick 全局 Drain 串行清空两舰→补给→再派遣→退出）。drain 预算 `--drain-action-interval-seconds 10 --drain-timeout-seconds 240 --drain-max-actions 24`。
 - **交付物**: `tools/one_expedition_ui_loop.py`、`tests/test_p02_dispatch_plan_resolution.py`。
+- **实机首启发现（已修）:** 首次启动派遣进程即 `STOPPED_FAIL_CLOSED`：`--mission-id` 的 argparse 默认值原为 `RUNTIME_CONFIG.production_mission_id`，使 all-fleets 模式下 `mission_id` 恒非 None → 误触发「--mission-id without --fleet-id is ambiguous」守卫。真实 CLI 此前从未跑过 all-fleets（单测用 `mission_id=None` 显式覆盖，未暴露）。修复：argparse `--mission-id` 默认值改 `None`，单舰队模式仍要求显式 `--mission-id`（与守卫语义一致；L4 真实运行历来显式传）。四道门禁复跑全绿（1835 OK）。
