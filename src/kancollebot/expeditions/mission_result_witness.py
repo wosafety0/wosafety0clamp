@@ -145,7 +145,7 @@ def _parse_reward_receipt(
     if not isinstance(value, Mapping):
         return None
     status = value.get("status")
-    if status not in {"complete", "incomplete", "no_reward", "unknown"}:
+    if not isinstance(status, str) or status not in {"complete", "incomplete", "no_reward", "unknown"}:
         status = "incomplete"
     if clear_result == 0 and status != "no_reward":
         status = "unknown"
