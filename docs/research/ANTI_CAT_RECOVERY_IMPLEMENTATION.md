@@ -109,3 +109,29 @@ Implement P2 global pause gating before \`monitor.tick()\` and at visible UI act
 - The observer still uses the existing fixed retry delay; bounded exponential backoff and a retry budget are not implemented.
 - A healthy observer status or newly captured witness cannot release the pause. There is no automatic reconnect orchestration, witness-after-pause proof, Action Journal / Dispatch Registry reconciliation, or automatic resume.
 - No Poi/CDP session or game UI action was performed. No live anti-cat verification.
+
+
+## P4 — Bounded observer retry and backoff
+
+### Implemented
+
+- The passive snapshot provider now uses exponential retry backoff for repeated observer/transport failures: base delay, doubling per consecutive failure, capped by \`max_retry_delay_seconds\`.
+- The default retry budget is six consecutive failures; after exhaustion the provider stops and publishes \`retry_budget_exhausted:<last_status>\`. The recovery gate remains latched.
+- A successful natural witness resets the consecutive-failure count.
+- \`natural_response_timeout\` is neutral and does not consume the failure budget: no observed request is not evidence of a broken connection.
+- Retry base delay, cap, and failure budget are configurable and validated. The default cap preserves compatibility with a caller-supplied base delay greater than eight seconds.
+- Status callbacks remain transition-only and never share the event sink from the background thread.
+
+### Verification
+
+- GitHub Actions: [run 42143413592](https://github.com/wosafety0/wosafety0clamp/actions/runs/42143413592)
+- Exact tested HEAD and branch HEAD: \`77fe29ff1f7b069fdc7d46ed126d1c35812b25c2\`.
+- Result: success; full Python suite **1817 tests OK / 22 skipped**.
+- New tests cover bounded retry exhaustion, natural timeout neutrality, status callback behavior, and malformed captured-without-witness signals.
+- Python compileall, CLI smoke checks, and offline JavaScript checks passed.
+
+### Remaining boundary
+
+- Retry exhaustion stops the observer thread; the process remains paused and requires operator intervention/restart. No request replay or page refresh is attempted.
+- A successful new witness still does not release the gate. P5 must prove the witness was captured after the pause, then reconcile Poi fleet mission tuples and durable dispatch/settlement/resupply ledgers before any explicit release.
+- No Poi/CDP session or game UI action was performed. No live anti-cat verification.
