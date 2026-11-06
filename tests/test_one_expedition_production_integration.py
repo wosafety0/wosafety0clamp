@@ -125,12 +125,15 @@ class FakeMarks:
 class FakeListSession:
     """The row locator, standing in for a walked position index."""
 
+    last_instance = None
+
     def __init__(self, *, scan, click, index, settle_seconds, event_sink=None):
         self.scan = scan
         self.click = click
         self.index = index
         self.settle_seconds = settle_seconds
         self.event_sink = event_sink
+        type(self).last_instance = self
 
     def locate_any_tab(self, expedition_id):
         return self.locate(expedition_id)
@@ -254,6 +257,7 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
         references are replaced while the driver, controller, supervisor and
         monitor under test stay real.
         """
+        FakeListSession.last_instance = None
         stack.enter_context(
             patch.object(entry, "ExpeditionListSession", FakeListSession)
         )
@@ -330,6 +334,11 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
                 with patch.object(monitor_runtime, "build_runtime",
                                   side_effect=fake_build) as build:
                     self.assertEqual(entry.run(args), 0)
+                    self.assertIsNotNone(FakeListSession.last_instance)
+                    self.assertIs(
+                        FakeListSession.last_instance.event_sink,
+                        runtime.monitor.event_sink,
+                    )
                     # Dispatch checkpoints keep the stricter three-sample gate,
                     # while the freshness navigation gets the live-verified six.
                     self.assertTrue(state_checks)
