@@ -137,4 +137,5 @@ class NetworkRecoveryGateTests(unittest.TestCase):
         self.assertIs(gate.state, RecoveryState.MANUAL_REQUIRED)
 
 
-if __(test)
+if __name__ == "__main__":
+    unittest.main()
