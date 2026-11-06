@@ -130,3 +130,10 @@ The upstream [Yukikaze030/KanColle-Agent](https://github.com/Yukikaze030/KanColl
 - Recorded the reported six-sparkled-ship guarantee for ordinary missions, mission-specific drum-can thresholds, and the older flagship-level probability model without promoting any of them to verified production rules.
 - Preserved a source conflict for ID 24: the current overview lists 2 drums for the reported guaranteed great-success condition, while an older duplicated page lists 4. The dossier follows the current overview and flags the discrepancy.
 - All conditions remain COMMUNITY_REPORTED; no Poi state, current game UI, or live expedition result was checked. No game code changed.
+
+
+### 2026-11-06 — Additional logistics expedition records
+
+- Added EXP-021 with mission records for IDs 37, 38, 40, 44 and E2: duration, per-ship supply cost, flagship/fleet levels, exact fleet composition, drum-can and aggregate-stat success requirements, and success reward baselines.
+- Kept great-success thresholds separate from success requirements and cross-referenced EXP-020.
+- Flagged ID 44's source-marked composition ambiguity, the EXP-019 stat-calculation dependency, and E2's engagement-type damage risk. All entries remain COMMUNITY_REPORTED and unavailable as production dispatch authority.
