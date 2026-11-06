@@ -344,3 +344,17 @@ Repair material cost is ship-specific coefficient × lost HP, rounded down; ship
 **Sources:** [KouryakuLab requirements](https://kouryakulab.com/ja/games/kancolle/expedition-requirements/), [efficiency calculator](https://kouryakulab.com/ja/games/kancolle/expeditions/), [Japanese expedition wiki](https://wikiwiki.jp/kancolle/遠征), [fatigue wiki](https://wikiwiki.jp/kancolle/疲労度), [repair wiki](https://wikiwiki.jp/kancolle/入渠), [2025 monthly expedition report](https://senka.hatenadiary.jp/entry/2025/07/21/002334), [secondary combat guide](https://gameranbu.jp/kancolle/dc96d7cc9fa3e0ea09e3). Accessed 2026-11-06 except the player report (updated 2025-07-20) and secondary guide (updated 2021-02-07). All are community sources.
 
 **Live verification:** Not performed. No current Poi data, damage test, repair-dock state, or game operation was inspected.
+
+### EXP-025 — Explicit opt-in required for combat expeditions
+
+**Status:** PROJECT AUTOMATION POLICY; user-directed hard constraint; applies regardless of profitability or reported damage mitigation.
+
+- The automatic planner MUST exclude every combat/engagement expedition (including Type I and Type II) by default.
+- No ranking, resource deficit, monthly deadline, fleet-stat margin (including 220%), ship durability, repair reserve, or predicted positive net return may implicitly re-enable a combat expedition.
+- A combat expedition may enter a separate manually authorized workflow only when the user explicitly names/selects it and explicitly configures the execution requirements. Merely asking for planning, enabling automation generally, or meeting a safety threshold is not explicit authorization.
+- Manual selection is not itself permission to dispatch. Before execution, require a distinct confirmation/authorization step and re-check mission classification, fleet composition, HP, condition, supplies, repair capacity, resource reserves, and the expected damage/repair exposure.
+- If mission classification is missing, ambiguous, or stale, classify it as combat/UNKNOWN and exclude it from automatic planning.
+- This policy is a higher-priority filter than profitability ranking and all generic scheduling optimization. It must be enforced at candidate generation and again immediately before dispatch (fail closed).
+- Any future configuration option must default to disabled and must not silently persist an old manual selection as blanket permission for future runs.
+
+**Authority:** Explicit user instruction, 2026-11-06. This is a project policy, not a claim about game mechanics.
