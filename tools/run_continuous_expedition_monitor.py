@@ -474,6 +474,20 @@ def _modal_budget(args: Any) -> Any | None:
     return DismissBudget(limit=args.modal_dismiss_limit)
 
 
+def _modal_recovery_repaired(outcome: Any, probe_after: Any | None) -> bool:
+    """Whether modal recovery actually repaired the fault.
+
+    Only a real press of the known Cancel button (``outcome == "dismissed"``)
+    followed by an input-accepting surface counts. Every other outcome - the
+    game was healthy all along, the press was refused, the dialog survived -
+    means the original tick failure is unrepaired and the caller must not
+    retry it in a tight loop.
+    """
+    if outcome != "dismissed":
+        return False
+    return bool(getattr(probe_after, "input_allowed", False))
+
+
 def _dismiss_modal_if_needed(
     budget: Any,
     *,
@@ -591,7 +605,18 @@ def _run_monitor_with_session(
     budget_exhausted_announced = {"done": False}
 
     def recover() -> bool:
-        """Clear a blocking dialog that appeared mid-run, within the allowance."""
+        """Clear a blocking dialog that appeared mid-run, within the allowance.
+
+        Returns True only when a window was **actually pressed** and input is
+        allowed again. A verdict that merely says "the game renderer answers"
+        (``outcome=no_op``) repairs nothing, and treating it as a repair turns
+        every freshness failure into an unslept hot retry: production evidence
+        2026-11-06 shows ~260 ticks in 74 s against a healthy renderer - no
+        poll interval, ``--max-ticks`` ignored - until Poi's MCP degraded under
+        the load. The tick loop's own contract (retry immediately on True,
+        sleep and count the tick on False) is correct; this closure is what
+        feeds it.
+        """
         if budget is None:
             return False
         if not budget.available():
@@ -612,8 +637,18 @@ def _run_monitor_with_session(
                     _stdout,
                 )
             return False
-        verdict = _dismiss_modal_if_needed(budget, emit=_stdout)
-        return bool(getattr(verdict, "input_allowed", False))
+        seen: dict[str, str | None] = {}
+
+        def capture(event: dict[str, Any]) -> None:
+            # The recovery verdict (and only it) says whether a window was
+            # really pressed; the returned value is the *after-probe*, which
+            # looks healthy whenever the game is healthy, dialog or not.
+            if event.get("status") == "MODAL_CANCEL_ATTEMPTED":
+                seen["outcome"] = event.get("outcome")
+            _emit(event, _stdout)
+
+        verdict = _dismiss_modal_if_needed(budget, emit=capture)
+        return _modal_recovery_repaired(seen.get("outcome"), verdict)
 
     try:
         runtime = build_runtime(
