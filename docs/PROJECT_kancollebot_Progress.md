@@ -3697,3 +3697,34 @@ The Hand plugin's read-only probe reported:
 - **IMPLEMENTED / REMOTE ARCHIVE:** Added `docs/game-rules/KAN_COLLE_AGENT_REFERENCE.md`; linked it from the game-rules index; appended the 二期/source-provenance/freshness gate to `docs/HANDOFF.md`.
 - **LIMITS:** Documentation/source inspection only. KanColle-Agent was not installed or run; its MCP servers and static dataset were not queried at runtime; no Poi state or live game mechanic was verified; no game code or game state changed.
 - **NEXT:** Research individual 二期 mechanics using exact source pages and current master data, starting with expedition eligibility/mission conditions, then battle/formation and fleet composition. Validate player-state field freshness against current Poi through passive observation. Update each rule dossier before any dependent code change.
+
+## 2026-11-06 — Expedition Wiki second-pass mechanics research
+
+**Status:** DOCUMENTED / COMMUNITY_REPORTED; not live-verified; no game code changed.
+
+A second pass over the maintained Japanese Kancolle Wiki expedition page and its detailed mission table expanded the expedition dossier with four additional stable records (EXP-015 through EXP-018).
+
+Newly captured mechanics:
+- Expedition fuel/ammunition cost is described as a percentage of each ship's departure supply, rounded down; the exact percentage is mission/ship-specific. Wiki warns against deliberately under-supplying because it can cause failure.
+- Fleet 2 unlock is described as tied to quest A4 (six-ship fleet formation); most expedition discovery follows prerequisite completions, but special sortie and monthly prerequisites exist.
+- Expedition detail reward icons are not all guaranteed: the wiki distinguishes random items from great-success-only guaranteed items by display position.
+- Monthly expedition eligibility is tied to a monthly window; the wiki reports a 15th-day noon reset and requires the expedition to finish within the window, with some prerequisite chains.
+
+The existing dossier already records fleet eligibility, mission uniqueness, flagship damage, ship-type distinctions, mission-specific level/ship/equipment/stat requirements, result-time fatigue, supply uncertainty, great-success classes, monthly prerequisites, and engagement-type expedition risk. These remain COMMUNITY_REPORTED.
+
+Source limitations:
+- The Japanese wiki is community-maintained, not an official specification.
+- Several formula sections cite 2020/2021 research; the monthly prerequisite table cites English wiki material accessed 2023-05-16. Their age and uncertainty are retained.
+- No current Poi fields, live server response, or current UI behavior were verified in this research pass.
+- No expedition was dispatched, collected, cancelled, or otherwise manipulated.
+
+Implementation consequences:
+- Keep full-supply dispatch as an automation safety policy, not a claimed game hard requirement.
+- Model per-ship supply cost and mission-specific requirements; do not optimize by under-supplying.
+- Read actual in-game fleet unlock and mission availability rather than assuming a reconstructed unlock graph is authoritative.
+- Record predicted rewards separately from observed settlement rewards.
+- Do not schedule monthly expeditions near a cutoff based only on local clock assumptions.
+- All rules remain research input only until current Poi/UI evidence upgrades their status.
+
+Updated artifact: `docs/game-rules/EXPEDITIONS.md` (EXP-015–EXP-018).
+
