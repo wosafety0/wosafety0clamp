@@ -417,7 +417,6 @@ class ContinuousExpeditionSupervisor:
                 self.recovery_gate.require_actions_allowed()
             result = self._tick_once(progress)
         except RecoveryPausedError as exc:
-            classification = self.recovery_gate.classification if self.recovery_gate else None
             result = SupervisorTickResult(
                 monitor_result=None,
                 dispatches=tuple(progress.dispatches),
