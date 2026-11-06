@@ -392,6 +392,42 @@ class RealClickPathTests(unittest.TestCase):
         self.assertEqual(game_input.clicks, [])
         self.assertEqual(calls, ["continuous_ui_click_attempted"])
 
+    def test_a_secondary_failure_after_tee_preflight_still_blocks_the_click(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = BrokenStore(
+                RunLogPolicy(directory=root),
+                fail_on="continuous_ui_click_attempted",
+            )
+            run_sink = build_run_log_sink(
+                directory=root,
+                task_kind="expedition",
+                run_id="run-20261106T120000Z-0000000000ae",
+                prune_interval_seconds=0,
+            )
+            run_sink._store = store  # noqa: SLF001
+            primary_events: list[str] = []
+
+            def primary(event, fields):
+                primary_events.append(event)
+                return len(primary_events)
+
+            tee = TeeEventSink(primary, run_sink)
+            driver, game_input = self.make_driver(tee)
+
+            with self.assertRaises(AuditLogUnavailable):
+                driver._click(  # noqa: SLF001
+                    SimpleNamespace(label="settlement-advance"),
+                    action="advance_settlement",
+                    step=1,
+                )
+
+            # The preflight passed, so the SQLite primary row exists; the JSONL
+            # append then failed. The critical exception must still stop input.
+            self.assertEqual(primary_events, ["continuous_ui_click_attempted"])
+            self.assertEqual(game_input.clicks, [])
+            self.assertIsNotNone(run_sink.degraded_reason)
+
     def test_a_degraded_tee_blocks_click_before_primary_event_append(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
