@@ -188,7 +188,10 @@ class LocateBelowThePageTests(unittest.TestCase):
             ["expedition_list_click_attempted", "expedition_list_click_sent"],
         )
         self.assertEqual(events[0][1]["target"], "expedition-list-down")
-        self.assertEqual(events[0][1]["point"], {"x": 1126, "y": 651})
+        self.assertEqual(
+            events[0][1]["point"],
+            {"x": fake.clicks[0][0][0], "y": fake.clicks[0][0][1]},
+        )
         self.assertEqual(fake.clicks, [((1126, 651), "expedition-list-down")])
 
     def test_failed_pre_click_audit_does_not_send_the_measured_click(self) -> None:
