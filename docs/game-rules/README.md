@@ -115,3 +115,10 @@ The upstream [Yukikaze030/KanColle-Agent](https://github.com/Yukikaze030/KanColl
 - Added a selected 12-mission catalogue (IDs 2, 3, 5, 6, 9, 11, 13, 17, 20, 21, 24, 41) to `EXPEDITIONS.md`.
 - Captured mission duration, supply-consumption rates, flagship/fleet levels, fleet composition, special equipment/stat requirements, and success reward baselines.
 - All entries remain COMMUNITY_REPORTED. This is a transcription of a community wiki table, not a current live game verification or an official rules dataset.
+
+
+### 2026-11-06 — Expedition stat aggregation caveat
+
+- Added EXP-019 to `EXPEDITIONS.md`: selected expedition checks use equipment-inclusive aggregate stats; improvement arithmetic differs from ordinary battle/stat display calculations; aircraft contributions have additional modifiers and unresolved details.
+- Production use requires a dedicated calculator with fully specified inputs. Unsupported equipment/aircraft cases remain UNKNOWN and fail closed.
+- Evidence remains COMMUNITY_REPORTED; no current Poi or in-game validation was performed.
