@@ -3742,3 +3742,17 @@ Added a selected mission catalogue to `docs/game-rules/EXPEDITIONS.md`, transcri
 
 Source: https://wikiwiki.jp/kancolle/遠征/詳細一覧表 (accessed 2026-11-06). This is community-maintained material. Some formulas and table entries cite older research or historical updates. No current Poi field mapping, live mission screen, or real expedition was checked. No game code or runtime behavior was changed.
 
+## 2026-11-06 — Expedition stat aggregation research caveat
+
+**Status:** DOCUMENTED / COMMUNITY_REPORTED; not live-verified; no game code changed.
+
+Added EXP-019 to `docs/game-rules/EXPEDITIONS.md` after reviewing the wiki's stat-gated expedition list and equipment-stat calculation notes.
+
+Key findings:
+- Selected missions require aggregate equipment-inclusive fleet stats, not merely ship base stats.
+- Equipment improvement contributions are described as a separate expedition calculation and must not be assumed equal to ordinary battle/stat-display formulas.
+- Aircraft-derived values can involve slot aircraft count and proficiency; the wiki explicitly retains uncertainty around parts of the handling.
+- A dedicated, mission-aware calculator is required. Unsupported aircraft/equipment cases must remain UNKNOWN and block dispatch.
+
+Source: https://wikiwiki.jp/kancolle/遠征 and https://wikiwiki.jp/kancolle/遠征/詳細一覧表 (accessed 2026-11-06). Community-maintained and partly investigation-based. No Poi live state, equipment inventory, or expedition result was inspected; no runtime code was changed.
+
