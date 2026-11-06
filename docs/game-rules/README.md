@@ -122,3 +122,11 @@ The upstream [Yukikaze030/KanColle-Agent](https://github.com/Yukikaze030/KanColl
 - Added EXP-019 to `EXPEDITIONS.md`: selected expedition checks use equipment-inclusive aggregate stats; improvement arithmetic differs from ordinary battle/stat display calculations; aircraft contributions have additional modifiers and unresolved details.
 - Production use requires a dedicated calculator with fully specified inputs. Unsupported equipment/aircraft cases remain UNKNOWN and fail closed.
 - Evidence remains COMMUNITY_REPORTED; no current Poi or in-game validation was performed.
+
+
+### 2026-11-06 — Expedition great-success rule classes
+
+- Added EXP-020 to EXPEDITIONS.md, separating ordinary morale-based, drum-can, and flagship-level great-success models.
+- Recorded the reported six-sparkled-ship guarantee for ordinary missions, mission-specific drum-can thresholds, and the older flagship-level probability model without promoting any of them to verified production rules.
+- Preserved a source conflict for ID 24: the current overview lists 2 drums for the reported guaranteed great-success condition, while an older duplicated page lists 4. The dossier follows the current overview and flags the discrepancy.
+- All conditions remain COMMUNITY_REPORTED; no Poi state, current game UI, or live expedition result was checked. No game code changed.
