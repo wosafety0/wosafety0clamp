@@ -309,6 +309,12 @@ class RunLogSink:
 
     def __call__(self, event: str, fields: Mapping[str, Any]) -> None:
         critical = is_critical_event(event)
+        if critical and self._degraded_reason is not None:
+            # A later successful append cannot repair an earlier missing row.
+            # Refuse every subsequent critical event in this run.
+            raise AuditLogUnavailable(
+                f"run log is degraded: {self._degraded_reason}"
+            )
         try:
             if not isinstance(fields, Mapping):
                 raise TypeError("event fields must be a mapping")
@@ -323,7 +329,8 @@ class RunLogSink:
                 record = redact_event_record(record, envelope_fields=RESERVED_FIELDS)
             self._store.append(record, durable=critical)
         except Exception as exc:
-            self._degraded_reason = f"{type(exc).__name__}: {exc}"
+            if self._degraded_reason is None:
+                self._degraded_reason = f"{type(exc).__name__}: {exc}"
             self._notify(event, exc)
             if critical:
                 # Fail closed: the caller emits this event before the click it
@@ -334,7 +341,8 @@ class RunLogSink:
                 ) from exc
             return
         self._writes += 1
-        self._degraded_reason = None
+        # Deliberately do not clear _degraded_reason after a successful write:
+        # the missing row remains a permanent gap in this run's audit trail.
         self._maybe_prune()
 
     def _notify(self, event: str, exc: BaseException) -> None:
@@ -499,6 +507,10 @@ class TeeEventSink:
         self._others = tuple(others)
 
     def __call__(self, event: str, fields: Mapping[str, Any]) -> None:
+        if is_critical_event(event):
+            # Check every capable sink before the primary write. A known-degraded
+            # secondary run log must not leave a misleading SQLite-only row.
+            self.ensure_writable()
         self._primary(event, fields)
         for sink in self._others:
             sink(event, fields)
