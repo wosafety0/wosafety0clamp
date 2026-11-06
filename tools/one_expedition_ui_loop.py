@@ -1312,6 +1312,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
             )
 
             def capture_frame() -> str:
+                runtime.recovery_gate.require_actions_allowed()
                 game_session.transport.send(
                     "Input.dispatchMouseEvent",
                     {"type": "mouseMoved", "x": 1195, "y": 715},
@@ -1326,11 +1327,13 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 scratch.write_bytes(base64.b64decode(payload))
                 return scan_page(decode_png(scratch))
 
+            def click_list_point(point, label):
+                runtime.recovery_gate.require_actions_allowed()
+                game_session.input.click(RecordedPoint(point[0], point[1], label))
+
             list_session = ExpeditionListSession(
                 scan=scan_list,
-                click=lambda point, label: game_session.input.click(
-                    RecordedPoint(point[0], point[1], label)
-                ),
+                click=click_list_point,
                 index=load_position_index(args.position_index),
                 settle_seconds=0.55,
             )
@@ -1344,10 +1347,14 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 capture=capture_frame,
                 locate_row=list_session.locate_any_tab,
                 supported_fleets=(2, 3, 4),
-                neutralize_pointer=lambda: game_session.transport.send(
-                    "Input.dispatchMouseEvent",
-                    {"type": "mouseMoved", "x": 1195, "y": 715},
+                neutralize_pointer=lambda: (
+                    runtime.recovery_gate.require_actions_allowed(),
+                    game_session.transport.send(
+                        "Input.dispatchMouseEvent",
+                        {"type": "mouseMoved", "x": 1195, "y": 715},
+                    ),
                 ),
+                action_guard=runtime.recovery_gate.require_actions_allowed,
             )
             dispatch_coordinator = DurableDispatchCoordinator(
                 runtime.scheduler,
@@ -1367,7 +1374,9 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
             # driver, the dispatch controller, the settlement controller and the
             # resupply controller must exclude one another, or two of them could
             # interleave clicks on the same screen.
-            ui_arbiter = runtime.ui_arbiter or UiOperationArbiter()
+            ui_arbiter = runtime.ui_arbiter or UiOperationArbiter(
+                action_guard=runtime.recovery_gate.require_actions_allowed
+            )
             if args.settle_only:
                 dispatch_controller = SettleOnlyDispatcher(
                     scheduler=runtime.scheduler,
@@ -1566,6 +1575,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 dispatch_controller=dispatch_controller,
                 settlement_controller=settlement_controller,
                 resupply_controller=resupply_controller,
+                recovery_gate=runtime.recovery_gate,
                 **supervisor_kwargs,
             )
 
