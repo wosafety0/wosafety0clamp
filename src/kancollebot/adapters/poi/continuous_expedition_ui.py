@@ -127,6 +127,7 @@ class CdpContinuousExpeditionUiDriver:
         locate_row: Callable[[str], RowLocation] | None = None,
         supported_fleets: tuple[int, ...] = DEFAULT_SUPPORTED_FLEETS,
         action_guard: Callable[[], None] | None = None,
+        action_permit: Callable[[], Any] | None = None,
     ) -> None:
         if not callable(getattr(game_input, "click", None)):
             raise ValueError("game_input must provide click(point)")
@@ -150,6 +151,8 @@ class CdpContinuousExpeditionUiDriver:
             raise ValueError("locate_row must be callable or None")
         if action_guard is not None and not callable(action_guard):
             raise ValueError("action_guard must be callable or None")
+        if action_permit is not None and not callable(action_permit):
+            raise ValueError("action_permit must be callable or None")
         if not supported_fleets:
             raise ValueError("supported_fleets must not be empty")
         self._input = game_input
@@ -164,6 +167,7 @@ class CdpContinuousExpeditionUiDriver:
         self._locate_row = locate_row
         self._supported_fleets = tuple(supported_fleets)
         self._action_guard = action_guard
+        self._action_permit = action_permit
 
     # -- evidence ---------------------------------------------------------
     def _frame(self) -> str:
@@ -257,45 +261,39 @@ class CdpContinuousExpeditionUiDriver:
             raise
 
     def _click(self, point: RecordedPoint, *, action: str, step: int) -> None:
-        """Send exactly one input, under exactly one action identity.
-
-        The id is minted *here* because this method is the only place in the
-        driver that actually dispatches an input; every row emitted while the
-        click is in flight - ``attempted``, ``ambiguous``, ``sent`` - inherits
-        the same ``action_id`` from the correlation scope. ``step`` is a legacy
-        retry index and is deliberately not used as identity: one dispatch
-        contains several clicks and they must be distinguishable.
-
-        The order is the safety property, not a detail: ``attempted`` is
-        emitted *before* the input call, so a sink that raises provably prevents
-        the click instead of merely failing to record one.
-        """
+        """Send exactly one input, under one action identity and recovery permit."""
         if self._action_guard is not None:
             self._action_guard()
         with correlation_scope(self._event_sink, action_id=new_action_id()):
-            self._event_sink("continuous_ui_click_attempted", {
-                "step": step,
-                "action": action,
-                "target": point.label,
-            })
-            try:
-                self._input.click(point)
-            except Exception as exc:
-                self._event_sink("continuous_ui_click_ambiguous", {
+            def send_click() -> None:
+                self._event_sink("continuous_ui_click_attempted", {
                     "step": step,
                     "action": action,
                     "target": point.label,
-                    "error_type": type(exc).__name__,
                 })
-                raise
-            self._event_sink("continuous_ui_click_sent", {
-                "step": step,
-                "action": action,
-                "target": point.label,
-            })
+                try:
+                    self._input.click(point)
+                except Exception as exc:
+                    self._event_sink("continuous_ui_click_ambiguous", {
+                        "step": step,
+                        "action": action,
+                        "target": point.label,
+                        "error_type": type(exc).__name__,
+                    })
+                    raise
+                self._event_sink("continuous_ui_click_sent", {
+                    "step": step,
+                    "action": action,
+                    "target": point.label,
+                })
+
+            if self._action_permit is None:
+                send_click()
+            else:
+                with self._action_permit():
+                    send_click()
             if self._settle_seconds:
                 self._sleep(self._settle_seconds)
-
     def _mission_row_point(self, expedition_id: str) -> RecordedPoint:
         """Where that expedition's row is *now*, proven by the list session."""
         if self._locate_row is None:
