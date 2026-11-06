@@ -13,7 +13,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -21,8 +21,21 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - name: Run offline JavaScript static extraction tests
+        run: node --test tests/static_decoder_extract.test.cjs tests/verify_cdp_snapshot.test.cjs
+      - name: Check passive Poi observer syntax
+        run: node --check tools/hand_sandbox/poi_port_response_observer_20261029.js
+      - name: Install local package and unified CLI
+        run: python -m pip install -e ".[vision]"
+      - name: Smoke test unified runtime CLI and compatibility shims
+        run: |
+          kancollebot --help
+          kancollebot monitor --help
+          kancollebot dispatch-once --help
+          python tools/run_continuous_expedition_monitor.py --help
+          python tools/one_expedition_ui_loop.py --help
       - name: Compile Python source
-        run: python -m compileall -q src tests
+        run: python -m compileall -q src tests tools
       - name: Run unit tests
         env:
           PYTHONPATH: src

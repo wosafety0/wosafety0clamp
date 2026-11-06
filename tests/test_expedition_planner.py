@@ -110,6 +110,33 @@ class ExpeditionPlannerTests(unittest.TestCase):
             ExpeditionDecision.BLOCKED_UNKNOWN_RETURN_TIME,
         )
 
+    def test_pending_reward_takes_priority_even_with_elapsed_return_time(self):
+        snapshot = ExpeditionFleetSnapshot(
+            fleet_id=2, ship_ids=(101,), mission_id=1, mission_status=2,
+            return_at=self.now - timedelta(hours=1), fuel_ready=True, ammo_ready=True,
+        )
+        self.assertEqual(
+            evaluate_expedition_fleet(snapshot, now=self.now).decision,
+            ExpeditionDecision.COMPLETED_AWAITING_REWARD,
+        )
+
+    def test_pending_reward_cannot_be_selected_for_rotation(self):
+        from kancollebot.expeditions.rotation import select_next_expedition_fleet
+        waiting = ExpeditionFleetSnapshot(
+            fleet_id=2, ship_ids=(101,), mission_id=1, mission_status=2,
+            fuel_ready=True, ammo_ready=True,
+        )
+        idle = ExpeditionFleetSnapshot(
+            fleet_id=3, ship_ids=(102,), mission_status=0,
+            fuel_ready=True, ammo_ready=True,
+        )
+        rotation = select_next_expedition_fleet(
+            (waiting, idle), now=self.now, preferred_fleet_ids=(2, 3),
+        )
+        self.assertEqual(rotation.selected_fleet_id, 3)
+        self.assertEqual(rotation.evaluated_fleets[0].decision,
+                         ExpeditionDecision.COMPLETED_AWAITING_REWARD)
+
     def test_naive_now_is_rejected(self):
         snapshot = ExpeditionFleetSnapshot(
             fleet_id=1, ship_ids=(1,), fuel_ready=True, ammo_ready=True

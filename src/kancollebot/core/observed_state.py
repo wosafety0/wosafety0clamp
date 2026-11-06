@@ -14,12 +14,24 @@ class ObservedState(Generic[T]):
     payload: T
     observed_at: datetime
     source: str
+    source_freshness_verified: bool = False
 
     def __post_init__(self) -> None:
         if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
             raise ValueError("observed_at must be timezone-aware")
         if not self.source.strip():
             raise ValueError("source must not be empty")
+        if not isinstance(self.source_freshness_verified, bool):
+            raise ValueError("source_freshness_verified must be a bool")
+
+    def require_source_freshness_verified(self) -> None:
+        """Refuse safety-sensitive use without independent source freshness evidence.
+
+        A recent local observation timestamp alone is not evidence that the
+        underlying source data was recently updated.
+        """
+        if not self.source_freshness_verified:
+            raise ValueError("Source data freshness has not been verified")
 
     def is_fresh(
         self,
@@ -47,3 +59,4 @@ class ObservedState(Generic[T]):
         """Raise when the state is stale or future-dated."""
         if not self.is_fresh(now=now, max_age=max_age):
             raise ValueError("Observed state is stale or has an invalid timestamp")
+        self.require_source_freshness_verified()

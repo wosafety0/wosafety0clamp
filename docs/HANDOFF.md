@@ -1,0 +1,287 @@
+# Developer Handoff
+
+**Updated:** 2026-11-04  
+**Repository:** wosafety0/wosafety0clamp  
+**Working branch:** dev/expedition-closed-loop-mvp  
+**Current code baseline:** 1e320314b5ef7f12b9f461459c1ea528a502ba9f — reward lifecycle protocol and oldest-state-frame freshness guard; verified by CI run 41776371723
+
+This document is the concise handoff entry point. The long design and progress records remain useful for implementation history, but older entries are point-in-time records and may be superseded by later entries.
+
+## 1. Start here
+
+1. Read the authoritative global rules: [wosafety0/Agents-global main/AGENTS.md](https://github.com/wosafety0/Agents-global/blob/main/AGENTS.md). Current retrieved version: 2.1.0-rc1 (Candidate).
+2. Check out dev/expedition-closed-loop-mvp. The GitHub default branch main currently contains only .github; it is not the application source baseline.
+3. Read this file, then [Game Rules Knowledge Base](game-rules/README.md), [Expedition Scheduler Modes](EXPEDITION_SCHEDULER_MODES.md), and the relevant domain dossiers before any game-logic planning or code change. The game-rule dossier is a mandatory development gate; UNKNOWN, INFERRED, stale, or conflicting rules must be researched before implementation. Also read [MVP_EXPEDITION_SINGLE_LOOP.md](MVP_EXPEDITION_SINGLE_LOOP.md) and [POI_PORT_RESPONSE_OBSERVER.md](POI_PORT_RESPONSE_OBSERVER.md) when working on the expedition runtime.
+4. Before coding, run git status --short --branch and preserve any existing local modifications. Do not assume another checkout or worktree is clean.
+5. Keep local credentials, cookies, game data, screenshots, logs containing private state, and machine-specific paths out of the repository.
+
+## 2. Repository and CI baseline
+
+- Repository visibility: **public**.
+- Active code branch: **dev/expedition-closed-loop-mvp**.
+- Current code baseline: **1e320314b5ef7f12b9f461459c1ea528a502ba9f** — process-local reward authorization registry, one-shot lifecycle protocol, and oldest-state-frame freshness guard.
+- Latest verified code CI: [run 41776371723](https://github.com/wosafety0/wosafety0clamp/actions/runs/41776371723) passed **638 Python tests with zero skips**, Node static tests, passive observer syntax, package/CLI smoke checks, and Python compilation.
+- The default branch has not been changed, no PR has been created or merged as part of this handoff, and no collaborator permissions have been changed. Public read access does not grant push access; a new developer needs repository write permission to push.
+
+## 3. Architecture map
+
+| Area | Location | Responsibility |
+|---|---|---|
+| CDP transport and allowlist | src/kancollebot/adapters/poi/cdp_websocket.py | Loopback WebSocket, command allowlist, fixed read-only snapshot expression, input and passive events |
+| Fleet snapshot | src/kancollebot/adapters/poi/cdp_fleet_state.py | Parse the fixed Poi Redux fleet snapshot |
+| Poi freshness | src/kancollebot/adapters/poi/port_freshness.py, port_response_observer.py, background_port_snapshot_provider.py | Passive natural-response witness, exact state comparison, and condition-based waiting for a witness newer than a UI action boundary |
+| UI state and visual gates | src/kancollebot/adapters/poi/visual_state_gate.py, visual_fingerprint.py, visual_target.py | In-memory screenshot classification and bounded visual target localization |
+| Semantic DOM targets | src/kancollebot/adapters/poi/cdp_semantic_targets.py | AX/DOM targeting for actual DOM nodes; not suitable for Canvas-only game controls |
+| Fleet state and safety policy | src/kancollebot/adapters/poi/expedition_state.py, expedition_state_v2.py | Normalize ship/fleet state, supply and damage attributes |
+| Scheduling and dispatch gates | src/kancollebot/expeditions/ | Fleet lifecycle, planner, durable intent/recovery, controller and supervisor; controller waits for passive freshness after dispatch and Home Port navigation, and exposes a due-time return observer that verifies status 2 against the exact dispatched mission tuple; the supervisor invokes it for active fleets with verified Home Port before considering another dispatch |
+| Mission catalogue scan aggregation | src/kancollebot/expeditions/mission_catalog_scan.py | Offline page aggregation, overlap deduplication, scroll-coverage and verified-bottom gates; no UI input |
+| Mission catalogue visual adapter | src/kancollebot/expeditions/mission_catalog_vision.py | Bounded OpenCV matching of locally supplied mission-marker and scrollbar templates; requires explicit scrollbar-scale calibration; no screenshots written or UI input |
+| Unified runtime configuration | src/kancollebot/runtime_config.py | Single source for production Fleet 3 / mission 3, monitor fleet set, endpoints, timeouts, and runtime paths |
+| Runtime CLI | src/kancollebot/cli.py | Canonical monitor and one-shot dispatch command router |
+| One-shot UI implementation | tools/one_expedition_ui_loop.py | Guarded visible-UI preparation and one-shot dispatch transaction; direct script invocation is a compatibility shim |
+| Fleet-wide supply | src/kancollebot/adapters/poi/full_supply.py, tools/full_supply_ui_action.py | Guarded per-fleet supply action and postcondition checks |
+| Read-only monitor implementation | tools/run_continuous_expedition_monitor.py | Background freshness provider + Poi reader + read-only monitor; direct script invocation is a compatibility shim |
+| Tests | tests/ | Offline unit and integration-contract tests |
+| CI | .github/workflows/ci.yml | Offline validation; not a persistent game runtime |
+
+## 4. Verified achievements
+
+### Live Poi and UI evidence
+
+- A natural, successful, non-cache /kcsapi/api_port/port response was captured by the passive CDP Network observer. A background provider was integrated with the actual Poi reader/MCP path; a later live run reached FRESHNESS_WITNESS_MATCHED after 31 polls / 35.55 seconds and compared three fleets. This is point-in-time freshness evidence, not a guarantee of permanent freshness.
+- Live UI navigation HOME_PORT → SORTIE_MENU → EXPEDITION_LIST → HOME_PORT passed the two-frame visual state gates using ordinary UI navigation.
+- Fleet-wide resupply was live-verified across the three unlocked fleets: 13/13 assigned ships reached their master maximum fuel and ammunition, with per-fleet resource deltas independently checked. One damaged ship remained damaged; supply does not repair.
+- Fleet 2 and Fleet 3 ship-selection checkbox checked/unchecked states were individually calibrated and verified. These checkbox tests do not authorize supply or dispatch.
+- The production UI driver has been exercised through pre-dispatch preparation and Home Port recovery. The irreversible expedition-start click was not sent in the latest recorded acceptance boundary.
+
+### Offline implementation and tests
+
+- Passive port witness, exact current-state matching, background observation, durable fleet state, dispatch-intent recovery, UI arbitration, visual state gates, and guarded supply logic have offline test coverage.
+- Delayed supply verification was corrected to tolerate later store propagation within a bounded read window, without issuing a second click. Its focused regression tests passed.
+- A fail-closed reward claim authorization gate was added at `src/kancollebot/expeditions/reward_claim_gate.py`. It requires an explicitly approved template fingerprint/calibration ID, unique high-confidence in-frame target localization, two consecutive BONUS_ITEMS checks, and a frame-bound authorization. The default calibration allowlist is empty; it does not click and cannot be used until real Poi reward-button calibration is obtained.
+- Pre-dispatch Taiha (大破) detection is implemented: HP at or below 25% is classified with integer arithmetic (api_nowhp * 4 <= api_maxhp). The dispatch controller blocks before durable intent creation and before UI input.
+- The offline mission-catalogue scan accumulator is implemented. It deduplicates overlapping visible pages, rejects conflicting row identities and unsafe scroll progression, and only marks a scan complete when measured bottom geometry agrees with an independent visual bottom confirmation. Its output is not connected to dispatch.
+- A read-only OpenCV visual adapter is implemented for bounded mission-marker and scrollbar-thumb template matching. Mocked-frame integration tests exercise screenshot decoding, row matching, scrollbar location, and ambiguity rejection. The adapter requires a manually verified proportional scrollbar model and remains disconnected from dispatch.
+- The dispatch controller waits for the background passive observer to capture a port witness whose response-received and body-captured timestamps are both later than the dispatch-completion boundary, and repeats this wait after Home Port navigation. It then reads Poi and verifies the exact active mission tuple. The wait uses an in-process condition variable, not repeated MCP reads; timeout fails closed and does not retry UI input.
+- Added `ContinuousDispatchController.wait_for_return()`: it is available only after the scheduler confirms both an active mission and verified Home Port. It refuses to observe before the mission's `final_time_ms`, waits for a natural port witness newer than that deadline, requires a fresh Poi Redux observation newer than the deadline, and confirms returned status 2 plus exact mission ID, return timestamp, reserved slot, and ordered ship roster before moving the durable scheduler to `RETURNED_PENDING_UI`.
+- Tightened `visual_state_gate.py` settlement classification: `RETURN_RESULT` and `BONUS_ITEMS` now reject conflicting `sortie_menu_title.png` evidence in addition to their existing return-notice/home/result guards. Added regression tests for a bonus-title/return-notice collision and a result/sortie-title collision. GitHub Actions run 41767679742 passed **571 Python tests; 20 skipped**; all remaining Python tests, 17 Node tests, observer syntax, CLI smoke checks, and compile passed. This is offline classifier validation only; it does not calibrate or authorize any reward click.
+
+## 5. Explicitly not verified / blocked
+
+Do not describe the project as a completed automatic expedition loop.
+
+- **No end-to-end live dispatch acceptance:** the expedition-start action has not been verified in the current production acceptance record. Fresh post-dispatch readback, return/result progression, reward collection, idle confirmation, and the complete repeat cycle are not accepted.
+- **Return and settlement observation are offline-tested only:** the controller waits for a natural post-deadline port witness and confirms the exact returned mission tuple before `RETURNED_PENDING_UI`. A new read-only `SettlementStateObserver` validates structured two-frame evidence for `RETURN_RESULT` and `BONUS_ITEMS`; the supervisor advances only `RETURNED_PENDING_UI → RETURN_RESULT → BONUS_ITEMS`, and refuses to attribute a shared Poi screen when multiple fleets are pending. The production one-shot entry wires the observer to the existing two-frame visual verifier. GitHub Actions run 41768376887 passed **582 Python tests, 20 skipped**, plus all other workflow checks. No live return or settlement screen was observed; this integration is not live-verified and performs no settlement clicks. Reward collection remains blocked.
+- **Settlement observer:** `src/kancollebot/expeditions/settlement_observer.py` validates the verifier's structured two-frame evidence and does not send input. `ContinuousExpeditionSupervisor` performs at most one phase transition per tick and pauses the shared UI queue throughout settlement. `BONUS_ITEMS` remains pending until a separately verified reward-claim action exists.
+- **Reward claim authorization gate:** added `src/kancollebot/expeditions/reward_claim_gate.py`. It issues a non-executable authorization only for the exact `bonus_claim_button.png` asset with an explicitly approved live-calibration hash/ID, unique current-frame localization, confidence ≥0.96, score margin ≥0.10, in-viewport bounds, and two consecutive `BONUS_ITEMS` checks. Authorization is bound to frame ID and SHA-256 and becomes invalid if the frame changes. The default calibration allowlist is empty, so it refuses all reward targets until real Poi calibration is supplied. It exposes no click/execute operation. CI run 41768901495 passed **592 Python tests; 20 skipped**, plus all other workflow checks.
+- **Taiha gate is offline-tested only:** no live Taiha snapshot or live dispatch-block attempt has been recorded. Healthy-ship replacement is deliberately deferred and is not implemented.
+- **Unattended scheduler is not accepted:** the read-only monitor is separate from the one-shot UI runner. Do not infer that the continuous supervisor is a ready-to-run unattended game process.
+- **Mission list discovery remains incomplete:** the offline page aggregator and OpenCV adapter are implemented, but no local mission-marker templates, calibrated visual profile, live Canvas row-recognition sequence, or verified scrollbar proportionality evidence is available in GitHub. `scrollbar_scale_verified` defaults to false, so screenshot scanning cannot produce complete-scan evidence until Poi calibration. The previously observed eight rows (01 through A1) are not the complete mission catalogue.
+- **Post-action freshness waiting has offline test coverage only:** natural-response waiting is wired through the production reader/controller interfaces, but no live dispatch or post-navigation response-wait sequence has been performed. A timeout leaves the transaction blocked for manual reconciliation; it does not resend a click.
+- **Canvas controls are not AX targets:** a read-only inspection on both Home Port and Expedition Selection reported an unchanged AX tree (146 nodes / 117 valid). The game area appeared as an application leaf with no children; visible game buttons and expedition rows had no AX matches. This is operator-observed evidence from 2026-11-03, not a new independent run by this handoff author.
+- **The DOM geometry chain is incomplete:** the current CDP allowlist contains Accessibility.getFullAXTree, DOM.pushNodesByBackendIdsToFrontend, and DOM.getBoxModel, but not DOM.enable or DOM.getDocument. Therefore the DOM node/BoxModel path is not end-to-end usable as currently configured. Even after fixing that for real DOM nodes, it will not create DOM targets for Canvas-rendered game controls.
+- **Keep arbitrary JavaScript forbidden:** Runtime.evaluate must remain restricted to the exact fixed fleet-snapshot expression. Do not broaden it to solve DOM or Canvas targeting.
+- **Resolution constraint:** the existing visual fingerprint and bounded visual-target code is calibrated to a 1200×720 screenshot; visual_target.py explicitly rejects other viewport dimensions. This is a current implementation constraint, not proof that Poi itself must always use that resolution.
+- **Runtime configuration is centralized:** the production target is Fleet 3 / mission 3 in src/kancollebot/runtime_config.py. Fleet 2-specific helpers and tests retained in tools/one_expedition_ui_loop.py are legacy/test compatibility paths and are not invoked by the production CLI. Keep this distinction explicit.
+
+## 6. Recommended next work
+
+1. Keep the unified CLI and runtime defaults as the only production entry/configuration source; add tests whenever the target or defaults change.
+2. When Poi is available, calibrate the visual adapter using operator-local mission number crops and a scrollbar-thumb crop. Verify the 1200×720 list/track regions, marker thresholds, scrollbar proportionality, and the bottom tolerance with real top/middle/bottom captures. Keep those assets local unless separately approved for sharing.
+3. Validate row identity and localization against each current screenshot. Recompute every row target after every scroll; never reuse pre-scroll coordinates. Feed page observations into the offline accumulator and do not treat A1 or the current eight rows as the end.
+4. After Poi access is restored and visual calibration is available, perform a separately authorized single live dispatch acceptance. Confirm the post-dispatch and post-navigation witnesses, then exercise `wait_for_return()` only after the recorded return deadline; verify the status-2 tuple and durable `RETURNED_PENDING_UI` transition. No retry is allowed on ambiguous clicks or missing freshness evidence.
+5. Keep the supervisor paused at BONUS_ITEMS until real Poi reward-button calibration exists. The offline authorization gate is implemented, but there is no click executor. After real captures, validate the target template and calibration, then implement a separate executor with immediate same-frame revalidation and independent post-click state confirmation. Do not invent a reward click target from the title marker alone.
+6. Keep AX/DOM targeting for genuine DOM nodes only. Decide separately whether the incomplete DOM protocol chain is worth enabling for shell controls; do not use it as a substitute for Canvas recognition.
+7. Add live read-only verification for the Taiha gate before considering any dispatch attempt. Healthy-ship replacement remains a separate, later feature requiring explicit fleet-composition and safety tests.
+8. Only after all state gates and the post-dispatch / return / reward / idle path are independently verified should the full expedition loop be considered for live acceptance.
+
+## 7. Setup and validation
+
+The project requires Python >=3.11. CI currently uses Python 3.12. The optional visual extra provides OpenCV and NumPy.
+
+    py -3.12 -m venv .venv
+    .\.venv\Scripts\Activate.ps1
+    python -m pip install -e .
+    # Optional, only for visual localization:
+    python -m pip install -e ".[vision]"
+
+    $env:PYTHONPATH = "src"
+    python -m unittest discover -s tests -v
+    node --test tests/static_decoder_extract.test.cjs tests/verify_cdp_snapshot.test.cjs
+    node --check tools/hand_sandbox/poi_port_response_observer_20261029.js
+    python -m compileall -q src tests tools
+    git diff --check
+
+CI success proves the checked offline workflow only. It does not connect to Poi, click the game, or verify live expedition behavior.
+
+## 8. Non-negotiable safety contract
+
+- CDP endpoints and WebSockets must remain credential-free loopback.
+- Runtime.evaluate is only for the exact fixed read-only fleet snapshot expression.
+- Passive Network observation may capture naturally occurring responses; it must not initiate or replay game requests.
+- Game-state changes use normal visible UI only. No internal game functions or direct server API calls.
+- Every state-changing click needs fresh preconditions and postconditions. Ambiguous input outcomes must not be blindly retried.
+- Stale, incomplete, conflicting, or ambiguous evidence blocks the action.
+- Never dispatch a fleet containing a Taiha ship. Replacement is not implemented; do not silently substitute ships.
+- Keep screenshots in memory unless a specific diagnostic artifact is explicitly needed and safe to retain.
+
+## 9. Handover checklist
+
+- [ ] New developer has read the global rules and this handoff.
+- [ ] New developer has write permission if they need to push (public read access is not sufficient).
+- [ ] Local checkout is on dev/expedition-closed-loop-mvp and its working tree has been inspected.
+- [ ] Baseline CI and offline tests have been rerun or the existing run has been reviewed.
+- [ ] Fleet target mismatch is resolved before using the one-shot runner.
+- [ ] No live dispatch or unattended operation is enabled before the remaining acceptance gates pass.
+
+## 10. Outstanding GitHub pull requests and branches
+
+Read-only inventory checked on 2026-11-03:
+
+- There are **19 open pull requests** in the repository. No PR was merged or closed during this handoff.
+- The active development branch has many related and historical development branches. No branch was deleted, force-moved, or bulk-renamed.
+- PR [#5](https://github.com/wosafety0/wosafety0clamp/pull/5) is a draft with the current development branch as its head and dev/expedition-planner-mvp as its base. It contains 641 commits and 136 changed files; it is not a PR targeting main. Do not merge it as a routine cleanup step.
+- PR [#27](https://github.com/wosafety0/wosafety0clamp/pull/27), [#26](https://github.com/wosafety0/wosafety0clamp/pull/26), and [#24](https://github.com/wosafety0/wosafety0clamp/pull/24) are open drafts targeting dev/expedition-closed-loop-mvp. Their recorded base SHAs predate the current handoff head. At the time of inspection, #27 and #26 reported mergeable=false; #24 reported mergeable=true. Review their diffs against the current base before deciding whether to rebase, cherry-pick, merge, or close.
+- Additional open drafts and historical PRs remain (including #15, #17, #20, #22, #25). They overlap in Poi freshness, dispatch recovery, safety, and earlier integration work. Do not bulk-close or merge them without a per-PR diff and dependency review.
+
+The purpose of this inventory is to prevent a new developer from mistaking an old draft, a stale base SHA, or a historical branch for the current integrated baseline. It is not a merge recommendation.
+
+
+## Documentation pointer
+
+- [Expedition list scan and aggregation contract](EXPEDITION_LIST_SCAN.md)
+- [Expedition list visual recognition contract](EXPEDITION_LIST_VISUAL_RECOGNITION.md)
+
+## 2026-11-04 — Reward authorization dual-frame provenance hardening
+
+- **IMPLEMENTED:** `RewardClaimTarget` now requires two distinct, strictly increasing state-frame IDs and two distinct SHA-256 image fingerprints. The target's own frame ID and fingerprint must exactly match the second verified `BONUS_ITEMS` frame.
+- **FAIL-CLOSED:** repeated frame IDs, repeated image hashes, out-of-order frame IDs, or a target localized on any frame other than the second verified frame are rejected before authorization.
+- **TESTS ADDED:** regression cases cover reused/out-of-order frame IDs, duplicate image fingerprints, and target-to-second-frame mismatch.
+- **LIMITS:** this validates caller-supplied provenance metadata; it does not itself capture screenshots or prove that a caller hashed the actual raw Poi frame. The production capture pipeline must supply IDs and hashes directly from the same in-memory frame objects. No click executor or live calibration was added.
+
+## 2026-11-04 — Exact-byte in-memory Poi frame capture primitive
+
+- **IMPLEMENTED:** `CdpInput.capture_frame()` returns an immutable `CapturedFrame` containing a process-monotonic frame ID, monotonic capture timestamp, exact PNG bytes, and SHA-256 computed internally from those bytes. It rejects invalid base64 and non-PNG payloads; the original screenshot string API remains available for existing callers.
+- **TESTS ADDED:** verify exact-byte digest, monotonically increasing IDs, base64 round-trip, non-PNG rejection, and fabricated-digest rejection.
+- **LIMITS (updated by the later settlement integration below):** the settlement verifier now consumes captured frames, but reward target localization still does not consume the retained second frame. End-to-end reward provenance and authorization are therefore incomplete. No click path was added.
+
+## 2026-11-04 — Settlement verifier consumes exact captured Poi frames
+
+- **IMPLEMENTED:** `_require_ui_state` can now capture immutable `CapturedFrame` objects for settlement verification. The settlement-specific verifier uses that path and returns the exact two matching frame objects alongside the state evidence. Dispatch checkpoint verification retains its prior screenshot/accessibility behavior and does not require frame objects.
+- **IMPLEMENTED:** `SettlementStateObserver` now rejects missing/non-`CapturedFrame` evidence, duplicate or non-increasing frame IDs, duplicate image fingerprints, and non-increasing monotonic capture timestamps. `SettlementObservation` retains both frame objects for a later target-localization step.
+- **CORRECTED:** PNG signature validation and its fixtures now use actual PNG signature bytes rather than double-escaped text. This closes a false-positive in the earlier capture tests.
+- **TESTED:** GitHub Actions run [41770859932](https://github.com/wosafety0/wosafety0clamp/actions/runs/41770859932) passed 601 Python tests (20 skipped), plus workflow syntax, CLI smoke, and compile checks.
+- **LIMITS:** reward target localization still does not consume the retained second `CapturedFrame`; `RewardClaimTarget` still accepts caller-supplied metadata. The chain is improved through settlement observation, but not yet end-to-end at reward target detection. No reward click executor, live calibration, or game interaction was enabled.
+
+## 2026-11-04 — Production UI state evidence bound to exact captured frames
+
+- **IMPLEMENTED:** the continuous production verifier now performs two independent state checks, each requiring two consecutive visual matches backed by exact CapturedFrame objects. The UiStateEvidence returned to the dispatch controller retains the final frame from each independent check.
+- **FAIL-CLOSED:** accessibility-only evidence cannot satisfy the production two-check verifier. Missing frame objects, repeated image fingerprints, non-increasing frame IDs, or non-increasing monotonic capture timestamps are rejected.
+- **TEST COVERAGE:** the classifier input is asserted to be the exact base64 encoding of each captured PNG frame; existing accessibility-only and visual fallback unit coverage remains separate.
+- **LIMITS:** this establishes frame provenance for production state-check evidence, not cryptographic authenticity against a malicious in-process caller. Reward target localization still does not consume the retained second frame, and no reward click path or live Poi calibration is enabled.
+
+## 2026-11-04 — Reward target retains captured frame object identity
+
+- **IMPLEMENTED:** `RewardClaimTarget` now retains the exact two `CapturedFrame` objects used for the consecutive BONUS_ITEMS checks and a direct reference to the second object used for localization. Existing frame ID/hash metadata must match those objects, and the localization frame must be the identical second object, not a separately reconstructed equivalent.
+- **TEST COVERAGE:** tests use valid PNG-backed `CapturedFrame` instances and reject metadata/object mismatches and equivalent-but-distinct target frame objects.
+- **LIMITS:** this is an in-process object-identity consistency check, not cryptographic caller authentication. The production reward locator is not yet wired to construct targets directly from the `UiStateEvidence.frames` objects; no live calibration or click executor exists, so reward claiming remains disabled.
+
+## 2026-11-04 — Reward target localization consumes retained BONUS_ITEMS frames
+
+- **IMPLEMENTED:** added `locate_reward_claim_target`, accepting only the production `SettlementObservation` or `UiStateEvidence` types and requiring two distinct, increasing `CapturedFrame` objects from consecutive `BONUS_ITEMS` checks.
+- **FRAME BINDING:** matching runs only against the exact second frame's PNG bytes. The returned `RewardClaimTarget.frame` is the identical second object; both state frame objects are retained. Template SHA-256 is computed from the exact local asset bytes.
+- **FAIL-CLOSED:** requires the dedicated `bonus_claim_button.png` asset, explicit calibration ID and bounded search region, 1200x720 viewport, confidence >= 0.96, and uniqueness margin >= 0.10. Missing assets, invalid evidence, low confidence, duplicate matches, or invalid bounds raise a localization error. No coordinates are inferred and no click is sent.
+- **TESTS:** added validation for wrong state, missing frames, fabricated lookalike evidence, wrong template, missing calibration inputs, exact second-frame object identity, and duplicate matches. CI now installs the optional vision dependencies so image-matching tests execute rather than being skipped.
+- **LIMITS:** no real `bonus_claim_button.png` asset or live Poi calibration region has been reviewed in this environment. The locator is implemented but not connected to a production reward-click workflow. A Python evidence dataclass is not cryptographic caller authentication; the accepted concrete evidence types and object identity checks are consistency safeguards only. Reward clicking remains disabled.
+
+- **CI VERIFIED:** GitHub Actions run [41772607310](https://github.com/wosafety0/wosafety0clamp/actions/runs/41772607310) passed all 612 tests with optional OpenCV/NumPy vision dependencies installed; zero tests were skipped. This includes synthetic target localization, duplicate-match rejection, exact second-frame object retention, and allowlist-gated authorization. It is offline synthetic evidence, not live Poi calibration.
+
+- **HARDENING:** template matching now decodes the exact byte buffer whose SHA-256 is recorded in the target (no second file read or cache race); boolean/non-numeric thresholds are rejected. Regression coverage verifies the exact template digest.
+
+- **FINAL HARDENING CI:** after exact-template-byte binding and boolean-threshold rejection, GitHub Actions run [41772835706](https://github.com/wosafety0/wosafety0clamp/actions/runs/41772835706) passed 613 tests with OpenCV/NumPy enabled and zero skips.
+
+
+## 2026-11-04 — Production reward authorization preparation wired (read-only)
+
+- **IMPLEMENTED:** added `RewardClaimPreparer` and wired it into the production settlement-state verification callback. When two consecutive visual checks confirm `BONUS_ITEMS`, the callback can prepare a frame-bound authorization from the exact retained second `CapturedFrame`; the supervisor still receives the same state evidence.
+- **EXPLICIT CONFIGURATION:** opt-in requires all four environment settings: `KANCOLLEBOT_BONUS_CLAIM_TEMPLATE_PATH`, `KANCOLLEBOT_BONUS_CLAIM_CALIBRATION_ID`, `KANCOLLEBOT_BONUS_CLAIM_APPROVED_TEMPLATE_SHA256`, and `KANCOLLEBOT_BONUS_CLAIM_REGION` (`left,top,right,bottom`). No settings means preparation stays disabled; partial settings fail closed. The template bytes must match the separately supplied approved SHA-256, and the region must fit the 1200x720 viewport.
+- **RUNTIME BEHAVIOR:** with valid configuration, the entry logs authorization frame ID/hash, calibration ID, target center/bounds and template hash. Without configuration it logs that authorization is unavailable. Neither branch sends UI input; no click executor is present.
+- **TESTS:** GitHub Actions run [41773389790](https://github.com/wosafety0/wosafety0clamp/actions/runs/41773389790) passed 620 tests with OpenCV/NumPy enabled and zero skips. The new end-to-end synthetic test verifies the production evidence → exact-frame localization → explicit-template allowlist → non-executable authorization path.
+- **LIMITS:** this is synthetic/offline validation only. No real reward template, live calibration region, or approved template digest has been obtained. Do not configure the environment values from guessed coordinates or synthetic assets. Reward clicking remains disabled; no live Poi behavior is claimed.
+
+
+## 2026-11-04 — Reward authorization freshness and expiry
+
+- **IMPLEMENTED:** reward authorization now rejects a target whose captured frame is older than the configured authorization TTL (default 2 seconds), or whose monotonic capture timestamp is later than authorization time.
+- **EXPIRY:** each authorization records monotonic issue and expiry timestamps. `assert_same_frame` rejects use after expiry as well as a changed frame ID/hash. The authorization remains non-executable; no click operation was added.
+- **TESTS:** GitHub Actions run [41773910790](https://github.com/wosafety0/wosafety0clamp/actions/runs/41773910790) passed 623 tests, zero skipped. Coverage includes stale target rejection, future timestamps, and authorization expiry.
+- **LIMITS:** the two-second TTL is a conservative freshness guard for a future action boundary, not proof of live screen continuity. A future executor must call `assert_same_frame` immediately before any authorized input and independently verify the post-action state. No executor exists or is enabled.
+
+
+## 2026-11-04 — Reward locator counts spatial candidates (fail-closed)
+
+- **IMPLEMENTED:** reward localization now performs non-maximum suppression over the complete template-match response and counts spatially distinct candidates meeting the authorization confidence threshold. It no longer hardcodes `candidate_count=1`.
+- **FAIL-CLOSED:** zero qualifying candidates or more than one spatially distinct high-confidence candidate blocks authorization. The locator also retains the confidence-margin requirement. The gate independently requires `candidate_count == 1`.
+- **TESTED:** GitHub Actions run [41774452317](https://github.com/wosafety0/wosafety0clamp/actions/runs/41774452317) passed 623 tests with zero skipped; the duplicate-placement regression test passed.
+- **LIMITS / DESIGN REVIEW:** this corrects the prior mismatch between the claimed candidate count and the actual image-match search. It does not make a Python authorization object unforgeable or provide one-time consumption. There is still no click executor. Any future executor must own replay/consumption state, re-capture and re-localize immediately before input, and independently verify the post-click state. The current same-frame assertion is a consistency check over supplied frame identifiers, not proof that the live display remained unchanged.
+
+
+## 2026-11-04 — Reward authorization validates both evidence-frame ages
+
+- **IMPLEMENTED:** authorization now checks the age of both consecutive `BONUS_ITEMS` evidence frames against the configured TTL, not only the localization frame. A fresh second frame can no longer mask an excessively old first state check.
+- **INPUT VALIDATION:** `assert_same_frame` now rejects non-integer frame IDs (including booleans and floats), non-positive IDs, and malformed SHA-256 values before comparing frame identity.
+- **TESTED:** GitHub Actions run [41774962958](https://github.com/wosafety0/wosafety0clamp/actions/runs/41774962958) passed 625 Python tests. The regression cases cover a stale first frame with a fresh target frame and malformed frame identifiers.
+- **LIMITS:** this remains an in-process, non-executable authorization record. It is not a one-time capability, does not authenticate a caller, and does not prove live display continuity. No reward click executor or live calibration is enabled.
+
+
+## 2026-11-04 — Process-local one-time reward authorization consumption
+
+- **IMPLEMENTED:** `RewardClaimGate` now issues each authorization with a random identifier and registers the exact returned object in a gate-owned `RewardClaimAuthorizationRegistry`. The registry atomically consumes an authorization once under a thread lock; replay, a copied/fabricated object, a foreign registry, and an expired authorization are rejected.
+- **BOUNDS:** the registry is process-local and volatile. A process restart clears pending/consumed history; it does not provide durable exactly-once semantics across crashes or restarts. Pending entries are bounded (default 1,024); expired entries are pruned when a newer authorization is registered. Saturation fails closed.
+- **SAFETY:** consumption only marks an authorization as used. It performs no CDP call, click, or game request. A future executor must consume immediately at its input boundary, re-capture and re-localize the current UI immediately beforehand, re-check consecutive BONUS_ITEMS evidence and TTL, and independently verify the post-click state. The registry is an in-process replay guard, not an unforgeable capability or protection against malicious code in the same process.
+- **TESTS:** regression coverage verifies exactly-once consumption, replay rejection, fabricated/foreign object rejection, expiry, and two concurrent consumers racing for the same authorization.
+- **LIMITS:** no live Poi calibration, reward-click executor, or post-click verification is enabled. Reward claiming remains disabled.
+
+
+## 2026-11-04 — Reward claim input lifecycle protocol (offline, no executor)
+
+- **IMPLEMENTED:** added `src/kancollebot/expeditions/reward_claim_protocol.py`. It defines a one-shot protocol with explicit `CONSUMED_BEFORE_INPUT`, `INPUT_ATTEMPTED`, `POSTCONDITION_VERIFIED`, `UNKNOWN_AFTER_INPUT`, and `BLOCKED_BEFORE_INPUT` phases.
+- **SAFETY ORDER:** the protocol revalidates the authorization's exact frame ID/hash and TTL, atomically consumes it through the issuing registry, and only then permits the caller to mark one external input attempt. The caller must mark the attempt immediately before invoking its ordinary visible-UI input function. An ambiguous input outcome must become `UNKNOWN_AFTER_INPUT`; no retry is permitted.
+- **POSTCONDITION:** success requires explicit reward-claimed evidence and two distinct, increasing captured frames taken after the input-attempt boundary; the observed state must no longer be `BONUS_ITEMS`. Invalid or stale postcondition evidence fails closed.
+- **TESTS ADDED:** `tests/test_reward_claim_protocol.py` covers frame mismatch, expiry, one-shot ordering, no second attempt, post-input frame freshness, explicit claimed-state requirement, and unknown outcome.
+- **LIMITS:** the protocol is only a state ledger. It does not capture or classify real Poi screens, execute input, implement a CDP click, or prove that a caller's classifier is honest. It is not wired into the production supervisor. No live reward template/calibration exists; reward claiming remains disabled. The in-memory phase is lost on process restart; after restart the caller must discard old authorization and re-observe/re-authorize from the current UI.
+- **VALIDATION:** GitHub Actions [41775989058](https://github.com/wosafety0/wosafety0clamp/actions/runs/41775989058) passed **636 Python tests with zero skips**, plus Node static tests, passive observer syntax, CLI smoke checks, and Python compilation. This verifies the offline protocol only; no live Poi interaction was performed.
+
+
+## 2026-11-04 — Recheck oldest BONUS_ITEMS frame age at consumption
+
+- **IMPLEMENTED:** each reward authorization now retains the capture timestamp of the oldest of its two consecutive BONUS_ITEMS frames. `assert_same_frame()` checks the age of that oldest frame again at the input boundary, using the same TTL as the authorization window.
+- **SAFETY:** this closes the timing gap where the first state frame could already be near its TTL when authorization was issued, then exceed the TTL while the authorization object itself remained unexpired.
+- **TESTS ADDED:** regression tests prove the oldest frame is rejected at consumption even while the authorization's own expiry timestamp has not yet elapsed; the protocol test confirms this blocks before input.
+- **VALIDATION:** GitHub Actions [41776371723](https://github.com/wosafety0/wosafety0clamp/actions/runs/41776371723) passed **638 Python tests with zero skips**, plus all other workflow checks. This verifies offline time-bound validation only.
+- **LIMITS:** this remains offline timestamp validation. It does not capture the live screen, authenticate an in-process caller, or enable reward input.
+
+
+## 2026-11-04 — Remote repository hygiene
+
+- **REMOVED:** `scripts/dc_clamp_batch_check.ps1` (obsolete local worktree paths and no active references); `docs/READ_ONLY_DIAGNOSTIC_ROUTE_CORRECTION_20261027.md` (one-off superseded diagnostic note); and `docs/diagnostics/Personal-Windows-MCP-incident-20261029.md` (historical machine-specific incident log).
+- **PREVENTION:** `.gitignore` now excludes `scripts/poi-ui-snapshots.jsonl`, the local snapshot output produced by the read-only PowerShell collector.
+- **RETAINED INTENTIONALLY:** `docs/PROJECT_PATH_INDEX_STATUS.md` is an explicit compatibility placeholder retained to avoid breaking existing links. `docs/PROJECT_kancollebot_Progress.md` remains historical progress evidence; its size alone is not a reason to delete it. Current handoff and design documents remain authoritative for present status.
+- **BRANCH/PR AUDIT:** the repository currently has 74 branches and 24 open PRs. Open PR head/base refs and stacked development chains were protected. Branch comparisons show remaining non-PR branches are not all ancestors of the active MVP branch; no branch refs were deleted. Branch deletion was not available through the connected GitHub action set, so no branch was rewritten or force-moved.
+- **VALIDATION:** cleanup commit CI is pending; verify workflow and remotely re-read all changed paths before treating repository cleanup as complete.
+
+
+## Mandatory game-mechanics evidence gate (updated 2026-11-06)
+
+Before changing any code that makes or influences a game-state decision, read `docs/game-rules/README.md`, the relevant domain dossier, and `docs/game-rules/KAN_COLLE_AGENT_REFERENCE.md`.
+
+Use the source separation documented by Yukikaze030/KanColle-Agent:
+
+1. **Poi = current player state**; validate per-domain freshness, coverage, identity and refresh semantics.
+2. **Data MCP/static master data = entity definitions and structured fields**; preserve exact refs, source pins, era and partial/missing semantics.
+3. **Wiki/research sources = gameplay mechanics and edge cases**; cite exact current 二期 pages and retain uncertainty.
+4. **KancolleBot policy = automation safety decision**; label it separately from the game's actual rule.
+
+Current-mechanics decisions are 二期-only (post-May-2023 migration).一期-only or era-unknown material, third-party code behavior, synthetic fixtures, and model memory must not be silently promoted to current game rules. `coverage=complete` is not live verification; Poi online is not proof that every data domain is fresh. If the necessary mechanic or source field is UNKNOWN, INFERRED, stale, partial, or CONFLICTED, stop that decision path and research it first.
+
+Do not copy upstream code or install/connect its MCP services as part of this reference review. This project remains on its existing read-only passive API observation and permitted visible-UI boundary. Update the relevant rule dossier and evidence before relying on a newly researched mechanic in implementation.

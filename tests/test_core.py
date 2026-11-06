@@ -40,6 +40,7 @@ class ObservedStateTests(unittest.TestCase):
             payload={"fleet_id": 1},
             observed_at=self.now - timedelta(seconds=20),
             source="test-fixture",
+            source_freshness_verified=True,
         )
         self.assertTrue(state.is_fresh(now=self.now, max_age=self.max_age))
         state.require_fresh(now=self.now, max_age=self.max_age)

@@ -24,3 +24,6 @@ local_config.json
 logs/
 *.log
 poi-profile/
+
+# Local Poi snapshot captures
+/scripts/poi-ui-snapshots.jsonl

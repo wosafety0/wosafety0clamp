@@ -3,7 +3,7 @@
 import unittest
 from unittest.mock import patch
 
-from kancollebot.adapters.poi.mcp_client import PoiMcpClient, PoiMcpError
+from kancollebot.adapters.poi.mcp_client import PoiMcpClient, PoiMcpError, _NoRedirectHandler
 
 
 class PoiMcpClientTests(unittest.TestCase):
@@ -14,6 +14,14 @@ class PoiMcpClientTests(unittest.TestCase):
     def test_accepts_default_loopback_endpoint(self):
         client = PoiMcpClient()
         self.assertEqual(client.endpoint, "http://127.0.0.1:12450/mcp")
+
+    def test_rejects_credentials_in_endpoint_url(self):
+        with self.assertRaisesRegex(ValueError, "credentials"):
+            PoiMcpClient("http://user:secret@127.0.0.1:12450/mcp")
+
+    def test_redirect_handler_refuses_redirects(self):
+        handler = _NoRedirectHandler()
+        self.assertIsNone(handler.redirect_request(None, None, 302, "Found", {}, "http://example.com/"))
 
     def test_rejects_action_tool(self):
         client = PoiMcpClient()
@@ -50,6 +58,48 @@ class PoiMcpClientTests(unittest.TestCase):
         client = PoiMcpClient()
         with self.assertRaises(ValueError):
             client.call_read_tool("arbitrary_tool", {})
+
+
+    def test_opener_is_built_once_and_reused_for_mcp_and_health_requests(self):
+        class FakeResponse:
+            def __init__(self, body):
+                self.status = 200
+                self.headers = {
+                    "Content-Type": "application/json",
+                    "Mcp-Session-Id": "session-1",
+                }
+                self._body = body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self, limit=-1):
+                return self._body
+
+        class FakeOpener:
+            def __init__(self):
+                self.responses = [
+                    FakeResponse(b'{"jsonrpc":"2.0","id":1,"result":{}}'),
+                    FakeResponse(b'{"name":"poi-nanodesu-mcp","status":"ok","storeReady":true}'),
+                ]
+                self.calls = []
+
+            def open(self, request, timeout):
+                self.calls.append((request, timeout))
+                return self.responses.pop(0)
+
+        fake_opener = FakeOpener()
+        with patch("urllib.request.build_opener", return_value=fake_opener) as build:
+            client = PoiMcpClient()
+            client._request("ping")
+            health = client.health()
+
+        self.assertEqual(build.call_count, 1)
+        self.assertEqual(len(fake_opener.calls), 2)
+        self.assertEqual(health["status"], "ok")
 
 
 if __name__ == "__main__":

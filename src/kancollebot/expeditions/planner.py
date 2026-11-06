@@ -11,6 +11,7 @@ class ExpeditionDecision(str, Enum):
     WAITING_FOR_RETURN = "waiting_for_return"
     RETURNED_AWAITING_REFRESH = "returned_awaiting_refresh"
     BLOCKED_UNKNOWN_RETURN_TIME = "blocked_unknown_return_time"
+    COMPLETED_AWAITING_REWARD = "completed_awaiting_reward"
     BLOCKED_EMPTY_FLEET = "blocked_empty_fleet"
     BLOCKED_DAMAGED_SHIPS = "blocked_damaged_ships"
     NEEDS_RESUPPLY = "needs_resupply"
@@ -28,6 +29,11 @@ class ExpeditionFleetSnapshot:
     fuel_ready: bool = False
     ammo_ready: bool = False
     damaged_ship_ids: tuple[int, ...] = ()
+    heavy_damage_ship_ids: tuple[int, ...] = ()
+    mission_status: int | None = None
+    reserved: int = 0
+    ship_levels: tuple[int, ...] = ()
+    ship_types: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         if self.fleet_id < 1:
@@ -42,6 +48,28 @@ class ExpeditionFleetSnapshot:
             raise ValueError("damaged_ship_ids must be unique")
         if not set(self.damaged_ship_ids).issubset(self.ship_ids):
             raise ValueError("damaged_ship_ids must belong to this fleet")
+        if len(set(self.heavy_damage_ship_ids)) != len(self.heavy_damage_ship_ids):
+            raise ValueError("heavy_damage_ship_ids must be unique")
+        if not set(self.heavy_damage_ship_ids).issubset(self.ship_ids):
+            raise ValueError("heavy_damage_ship_ids must belong to this fleet")
+        if self.mission_status not in (None, 0, 1, 2):
+            raise ValueError("mission_status must be 0, 1, 2, or unknown")
+        if isinstance(self.reserved, bool) or not isinstance(self.reserved, int) or self.reserved < 0:
+            raise ValueError("reserved must be a non-negative integer")
+        if not isinstance(self.ship_levels, tuple) or not isinstance(self.ship_types, tuple):
+            raise ValueError("ship_levels and ship_types must be tuples")
+        if bool(self.ship_levels) != bool(self.ship_types):
+            raise ValueError("ship_levels and ship_types must both be present or both be empty")
+        if self.ship_levels or self.ship_types:
+            if len(self.ship_levels) != len(self.ship_ids) or len(self.ship_types) != len(self.ship_ids):
+                raise ValueError("composition metadata must match ordered ship membership")
+            for label, values in (("ship levels", self.ship_levels), ("ship types", self.ship_types)):
+                if any(isinstance(value, bool) or not isinstance(value, int) or value < 1 for value in values):
+                    raise ValueError(f"{label} must contain positive integers")
+        if self.mission_status == 0 and self.mission_id is not None:
+            raise ValueError("idle mission_status cannot have an active mission")
+        if self.mission_status in (1, 2) and self.mission_id is None:
+            raise ValueError("active mission_status requires a mission ID")
         if self.mission_id is not None and self.mission_id < 1:
             raise ValueError("mission_id must be positive")
         if self.return_at is not None and (
@@ -78,6 +106,12 @@ def evaluate_expedition_fleet(
         raise ValueError("now must be timezone-aware")
 
     if snapshot.mission_id is not None:
+        if snapshot.mission_status == 2:
+            return ExpeditionPlan(
+                snapshot.fleet_id,
+                ExpeditionDecision.COMPLETED_AWAITING_REWARD,
+                "Expedition completed; reward settlement remains pending.",
+            )
         if snapshot.return_at is None:
             return ExpeditionPlan(
                 snapshot.fleet_id,
