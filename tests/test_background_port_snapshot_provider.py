@@ -61,6 +61,13 @@ class RepeatingObserver:
         return None
 
 
+class FalseCapturedObserver:
+    last_status = "captured"
+
+    def capture(self):
+        return None
+
+
 class StatusObserver:
     def __init__(self):
         self.calls = 0
@@ -141,6 +148,26 @@ class BackgroundPortSnapshotProviderTests(unittest.TestCase):
             self.assertTrue(self._wait_for(lambda: observer.calls >= 3))
             self.assertEqual(observed, ["cdp_connection_closed"])
             self.assertEqual(provider.last_status, "cdp_connection_closed")
+        finally:
+            provider.close(join_timeout_seconds=1)
+
+    def test_captured_status_without_payload_is_downgraded_to_unknown(self):
+        observer = FalseCapturedObserver()
+        observed = []
+        provider = BackgroundPortSnapshotProvider(
+            observer,
+            retry_delay_seconds=0.01,
+            on_status=observed.append,
+        )
+        try:
+            provider()
+            self.assertTrue(
+                self._wait_for(
+                    lambda: provider.last_status == "invalid_status_without_snapshot"
+                )
+            )
+            self.assertEqual(observed, ["invalid_status_without_snapshot"])
+            self.assertIsNone(provider.latest_snapshot)
         finally:
             provider.close(join_timeout_seconds=1)
 
