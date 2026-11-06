@@ -14,6 +14,7 @@ The GitHub default branch **main** still contains only `.github`; it is not the 
 | Settlement + run-log review candidate | `dev/run-log-safety-hardening-20261106` / [Draft PR #40](https://github.com/wosafety0/wosafety0clamp/pull/40) | `1bf11856356f9bd3b0fd7a615567a1ac9c4b9fed` (code commit; see PR for current head) | Open, unmerged |
 | SQLite event-id readback candidate | `dev/event-id-readback-20261106` / [Draft PR #39](https://github.com/wosafety0/wosafety0clamp/pull/39) | `6048b918632ffea1510e4b038b82cd30c53a4384` | Separate, open, unmerged |
 | SQLite/JSONL row-link follow-up | `dev/identity-contract-and-event-link-20261106` / [Draft PR #41](https://github.com/wosafety0/wosafety0clamp/pull/41) | `a167df27f3480160e469dd36291706a6e7c4c0ef` | Open, stacked on #40 |
+| Critical audit-gap guard | `dev/run-log-critical-gap-gate-20261106` / [Draft PR #42](https://github.com/wosafety0/wosafety0clamp/pull/42) | `e462ac9dca213366781108aaf0dc58416ae814c9` | Open, stacked on #41 |
 
 PR #40 is a broad staging candidate (42 commits / 105 changed files), not a merge recommendation. Its exact HEAD passed:
 - [Push CI #42128797363](https://github.com/wosafety0/wosafety0clamp/actions/runs/42128797363): 1,634 Python tests, 21 optional vision tests skipped; Node 17/17; compile and CLI smoke passed.
@@ -23,16 +24,19 @@ The branch contains historical Fleet 2 / Fleet 4 evidence from earlier operator-
 
 PR #40 keeps run-log production wiring optional; `--run-log-dir` remains explicit and default-off. Draft PR #41 returns the existing SQLite integer event ID and writes it into the JSONL envelope as `sqlite_event_id`; the JSONL UUID `event_id` remains distinct. Exact-head CI passed 1,637 tests (21 optional vision tests skipped). This is a row-level join only, not semantic deduplication. The current `dispatch_id` still has per-attempt semantics in PR #40, while a durable expedition-lifecycle ID remains unresolved and must not be inferred.
 
+Draft PR #42 extends the audit gate to every reviewed visible-UI input path. `RunLogSink` refuses later critical events after any log gap; `TeeEventSink` preflights sinks before the primary SQLite append; supply-tab/supply-all and visible port-refresh clicks now have critical pre-click records, including the one permitted refresh retry. Exact-head Push [#42135969359](https://github.com/wosafety0/wosafety0clamp/actions/runs/42135969359) and Feature CI [#42135976481](https://github.com/wosafety0/wosafety0clamp/actions/runs/42135976481) passed 1,644 Python tests in all four Python 3.12/3.13 × vision with/without matrices; Node 19/19 passed. This is offline verification only; run-log wiring remains default-off and no live Poi validation is claimed.
+
 The branch `dev/expedition-closed-loop-mvp` remains historical. Re-read the handoff and progress record before choosing a branch; do not infer application state from `main`.
 
 ## Current development priorities
 
-1. Review Draft PR #40 as a broad integration candidate; do not merge it without a per-file review.
-2. Resolve the semantic difference between the current per-attempt `dispatch_id` and a durable expedition-lifecycle ID. Do not use the attempt ID to attribute later settlement/resupply events.
-3. Verify the SQLite-to-JSONL `sqlite_event_id` row link, including partial-write failure behavior; it must not be treated as semantic deduplication.
-4. Keep run-log production wiring default-off until a separately authorized live validation proves the full event chain and failure behavior.
-5. Continue offline review of multi-fleet settlement/resupply, interruption recovery, scanner boundaries, and the unresolved 7-ship versus 6-slot design constraint.
-6. Keep missing, stale, ambiguous, malformed, or conflicting observations fail-closed. A green CI run is not live-client acceptance.
+1. Review Draft PR #42's audit-gap and pre-click event coverage; keep it Draft/open and do not merge.
+2. Review Draft PR #40 as a broad integration candidate; do not merge it without a per-file review.
+3. Resolve the semantic difference between the current per-attempt `dispatch_id` and a durable expedition-lifecycle ID. Do not use the attempt ID to attribute later settlement/resupply events.
+4. Verify the SQLite-to-JSONL `sqlite_event_id` row link, including partial-write failure behavior; it must not be treated as semantic deduplication.
+5. Keep run-log production wiring default-off until a separately authorized live validation proves the full event chain and failure behavior.
+6. Continue offline review of multi-fleet settlement/resupply, interruption recovery, scanner boundaries, and the unresolved 7-ship versus 6-slot design constraint.
+7. Keep missing, stale, ambiguous, malformed, or conflicting observations fail-closed. A green CI run is not live-client acceptance.
 
 ## Automation tasks and scope
 

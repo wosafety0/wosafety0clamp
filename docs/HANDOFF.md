@@ -13,6 +13,8 @@ The GitHub default branch `main` (`a4f377764d94c8f0960c931bf94c27bb7e9b5a8e`) co
 | Current MVP base | `dev/dispatch-observer-safety-current-mvp-20261103` | `ba8884466f2bb1d568cc46b76034711df81bb50c` | Current remote base |
 | Settlement + run-log candidate | `dev/run-log-safety-hardening-20261106` / [PR #40](https://github.com/wosafety0/wosafety0clamp/pull/40) | code commit `1bf11856356f9bd3b0fd7a615567a1ac9c4b9fed` | Draft, unmerged |
 | SQLite event ID candidate | `dev/event-id-readback-20261106` / [PR #39](https://github.com/wosafety0/wosafety0clamp/pull/39) | `6048b918632ffea1510e4b038b82cd30c53a4384` | Draft, unmerged |
+| SQLite/JSONL row-link follow-up | `dev/identity-contract-and-event-link-20261106` / [PR #41](https://github.com/wosafety0/wosafety0clamp/pull/41) | `fae250edba687adb47d04d072e91383204fc18c4` | Draft, unmerged |
+| Critical audit-gap guard | `dev/run-log-critical-gap-gate-20261106` / [PR #42](https://github.com/wosafety0/wosafety0clamp/pull/42) | `e462ac9dca213366781108aaf0dc58416ae814c9` | Draft, stacked on #41 |
 
 PR #40 is a broad staging candidate (42 commits / 105 changed files), not a merge recommendation. Exact code-head CI:
 - [Push #42128797363](https://github.com/wosafety0/wosafety0clamp/actions/runs/42128797363): 1,634 Python tests, 21 optional vision tests skipped; Node 17/17; compile and CLI smoke passed.
@@ -33,6 +35,7 @@ PR #40 is a broad staging candidate (42 commits / 105 changed files), not a merg
 - P0.2b restricts emitter-forged correlation IDs and binds a runtime-minted `dispatch_id` around one supervisor dispatch attempt.
 - P0.2c adds sticky degraded-state handling, oversized-event rejection, symlink-safe log/snapshot paths, unique snapshot temp files, fail-closed redaction fallback, provenance-field redaction, and malformed critical-event rejection.
 - P0.2d adds a strict SQLite row-ID receipt and links it to the JSONL envelope through sink-owned `sqlite_event_id`; the JSONL UUID `event_id` remains a separate namespace. Exact-head CI passed 1,637 Python tests with 21 optional vision tests skipped.
+- P0.2e (Draft PR #42) closes the audit-gap bypass across visible UI paths: a degraded RunLogSink rejects every later critical event; TeeEventSink preflights all writable sinks before the primary SQLite append; supply-tab/supply-all clicks now emit critical pre-click events; visible port-refresh click attempts/outcomes are critical and the permitted retry records its own attempt/sent pair. Exact-head Push [42135969359](https://github.com/wosafety0/wosafety0clamp/actions/runs/42135969359) and Feature CI [42135976481](https://github.com/wosafety0/wosafety0clamp/actions/runs/42135976481) passed 1,644 Python tests; all four Python 3.12/3.13 × vision with/without matrices passed, Node 19/19.
 
 ## Explicitly not verified / blocked
 
@@ -82,11 +85,12 @@ The feature matrix additionally tests Python 3.12/3.13 with and without optional
 
 ## Open PR inventory
 
-The current remote inventory has 27 open PRs. No PR was merged or closed in this run.
+The current remote inventory has 31 open PRs. No PR was merged or closed in this run.
 
 - [PR #40](https://github.com/wosafety0/wosafety0clamp/pull/40): 42 commits / 105 files, Draft, broad settlement/run-log integration candidate.
 - [PR #39](https://github.com/wosafety0/wosafety0clamp/pull/39): SQLite event ID readback source candidate, Draft.
 - [PR #41](https://github.com/wosafety0/wosafety0clamp/pull/41): SQLite-to-JSONL row link, Draft, stacked on #40; final-head CI passed 1,637 tests / 21 optional skips.
+- [PR #42](https://github.com/wosafety0/wosafety0clamp/pull/42): sticky audit-gap and pre-click event gate, Draft, stacked on #41; exact-head Push and four-matrix Feature CI passed 1,644 tests per matrix.
 - [PR #27](https://github.com/wosafety0/wosafety0clamp/pull/27): current MVP safety base.
 - PR #34 / #35 and older scanner/M1 drafts are historical or stale; re-check each head/base comparison before reuse.
 - Do not bulk-close, rebase, merge, or force-move historical drafts without per-PR dependency and diff review.
