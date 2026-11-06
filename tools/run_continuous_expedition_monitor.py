@@ -67,6 +67,7 @@ from kancollebot.expeditions.fleet_availability import (  # noqa: E402
 from kancollebot.expeditions.recovery_classification import (  # noqa: E402
     RecoveryPauseGate,
     RecoveryPausedError,
+    classify_recovery_signals,
 )
 # P0 R4: the SAME task-neutral normalizer that dispatch-once probes with. The
 # monitor cannot open a CDP game session in its default read-only mode, so the
@@ -275,7 +276,14 @@ def build_runtime(
         observer_script,
         timeout_seconds=observer_timeout_seconds,
     )
-    provider = BackgroundPortSnapshotProvider(active_observer)
+    def observe_recovery_status(status: str) -> None:
+        classification = classify_recovery_signals(observer_status=status)
+        if classification.pause_required:
+            recovery_gate.pause(classification)
+    provider = BackgroundPortSnapshotProvider(
+        active_observer,
+        on_status=observe_recovery_status,
+    )
     reader = PoiExpeditionReader(
         client or PoiMcpClient(poi_endpoint),
         port_snapshot_provider=provider,
