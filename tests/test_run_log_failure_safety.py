@@ -47,13 +47,19 @@ from kancollebot.expeditions.settlement_drain import (  # noqa: E402
     SettlementDrainRequest,
     SettlementDrainSession,
 )
-from kancollebot.observability.audit_policy import AuditLogUnavailable  # noqa: E402
+from kancollebot.observability.audit_policy import (  # noqa: E402
+    AuditLogUnavailable,
+    is_critical_event,
+)
 from kancollebot.observability.run_log import (  # noqa: E402
     RunLogPolicy,
     RunLogStore,
     SnapshotWriteError,
 )
-from kancollebot.observability.sink import build_run_log_sink  # noqa: E402
+from kancollebot.observability.sink import (  # noqa: E402
+    TeeEventSink,
+    build_run_log_sink,
+)
 from tests.test_continuous_dispatch_controller import (  # noqa: E402
     BASE,
     FakeClock,
@@ -132,6 +138,22 @@ class SinkFailureTests(unittest.TestCase):
         self.assertIn("No space left on device", sink.degraded_reason or "")
         with self.assertRaises(AuditLogUnavailable):
             sink.ensure_writable()
+
+    def test_a_degraded_sink_refuses_later_critical_events_after_storage_recovers(self):
+        store = BrokenStore(
+            RunLogPolicy(directory=self.directory),
+            fail_on="fleet_monitor_transition",
+        )
+        sink, _ = self.make_sink(store)
+        sink("fleet_monitor_transition", {"fleet_id": 3})
+        store.fail_on = None
+        attempts_before_critical = store.attempts
+
+        with self.assertRaises(AuditLogUnavailable):
+            sink("continuous_ui_click_attempted", {"action": "settlement"})
+
+        self.assertEqual(store.attempts, attempts_before_critical)
+        self.assertIsNotNone(sink.degraded_reason)
 
     def test_a_successful_stop_record_does_not_clear_a_critical_gap(self):
         store = BrokenStore(
@@ -318,6 +340,18 @@ class DispatchGateTests(unittest.TestCase):
 class RealClickPathTests(unittest.TestCase):
     """The click primitive must abort when its audit row cannot be written."""
 
+    def test_supply_and_refresh_click_attempt_events_are_critical(self):
+        for event in (
+            "continuous_ui_supply_tab_click_attempted",
+            "continuous_ui_supply_click_attempted",
+            "ui_refresh_click_attempted",
+            "ui_refresh_click_sent",
+            "expedition_list_click_attempted",
+            "expedition_list_click_sent",
+        ):
+            with self.subTest(event=event):
+                self.assertTrue(is_critical_event(event))
+
     def make_driver(self, event_sink):
         class Input:
             def __init__(self):
@@ -359,6 +393,77 @@ class RealClickPathTests(unittest.TestCase):
 
         self.assertEqual(game_input.clicks, [])
         self.assertEqual(calls, ["continuous_ui_click_attempted"])
+
+    def test_a_secondary_failure_after_tee_preflight_still_blocks_the_click(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = BrokenStore(
+                RunLogPolicy(directory=root),
+                fail_on="continuous_ui_click_attempted",
+            )
+            run_sink = build_run_log_sink(
+                directory=root,
+                task_kind="expedition",
+                run_id="run-20261106T120000Z-0000000000ae",
+                prune_interval_seconds=0,
+            )
+            run_sink._store = store  # noqa: SLF001
+            primary_events: list[str] = []
+
+            def primary(event, fields):
+                primary_events.append(event)
+                return len(primary_events)
+
+            tee = TeeEventSink(primary, run_sink)
+            driver, game_input = self.make_driver(tee)
+
+            with self.assertRaises(AuditLogUnavailable):
+                driver._click(  # noqa: SLF001
+                    SimpleNamespace(label="settlement-advance"),
+                    action="advance_settlement",
+                    step=1,
+                )
+
+            # The preflight passed, so the SQLite primary row exists; the JSONL
+            # append then failed. The critical exception must still stop input.
+            self.assertEqual(primary_events, ["continuous_ui_click_attempted"])
+            self.assertEqual(game_input.clicks, [])
+            self.assertIsNotNone(run_sink.degraded_reason)
+
+    def test_a_degraded_tee_blocks_click_before_primary_event_append(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = BrokenStore(
+                RunLogPolicy(directory=root),
+                fail_on="fleet_monitor_transition",
+            )
+            run_sink = build_run_log_sink(
+                directory=root,
+                task_kind="expedition",
+                run_id="run-20261106T120000Z-0000000000ad",
+                prune_interval_seconds=0,
+            )
+            run_sink._store = store  # noqa: SLF001
+            primary_events: list[str] = []
+
+            def primary(event, fields):
+                primary_events.append(event)
+                return len(primary_events)
+
+            tee = TeeEventSink(primary, run_sink)
+            tee("fleet_monitor_transition", {"fleet_id": 4})
+            store.fail_on = None
+
+            driver, game_input = self.make_driver(tee)
+            with self.assertRaises(AuditLogUnavailable):
+                driver._click(  # noqa: SLF001
+                    SimpleNamespace(label="settlement-advance"),
+                    action="advance_settlement",
+                    step=1,
+                )
+
+            self.assertEqual(primary_events, ["fleet_monitor_transition"])
+            self.assertEqual(game_input.clicks, [])
 
     def test_a_healthy_sink_still_emits_attempted_then_sent(self):
         calls: list[str] = []

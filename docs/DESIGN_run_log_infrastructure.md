@@ -299,3 +299,14 @@ settlement / resupply / visible_ui_refresh / UI driver 六处注入点都**不�
 - emitter 不能通过普通 fields 伪造 sqlite_event_id；无 primary receipt 时该字段为 null。bool、float、字符串、零和负数不能作为 row ID。
 - 如果 SQLite 已写入但关键 JSONL append 失败，Tee 仍传播 AuditLogUnavailable，调用方必须在点击前停止；这是一条明确的部分写入失败，不得声称双日志均成功。
 - 此链接只解决两种日志记录的一对一定位，不解决 dispatch lifecycle identity，也不提供语义去重。
+
+
+## 10.3 Sticky degraded latch on every critical action path
+
+- A failed non-critical JSONL append leaves the current run incomplete even if storage later becomes writable. Subsequent diagnostic rows may still be attempted, but they do not repair the gap.
+- RunLogSink itself refuses every later critical event while degraded; this applies even when a caller has no separate action-preflight hook.
+- TeeEventSink probes all sinks that expose ensure_writable() before appending a critical event to the primary SQLite sink. A known-degraded secondary run log therefore blocks the event before it creates a SQLite-only row and before the caller can proceed to UI input.
+- This central guard covers dispatch, settlement, resupply and other UI click paths that share the Tee sink; the dispatch controller's explicit audit_gate remains an additional pre-intent check.
+- A storage failure occurring after the preflight probe is still a possible race: the primary row may be committed before the secondary append fails. In that case AuditLogUnavailable propagates and the caller must not click; the partial row remains detectable and is not represented as dual-sink success.
+- Every irreversible input path must emit a critical `*_click_attempted` event before calling the input object. The supply-tab and supply-all-button paths previously emitted only `*_click_sent` after the click; they now have dedicated critical pre-click events. Visible port-refresh navigation already had pre-click rows, but they were not classified as critical; those attempt/outcome rows are now critical, and the one permitted no-op retry emits both attempt and sent rows. `ExpeditionListSession` now wraps each measured area-tab/scroll click with critical `expedition_list_click_attempted` / `expedition_list_click_sent` rows, and the production supervisor composition root passes the shared Tee sink into that session. Regression tests prove an audit exception leaves the corresponding input untouched. The legacy one-off CLI path remains outside the durable run-log guarantee and is not approved for unattended use.
+

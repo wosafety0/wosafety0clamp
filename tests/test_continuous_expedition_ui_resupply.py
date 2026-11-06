@@ -63,6 +63,7 @@ def build_driver(
     events: list[str],
     *,
     menu_state: str = "SUPPLY_FLEET_2_SELECTED",
+    event_sink=None,
 ):
     """Wire a driver whose clicks move the scripted screen.
 
@@ -83,10 +84,15 @@ def build_driver(
         if point.label in transitions:
             screen.state = transitions[point.label]
 
+    def emit(event, payload):
+        events.append(event)
+        if event_sink is not None:
+            event_sink(event, payload)
+
     driver = CdpContinuousExpeditionUiDriver(
         game_input=type("Input", (), {"click": staticmethod(click)})(),
         verify_state=screen.verify,
-        event_sink=lambda event, payload: events.append(event),
+        event_sink=emit,
         details=FakeDetails(),
         marks=FakeMarks(),
         capture=lambda: "frame",
@@ -128,7 +134,10 @@ class ResupplyChainTests(unittest.TestCase):
             clicks, ["supply-menu", "fleet-supply-all-button", "home-port"]
         )
         self.assertIn("continuous_ui_supply_button_verified", events)
-        self.assertIn("continuous_ui_supply_click_sent", events)
+        self.assertLess(
+            events.index("continuous_ui_supply_click_attempted"),
+            events.index("continuous_ui_supply_click_sent"),
+        )
         self.assertIn("continuous_ui_resupply_completed", events)
 
     def test_a_supply_page_for_another_fleet_clicks_the_requested_tab_first(self):
@@ -165,6 +174,56 @@ class ResupplyChainTests(unittest.TestCase):
                 "home-port",
             ],
         )
+        self.assertLess(
+            events.index("continuous_ui_supply_tab_click_attempted"),
+            events.index("continuous_ui_supply_tab_click_sent"),
+        )
+        self.assertLess(
+            events.index("continuous_ui_supply_click_attempted"),
+            events.index("continuous_ui_supply_click_sent"),
+        )
+
+    def test_a_failed_tab_attempt_audit_prevents_the_tab_click(self):
+        screen = ScriptedScreen("HOME_PORT")
+        events: list[str] = []
+        def fail_before_tab(event, payload):
+            if event == "continuous_ui_supply_tab_click_attempted":
+                raise RuntimeError("audit unavailable")
+        driver, clicks = build_driver(
+            screen, events, menu_state="SUPPLY_MENU", event_sink=fail_before_tab
+        )
+        tab = VisualTargetPoint(
+            x=310, y=180, label="supply-fleet3-tab", bounds=(295, 165, 30, 30),
+            region=(285, 155, 50, 50), source_frame_sha256="1" * 64,
+            locator="opencv-canny-tab-v1",
+        )
+        with patch(
+            "kancollebot.adapters.poi.continuous_expedition_ui.locate_supply_fleet_tab",
+            return_value=tab,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "audit unavailable"):
+                driver.resupply_fleet(fleet_id=3)
+        self.assertEqual(clicks, ["supply-menu"])
+        self.assertIn("continuous_ui_supply_tab_click_attempted", events)
+        self.assertNotIn("continuous_ui_supply_tab_click_sent", events)
+
+    def test_a_failed_supply_attempt_audit_prevents_the_supply_click(self):
+        screen = ScriptedScreen("HOME_PORT")
+        events: list[str] = []
+        def fail_before_supply(event, payload):
+            if event == "continuous_ui_supply_click_attempted":
+                raise RuntimeError("audit unavailable")
+        driver, clicks = build_driver(screen, events, event_sink=fail_before_supply)
+        button = target((1090, 600, 90, 30))
+        with patch(
+            "kancollebot.adapters.poi.continuous_expedition_ui.locate_fleet_supply_all_button",
+            return_value=button,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "audit unavailable"):
+                driver.resupply_fleet(fleet_id=2)
+        self.assertEqual(clicks, ["supply-menu"])
+        self.assertIn("continuous_ui_supply_click_attempted", events)
+        self.assertNotIn("continuous_ui_supply_click_sent", events)
 
     def test_a_moving_supply_button_is_never_clicked(self):
         screen = ScriptedScreen("HOME_PORT")

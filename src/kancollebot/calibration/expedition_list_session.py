@@ -115,7 +115,7 @@ class ExpeditionListSession:
         ):
             raise ValueError("max_scroll_steps must be a positive integer")
         self._scan = scan
-        self._click = click
+        self._click_input = click
         self._index = index
         self._settle = settle
         self._settle_seconds = float(settle_seconds)
@@ -198,7 +198,7 @@ class ExpeditionListSession:
                 raise ExpeditionRowError(
                     f"refusing to scroll without a measured control: {proposal.detail}"
                 )
-            self._click(proposal.point, "expedition-list-down")
+            self._send_click(proposal.point, "expedition-list-down")
             self.scroll_clicks += 1
             self._settle(self._settle_seconds)
             moved = self._scan()
@@ -231,7 +231,7 @@ class ExpeditionListSession:
                 "the selected area tab is not readable, so switching tabs cannot be verified"
             )
         point = centers[tab]
-        self._click(point, f"expedition-tab-{tab + 1}")
+        self._send_click(point, f"expedition-tab-{tab + 1}")
         self.tab_clicks += 1
         self._settle(self._settle_seconds)
         after = self._scan()
@@ -262,7 +262,7 @@ class ExpeditionListSession:
                 raise ExpeditionRowError(
                     f"refusing to scroll up without a measured control: {proposal.detail}"
                 )
-            self._click(proposal.point, "expedition-list-up")
+            self._send_click(proposal.point, "expedition-list-up")
             self.scroll_clicks += 1
             self._settle(self._settle_seconds)
             steps += 1
@@ -292,6 +292,15 @@ class ExpeditionListSession:
         if len(matches) > 1:  # pragma: no cover - bind() forbids it
             raise ExpeditionRowError(f"{expedition_id} is bound to {len(matches)} positions")
         return matches[0]
+
+    def _send_click(self, point: tuple[int, int], label: str) -> None:
+        payload = {
+            "target": label,
+            "point": {"x": point[0], "y": point[1]},
+        }
+        self._emit("expedition_list_click_attempted", **payload)
+        self._click_input(point, label)
+        self._emit("expedition_list_click_sent", **payload)
 
     def _emit(self, event: str, **fields: object) -> None:
         payload = dict(fields)

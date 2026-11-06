@@ -242,8 +242,22 @@ class VisibleUiPortRefreshDriver:
                             "reason": "precondition re-proven after the click",
                         })
                         clicks_attempted += 1
+                        self._emit("ui_refresh_click_attempted", {
+                            "step": index,
+                            "action": action,
+                            "target": point.label,
+                            "clicks_attempted": clicks_attempted,
+                            "repeat": True,
+                        })
                         self._input.click(point)
                         clicks_completed += 1
+                        self._emit("ui_refresh_click_sent", {
+                            "step": index,
+                            "action": action,
+                            "target": point.label,
+                            "clicks_sent": clicks_completed,
+                            "repeat": True,
+                        })
                         if self._settle_seconds:
                             self._sleep(self._settle_seconds)
                         final_evidence = self._confirm(
