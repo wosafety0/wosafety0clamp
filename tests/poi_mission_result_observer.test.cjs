@@ -157,6 +157,9 @@ const RESULT_BODY = 'svdata=' + JSON.stringify({
     api_clear_result: 2,
     api_quest_name: '東京急行',
     api_ship_id: [-1, 1437, 9885, 96144, 3483, 2158, 95819],
+    api_get_material: [10, 20, 30, 40],
+    api_useitem_flag: [1, 0],
+    api_get_item1: { api_useitem_id: 6, api_useitem_count: 2 },
   },
 });
 
@@ -179,6 +182,13 @@ test('the result exchange is captured with the fleet id and the ships', async ()
   assert.equal(witness.data.apiDeckId, 4);
   assert.equal(witness.data.apiQuestName, '東京急行');
   assert.equal(witness.data.apiClearResult, 2);
+  assert.deepEqual(Array.from(witness.data.apiRewardReceipt.material), [10, 20, 30, 40]);
+  assert.deepEqual(Array.from(witness.data.apiRewardReceipt.useitemFlags), [1, 0]);
+  assert.equal(witness.data.apiRewardReceipt.status, 'complete');
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(witness.data.apiRewardReceipt.items)),
+    [{ slot: 1, useitemId: 6, useitemCount: 2 }],
+  );
   // The -1 placeholder is not a ship.
   assert.deepEqual(
     Array.from(witness.data.apiShipId),
@@ -268,4 +278,76 @@ test('the observer reports that it sent no input and no game request', async () 
   assert.ok(logs.some(item => item.includes('Game input: NOT SENT')));
   assert.ok(logs.some(item => item.includes('Game API request initiated by observer: NO')));
   assert.ok(logs.some(item => item.includes('Runtime.evaluate: NOT USED')));
+});
+
+
+test('missing reward fields keep identity but mark the receipt incomplete', async () => {
+  const body = 'svdata=' + JSON.stringify({
+    api_result: 1,
+    api_data: {
+      api_clear_result: 1,
+      api_quest_name: '練習航海',
+      api_ship_id: [-1, 10, 11],
+    },
+  });
+  const { logs } = await runObserver({
+    events: [requestEvent('r7'), resultEvent('r7'), loadingFinished('r7')],
+    bodies: { r7: body },
+  });
+  const receipt = witnessOf(logs).data.apiRewardReceipt;
+  assert.equal(receipt.status, 'incomplete');
+  assert.equal(receipt.material, null);
+  assert.equal(receipt.useitemFlags, null);
+});
+
+test('a failed expedition is explicitly recorded as having no resource reward', async () => {
+  const body = 'svdata=' + JSON.stringify({
+    api_result: 1,
+    api_data: {
+      api_clear_result: 0,
+      api_quest_name: '練習航海',
+      api_ship_id: [-1, 10, 11],
+    },
+  });
+  const { logs } = await runObserver({
+    events: [requestEvent('r8'), resultEvent('r8'), loadingFinished('r8')],
+    bodies: { r8: body },
+  });
+  assert.equal(witnessOf(logs).data.apiRewardReceipt.status, 'no_reward');
+});
+
+test('an unknown result code never becomes a successful reward receipt', async () => {
+  const body = 'svdata=' + JSON.stringify({
+    api_result: 1,
+    api_data: {
+      api_clear_result: 7,
+      api_quest_name: '練習航海',
+      api_ship_id: [-1, 10, 11],
+      api_get_material: [1, 2, 3, 4],
+      api_useitem_flag: [0, 0],
+    },
+  });
+  const { logs } = await runObserver({
+    events: [requestEvent('r9'), resultEvent('r9'), loadingFinished('r9')],
+    bodies: { r9: body },
+  });
+  assert.equal(witnessOf(logs).data.apiRewardReceipt.status, 'unknown');
+});
+
+test('a flagged item without its item payload leaves the receipt incomplete', async () => {
+  const body = 'svdata=' + JSON.stringify({
+    api_result: 1,
+    api_data: {
+      api_clear_result: 1,
+      api_quest_name: '練習航海',
+      api_ship_id: [-1, 10, 11],
+      api_get_material: [1, 2, 3, 4],
+      api_useitem_flag: [1, 0],
+    },
+  });
+  const { logs } = await runObserver({
+    events: [requestEvent('r10'), resultEvent('r10'), loadingFinished('r10')],
+    bodies: { r10: body },
+  });
+  assert.equal(witnessOf(logs).data.apiRewardReceipt.status, 'incomplete');
 });
