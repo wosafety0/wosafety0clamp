@@ -121,3 +121,32 @@
 - A result page must be uniquely attributed to the correct fleet; ambiguity means UNKNOWN and fail closed.
 - Mission-specific ship count, ship types, level, stat, and equipment requirements must be represented explicitly.
 - No production use of unverified formulas or stale mission tables.
+
+### EXP-015 — Expedition fuel and ammunition consumption
+- **Rule:** The detailed table states that fuel and ammunition consumption are calculated as a percentage of each participating ship's amount at departure, with fractional amounts rounded down. The percentage differs by expedition and ship; steel and bauxite are not listed as expedition operating costs. The page warns that deliberately departing with low fuel/ammunition can reduce consumption but is likely to cause failure.
+- **Evidence:** COMMUNITY_REPORTED; the wiki notes display-meter edge cases and historical observations.
+- **Source:** [遠征 — overview](https://wikiwiki.jp/kancolle/遠征), lines 32–35; [遠征/詳細一覧表](https://wikiwiki.jp/kancolle/遠征/詳細一覧表), lines 33–35.
+- **Automation consequence:** Cost estimation must use the actual per-ship departure supply and mission consumption rate, not a fleet-wide fixed amount. Do not intentionally under-supply to optimize costs. Preserve the existing full-supply pre-dispatch safety policy.
+- **Live verification:** Not performed; compare Poi supply values before and after a naturally completed expedition before implementing accounting.
+
+### EXP-016 — Fleet 2 unlock and expedition discovery chain
+- **Rule:** The wiki states Fleet 2 is unlocked by completing quest A4 (「6隻編成の艦隊を編成せよ！」), after which expeditions become available. Most missions appear by completing lower-numbered prerequisite missions, but the page lists exceptions involving sortie-area clears and monthly prerequisites.
+- **Evidence:** COMMUNITY_REPORTED. The detailed prerequisite table cites the English wiki as accessed 2023-05-16; the current Japanese page contains the summary and table.
+- **Source:** [遠征 — 開放要件](https://wikiwiki.jp/kancolle/遠征), lines 73–80 and 81–155.
+- **Automation consequence:** Fleet unlock and mission availability must be read from current game state. A locally reconstructed prerequisite graph may explain availability but must not override the in-game mission list. Do not assume all missions unlock through simple numeric sequence.
+- **Live verification:** Not performed; verify only by observing current UI state during normal play.
+
+### EXP-017 — Expedition reward-item display semantics
+- **Rule:** The wiki reports that an item displayed alone or on the left side of a multi-item reward display is obtained randomly regardless of success/great-success; an item displayed on the right side of a multi-item display is guaranteed only on great success. The exact number of items can itself be random.
+- **Evidence:** COMMUNITY_REPORTED.
+- **Source:** [遠征 — 仕様](https://wikiwiki.jp/kancolle/遠征), lines 68–71.
+- **Automation consequence:** Reward prediction must distinguish guaranteed base rewards, random bonus drops, and great-success-only rewards. Do not treat every icon on the expedition detail screen as guaranteed.
+- **Live verification:** Not performed; settlement logs should record the actual result label and actual received items separately from predicted rewards.
+
+### EXP-018 — Monthly expedition completion cutoff
+- **Rule:** The wiki reports monthly expeditions reset at 12:00 on the 15th, and that the expedition's completion time (not merely dispatch time or reward-claim time) must fall within the monthly window. Some monthly missions require prerequisite monthly missions to be completed again after reset.
+- **Evidence:** COMMUNITY_REPORTED; the page dates the monthly expedition feature to 2019 and includes historical reset notes.
+- **Source:** [遠征 — マンスリー遠征](https://wikiwiki.jp/kancolle/遠征), lines 281–305.
+- **Automation consequence:** A monthly mission must not be scheduled near the cutoff based solely on dispatch eligibility. Use the current in-game monthly state and leave a safety margin; do not infer a reset from local calendar time alone.
+- **Live verification:** Not performed; current server reset behavior and UI status remain to be confirmed.
+
