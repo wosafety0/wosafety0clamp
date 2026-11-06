@@ -8,6 +8,7 @@ to invent a row, so a session that guessed would fail here.
 from __future__ import annotations
 
 import unittest
+from typing import Mapping
 
 from kancollebot.calibration import (
     DEFAULT_SCROLL_DOWN_BOX,
