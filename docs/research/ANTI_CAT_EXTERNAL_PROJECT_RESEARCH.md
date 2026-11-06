@@ -299,3 +299,61 @@ API 错误分类：
 - 本节只记录技术能力，不构成对第三方工具安全性、合规性或当前兼容性的保证。
 
 **结论：岛风GO确实具备官方所称的防猫能力，但其主要机制是网络连接失败后的自动重连/恢复访问。它不能消除服务端拒绝造成的猫，也不能替代 KancolleBot 的业务状态恢复与防重复操作门禁。**
+
+
+## 8. KancolleBot 当前代码基线审计（2026-11-06）
+
+- **审计基线：** `wosafety0/wosafety0clamp`，功能分支 `feat/production-settlement-resupply-wiring-20261105`，HEAD `a4b7f82ceb0aa4fd2d9259be467de2ae7572ab43`。
+- **性质：** GitHub 源码静态审计；未修改生产代码，未启动 Poi/CDP，未执行游戏 UI 操作。
+- **注意：** 此处只代表该功能分支的代码状态。其他开发分支可能尚未包含这些提交，不能把该分支的代码能力自动视为已合并到主开发分支。
+
+### 8.1 已有能力（应复用）
+
+| 模块 | 已确认实现 | 对防猫的价值 |
+|---|---|---|
+| `port_response_observer.py` + JS observer | 子进程连接 loopback CDP，等待自然发生的成功 `/kcsapi/api_port/port` 响应；识别 target discovery、CDP 连接错误/关闭、协议错误、命令失败和自然响应超时 | 已有被动 witness 来源与部分故障分类 |
+| `background_port_snapshot_provider.py` | 后台线程持续调用 observer；支持取消；暴露最近状态和最新 witness | 可作为观察服务的现有生命周期基础 |
+| `port_freshness.py` | 校验来源、HTTP 200、非缓存标记、接收/捕获时间、数据结构及 Poi 舰队/舰船字段一致性 | 恢复后不能拿旧快照冒充新状态 |
+| `visible_ui_refresh.py` + `core/return_refresh.py` | 读取与刷新分离；刷新有 `refresh_id`、冷却、单次导航边界和 observation generation；可显式 invalidate 旧轮次 | 可复用旧轮次失效和迟到回调防点击机制 |
+| `continuous_supervisor.py` | 监控/控制器异常会记录 `supervisor_paused`，包含失败阶段、舰队、错误类型和部分完成情况 | 已有安全暂停的日志基础 |
+| `sink.py` | `run_started` 记录 `correlation_capable` 和关联来源 | 关联能力可审计，不需要防猫模块重新实现 |
+| `dispatch_recovery.py` / `action_journal.py` / `dispatch_registry.py` | 持久化派遣意图与身份；结果未知时阻止再次派遣；恢复依赖新鲜 Poi 证据 | 可用于网络恢复后的业务对账 |
+| `blocked_recovery.py` | 只恢复经过审查的结算侧阻塞原因；未知原因保持 BLOCKED | 可作为保守恢复模式的参考，不是通用网络解锁器 |
+
+### 8.2 已确认缺口
+
+1. **没有全局网络状态门禁。** `ContinuousExpeditionSupervisor.tick()` 先执行 monitor，再处理结算/补给/派遣；它没有读取 observer 的网络健康状态，也没有统一的 `WAIT_NETWORK` / `RESUME_ALLOWED` 状态。
+2. **网络不通时可能先触发可见导航。** 当 `enable_ui_refresh=True`、Poi observation 不可信且存在待处理舰队工作时，`ContinuousExpeditionMonitor._request_refresh()` 会调用 `FreshnessRefreshingStateReader.ensure_fresh()`。该路径会执行母港→出击→远征列表→母港导航，再等待自然 witness；它没有先验证网络链路已经恢复。因此防猫门禁应放在这条导航路径之前，而不能只在派遣按钮之前。
+3. **后台 observer 的快速失败重试没有退避策略。** `BackgroundPortSnapshotProvider` 在每次 capture 返回后固定等待 0.25 秒，再开始下一轮。正常自然响应等待可持续 120 秒，但 target discovery/CDP 连接等快速失败会以固定短间隔重试；没有失败分类对应的指数退避、最大连续失败阈值或熔断状态。
+4. **observer 的诊断细节没有完整上送。** JS observer 会统计 `Network.loadingFailed` 数量，但这是聚合计数，未按目标游戏请求路径关联错误；Python wrapper 有 `last_detail`，provider 当前只保存 `last_status`，没有把 detail 暴露给恢复协调器。仅凭一次 `natural_response_timeout` 不能断言游戏网络已断开。
+5. **独立的 Python 被动观察 facade 尚未接入当前 runtime。** `CdpPassiveNetworkObserver` 已实现精确路径过滤和有界事件收集，但 `build_runtime()` 实际创建的是 `PassivePortResponseObserver`（Node 子进程包装）；不要把 facade 的实现状态误当成生产运行时已使用它。
+6. **现有 generation 不是全局网络恢复 generation。** `ReturnRefreshCoordinator` / `FreshnessRefreshingStateReader` 的 generation 保护刷新观察轮次，能拒绝过期轮次的导航；它没有与 CDP 断连、网络恢复、Supervisor 调度许可建立统一生命周期。
+7. **CDP 传输本身不自动重连。** `CdpWebSocketTransport` 在 reader/命令失败后将连接标记为不可用；上层可以重新发现 target 并建立新 transport，但没有统一的退避、连接恢复和旧回调失效协调器。
+
+### 8.3 第一版实现边界
+
+第一版不实现岛风GO式的游戏请求缓存、重放或代理转发，也不自动修改系统代理。KancolleBot 不得重新发送结果未知的游戏请求。可在项目内部实现的是**安全恢复协调**：
+
+1. 将 observer 状态与可见网络错误信号归一化为故障类别；单次无自然响应超时只能是 `SUSPECT/UNKNOWN`，不能直接认定网络断开。
+2. 进入 `PAUSED` 时先禁止所有后续 UI 操作（派遣、结算、补给和可见刷新），并 invalidate 当前 observation generation。
+3. `WAIT_NETWORK` 阶段只做被动观察与 CDP target/transport 重建；对快速连接失败使用有界指数退避；不刷新页面、不点击、不发送游戏 API 请求。
+4. 只有捕获到暂停边界之后的新鲜自然 port witness，且与当前 Poi Redux 状态匹配，才进入业务对账。
+5. 对账 Action Journal、Dispatch Registry、派遣意图、舰队 mission tuple 和待结算/补给状态。未知、冲突、缺少 witness 或归属不唯一时进入 `MANUAL_REQUIRED`。
+6. 只有业务状态完整对账后才解除 Supervisor 暂停；`NETWORK_RECOVERED` 本身不能授权继续调度。
+
+### 8.4 推荐实施顺序与验收
+
+- **P1：只读网络故障分类器。** 输入 observer 状态、CDP 连接状态和经核验的视觉错误类别；输出故障类别与证据，不执行动作。离线测试误报、单信号不足、快速失败和 201 熔断。
+- **P2：恢复协调器与全局暂停门禁。** 先把门禁接到 Supervisor tick 入口及所有 UI 操作入口，确保网络故障时 monitor 不会先触发可见导航。离线故障注入验证零点击、generation 失效和有界退避。
+- **P3：只读恢复与业务对账。** 重新建立 observer/CDP，等待新 witness，重新读取 Poi 并对账现有账本；UNKNOWN/冲突保持人工处理。
+- **P4：受控实机验证。** 先只读观察网络中断/恢复，不主动断网、不切换代理、不点击；取得真实样本后再单独评估是否需要任何可见 UI 恢复动作。
+
+建议第一项生产代码改动之前，先补齐 P1 的离线测试矩阵和故障状态契约；不要一开始就修改 `BackgroundPortSnapshotProvider` 的重试参数，因为自然 port 响应可能长时间没有发生，不能把“没有请求”误判成“连接坏了”。
+
+### 8.5 审计状态
+
+- **RESEARCHED：** 已读取上述模块及其 runtime wiring，确认被动 witness、刷新 generation、Supervisor 失败日志和持久化派遣对账的当前实现边界。
+- **IMPLEMENTED：** 本节没有新增 KancolleBot 生产代码。
+- **TESTED：** 未运行测试；本节结论来自静态源码检查，不冒充离线行为验证。
+- **LIVE_VERIFIED：** 本轮没有任何防猫实机验证。
+- **关键结论：** KancolleBot 已有大部分安全恢复所需的基础积木；当前最关键缺口不是猫画面模板，而是**在任何可见刷新/业务 UI 操作之前建立全局网络故障门禁，并把 observer 恢复与账本对账串成一个受控状态机**。
