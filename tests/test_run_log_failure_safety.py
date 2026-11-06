@@ -82,6 +82,16 @@ class BrokenStore(RunLogStore):
         return super().append(record, durable=durable)
 
 
+class HostileEvent(str):
+    """A string subclass whose hash/equality must never run in event classification."""
+
+    def __hash__(self):
+        raise AssertionError("custom event hash must not execute")
+
+    def __eq__(self, other):
+        raise AssertionError("custom event equality must not execute")
+
+
 class SinkFailureTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -149,6 +159,33 @@ class SinkFailureTests(unittest.TestCase):
 
         self.assertEqual(primary_rows, [])
         self.assertEqual(store.attempts, 1)
+
+    def test_critical_event_classifier_rejects_str_subclasses_before_hashing(self):
+        self.assertFalse(is_critical_event(HostileEvent("continuous_ui_click_attempted")))
+
+    def test_run_log_sink_rejects_str_subclasses_before_any_write(self):
+        store = BrokenStore(RunLogPolicy(directory=self.directory))
+        sink, errors = self.make_sink(store)
+
+        with self.assertRaisesRegex(TypeError, "event must be a built-in str"):
+            sink(HostileEvent("continuous_ui_click_attempted"), {})
+
+        self.assertEqual(store.attempts, 0)
+        self.assertEqual(errors, [])
+
+    def test_tee_rejects_str_subclasses_before_primary_or_secondary_write(self):
+        primary_rows = []
+        secondary_rows = []
+        tee = TeeEventSink(
+            lambda event, fields: primary_rows.append(event),
+            lambda event, fields: secondary_rows.append(event),
+        )
+
+        with self.assertRaisesRegex(TypeError, "event must be a built-in str"):
+            tee(HostileEvent("continuous_ui_click_attempted"), {})
+
+        self.assertEqual(primary_rows, [])
+        self.assertEqual(secondary_rows, [])
 
     def test_new_visible_ui_click_events_are_critical(self):
         for event in (
