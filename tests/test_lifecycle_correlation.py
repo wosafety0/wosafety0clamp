@@ -254,14 +254,37 @@ class StartupSettlementLifecycleTests(unittest.TestCase):
                 expected_ship_ids_source="dispatch_intent_mission_1",
             )
 
-        started = sink.one("startup_settlement_started")
-        self.assertEqual(started["lifecycle_kind"], "settlement")
-        self.assertEqual(started["entry"], "visible_reward_chain")
-        self.assertEqual(started["fleet_id"], FLEET)
-        self.assertIsNotNone(started["correlation_id"])
-        self.assertNotIn("dispatch_id", started)
-        self.assertIs(started["game_api_requests"], False)
-        self.assertIs(started["automatic_retry"], False)
+        entry = sink.one("startup_settlement_entry")
+        self.assertEqual(entry["lifecycle_kind"], "settlement")
+        self.assertEqual(entry["entry"], "visible_reward_chain")
+        self.assertEqual(entry["fleet_id"], FLEET)
+        # The screen label is the proven state, never a dataclass repr.
+        self.assertEqual(entry["screen"], "BONUS_ITEMS")
+        self.assertIsNotNone(entry["correlation_id"])
+        self.assertNotIn("dispatch_id", entry)
+        self.assertIs(entry["game_api_requests"], False)
+        self.assertIs(entry["automatic_retry"], False)
+
+    def test_two_startup_rounds_get_two_correlation_ids(self):
+        first_controller, first_sink = _settlement_controller()
+        second_controller, second_sink = _settlement_controller()
+
+        for controller, sink in (
+            (first_controller, first_sink),
+            (second_controller, second_sink),
+        ):
+            with self.assertRaises(Exception):
+                controller.settle_visible_reward_chain(
+                    fleet_id=FLEET,
+                    screen=self._screen(),
+                    expected_ship_ids=SHIPS,
+                    expected_ship_ids_source="dispatch_intent_mission_1",
+                )
+
+        self.assertNotEqual(
+            first_sink.one("startup_settlement_entry")["correlation_id"],
+            second_sink.one("startup_settlement_entry")["correlation_id"],
+        )
 
     def test_a_refusal_before_the_lifecycle_still_states_its_reason(self):
         controller, sink = _settlement_controller(allow_ui_actions=False)
@@ -279,8 +302,9 @@ class StartupSettlementLifecycleTests(unittest.TestCase):
         self.assertIn("UI actions are disabled", str(refused["rejection_reason"]))
         self.assertEqual(refused["recovery_result"], "refused")
         self.assertIs(refused["automatic_retry"], False)
-        # No chain was opened, so no start row may claim otherwise.
+        # No chain was opened, so no row may claim it started.
         self.assertEqual(sink.rows_for("startup_settlement_started"), [])
+        self.assertEqual(sink.rows_for("startup_settlement_entry"), [])
 
 
 if __name__ == "__main__":

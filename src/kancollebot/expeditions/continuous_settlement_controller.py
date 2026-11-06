@@ -488,14 +488,19 @@ class ContinuousSettlementController:
             raise ContinuousSettlementError(reason)
 
         # One startup settlement is its own lifecycle, exactly like
-        # ``settle_one_returned``: its own ``correlation_id`` and its own start
-        # row, so a chain that ends in a refusal is still readable from its
-        # beginning. Deliberately no ``dispatch_id``: this entry exists for a
-        # process that never saw the dispatch, and the durable link between the
-        # two is the dispatch ledger, not a log field.
+        # ``settle_one_returned``: every row it emits - including the refusals
+        # below and the later ``startup_settlement_started`` that marks the first
+        # click - carries one ``correlation_id``. ``startup_settlement_entry`` is
+        # a separate fact from that start row on purpose: this one says "the
+        # entry was invoked, with this screen", and it is the only boundary a
+        # refused chain has, because a refusal must not claim a chain began.
+        #
+        # Deliberately no ``dispatch_id``: this entry exists for a process that
+        # never saw the dispatch, and the durable link between the two is the
+        # dispatch ledger, not a log field.
         lifecycle_id = new_correlation_id()
         with correlation_scope(self.event_sink, correlation_id=lifecycle_id):
-            self.event_sink("startup_settlement_started", {
+            self.event_sink("startup_settlement_entry", {
                 "fleet_id": fleet_id,
                 "lifecycle_kind": "settlement",
                 "entry": "visible_reward_chain",
@@ -516,10 +521,19 @@ class ContinuousSettlementController:
 
     @staticmethod
     def _screen_name(screen: object) -> str | None:
-        """The screen's own label, whatever enum/string the caller passed."""
+        """The screen's own label, whatever enum/string the caller passed.
+
+        ``StartupScreen`` carries it as ``state``; an enum carries it as
+        ``value``; a plain string is already the label. Never the repr: a
+        refusal row has to be greppable.
+        """
         if screen is None:
             return None
-        return str(getattr(screen, "value", screen))
+        for attribute in ("state", "value"):
+            label = getattr(screen, attribute, None)
+            if isinstance(label, str) and label:
+                return label
+        return str(screen)
 
     def _settle_visible_reward_chain(
         self,
