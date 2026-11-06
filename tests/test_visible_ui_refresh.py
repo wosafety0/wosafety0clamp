@@ -157,6 +157,41 @@ class VisibleUiPortRefreshDriverTests(unittest.TestCase):
         self.assertEqual(repeated["state_after_first_click"], "HOME_PORT")
         self.assertEqual(events[-1][0], "ui_refresh_completed")
         self.assertEqual(events[-1][1]["clicks_sent"], 4)
+        attempts = [fields for name, fields in events if name == "ui_refresh_click_attempted"]
+        sent = [fields for name, fields in events if name == "ui_refresh_click_sent"]
+        self.assertEqual(len(attempts), 4)
+        self.assertEqual(len(sent), 4)
+        self.assertTrue(attempts[1]["retry"])
+        self.assertTrue(sent[1]["retry"])
+
+    def test_failed_retry_audit_stops_before_the_second_click(self):
+        driver, game_input, events, _ = self.make_driver(
+            [
+                "HOME_PORT",
+                "HOME_PORT",
+                "HOME_PORT",
+                "SORTIE_MENU",
+                "EXPEDITION_LIST",
+                "HOME_PORT",
+            ]
+        )
+        original_sink = driver._event_sink
+        attempts = 0
+
+        def fail_second_attempt(name, fields):
+            nonlocal attempts
+            original_sink(name, fields)
+            if name == "ui_refresh_click_attempted":
+                attempts += 1
+                if attempts == 2:
+                    raise OSError("audit log unavailable")
+
+        driver._event_sink = fail_second_attempt
+        with self.assertRaisesRegex(OSError, "audit log unavailable"):
+            driver.refresh_port_state()
+
+        self.assertEqual(game_input.clicks, [SORTIE])
+        self.assertEqual(attempts, 2)
 
     def test_a_click_that_changed_the_screen_is_never_repeated(self):
         # The screen moved, so the outcome is ambiguous: no second click, by
