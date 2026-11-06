@@ -3789,3 +3789,15 @@ Added EXP-021 to `docs/game-rules/EXPEDITIONS.md`, transcribing five additional 
 Success requirements and great-success thresholds are explicitly separated. All entries remain COMMUNITY_REPORTED. Stat-gated entries still depend on the unresolved EXP-019 calculator; engagement-type missions remain excluded from unattended operation until damage/recovery handling is verified.
 
 Source: https://wikiwiki.jp/kancolle/遠征/詳細一覧表 (accessed 2026-11-06) and https://wikiwiki.jp/kancolle/遠征. No Poi state, live UI, or real expedition outcome was inspected. No game state or runtime code changed.
+
+
+## 2026-11-06 — Advanced expedition mission and prerequisite research
+
+**Status:** DOCUMENTED / COMMUNITY_REPORTED; not live-verified; no game code changed.
+
+- **IMPLEMENTED:** Expanded `docs/game-rules/EXPEDITIONS.md` with EXP-022, covering 17 additional stat-gated or special-composition missions: A2–A6, B3–B6, 42, 43, 45, 46, D1–D3 and E1.
+- **CAPTURED:** Added duration, per-ship fuel/ammunition percentage, flagship/fleet level, exact fleet composition, equipment-inclusive aggregate stat thresholds, monthly/engagement classification, and source uncertainty notes.
+- **PREREQUISITES:** Recorded the reported A2→A6, B2→B6, 42→43, 40/41/A4→44, 32/41→45, D1→46, D1→D2→D3, and ID40→E1 unlock chains. Monthly prerequisites are explicitly cycle-scoped; the wiki prerequisite table cites English-wiki material accessed 2023-05-16, so the graph remains lower-confidence community evidence.
+- **SAFETY CONSEQUENCES:** Exact ship categories and fixed-flagship constraints must be preserved. Stat-gated missions remain blocked on the unresolved EXP-019 equipment/aircraft calculator. Engagement-type missions remain excluded from unattended operation pending damage/recovery verification. Unknown composition branches remain UNKNOWN.
+- **SOURCES:** Maintained Japanese expedition overview and detailed mission table, accessed 2026-11-06. Community-maintained sources; no current Poi mission list, monthly flags, equipment state, or controlled expedition result was checked.
+- **LIMITS:** No game code or runtime behavior changed; no game UI action or dispatch occurred. All EXP-022 claims remain COMMUNITY_REPORTED and are not production-authoritative.
