@@ -20,6 +20,8 @@ from kancollebot.adapters.poi.continuous_expedition_ui import (
     ContinuousUiDriverError,
 )
 from kancollebot.adapters.poi.visual_target import VisualTargetPoint
+from kancollebot.observability.audit_policy import AuditLogUnavailable
+from kancollebot.observability.sink import correlation_scope
 from kancollebot.core.observation_contracts import UiStateEvidence
 from kancollebot.expeditions.continuous_resupply_controller import (
     ContinuousResupplyController,
@@ -148,6 +150,19 @@ def button_target():
     )
 
 
+class BrokenAuditSink(CorrelationSink):
+    """A sink whose critical writes fail, like a full or read-only run log."""
+
+    def __init__(self, *, fail_on="continuous_ui_click_attempted") -> None:
+        super().__init__()
+        self.fail_on = fail_on
+
+    def __call__(self, event, fields):
+        if event == self.fail_on:
+            raise AuditLogUnavailable(f"{event} could not be written")
+        super().__call__(event, fields)
+
+
 class ClickIdentityTests(unittest.TestCase):
     def test_each_click_row_carries_the_same_action_id(self):
         sink = CorrelationSink()
@@ -231,6 +246,107 @@ class ResupplyClickOrderingTests(unittest.TestCase):
         # The domain marker is only written after a successful click, so its
         # absence is what proves the ordering.
         self.assertNotIn("continuous_ui_supply_click_sent", events)
+
+
+class FailClosedTests(unittest.TestCase):
+    def test_a_broken_audit_log_sends_no_supply_click_at_all(self):
+        # The whole point of writing ``attempted`` first: if the row cannot be
+        # written, the input is never dispatched - including the two clicks that
+        # used to be sent before anything was logged.
+        sink = BrokenAuditSink()
+        driver, clicks = build_driver(sink)
+
+        with patch(
+            "kancollebot.adapters.poi.continuous_expedition_ui.locate_fleet_supply_all_button",
+            return_value=button_target(),
+        ):
+            with self.assertRaises(AuditLogUnavailable):
+                driver.resupply_fleet(fleet_id=2)
+
+        self.assertEqual(clicks, [])
+        # Diagnostics written before the click are allowed to exist; what must
+        # not exist is a click row, because no click happened.
+        self.assertEqual(
+            [row for row in sink.rows if row["event"].startswith("continuous_ui_click")],
+            [],
+        )
+
+    def test_step_is_not_an_identity(self):
+        # ``step`` is a legacy retry index: a supply reuses 2/3/4 and the
+        # observation loop reuses its attempt number. Two inputs with the same
+        # step must never collapse into one identity.
+        sink = CorrelationSink()
+        driver, _clicks = build_driver(sink)
+
+        driver._click(RecordedPoint(1, 1, "a"), action="return_home_port", step=1)
+        driver._click(RecordedPoint(1, 1, "a"), action="return_home_port", step=1)
+
+        ids = [row["action_id"] for row in sink.rows_for("continuous_ui_click_sent")]
+        self.assertEqual(len(ids), 2)
+        self.assertNotEqual(ids[0], ids[1])
+
+    def test_an_ambiguous_click_keeps_the_identity_of_its_attempt(self):
+        sink = CorrelationSink()
+        driver, _clicks = build_driver(sink, fail_on="reward-advance")
+
+        with self.assertRaises(RuntimeError):
+            driver._click(RecordedPoint(600, 400, "reward-advance"), action="advance", step=1)
+
+        attempted = sink.rows_for("continuous_ui_click_attempted")
+        ambiguous = sink.rows_for("continuous_ui_click_ambiguous")
+        self.assertEqual(len(attempted), 1)
+        self.assertEqual(len(ambiguous), 1)
+        self.assertEqual(attempted[0]["action_id"], ambiguous[0]["action_id"])
+
+    def test_clicks_inside_one_dispatch_share_the_dispatch_id_only(self):
+        sink = CorrelationSink()
+        driver, _clicks = build_driver(sink)
+
+        with correlation_scope(sink, dispatch_id="dispatch-20261106T000000Z-aabbccddeeff"):
+            driver._click(RecordedPoint(1, 1, "a"), action="open_sortie", step=1)
+            driver._click(RecordedPoint(2, 2, "b"), action="confirm_mission", step=4)
+
+        sent = sink.rows_for("continuous_ui_click_sent")
+        self.assertEqual(len(sent), 2)
+        self.assertEqual({row["dispatch_id"] for row in sent}, {"dispatch-20261106T000000Z-aabbccddeeff"})
+        self.assertEqual(len({row["action_id"] for row in sent}), 2)
+
+
+class ParallelInputPathTests(unittest.TestCase):
+    """The two other input boundaries, checked rather than assumed.
+
+    The audit found three places that dispatch a physical input. Only the
+    continuous driver's ``_click`` mints an ``action_id``; the other two are
+    excluded on purpose, and these tests make the exclusion explicit so a future
+    change cannot quietly add a fourth unlabelled click site.
+    """
+
+    def test_the_refresh_path_is_correlated_by_refresh_id_not_action_id(self):
+        import pathlib
+
+        source = pathlib.Path(
+            "src/kancollebot/adapters/poi/visible_ui_refresh.py"
+        ).read_text(encoding="utf-8")
+        # It already has its own lifecycle identity, stamped on *every* row of a
+        # refresh by ``_emit``, and its click ordering is already
+        # attempted-before-input. Adding a second, finer id would give two
+        # overlapping identities for the same input.
+        self.assertIn("refresh_id", source)
+        self.assertIn("_refresh_context", source)
+        self.assertNotIn("action_id", source)
+
+    def test_the_unused_cdp_driver_is_not_wired_into_any_production_path(self):
+        import pathlib
+
+        offenders = []
+        for folder in ("src", "tools"):
+            for path in pathlib.Path(folder).rglob("*.py"):
+                if path.name == "cdp_ui_driver.py":
+                    continue
+                text = path.read_text(encoding="utf-8")
+                if "cdp_ui_driver" in text or "PoiCdpContinuousUiDriver" in text:
+                    offenders.append(str(path))
+        self.assertEqual(offenders, [])
 
 
 class _FakeScheduler:

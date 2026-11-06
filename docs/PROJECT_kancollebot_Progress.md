@@ -4622,3 +4622,14 @@ The Hand plugin's read-only probe reported:
 - **TESTED:** 新增 `tests/test_correlation_capability.py`（11 条）：纯函数 → false；`correlation = None` → false（存在但不调用不算）；真声明 → true 且 `sources=("DeclaresCorrelation",)`；tee 有可关联成员 → true 且 `sources` 精确；tee 全不可关联 → false 且 reason 指出"成员都不行"；`as_fields()` JSON 安全；`run_started` 默认写 `true` + `["RunLogSink"]` 且 `run_id`/`database`/`pid` 不变；组合根可覆盖为 false；保留键仍赢过调用方字段（`run_id` 不能被伪造）；RunLogSink 与生产 tee 的 `sources` 均为 `("RunLogSink",)`。定向回归（日志 4 文件 + monitor runtime）69 OK；**全量 1754 OK / 2 skip**（阶段 1 后 1743，净增 11）；`compileall` OK；`git diff --check` OK。
 - **VERIFIED（离线，非实机）:** 临时目录写真实 `RunLogSink` 读回 `run_started` 行核验字段；未启动 Poi/CDP、未点击、未派遣。
 - **BLOCKED:** 无。
+
+## 2026-11-06 — P0.2c 修复 阶段 3+4 复核：补给点击旁路与 action_id（离线，代码已在 `102456e`，本轮补齐验收）
+
+- **复核结论:** 阶段 3（补给两处裸点击收进 `_click`）与阶段 4（`_click` mint `action_id`）的**生产代码**已在上一轮第三阶段随 `102456e` 交付并归档；本轮**不重复改代码**，只按用户列的六条要求逐条核对并补齐缺失的**验收断言**。
+- **逐条核对:** ①收拢到统一 `_click`（`select_supply_fleet_tab` step=2 / `click_fleet_supply_all` step=3 / 回母港 step=4）✓；②点击前写 `attempted` ✓；③审计写入失败不调 `input.click()` → **本轮新增断言**；④点击后 `sent`、异常 `ambiguous` 且不重试 ✓（+ 本轮补"`ambiguous` 与 `attempted` 同 id"）；⑤视觉识别与舰队选择行为未动 ✓（既有 6 条补给视觉测试全过）；⑥`step` 不作身份 → **本轮新增断言**。
+- **IMPLEMENTED（仅测试）:** `tests/test_ui_action_identity.py` 从 8 条增至 14 条，新增 `BrokenAuditSink` 与 `FailClosedTests` / `ParallelInputPathTests`：①`test_a_broken_audit_log_sends_no_supply_click_at_all`——真实生产 driver、审计 sink 对 `continuous_ui_click_attempted` 抛 `AuditLogUnavailable` 时 **`clicks == []`**（一次输入都没发），且无任何 `continuous_ui_click*` 行；②`test_step_is_not_an_identity`——两次 `step=1` 的输入得到两个不同 `action_id`；③`test_an_ambiguous_click_keeps_the_identity_of_its_attempt`——`attempted` 与 `ambiguous` 同 id；④`test_clicks_inside_one_dispatch_share_the_dispatch_id_only`——外层 `dispatch_id` 作用域内两次点击 `dispatch_id` 相同、`action_id` 不同。
+- **IMPLEMENTED（平行点击路径的显式排除，不是遗漏）:** 审计指出的另外两个输入边界各有归属：①`visible_ui_refresh.py:217/267` 的刷新点击**已有自己的生命周期身份** `refresh_id`（`_emit` 把 `_refresh_context` 合并进**每一行**）且顺序已是 attempted→click→sent；再加 `action_id` 会让同一次输入带两个重叠身份，因此**明确排除**，并由 `test_the_refresh_path_is_correlated_by_refresh_id_not_action_id` 断言该文件含 `refresh_id`/`_refresh_context`、**不含** `action_id`；②`cdp_ui_driver.PoiCdpContinuousUiDriver`（532/590/740）**不在任何生产路径上**（仅 `tests/test_continuous_ui_driver.py` 引用），由 `test_the_unused_cdp_driver_is_not_wired_into_any_production_path` 扫描 `src/`+`tools/` 断言无人 import。
+- **SAFETY:** 本轮零生产代码改动 = 零行为风险；两条排除断言会在"有人把刷新点击改成裸 `click`"或"有人把 cdp_ui_driver 接进生产"时失败，把审计结论变成可执行约束。
+- **TESTED:** `tests/test_ui_action_identity.py` 14 条全过；**全量 1766 OK / 2 skip**（阶段 2 后 1754，净增 12，其中 6 条本阶段）；`compileall` OK；`git diff --check` OK。
+- **VERIFIED（离线，非实机）:** 走的是真实 `CdpContinuousExpitionUiDriver`（`build_driver` 用真实类 + 脚本化屏幕），不是 mock driver；**零实机**：未启动 Poi/CDP、未点击游戏、未派遣、未补给。
+- **BLOCKED:** 无。刷新族的 `action_id` 属"明确排除"，若将来需要更细粒度，应在新一轮里把它改成 `_click` 同形边界。
