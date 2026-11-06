@@ -220,6 +220,16 @@ class SinkFailureTests(unittest.TestCase):
         self.assertEqual(len(clicks), 1)
         self.assertEqual(errors[0][0], "home_port_recovery_click_sent")
 
+    def test_gating_recovery_rejects_an_unclassified_event(self):
+        emitted = []
+        with self.assertRaises(AuditLogUnavailable):
+            production_loop._recovery_emit(
+                lambda event, fields: emitted.append((event, fields)),
+                "home_port_recovery_click_unclassified",
+                gating=True,
+            )
+        self.assertEqual(emitted, [])
+
     def test_a_critical_write_failure_raises_instead_of_pretending(self):
         store = BrokenStore(RunLogPolicy(directory=self.directory))
         sink, errors = self.make_sink(store)
