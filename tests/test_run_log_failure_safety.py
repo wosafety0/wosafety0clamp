@@ -380,31 +380,39 @@ class RealClickPathTests(unittest.TestCase):
         self.assertEqual(calls, ["continuous_ui_click_attempted"])
 
     def test_a_degraded_tee_blocks_click_before_primary_event_append(self):
-        store = BrokenStore(
-            RunLogPolicy(directory=self.directory),
-            fail_on="fleet_monitor_transition",
-        )
-        run_sink, _ = SinkFailureTests().make_sink(store)
-        primary_events: list[str] = []
-
-        def primary(event, fields):
-            primary_events.append(event)
-            return len(primary_events)
-
-        tee = TeeEventSink(primary, run_sink)
-        tee("fleet_monitor_transition", {"fleet_id": 4})
-        store.fail_on = None
-
-        driver, game_input = self.make_driver(tee)
-        with self.assertRaises(AuditLogUnavailable):
-            driver._click(  # noqa: SLF001
-                SimpleNamespace(label="settlement-advance"),
-                action="advance_settlement",
-                step=1,
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = BrokenStore(
+                RunLogPolicy(directory=root),
+                fail_on="fleet_monitor_transition",
             )
+            run_sink = build_run_log_sink(
+                directory=root,
+                task_kind="expedition",
+                run_id="run-20261106T120000Z-0000000000ad",
+                prune_interval_seconds=0,
+            )
+            run_sink._store = store  # noqa: SLF001
+            primary_events: list[str] = []
 
-        self.assertEqual(primary_events, ["fleet_monitor_transition"])
-        self.assertEqual(game_input.clicks, [])
+            def primary(event, fields):
+                primary_events.append(event)
+                return len(primary_events)
+
+            tee = TeeEventSink(primary, run_sink)
+            tee("fleet_monitor_transition", {"fleet_id": 4})
+            store.fail_on = None
+
+            driver, game_input = self.make_driver(tee)
+            with self.assertRaises(AuditLogUnavailable):
+                driver._click(  # noqa: SLF001
+                    SimpleNamespace(label="settlement-advance"),
+                    action="advance_settlement",
+                    step=1,
+                )
+
+            self.assertEqual(primary_events, ["fleet_monitor_transition"])
+            self.assertEqual(game_input.clicks, [])
 
     def test_a_healthy_sink_still_emits_attempted_then_sent(self):
         calls: list[str] = []
