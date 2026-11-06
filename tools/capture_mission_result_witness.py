@@ -83,11 +83,32 @@ def main() -> int:
 
     data = witness["data"]
     source = witness.get("source", {})
+    raw_receipt = data.get("apiRewardReceipt")
+    reward_receipt = None
+    if isinstance(raw_receipt, dict):
+        raw_items = raw_receipt.get("items")
+        items = []
+        if isinstance(raw_items, list):
+            for item in raw_items:
+                if not isinstance(item, dict):
+                    continue
+                items.append({
+                    "slot": item.get("slot"),
+                    "useitem_id": item.get("useitemId"),
+                    "count": item.get("useitemCount"),
+                })
+        reward_receipt = {
+            "status": raw_receipt.get("status"),
+            "material": raw_receipt.get("material"),
+            "useitem_flags": raw_receipt.get("useitemFlags"),
+            "items": items,
+        }
     parsed = parse_witness({
         "fleet_id": data["apiDeckId"],
         "quest_name": data["apiQuestName"],
         "clear_result": data["apiClearResult"],
         "ship_ids": data["apiShipId"],
+        "reward_receipt": reward_receipt,
         "requested_at": source.get("requestedAt"),
         "response_received_at": source.get("responseReceivedAt"),
     })
@@ -97,6 +118,9 @@ def main() -> int:
         "quest_name": parsed.quest_name,
         "clear_result": parsed.clear_result,
         "ship_ids": list(parsed.ship_ids),
+        "reward_receipt_status": (
+            parsed.reward_receipt.status if parsed.reward_receipt is not None else None
+        ),
         "requested_at": source.get("requestedAt"),
         "response_received_at": source.get("responseReceivedAt"),
         "game_api_requests": False,
