@@ -23,6 +23,10 @@ from kancollebot.expeditions.continuous_monitor import (  # noqa: E402
     FleetMonitorResult,
 )
 from kancollebot.expeditions.continuous_scheduler import FleetPhase, UiOperationArbiter  # noqa: E402
+from kancollebot.expeditions.recovery_classification import (  # noqa: E402
+    RecoveryPauseGate,
+    classify_recovery_signals,
+)
 from tools.run_continuous_expedition_monitor import (  # noqa: E402
     MonitorRuntime,
     _build_ui_state_verifier,
@@ -506,6 +510,27 @@ class ContinuousMonitorRuntimeTests(unittest.TestCase):
 
         self.assertEqual(code, 2)
         self.assertEqual(monitor.calls, 1)
+
+
+    def test_run_monitor_stops_before_tick_when_recovery_gate_is_paused(self):
+        gate = RecoveryPauseGate()
+        gate.pause(classify_recovery_signals(observer_status="cdp_connection_closed"))
+        monitor = FakeMonitor(result=idle_report())
+        runtime = SimpleNamespace(
+            monitor=monitor,
+            recovery_gate=gate,
+            ui_refresh_enabled=False,
+        )
+        output = []
+
+        result = run_monitor(runtime, once=True, output=output.append)
+
+        self.assertEqual(result, 3)
+        self.assertEqual(monitor.calls, 0)
+        event = json.loads(output[0])
+        self.assertEqual(event["status"], "RECOVERY_PAUSED")
+        self.assertEqual(event["category"], "cdp_unavailable")
+        self.assertFalse(event["game_actions_enabled"])
 
 
 if __name__ == "__main__":
