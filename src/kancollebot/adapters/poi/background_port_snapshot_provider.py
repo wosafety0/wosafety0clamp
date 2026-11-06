@@ -23,13 +23,16 @@ class BackgroundPortSnapshotProvider:
         observer: PassivePortResponseObserver,
         *,
         retry_delay_seconds: float = 0.25,
-        max_retry_delay_seconds: float = 8.0,
+        max_retry_delay_seconds: float | None = None,
         max_consecutive_failures: int = 6,
         on_status: Callable[[str], None] | None = None,
     ) -> None:
         if not math.isfinite(retry_delay_seconds) or retry_delay_seconds <= 0:
             raise ValueError("retry_delay_seconds must be finite and positive")
-        if not math.isfinite(max_retry_delay_seconds) or max_retry_delay_seconds < retry_delay_seconds:
+        if max_retry_delay_seconds is None:
+            max_retry_delay_seconds = max(retry_delay_seconds, 8.0)
+        if (not math.isfinite(max_retry_delay_seconds) or
+                max_retry_delay_seconds < retry_delay_seconds):
             raise ValueError("max_retry_delay_seconds must be finite and >= retry_delay_seconds")
         if (isinstance(max_consecutive_failures, bool) or
                 not isinstance(max_consecutive_failures, int) or max_consecutive_failures < 1):
