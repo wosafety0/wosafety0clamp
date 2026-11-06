@@ -212,3 +212,27 @@
 - **Sources:** [遠征 — success and great-success conditions](https://wikiwiki.jp/kancolle/遠征), especially lines 230–278; [older duplicated page](https://wikiwiki.jp/kancolle/遠征/複製) for the conflicting historical ID 24 value. Accessed 2026-11-06.
 - **Automation consequence:** Great-success prediction must be a separate, mission-class-aware calculation from expedition success eligibility. Inputs include the exact fleet roster, departure-time morale per ship, flagship level, per-ship drum-can count, and number of ships carrying drums. Store the source rule/version and predicted probability alongside the decision. Do not promise a guaranteed great success for a candidate with an uncertain class, stale morale, ambiguous drum placement, or conflicting mission data. A conservative policy may require six verified sparkled ships for ordinary missions; this is an automation policy, not a universal game requirement.
 - **Live verification:** Not performed. No current Poi morale, equipment layout, mission-specific result, or controlled great-success outcome was inspected. No dispatch or game-state change was performed.
+
+
+### EXP-021 — Additional logistics and engagement mission records
+**Evidence:** COMMUNITY_REPORTED; transcribed from the maintained Japanese detailed mission table accessed 2026-11-06. These records are not live-verified.
+
+| Mission ID | Name | Duration | Fuel / ammo cost | Flagship Lv / fleet total Lv | Success composition and special conditions | Success baseline rewards |
+|---|---|---:|---|---|---|---|
+| 37 | 東京急行 | 02:45 | 80% / 80% | 50 / 200 | Exactly 6: light cruiser 1 + destroyer 5; no free slot. At least 3 ships carry at least 4 drums total. | Ammo 380, steel 270 |
+| 38 | 東京急行(弐) | 02:55 | 80% / 80% | 65 / 240 | Exactly 6: destroyer 5 + other 1. At least 4 ships carry at least 8 drums total. | Fuel 420, steel 200 |
+| 40 | 水上機前線輸送 | 06:50 | 80% / 70% | 25 / 150 | Exactly 6: light cruiser fixed as flagship 1, seaplane tender 2, destroyer 2, other 1. At least 4 drums total. | Fuel 300, ammo 300, bauxite 100 |
+| 44 | 航空装備輸送任務 (monthly) | 10:00 | 80% / 40% | 35 / 210 | Exactly 6: carrier-category 1 (source says carrier / seaplane tender / escort carrier can fill this slot), seaplane tender 1, light cruiser 1, destroyer/escort 2, other 1. At least 3 ships carry at least 6 drums total; aggregate AA ≥200, ASW ≥200, scouting ≥150. | Ammo 200, bauxite 800 |
+| E2 | 強行鼠輸送作戦 (monthly, engagement type II) | 03:05 | 90% / 95% | 70 / 320 | At least 5, all 5 required destroyers. At least 3 ships carry at least 4 drums total; aggregate firepower ≥280, AA ≥240, ASW ≥200, scouting ≥160. | Ammo 480; repair bucket 0–2; improvement material 0–1 |
+
+**Separate great-success thresholds (not success requirements):** ID 37: at least 4 sparkled ships and at least 5 drums total on at least 3 ships; ID 38: at least 4 sparkled ships and at least 10 drums total on at least 4 ships; ID 40: at least 4 sparkled ships and at least 4 drums total (the great-success summary table specifies at least 1 drum-carrying ship); ID 44: at least 4 sparkled ships and at least 8 drums total on at least 3 ships; E2: at least 4 sparkled ships and at least 6 drums total on at least 3 ships. These are community-reported combinations and inherit EXP-020's source-age and probability caveats.
+
+**Important qualifications:**
+1. ID 37 has no free fleet slot; do not treat its fifth destroyer as an interchangeable class.
+2. ID 40 requires a light cruiser flagship and two seaplane tenders; a similar carrier class is not a substitute.
+3. ID 44's source itself labels part of the carrier/seaplane-tender slot interpretation as requiring verification. Keep that composition branch UNKNOWN until current UI or controlled evidence confirms it.
+4. ID 44 is monthly and the source lists A4 completion as its appearance prerequisite. ID E2 is monthly and engagement type II; the overview says engagement expeditions can cause ship damage (but not sinking). Neither should enter unattended dispatch until damage, repair, fatigue and monthly cutoff handling are separately verified.
+5. Stat-gated missions require the EXP-019 calculator. Aircraft modifiers and improvement arithmetic remain unresolved; the aggregate thresholds above are not sufficient to authorize dispatch.
+
+**Sources:** [遠征/詳細一覧表](https://wikiwiki.jp/kancolle/遠征/詳細一覧表), ID 37/38/40 lines 300–314, ID 44 lines 218–220, ID E2 lines 320–322; [遠征 — great-success and engagement rules](https://wikiwiki.jp/kancolle/遠征), lines 235–278 and 307–319. Accessed 2026-11-06.
+**Live verification:** Not performed. No current mission UI, Poi fleet/equipment state, or expedition result was inspected. No game state or runtime code changed.
