@@ -1,0 +1,171 @@
+diff --git a/tests/test_continuous_expedition_ui_settlement.py b/tests/test_continuous_expedition_ui_settlement.py
+index 7e50d9b..b6bab2e 100644
+--- a/tests/test_continuous_expedition_ui_settlement.py
++++ b/tests/test_continuous_expedition_ui_settlement.py
+@@ -20,6 +20,7 @@ from kancollebot.adapters.poi.continuous_expedition_ui import (
+     ContinuousUiDriverError,
+ )
+ from kancollebot.core.observation_contracts import UiStateEvidence
++from kancollebot.adapters.poi.visual_fingerprint import FingerprintClassification
+ 
+ 
+ class FakeDetails:
+@@ -80,21 +81,109 @@ def build_driver(
+     *,
+     events: list[str] | None = None,
+     supported_fleets: tuple[int, ...] = (2, 3, 4),
++    probe_current_state=None,
++    event_records: list[tuple[str, dict]] | None = None,
+ ) -> CdpContinuousExpeditionUiDriver:
+     log = events if events is not None else []
++
++    def sink(event, payload):
++        log.append(event)
++        if event_records is not None:
++            event_records.append((event, dict(payload)))
++
+     return CdpContinuousExpeditionUiDriver(
+         game_input=FakeInput(screen, clicks),
+         verify_state=screen.verify,
+-        event_sink=lambda event, payload: log.append(event),
++        event_sink=sink,
+         details=FakeDetails(),
+         marks=FakeMarks(),
+         capture=lambda: "unused",
++        probe_current_state=probe_current_state,
+         locate_row=None,
+         supported_fleets=supported_fleets,
+         sleep=lambda _seconds: None,
+     )
+ 
+ 
++class SettlementPageProbeTests(unittest.TestCase):
++    @staticmethod
++    def result(state="RETURN_RESULT", *, best_score=0.995, margin=0.12):
++        return FingerprintClassification(
++            state=state,
++            best_state="RETURN_RESULT",
++            best_score=best_score,
++            margin=margin,
++            scores={"RETURN_RESULT": best_score, "BONUS_ITEMS": 0.72, "HOME_PORT": 0.68},
++            minimum_score=0.97,
++            minimum_margin=0.04,
++        )
++
++    def test_settlement_probe_classifies_all_states_from_one_frame(self):
++        screen = ScriptedScreen("RETURN_RESULT")
++        clicks = []
++        calls = []
++        records = []
++        driver = build_driver(
++            screen,
++            clicks,
++            probe_current_state=lambda: (calls.append("frame") or self.result()),
++            event_records=records,
++        )
++
++        self.assertEqual(driver.probe_settlement_page(), "RETURN_RESULT")
++        self.assertEqual(calls, ["frame"])
++        self.assertEqual(screen.verified, [])
++        self.assertEqual(clicks, [])
++        probe_event = next(
++            payload for event, payload in records
++            if event == "continuous_ui_drain_page_probe"
++        )
++        self.assertEqual(probe_event["probe_frames"], 1)
++        self.assertEqual(probe_event["probe_method"], "single_frame_all_state_fingerprint")
++        self.assertEqual(probe_event["best_state"], "RETURN_RESULT")
++        self.assertEqual(probe_event["best_score"], 0.995)
++        self.assertEqual(probe_event["margin"], 0.12)
++        self.assertEqual(probe_event["minimum_score"], 0.97)
++        self.assertEqual(probe_event["minimum_margin"], 0.04)
++
++    def test_unknown_single_frame_probe_never_uses_its_best_candidate_as_proof(self):
++        screen = ScriptedScreen("RETURN_RESULT")
++        clicks = []
++        calls = []
++        driver = build_driver(
++            screen,
++            clicks,
++            probe_current_state=lambda: (
++                calls.append("frame")
++                or self.result("UNKNOWN", best_score=0.9607, margin=0.02)
++            ),
++        )
++
++        self.assertIsNone(driver.probe_settlement_page())
++        self.assertEqual(calls, ["frame"])
++        self.assertEqual(screen.verified, [])
++        self.assertEqual(clicks, [])
++
++    def test_advance_still_requires_two_consecutive_state_evidence_after_probe(self):
++        screen = ScriptedScreen(
++            "RETURN_RESULT", {"RETURN_RESULT": "BONUS_ITEMS"}
++        )
++        clicks = []
++        driver = build_driver(
++            screen,
++            clicks,
++            probe_current_state=lambda: self.result(),
++        )
++
++        self.assertEqual(driver.probe_settlement_page(), "RETURN_RESULT")
++        self.assertEqual(screen.verified, [])
++        driver.advance_settlement_page("RETURN_RESULT")
++
++        self.assertEqual(screen.verified, ["RETURN_RESULT"])
++        self.assertEqual(clicks, [REWARD_ADVANCE])
++        self.assertEqual(screen.state, "BONUS_ITEMS")
++
++
+ class CollectReturnResultTests(unittest.TestCase):
+     def test_notice_advances_to_result_with_one_click(self) -> None:
+         screen = ScriptedScreen(
+diff --git a/tools/one_expedition_ui_loop.py b/tools/one_expedition_ui_loop.py
+index 02c8d7a..4de3416 100644
+--- a/tools/one_expedition_ui_loop.py
++++ b/tools/one_expedition_ui_loop.py
+@@ -61,6 +61,7 @@ from kancollebot.adapters.poi.visual_state_gate import (
+ from kancollebot.adapters.poi.visual_fingerprint import (  # noqa: E402
+     VisualFingerprintError,
+     classify_screenshot_fingerprints,
++    classify_screenshot_fingerprints_detailed,
+     classify_supply_checkbox_state,
+ )
+ from kancollebot.calibration import (  # noqa: E402
+@@ -1486,6 +1487,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
+     from kancollebot.adapters.poi.continuous_expedition_ui import (
+         CdpContinuousExpeditionUiDriver,
+     )
++    from kancollebot.adapters.poi.cdp_ui_driver import DEFAULT_FINGERPRINTS_PATH
+     from kancollebot.adapters.poi.mission_result_observer import (
+         PassiveMissionResultObserver,
+     )
+@@ -1685,6 +1687,19 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
+                 time.sleep(HOME_REFERENCE_SETTLE_SECONDS)
+                 return game_session.input.capture_screenshot()
+ 
++            fingerprint_document = json.loads(
++                DEFAULT_FINGERPRINTS_PATH.read_text(encoding="utf-8")
++            )
++
++            def probe_current_state():
++                # One composited screenshot is classified against every known
++                # state. The best+margin decision is only a probe; every
++                # subsequent fixed-coordinate click still uses verify_state.
++                return classify_screenshot_fingerprints_detailed(
++                    capture_frame(),
++                    fingerprint_document,
++                )
++
+             scratch = Path(tempfile.mkdtemp(prefix="dispatch_row_")) / "frame.png"
+ 
+             def scan_list():
+@@ -1708,6 +1723,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
+                 details=load_detail_index(args.detail_index),
+                 marks=load_marks(args.marks),
+                 capture=capture_frame,
++                probe_current_state=probe_current_state,
+                 locate_row=list_session.locate_any_tab,
+                 supported_fleets=(2, 3, 4),
+                 neutralize_pointer=lambda: game_session.transport.send(
