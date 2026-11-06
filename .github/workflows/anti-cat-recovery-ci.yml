@@ -1,0 +1,38 @@
+name: Anti-cat recovery gate CI
+
+on:
+  push:
+    branches:
+      - feat/anti-cat-recovery-gate-20261106
+  pull_request:
+    branches:
+      - main
+      - "dev/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install package
+        run: python -m pip install -e .
+      - name: Compile Python source
+        run: python -m compileall -q src tests tools
+      - name: Run recovery gate tests
+        env:
+          PYTHONPATH: src
+        run: python -m unittest tests/test_network_fault_classifier.py -v
+      - name: Run full unit suite
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests
