@@ -305,7 +305,10 @@ def build_runtime(
             )
         requirements = dict(mission_requirements)
     ui_arbiter = (
-        UiOperationArbiter(action_guard=recovery_gate.require_actions_allowed)
+        UiOperationArbiter(
+            action_guard=recovery_gate.require_actions_allowed,
+            action_permit=recovery_gate.action_permit,
+        )
         if enable_ui_refresh else None
     )
     ui_refresh_driver = None
