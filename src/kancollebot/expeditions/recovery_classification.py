@@ -6,6 +6,7 @@ a conservative decision for a higher-level recovery coordinator.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 import threading
@@ -204,3 +205,15 @@ class RecoveryPauseGate:
             generation = self._generation
         if classification is not None:
             raise RecoveryPausedError(classification, generation)
+
+    @contextmanager
+    def action_permit(self):
+        """Hold the gate lock across one input so pause is atomic to clicks.
+
+        A pause request waits for an already-authorized input to finish, then
+        prevents every subsequent input. It never interrupts an in-flight click.
+        """
+        with self._lock:
+            if self._classification is not None:
+                raise RecoveryPausedError(self._classification, self._generation)
+            yield
