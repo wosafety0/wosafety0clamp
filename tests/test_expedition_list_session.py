@@ -170,6 +170,46 @@ class LocateBelowThePageTests(unittest.TestCase):
             location.point[1], ROW_TOP + ROW_PITCH * 7 + ROW_HEIGHT / 2, delta=1.5
         )
 
+    def test_measured_scroll_click_emits_attempt_and_sent_events(self) -> None:
+        fake = FakeList(9)
+        events = []
+        session = ExpeditionListSession(
+            scan=fake.scan,
+            click=fake.click,
+            index=_index({8: "D1"}),
+            event_sink=lambda name, fields: events.append((name, dict(fields))),
+        )
+
+        session.locate("D1")
+
+        names = [name for name, _ in events]
+        self.assertEqual(
+            names[:2],
+            ["expedition_list_click_attempted", "expedition_list_click_sent"],
+        )
+        self.assertEqual(events[0][1]["target"], "expedition-list-down")
+        self.assertEqual(events[0][1]["point"], {"x": 1126, "y": 651})
+        self.assertEqual(fake.clicks, [((1126, 651), "expedition-list-down")])
+
+    def test_failed_pre_click_audit_does_not_send_the_measured_click(self) -> None:
+        fake = FakeList(9)
+
+        def fail_attempt(event, fields):
+            if event == "expedition_list_click_attempted":
+                raise OSError("audit log unavailable")
+
+        session = ExpeditionListSession(
+            scan=fake.scan,
+            click=fake.click,
+            index=_index({8: "D1"}),
+            event_sink=fail_attempt,
+        )
+
+        with self.assertRaisesRegex(OSError, "audit log unavailable"):
+            session.locate("D1")
+
+        self.assertEqual(fake.clicks, [])
+
     def test_a_row_far_down_scrolls_one_row_at_a_time(self) -> None:
         # A scroll click moves the list by one row, so position 17 needs ten of
         # them to fall inside a page starting at offset 10.
