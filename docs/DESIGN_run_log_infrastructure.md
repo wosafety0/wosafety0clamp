@@ -292,6 +292,14 @@ settlement / resupply / visible_ui_refresh / UI driver 六处注入点都**不�
 在明确 attempt ID / lifecycle ID、JSONL / SQLite event ID 的关系之前，不应把当前字段描述成完整生命周期关联，也不应开启生产默认日志。
 
 
+## 10.3 Sticky degraded latch on every critical action path
+
+- A failed non-critical JSONL append leaves the current run incomplete even if storage later becomes writable. Subsequent diagnostic rows may still be attempted, but they do not repair the gap.
+- RunLogSink itself refuses every later critical event while degraded; this applies even when a caller has no separate action-preflight hook.
+- TeeEventSink probes all sinks that expose ensure_writable() before appending a critical event to the primary SQLite sink. A known-degraded secondary run log therefore blocks the event before it creates a SQLite-only row and before the caller can proceed to UI input.
+- This central guard covers dispatch, settlement, resupply and other UI click paths that share the Tee sink; the dispatch controller's explicit audit_gate remains an additional pre-intent check.
+- A storage failure occurring after the preflight probe is still a possible race: the primary row may be committed before the secondary append fails. In that case AuditLogUnavailable propagates and the caller must not click; the partial row remains detectable and is not represented as dual-sink success.
+
 ## 10.2 SQLite row ID 与 JSONL event ID 的显式 join
 
 - SqliteDispatchEventLog.__call__() 在事务提交后返回严格正整数 event_id；load_all() 也回读该主键。既有四列表结构不变。
