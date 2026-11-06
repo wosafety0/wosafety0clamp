@@ -181,6 +181,22 @@ class VisibleUiPortRefreshDriverTests(unittest.TestCase):
         self.assertEqual(events[-1][0], "ui_refresh_completed")
         self.assertEqual(events[-1][1]["clicks_sent"], 4)
 
+    def test_audit_failure_before_repeated_refresh_click_prevents_retry(self):
+        def fail_retry(event, fields):
+            if event == "ui_refresh_click_attempted" and fields.get("repeat") is True:
+                raise RuntimeError("audit unavailable")
+
+        driver, game_input, events, _ = self.make_driver(
+            ["HOME_PORT", "HOME_PORT", "HOME_PORT"], event_sink=fail_retry
+        )
+        with self.assertRaises(VisibleUiRefreshError):
+            driver.refresh_port_state()
+
+        names = [name for name, _ in events]
+        self.assertEqual(game_input.clicks, [SORTIE])
+        self.assertEqual(names.count("ui_refresh_click_attempted"), 2)
+        self.assertEqual(names.count("ui_refresh_click_sent"), 1)
+
     def test_a_click_that_changed_the_screen_is_never_repeated(self):
         # The screen moved, so the outcome is ambiguous: no second click, by
         # design. This is the line the repeat must not cross.
