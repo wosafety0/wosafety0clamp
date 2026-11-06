@@ -299,6 +299,7 @@ settlement / resupply / visible_ui_refresh / UI driver 六处注入点都**不�
 - TeeEventSink probes all sinks that expose ensure_writable() before appending a critical event to the primary SQLite sink. A known-degraded secondary run log therefore blocks the event before it creates a SQLite-only row and before the caller can proceed to UI input.
 - This central guard covers dispatch, settlement, resupply and other UI click paths that share the Tee sink; the dispatch controller's explicit audit_gate remains an additional pre-intent check.
 - A storage failure occurring after the preflight probe is still a possible race: the primary row may be committed before the secondary append fails. In that case AuditLogUnavailable propagates and the caller must not click; the partial row remains detectable and is not represented as dual-sink success.
+- Every irreversible input path must emit a critical `*_click_attempted` event before calling the input object. The supply-tab and supply-all-button paths previously emitted only `*_click_sent` after the click; they now have dedicated critical pre-click events, with regression tests proving an audit exception leaves those controls untouched.
 
 ## 10.2 SQLite row ID 与 JSONL event ID 的显式 join
 
