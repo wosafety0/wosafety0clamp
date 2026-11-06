@@ -78,6 +78,7 @@ from kancollebot.observability.sink import (  # noqa: E402
     RunLogSink,
     TeeEventSink,
     build_run_log_sink,
+    correlation_capability,
 )
 from kancollebot.task_scope import (  # noqa: E402
     TaskKind,
@@ -112,6 +113,10 @@ class MonitorRuntime:
     # Empty means "no run log": the SQLite ledger is still the durable record.
     run_id: str = ""
     run_log_sink: RunLogSink | None = None
+    # The object every component was actually wired with. The run's first row
+    # describes *its* correlation capability, not the run log writer's, because
+    # that is the sink whose rows a reader will be looking at.
+    event_sink: object | None = None
 
 
 def build_runtime(
@@ -332,6 +337,7 @@ def build_runtime(
         task_kind=policy.task_kind.value,
         run_id=run_log_sink.run_id if run_log_sink is not None else "",
         run_log_sink=run_log_sink,
+        event_sink=event_sink,
     )
 
 
@@ -683,11 +689,15 @@ def _run_monitor_with_session(
     )
     run_log_sink = getattr(runtime, "run_log_sink", None)
     if run_log_sink is not None:
+        # The capability belongs to the sink the components emit through. A tee
+        # is capable when any member is, which is computed from real attributes
+        # and never from "the object has a correlation field".
         run_log_sink.start({
             "database": str(args.database),
             "dispatch_fleets": list(runtime.scheduler.dispatch_fleet_ids),
             "ui_navigation_enabled": runtime.ui_refresh_enabled,
             "game_actions_enabled": False,
+            **correlation_capability(runtime.event_sink).as_fields(),
         })
     try:
         return run_monitor(

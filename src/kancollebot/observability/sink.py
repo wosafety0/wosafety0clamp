@@ -28,6 +28,7 @@ import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -51,13 +52,68 @@ from kancollebot.observability.run_log import (
 )
 
 __all__ = [
+    "CorrelationCapability",
     "RunLogSink",
     "TeeEventSink",
     "build_run_log_sink",
+    "correlation_capability",
     "correlation_scope",
 ]
 
 DEFAULT_PRUNE_INTERVAL_SECONDS = 3600.0
+
+
+@dataclass(frozen=True)
+class CorrelationCapability:
+    """Whether a sink can actually bind correlation identity, and why.
+
+    Presence of an attribute is not the question. ``correlation`` may exist and
+    be ``None``, and a tee can offer the method while none of its members can
+    bind anything - both would make every ``dispatch_id`` null while a reader
+    has no way to tell degradation from a dropped scope. This record is the
+    answer, and it is written into the run's first row so every later null has
+    a stated premise.
+    """
+
+    capable: bool
+    sources: tuple[str, ...]
+    reason: str
+
+    def as_fields(self) -> dict[str, object]:
+        return {
+            "correlation_capable": self.capable,
+            "correlation_sources": list(self.sources),
+        }
+
+
+def correlation_capability(sink: Any) -> CorrelationCapability:
+    """Report whether ``sink`` can bind correlation, by real capability.
+
+    * a tee is capable when at least one member sink is, because it fans the
+      scope out to every member that accepts it;
+    * an object is capable when its ``correlation`` attribute is *callable* -
+      an attribute that exists and is ``None`` is not;
+    * a plain function (the shape most tools and tests use) is not capable.
+    """
+    if isinstance(sink, TeeEventSink):
+        members = tuple(correlation_capability(item) for item in sink.sinks)
+        capable = [member for member in members if member.capable]
+        if not capable:
+            return CorrelationCapability(
+                False, (), "no member sink of this tee can bind correlation"
+            )
+        sources = tuple(
+            source for member in capable for source in member.sources
+        )
+        return CorrelationCapability(True, sources, "at least one tee member can bind correlation")
+    scope = getattr(sink, "correlation", None)
+    if not callable(scope):
+        return CorrelationCapability(
+            False, (), "sink exposes no callable correlation scope"
+        )
+    return CorrelationCapability(
+        True, (type(sink).__name__,), "sink exposes a callable correlation scope"
+    )
 
 
 class RunLogSink:
@@ -276,13 +332,27 @@ class RunLogSink:
     # -- lifecycle ---------------------------------------------------------
 
     def start(self, fields: Mapping[str, Any] | None = None) -> None:
-        """Record that this process started, and with which identity."""
+        """Record that this process started, and with which identity.
+
+        ``correlation_capable`` is written here because it is the one fact that
+        makes every later ``dispatch_id: null`` interpretable: with it, a null
+        means "this event had no dispatch" or "this scope was dropped"; without
+        it, a null could equally mean "this run cannot correlate at all". The
+        value defaults to this sink's real capability and may be overridden by
+        the composition root, which knows *which* object emits the events (a tee
+        whose members differ, for instance).
+        """
         payload: dict[str, Any] = {
             "run_id": self.run_id,
             "pid": os.getpid(),
         }
         for key, value in (fields or {}).items():
             payload.setdefault(str(key), value)
+        # This sink's own capability is the fallback. An explicit value from the
+        # composition root wins because it describes the object the components
+        # actually emit through (a tee, typically) - and it is produced by the
+        # same function, never typed by hand.
+        payload = {**correlation_capability(self).as_fields(), **payload}
         self("run_started", payload)
 
     def stop(self, reason: str, fields: Mapping[str, Any] | None = None) -> None:
@@ -341,6 +411,11 @@ class TeeEventSink:
         self._primary(event, fields)
         for sink in self._others:
             sink(event, fields)
+
+    @property
+    def sinks(self) -> tuple[Callable[[str, Mapping[str, Any]], None], ...]:
+        """Every member, primary first. Read-only; used for capability probing."""
+        return (self._primary, *self._others)
 
     @property
     def run_id(self) -> str | None:

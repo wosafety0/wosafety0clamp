@@ -4611,3 +4611,14 @@ The Hand plugin's read-only probe reported:
 - **TESTED:** 新增 `tests/test_supervisor_failure_logging.py`（9 条）：正常 tick 只发 `supervisor_tick`；暂停 tick 发 `supervisor_paused`；成功路径关键写入失败**上抛**；freshness 拒绝发 `monitor_failed:ContinuousMonitorError` + `failed_phase="monitor"` + `partial_result=False`；`event_sink` 不可调用时不崩；首队成功次队失败 → 单行含 `dispatch_fleet_ids=[2]` + `failed_fleet_id=3` + `fleet_3_dispatch_failed:RuntimeError` + `partial_result=True`；结算失败 → `fleet_2_settlement_failed:RuntimeError`；失败行写入失败**不掩盖**业务异常；`error` 截断 400。定向回归（supervisor 5 文件）49 OK；**全量 1743 OK / 2 skip**（基线 1734，净增 9）；`compileall` OK；`git diff --check` OK。
 - **VERIFIED（离线，非实机）:** 全部为替身级断言（`RecordingSink` + 假 monitor/controller）。**零实机**：未启动 Poi/CDP、未点击、未派遣、未补给。
 - **BLOCKED:** 无。真实客户端上的 freshness 拒绝是否真的走 `ContinuousMonitorError` 类型仍属上一轮已记录的推断（本轮按类型名断言，未实机核对）。
+
+## 2026-11-06 — P0.2c 修复 阶段 2：记录 correlation 能力（离线）
+
+- **审计事实（已确认）:** `correlation_scope` 在 sink 没有 `correlation` 时静默 `yield`；于是 `dispatch_id: null` 至少有四种现实（本不属派遣 / 作用域被丢 / 跨线程 / 本 run 不能关联），仅凭日志不可区分。
+- **IMPLEMENTED（真实能力探测）:** `observability/sink.py` 新增 `CorrelationCapability(capable, sources, reason)` + `correlation_capability(sink)`：**看 `correlation` 是否可调用**，不是看属性是否存在（属性存在但为 `None` → false）；tee 递归看成员，**任一成员可关联即 capable**，`sources` 只列真正能关联的成员类名；纯函数 sink → false。`TeeEventSink.sinks` 只读属性暴露成员（primary 在前）。
+- **IMPLEMENTED（写进 run_started）:** `RunLogSink.start()` 写入 `correlation_capable` + `correlation_sources`，默认取本 sink 的真实能力；组合根（`tools/run_continuous_expedition_monitor.py`）显式传入**实际发射 sink**（tee）的能力，因它才知道组件手里是哪个对象——值同样由该函数算出，不允许手写。为此 `MonitorRuntime` 新增 `event_sink` 字段（工具内 dataclass，非 SQLite schema）。
+- **IMPLEMENTED（普通函数 sink 记 false）:** `tools/live_dispatch_expedition.py` 的 `run_started` 也写这两个字段，其 sink 是纯 append-only 函数 → 记录 `correlation_capable: false`，使该文件里每个 `dispatch_id: null` 有确定解释。
+- **SAFETY:** ①能力位由代码探测得出，不接受人工声明（组合根只能传"另一个已探测对象的结论"）；②信封 12 字段与 `RESERVED_FIELDS` 未改，两个新字段是普通诊断字段（测试断言它们**不在**保留集里）；③未改 SQLite schema、未新增账本、未改日志默认启用（`--run-log-dir` 仍默认 `None`）。
+- **TESTED:** 新增 `tests/test_correlation_capability.py`（11 条）：纯函数 → false；`correlation = None` → false（存在但不调用不算）；真声明 → true 且 `sources=("DeclaresCorrelation",)`；tee 有可关联成员 → true 且 `sources` 精确；tee 全不可关联 → false 且 reason 指出"成员都不行"；`as_fields()` JSON 安全；`run_started` 默认写 `true` + `["RunLogSink"]` 且 `run_id`/`database`/`pid` 不变；组合根可覆盖为 false；保留键仍赢过调用方字段（`run_id` 不能被伪造）；RunLogSink 与生产 tee 的 `sources` 均为 `("RunLogSink",)`。定向回归（日志 4 文件 + monitor runtime）69 OK；**全量 1754 OK / 2 skip**（阶段 1 后 1743，净增 11）；`compileall` OK；`git diff --check` OK。
+- **VERIFIED（离线，非实机）:** 临时目录写真实 `RunLogSink` 读回 `run_started` 行核验字段；未启动 Poi/CDP、未点击、未派遣。
+- **BLOCKED:** 无。

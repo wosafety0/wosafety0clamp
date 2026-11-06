@@ -71,6 +71,9 @@ from kancollebot.expeditions.dispatch_registry import (  # noqa: E402
     SqliteDispatchRegistry,
     new_dispatch_id,
 )
+from kancollebot.observability.sink import (  # noqa: E402
+    correlation_capability,
+)
 from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
 
 
@@ -107,9 +110,14 @@ def main(argv=None) -> int:
         with log_path.open("a", encoding="utf-8", newline="\n") as stream:
             stream.write(line + "\n")
 
+    # This tool logs to a plain append-only function, which cannot bind a
+    # correlation scope at all. Recording that once, as a fact, is what makes
+    # every ``dispatch_id: null`` in this file explainable: without it a reader
+    # cannot tell "no dispatch" from "this log can never carry one".
     event_sink("run_started", {
         "fleet_id": args.fleet_id, "mission_id": args.mission_id,
         "commit": args.commit,
+        **correlation_capability(event_sink).as_fields(),
     })
 
     # The game webview drives input/screenshots/visual checks; the Poi session
