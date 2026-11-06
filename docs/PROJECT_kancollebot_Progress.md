@@ -3801,3 +3801,14 @@ Source: https://wikiwiki.jp/kancolle/遠征/詳細一覧表 (accessed 2026-11-06
 - **SAFETY CONSEQUENCES:** Exact ship categories and fixed-flagship constraints must be preserved. Stat-gated missions remain blocked on the unresolved EXP-019 equipment/aircraft calculator. Engagement-type missions remain excluded from unattended operation pending damage/recovery verification. Unknown composition branches remain UNKNOWN.
 - **SOURCES:** Maintained Japanese expedition overview and detailed mission table, accessed 2026-11-06. Community-maintained sources; no current Poi mission list, monthly flags, equipment state, or controlled expedition result was checked.
 - **LIMITS:** No game code or runtime behavior changed; no game UI action or dispatch occurred. All EXP-022 claims remain COMMUNITY_REPORTED and are not production-authoritative.
+
+## 2026-11-06 — Expedition stat aggregation and equipment calculation caveats
+
+**Status:** DOCUMENTED / COMMUNITY_REPORTED; not live-verified; no game code changed.
+
+- **IMPLEMENTED:** Added EXP-023 to docs/game-rules/EXPEDITIONS.md with the source's stat aggregation semantics, partial equipment-improvement coefficients, aircraft slot/proficiency caveats, and equipment mutation risk.
+- **KEY DISTINCTION:** The source says to sum each ship's equipment-inclusive stats, not the expedition screen's overall-strength chart. Improvement contributions are per-item and truncated to one decimal place according to the community table.
+- **AIRCRAFT LIMIT:** Aircraft-derived values depend on type, slot count and proficiency. Only part of the ASW handling is formula-described; a visible >> proficiency mark does not expose exact internal proficiency. Blank table cells and unclear cases remain UNKNOWN.
+- **AUTOMATION GATE:** No production stat calculator may treat unresearched coefficients as zero or reuse ordinary battle formulas. Equipment should remain frozen during a stat-gated expedition; an observed mid-mission equipment change makes the predicted result UNKNOWN.
+- **SOURCE:** Maintained Japanese expedition overview, accessed 2026-11-06; its own section title marks the calculation as under investigation. No current Poi equipment/proficiency data or controlled experiment was collected.
+- **LIMITS:** Documentation only. No game code, Poi state, UI, or game-server state changed. EXP-023 remains COMMUNITY_REPORTED.
