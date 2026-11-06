@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 import threading
 from typing import Any
@@ -172,6 +173,7 @@ class RecoveryPauseGate:
         self._lock = threading.RLock()
         self._classification: RecoveryClassification | None = None
         self._generation = 0
+        self._paused_at_utc: datetime | None = None
 
     @property
     def is_paused(self) -> bool:
@@ -188,6 +190,11 @@ class RecoveryPauseGate:
         with self._lock:
             return self._classification
 
+    @property
+    def paused_at_utc(self) -> datetime | None:
+        with self._lock:
+            return self._paused_at_utc
+
     def pause(self, classification: RecoveryClassification) -> int:
         if not isinstance(classification, RecoveryClassification):
             raise TypeError("classification must be a RecoveryClassification")
@@ -196,6 +203,7 @@ class RecoveryPauseGate:
         with self._lock:
             if self._classification is None:
                 self._classification = classification
+                self._paused_at_utc = datetime.now(timezone.utc)
                 self._generation += 1
             return self._generation
 
