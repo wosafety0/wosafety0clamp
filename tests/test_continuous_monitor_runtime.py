@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -24,6 +25,7 @@ from kancollebot.expeditions.continuous_monitor import (  # noqa: E402
 )
 from kancollebot.expeditions.continuous_scheduler import FleetPhase, UiOperationArbiter  # noqa: E402
 from kancollebot.expeditions.recovery_classification import (  # noqa: E402
+    RecoveryCategory,
     RecoveryPauseGate,
     RecoveryPausedError,
     classify_recovery_signals,
@@ -38,6 +40,13 @@ from tools.run_continuous_expedition_monitor import (  # noqa: E402
 
 class FakeObserver:
     last_status = "not_started"
+
+    def capture(self):
+        return None
+
+
+class FaultObserver:
+    last_status = "cdp_connection_closed"
 
     def capture(self):
         return None
@@ -139,6 +148,30 @@ class ContinuousMonitorRuntimeTests(unittest.TestCase):
                 with self.assertRaises(RecoveryPausedError):
                     with runtime.ui_arbiter.operation("must-not-enter"):
                         self.fail("paused UI operation must not enter")
+            finally:
+                runtime.provider.close(join_timeout_seconds=1)
+
+    def test_background_observer_fault_latches_the_shared_recovery_gate(self):
+        gate = RecoveryPauseGate()
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = build_runtime(
+                database_path=Path(temporary) / "observer-fault.sqlite3",
+                client=object(),
+                observer=FaultObserver(),
+                unlocked_fleet_ids=(1, 2, 3),
+                recovery_gate=gate,
+            )
+            try:
+                runtime.provider()
+                deadline = time.monotonic() + 1.0
+                while not gate.is_paused and time.monotonic() < deadline:
+                    time.sleep(0.005)
+                self.assertTrue(gate.is_paused)
+                self.assertEqual(
+                    gate.classification.category,
+                    RecoveryCategory.CDP_UNAVAILABLE,
+                )
+                self.assertEqual(runtime.provider.last_status, "cdp_connection_closed")
             finally:
                 runtime.provider.close(join_timeout_seconds=1)
 
