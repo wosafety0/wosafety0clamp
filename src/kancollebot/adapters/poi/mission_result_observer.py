@@ -50,6 +50,75 @@ def child_environment(timeout_seconds: float) -> dict[str, str]:
     return env
 
 
+def _nonnegative_int_list(value: object, lengths: tuple[int, ...]) -> list[int] | None:
+    if not isinstance(value, list) or len(value) not in lengths:
+        return None
+    cleaned: list[int] = []
+    for item in value:
+        if isinstance(item, bool) or not isinstance(item, int) or item < 0:
+            return None
+        cleaned.append(item)
+    return cleaned
+
+
+def _normalize_reward_receipt(value: object) -> dict[str, Any]:
+    """Keep only the minimal reward receipt; malformed details stay incomplete."""
+    if not isinstance(value, dict):
+        return {
+            "status": "incomplete",
+            "material": None,
+            "useitemFlags": None,
+            "items": [],
+        }
+
+    status = value.get("status")
+    if status not in {"complete", "incomplete", "no_reward", "unknown"}:
+        status = "incomplete"
+
+    material = _nonnegative_int_list(value.get("material"), (4, 8))
+    flags = _nonnegative_int_list(value.get("useitemFlags"), (2,))
+    raw_items = value.get("items")
+    items: list[dict[str, int]] = []
+    invalid_item = not isinstance(raw_items, list)
+    seen_slots: set[int] = set()
+    if isinstance(raw_items, list):
+        for item in raw_items:
+            if not isinstance(item, dict):
+                invalid_item = True
+                continue
+            slot = item.get("slot")
+            item_id = item.get("useitemId")
+            count = item.get("useitemCount")
+            if (
+                isinstance(slot, bool) or not isinstance(slot, int) or slot not in (1, 2)
+                or isinstance(item_id, bool) or not isinstance(item_id, int) or item_id <= 0
+                or isinstance(count, bool) or not isinstance(count, int) or count <= 0
+                or slot in seen_slots
+            ):
+                invalid_item = True
+                continue
+            seen_slots.add(slot)
+            items.append({
+                "slot": slot,
+                "useitemId": item_id,
+                "useitemCount": count,
+            })
+
+    if status == "complete":
+        if material is None or flags is None or invalid_item:
+            status = "incomplete"
+        elif any(flag > 0 and slot not in seen_slots
+                 for slot, flag in enumerate(flags, start=1)):
+            status = "incomplete"
+
+    return {
+        "status": status,
+        "material": material,
+        "useitemFlags": flags,
+        "items": items,
+    }
+
+
 class PassiveMissionResultObserver:
     """One-shot passive observer wrapper; no observer is started by default."""
 
@@ -268,16 +337,21 @@ class PassiveMissionResultObserver:
                 cleaned.append(value)
         if not cleaned:
             return None
+        normalized_data = {
+            "apiDeckId": deck_id,
+            "apiQuestName": quest_name.strip(),
+            "apiClearResult": clear_result,
+            "apiShipId": cleaned,
+        }
+        if "apiRewardReceipt" in data:
+            normalized_data["apiRewardReceipt"] = _normalize_reward_receipt(
+                data.get("apiRewardReceipt")
+            )
         return {
             "source": {
                 key: source[key]
                 for key in _ALLOWED_SOURCE_FIELDS
                 if key in source
             },
-            "data": {
-                "apiDeckId": deck_id,
-                "apiQuestName": quest_name.strip(),
-                "apiClearResult": clear_result,
-                "apiShipId": cleaned,
-            },
+            "data": normalized_data,
         }
