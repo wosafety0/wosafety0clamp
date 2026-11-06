@@ -236,3 +236,48 @@
 
 **Sources:** [遠征/詳細一覧表](https://wikiwiki.jp/kancolle/遠征/詳細一覧表), ID 37/38/40 lines 300–314, ID 44 lines 218–220, ID E2 lines 320–322; [遠征 — great-success and engagement rules](https://wikiwiki.jp/kancolle/遠征), lines 235–278 and 307–319. Accessed 2026-11-06.
 **Live verification:** Not performed. No current mission UI, Poi fleet/equipment state, or expedition result was inspected. No game state or runtime code changed.
+
+
+### EXP-022 — Advanced stat-gated, monthly, and engagement expedition records
+
+**Status:** COMMUNITY_REPORTED; transcribed from the maintained Japanese wiki on 2026-11-06; not live-verified. This record expands the mission catalogue for stat-gated expeditions and missions with restrictive flagship/fleet compositions. Values below are source transcriptions, not production authorization.
+
+| Mission ID | Name | Duration | Fuel / ammo | Flagship Lv / fleet total Lv | Composition and success conditions | Special status |
+|---|---|---:|---:|---:|---|---|
+| A2 | 海峡警備行動 | 00:55 | 50% / 20% | 20 / — | At least 4; destroyer/escort 4; firepower ≥50, AA ≥70, ASW ≥180 | — |
+| A3 | 長時間対潜警戒 | 02:15 | 60% / 30% | 35 / 185 | At least 5; light cruiser 1, destroyer/escort 3, other 1; ASW ≥280, scouting ≥60 | — |
+| A4 | 南西方面連絡線哨戒 | 01:50 | 75% / 60% | 40 / 200 | At least 5; light cruiser 1, destroyer 2, other 2; firepower ≥300, AA ≥200, ASW ≥200, scouting ≥120 | Monthly |
+| A5 | 小笠原沖哨戒線 | 03:00 | 80% / 75% | 45 / 230 | At least 5; light cruiser 1, destroyer 3, other 1; firepower ≥280, AA ≥220, ASW ≥240, scouting ≥150 | Monthly, engagement type I |
+| A6 | 小笠原沖戦闘哨戒 | 03:30 | 90% / 95% | 55 / 290 | Exactly 6; light cruiser 1, destroyer 3, other 2; firepower ≥330, AA ≥300, ASW ≥270, scouting ≥180 | Monthly, engagement type II |
+| B3 | 南西諸島離島哨戒作戦 | 02:50 | 65% / 80% | 50 / 250 | Exactly 6; seaplane tender 1, light cruiser 1, destroyer/escort 4; firepower ≥400, AA ≥220, ASW ≥220, scouting ≥190 | Monthly |
+| B4 | 南西諸島離島防衛作戦 | 07:30 | 85% / 85% | 55 / 300 | Exactly 6; heavy cruiser 2, light cruiser 1, destroyer 2, submarine 1; firepower ≥500, AA ≥280, ASW ≥280, scouting ≥170 | Monthly, engagement type I; no free slot |
+| B5 | 南西諸島捜索撃滅戦 | 06:30 | 90% / 95% | 60 / 330 | Exactly 6; seaplane tender 1, light cruiser 1, destroyer 2, other 2; firepower ≥510, AA ≥400, ASW ≥285, scouting ≥385 | Monthly, engagement type II |
+| B6 | 精鋭水雷戦隊夜襲 | 05:50 | 95% / 95% | 75 / 400 | Exactly 6; light cruiser fixed as flagship 1, destroyer 5; firepower ≥410, AA ≥390, ASW ≥410, scouting ≥340 | Monthly, engagement type II; no free slot |
+| 42 | ミ船団護衛(一号船団) | 08:00 | 80% / 65% | 45 / 200 | At least 4; light cruiser 1, destroyer 2, other 1; source also lists alternative escort compositions | Monthly |
+| 43 | ミ船団護衛(二号船団) | 12:00 | 85% / 90% | 55 / 300 | Exactly 6; escort carrier fixed as flagship with 2 destroyers or 2 escort ships plus 3 others; alternatively light carrier fixed as flagship, light cruiser 1, destroyer 4; firepower ≥500, AA ≥280, ASW ≥280, scouting ≥170 | Monthly, engagement type I |
+| 45 | ボーキサイト船団護衛 | 03:20 | 60% / 40% | 50 / 240 | At least 5; escort carrier or light carrier fixed as flagship 1, destroyer/escort 4; AA ≥240, ASW ≥300, scouting ≥180 | — |
+| 46 | 南西海域戦闘哨戒 | 03:30 | 75% / 95% | 60 / 300 | At least 5; heavy cruiser 2, light cruiser 1, destroyer 2; firepower ≥350, AA ≥250, ASW ≥220, scouting ≥190 | Monthly, engagement type II |
+| D1 | 西方海域偵察作戦 | 02:00 | 75% / 50% | 50 / 200 | At least 5; seaplane tender fixed as flagship 1, destroyer 3, other 1; AA ≥240, ASW ≥240, scouting ≥300 | Source marks part of composition as requiring verification |
+| D2 | 西方潜水艦作戦 | 10:00 | 90% / 90% | 55 / 270 | At least 5; submarine tender (not submarine aircraft carrier) fixed as flagship 1, submarine 3, other 1; firepower ≥60, AA ≥80, ASW ≥50, scouting ≥70 | Monthly, engagement type I |
+| D3 | 欧州方面友軍との接触 | 12:00 | 90% / 95% | 65 / 350 | At least 5; submarine tender (not submarine aircraft carrier) fixed as flagship 1, submarine 3, other 1; firepower ≥115, AA ≥90, ASW ≥70, scouting ≥95 | Monthly, engagement type II; great-success note is marked uncertain by source |
+| E1 | ラバウル方面艦隊進出 | 07:30 | 95% / 85% | 55 / 290 | Exactly 6; heavy cruiser fixed as flagship 1, light cruiser 1, destroyer 3, other 1; firepower ≥450, AA ≥350, ASW ≥330, scouting ≥250 | Monthly, engagement type II |
+
+**Prerequisite and reset observations (community-reported):**
+- A2 requires ID 8 and A1; A3 requires A2 and ID 24; A4 requires A3.
+- A5 requires A4 and B3 to be completed in the current monthly cycle; A6 requires A5 and B4 in the current monthly cycle.
+- B3 follows B2 monthly; B4 follows B3 monthly; B5 follows B4 monthly. B6 requires A4 and B4 in the current monthly cycle.
+- ID 43 follows ID 42 in the monthly cycle. ID 44 requires IDs 40 and 41 once, plus A4 in the current monthly cycle. ID 45 requires IDs 32 and 41. ID 46 requires D1.
+- D1 follows ID 32; D2 follows D1; D3 follows D2 in the current monthly cycle. E1 follows ID 40.
+- The wiki describes monthly reset at the 15th day, 12:00. Do not derive eligibility from the local clock: use the current mission list and in-game completion state.
+
+**Critical interpretation and safety constraints:**
+1. Every aggregate stat threshold is equipment-inclusive. EXP-019 remains unresolved: improvement contribution arithmetic differs from ordinary battle stats, and aircraft contributions may depend on slot count/proficiency. A threshold printed here is not computable until a validated mission-aware calculator exists.
+2. Ship categories must remain exact. In particular, light cruiser excludes torpedo cruiser/training cruiser; heavy cruiser excludes aviation cruiser; submarine tender is not submarine aircraft carrier; escort carrier and light carrier are not interchangeable unless the mission row explicitly permits either.
+3. Fixed flagship restrictions and no-free-slot compositions are hard constraints in the source table. Do not fill a slot by approximate class matching.
+4. A5/A6/B4/B5/B6/43/46/D2/D3/E1 are engagement-type or high-risk missions according to the source. Engagement expeditions may damage ships; exclude them from unattended dispatch until damage, post-return inspection, repair/recovery, and monthly-cycle handling are independently verified.
+5. D1's composition and D3's great-success note retain source uncertainty. Unknown branches must stay UNKNOWN.
+6. These records are research references only. Current mission visibility, monthly completion status, actual fleet roster, per-domain Poi freshness, ship master types, equipment, morale and damage must be independently checked before any decision.
+
+**Sources:** [Maintained Japanese expedition overview](https://wikiwiki.jp/kancolle/遠征), accessed 2026-11-06, especially the prerequisite table and monthly/engagement rules; [detailed expedition table](https://wikiwiki.jp/kancolle/遠征/詳細一覧表), accessed 2026-11-06, rows A2–A6, B3–B6, 42–46, D1–D3 and E1. The overview's prerequisite table itself cites English-wiki material accessed 2023-05-16; retain that age limitation for the unlock graph. All claims remain COMMUNITY_REPORTED.
+
+**Live verification:** Not performed. No current Poi mission list, fleet/equipment state, monthly completion flags, or expedition outcome was inspected. No game state or runtime code changed.
