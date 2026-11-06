@@ -53,7 +53,10 @@ from kancollebot.observability.run_log import (  # noqa: E402
     RunLogStore,
     SnapshotWriteError,
 )
-from kancollebot.observability.sink import build_run_log_sink  # noqa: E402
+from kancollebot.observability.sink import (  # noqa: E402
+    TeeEventSink,
+    build_run_log_sink,
+)
 from tests.test_continuous_dispatch_controller import (  # noqa: E402
     BASE,
     FakeClock,
@@ -132,6 +135,22 @@ class SinkFailureTests(unittest.TestCase):
         self.assertIn("No space left on device", sink.degraded_reason or "")
         with self.assertRaises(AuditLogUnavailable):
             sink.ensure_writable()
+
+    def test_a_degraded_sink_refuses_later_critical_events_after_storage_recovers(self):
+        store = BrokenStore(
+            RunLogPolicy(directory=self.directory),
+            fail_on="fleet_monitor_transition",
+        )
+        sink, _ = self.make_sink(store)
+        sink("fleet_monitor_transition", {"fleet_id": 3})
+        store.fail_on = None
+        attempts_before_critical = store.attempts
+
+        with self.assertRaises(AuditLogUnavailable):
+            sink("continuous_ui_click_attempted", {"action": "settlement"})
+
+        self.assertEqual(store.attempts, attempts_before_critical)
+        self.assertIsNotNone(sink.degraded_reason)
 
     def test_a_successful_stop_record_does_not_clear_a_critical_gap(self):
         store = BrokenStore(
@@ -359,6 +378,33 @@ class RealClickPathTests(unittest.TestCase):
 
         self.assertEqual(game_input.clicks, [])
         self.assertEqual(calls, ["continuous_ui_click_attempted"])
+
+    def test_a_degraded_tee_blocks_click_before_primary_event_append(self):
+        store = BrokenStore(
+            RunLogPolicy(directory=self.directory),
+            fail_on="fleet_monitor_transition",
+        )
+        run_sink, _ = SinkFailureTests().make_sink(store)
+        primary_events: list[str] = []
+
+        def primary(event, fields):
+            primary_events.append(event)
+            return len(primary_events)
+
+        tee = TeeEventSink(primary, run_sink)
+        tee("fleet_monitor_transition", {"fleet_id": 4})
+        store.fail_on = None
+
+        driver, game_input = self.make_driver(tee)
+        with self.assertRaises(AuditLogUnavailable):
+            driver._click(  # noqa: SLF001
+                SimpleNamespace(label="settlement-advance"),
+                action="advance_settlement",
+                step=1,
+            )
+
+        self.assertEqual(primary_events, ["fleet_monitor_transition"])
+        self.assertEqual(game_input.clicks, [])
 
     def test_a_healthy_sink_still_emits_attempted_then_sent(self):
         calls: list[str] = []
