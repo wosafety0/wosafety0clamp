@@ -4817,3 +4817,13 @@ The Hand plugin's read-only probe reported:
 - **NOT IMPLEMENTED:** 结果观察器仍只持久化舰队/任务/结果/舰船身份，尚未捕获结构化资源与道具奖励收据。不能把 L4 的 UI 链完成和 READY 终态夸大为逐笔奖励明细已核对。
 - **TESTED:** 本轮仅新增/更新文档；未修改运行代码，未运行代码测试。远端文件内容将在提交后回读核验。
 - **NEXT:** 扩展被动结果观察器的最小奖励字段白名单；扩展 MissionResultWitness 奖励收据模型与测试；随后用单舰队自然结算验证响应奖励明细与 Poi 新鲜库存读回。
+
+
+## 2026-11-06 — 被动远征奖励收据捕获与轮次身份修正
+
+- **IMPLEMENTED:** `poi_mission_result_observer_20261105.js` 被动提取 `api_get_material`、`api_useitem_flag`、`api_get_item1`、`api_get_item2` 的最小白名单字段；不保存原始请求/响应体。Python wrapper 对数组长度、整数、槽位、道具 ID/数量进行校验，字段缺失或畸形时将收据标记为 incomplete。
+- **IMPLEMENTED:** `MissionResultWitness` 增加结构化 `MissionRewardReceipt` 和严格的 `result_kind` 分类；持久化事件包含奖励收据。重复轮次身份加入请求/响应时间，避免相同 Fleet/Mission/Ship 组合跨轮次误去重；与派遣记录核对时拒绝早于本轮派遣的见证。
+- **IMPLEMENTED:** `capture_mission_result_witness.py` 将被动观察器奖励字段写入结构化见证。CI 已覆盖所有 Node `.test.cjs`，并检查两个被动 Poi 观察器语法。
+- **TESTED:** GitHub Actions CI run #1670（commit `a845c2bdd53bf3e80805cc330f73a183db860170`）成功。Node 测试通过；CLI 冒烟通过；Python compileall 通过；unittest `1849` 项通过，`22` 项因可选视觉依赖缺失而跳过。
+- **LIMIT:** 这次只增加被动观察与持久化，不发送游戏 API 请求、不改变游戏 UI 动作。奖励收据尚未在当前客户端下一次自然结算中实机捕获；观察器尚未自动接入生产结算控制器，因此不能标记“奖励到账生产验收完成”。
+- **NEXT:** 建立后台 MissionResultWitness provider，在第一次结果 UI 点击前持续监听；将本轮结果见证与派遣记录绑定，并在结果/道具 UI 阶段结束后用 Poi 新鲜库存交叉核对，再进入补给和再次派遣。
