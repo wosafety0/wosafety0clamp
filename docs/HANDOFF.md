@@ -26,6 +26,7 @@ This document is the concise handoff entry point. The long design and progress r
 1. Read the authoritative global rules: [wosafety0/Agents-global main/AGENTS.md](https://github.com/wosafety0/Agents-global/blob/main/AGENTS.md). Current retrieved version: 2.1.0-rc1 (Candidate).
 2. Read the "Current integration state" section above before checking out any branch; the `dev/expedition-closed-loop-mvp` named in the original handoff is historical. The GitHub default branch main contains only .github; it is not the application source baseline.
 3. Read this file, then [MVP_EXPEDITION_SINGLE_LOOP.md](MVP_EXPEDITION_SINGLE_LOOP.md) and [POI_PORT_RESPONSE_OBSERVER.md](POI_PORT_RESPONSE_OBSERVER.md).
+4. For expedition settlement work, read [EXPEDITION_SETTLEMENT.md](game-rules/EXPEDITION_SETTLEMENT.md) before changing result handling, reward verification, or the UI settlement chain.
 4. Before coding, run git status --short --branch and preserve any existing local modifications. Do not assume another checkout or worktree is clean.
 5. Keep local credentials, cookies, game data, screenshots, logs containing private state, and machine-specific paths out of the repository.
 
