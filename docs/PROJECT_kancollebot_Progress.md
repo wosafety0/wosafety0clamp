@@ -4754,3 +4754,11 @@ The Hand plugin's read-only probe reported:
 - **TESTED:** `MidPhaseScreensGoneTests` 1 条（RETURN_RESULT phase + reader 恒 idle + probe None → 零点击关闭、实例 settled、phase 进 RESUPPLY_REQUIRED/READY）；归属模块 9 OK；**全量 1814 OK / 2 skip**（1813+1）；`compileall` OK；`git diff --check` OK；`node --test` 25/25。
 - **同时归档:** 实例 2 运维闭合已执行（生产 `mark_settled` API、settled_at=c2e 的 `STARTUP_SETTLEMENT_CLOSED` 时刻 04:58:52Z；结算事实链：ship_ids 逐位匹配 + scheduler phase 已推进 + 事件行在案）。
 - **LIMITS:** ①`BONUS_ITEMS` 模板跨远征泛化仍未解决（远征 1 獲得物品页 0.9021<0.97；正解方向「獲得アイテム标题区」需獲得页在场时捕获——Fleet 3 周期 2 将自然制造该现场）；②Fleet 2 第 4 次派遣在途（05:55Z 返航），收尾后需 settle-only 收口使终态为在港 READY。
+
+## 2026-11-06 — L4 soak（进行中）：缺陷 E——BONUS_ITEMS 模板跨远征泛化（变体状态 + 规范化合并）
+
+- **实机发现（soak 缺陷 E，结构性问题，已修）:** 内容区模板修复（缺陷 B）把失败点从遠征成功页推到獲得物品页：远征 1 的獲得页对远征 3 版内容区模板仅 **0.9021 < 0.97**（c1b/c2b 两次 fail-closed 同分数）。三方帧对比（遠征成功页帧 06:15:36Z 连拍捕获 + 远征 1 獲得页帧 + 远征 3 内容区模板）：**两页同布局**——所有固定区域（獲得ボーナス标题 0.9323、獲得アイテム标题 0.9702、旧按钮区 0.9487、任务名 0.9915、次圆钮 0.9160）在两页间都高相似，唯一高区分区是中央内容区（0.6427），而内容区随远征奖励变化。**单一 crop 不可能同时满足「跨远征稳定」与「与遠征成功页区分」。**
+- **IMPLEMENTED（变体状态机制）:** ①JSON 新增 `BONUS_ITEMS_M1`（远征 1 獲得页内容区 [280,280,320,160]/(24,16)，从已确认帧离线生成，与 capture 工具同格式）；②`visual_fingerprint.py` 新增模块级 `CANONICAL_STATE_VARIANTS = {"BONUS_ITEMS": ("BONUS_ITEMS_M1",)}`——`classify_screenshot_fingerprints` 在排名前把变体分数**并入主状态（max）**，变体自身被抑制出排名（canonical 在场时）；canonical 缺席时变体保留自己的名字（no-op 语义）。**所有调用点零改动**：driver 确认、启动屏检测、恢复检查全部自然泛化。
+- **区分度实证（离线，真实帧）:** 远征 1 獲得页 → `BONUS_ITEMS 1.0000`（M1 并入）；遠征成功页 → `RETURN_RESULT 0.9930`（合并后 BI=0.6732 不进 top3）——两个历史卡点同时正确。
+- **TESTED:** `CanonicalVariantMergeTests` 3 条（变体命中以主名作答、低变体分不抬高/不夺名、无 canonical 时变体保留本名）；指纹模块 20 OK；**全量 1817 OK / 2 skip**（1814+3）；`compileall` OK；`git diff --check` OK；`node --test` 25/25。
+- **LIMITS:** ①变体按远征逐个补充（当前 M1=远征 1）；远征 2（Fleet 4 待跑）若内容区与远征 3 模板 <0.97 需再补 M2——实战决定；②变体指纹同样录自当前账号渲染；③`CANONICAL_STATE_VARIANTS` 是硬编码映射（与 capture 工具的 SUPPORTED_STATES 同一层），新增变体需同时更新两处+JSON。

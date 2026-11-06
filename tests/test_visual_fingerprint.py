@@ -412,5 +412,71 @@ class VisualFingerprintTests(unittest.TestCase):
             fingerprint_similarity((1, 2), (1, 2, 3))
 
 
+class CanonicalVariantMergeTests(unittest.TestCase):
+    """Variant state scores merge into their canonical state before ranking.
+
+    Live 2026-11-06 (L4 soak): the bonus-items content crop is
+    expedition-specific, so per-expedition variants (BONUS_ITEMS_M1...)
+    carry the same-crop fingerprints and merge into BONUS_ITEMS (max). The
+    variant never answers by its own name, and a low variant score must not
+    raise the canonical one on a *different* page.
+    """
+
+    def setUp(self):
+        self.image = _png_rgb(
+            2,
+            2,
+            [
+                bytes((255, 0, 0, 0, 255, 0)),
+                bytes((0, 0, 255, 255, 255, 255)),
+            ],
+        )
+        main = [255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255]
+        self.document = {
+            "version": 1,
+            "viewport": [2, 2],
+            "states": {
+                "BONUS_ITEMS": {"crop": [0, 0, 2, 2], "grid": [2, 2],
+                                "fingerprint": main},
+                "BONUS_ITEMS_M1": {"crop": [0, 0, 2, 2], "grid": [2, 2],
+                                   "fingerprint": main},
+                "HOME_PORT": {"crop": [0, 0, 2, 2], "grid": [2, 2],
+                              "fingerprint": [0, 0, 0] * 4},
+            },
+        }
+
+    def test_a_variant_match_answers_with_the_canonical_name(self):
+        label, scores = classify_screenshot_fingerprints(self.image, self.document)
+        self.assertEqual(label, "BONUS_ITEMS")
+        self.assertEqual(scores["BONUS_ITEMS"], 1.0)
+        self.assertIn("BONUS_ITEMS_M1", scores)
+
+    def test_a_low_variant_score_never_lowers_or_wins_the_ranking(self):
+        variant = self.document["states"]["BONUS_ITEMS_M1"]["fingerprint"]
+        # The variant template matches a *different* page worse than the
+        # canonical one does; the merged canonical score must stay the max
+        # of the two, and the variant itself must not appear as the label.
+        self.document["states"]["BONUS_ITEMS_M1"]["fingerprint"] = [
+            min(value, 30) for value in variant
+        ]
+        label, scores = classify_screenshot_fingerprints(self.image, self.document)
+        self.assertEqual(label, "BONUS_ITEMS")
+        self.assertEqual(scores["BONUS_ITEMS"], 1.0)
+        self.assertLess(scores["BONUS_ITEMS_M1"], scores["BONUS_ITEMS"])
+
+    def test_a_variant_only_document_with_no_canonical_is_left_alone(self):
+        # No canonical state present: the merge is a no-op and the variant
+        # still answers by its own name (no silent re-labelling).
+        document = {
+            "version": 1,
+            "viewport": [2, 2],
+            "states": {
+                "BONUS_ITEMS_M1": dict(self.document["states"]["BONUS_ITEMS_M1"]),
+            },
+        }
+        label, _scores = classify_screenshot_fingerprints(self.image, document)
+        self.assertEqual(label, "BONUS_ITEMS_M1")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -215,6 +215,19 @@ def compute_grid_fingerprint(
     return _fingerprint_from_rgba(width, height, rgba, crop, grid)
 
 
+# Live 2026-11-06 (L4 soak): the bonus-items page shares its layout with the
+# expedition-success page, so every fixed region scores high on both - only
+# the centre content differs (0.64 similarity). But that content crop is
+# expedition-specific (expedition 1 vs 3 scored 0.9021 on one template),
+# which stranded every non-captured expedition on fail-closed. Variant
+# states carry per-expedition fingerprints of the same content crop and
+# merge into the canonical state (max) before ranking, so the classifier
+# still answers with one name. A variant never wins the ranking itself: its
+# evidence travels under the canonical name, and on a *success* page the
+# merged score stays low (0.6732 / 0.6427), leaving that decision unchanged.
+CANONICAL_STATE_VARIANTS = {"BONUS_ITEMS": ("BONUS_ITEMS_M1",)}
+
+
 def classify_screenshot_fingerprints(
     screenshot_base64: str,
     document: Mapping[str, object],
@@ -248,7 +261,27 @@ def classify_screenshot_fingerprints(
         current = _fingerprint_from_rgba(width, height, rgba, tuple(crop), tuple(grid))
         scores[name] = fingerprint_similarity(current, reference)
 
-    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    canonical_variants = {
+        variant: canonical
+        for canonical, variants in CANONICAL_STATE_VARIANTS.items()
+        for variant in variants
+    }
+    for variant, canonical in canonical_variants.items():
+        if variant in scores and canonical in scores:
+            scores[canonical] = max(scores[canonical], scores[variant])
+    # A variant is only suppressed from the ranking while its canonical state
+    # exists in the document; a lone variant keeps its own name.
+    suppressed = {
+        variant for variant, canonical in canonical_variants.items()
+        if canonical in scores
+    }
+    ranked = sorted(
+        (item for item in scores.items() if item[0] not in suppressed),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    if not ranked:
+        return "UNKNOWN", scores
     best_name, best_score = ranked[0]
     # Supply fleet selections are child states of the supply page. Their
     # shared header intentionally resembles SUPPLY_MENU, so do not let that
