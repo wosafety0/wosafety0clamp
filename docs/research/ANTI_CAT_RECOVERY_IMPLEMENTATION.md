@@ -81,3 +81,31 @@ Implement P2 global pause gating before \`monitor.tick()\` and at visible UI act
 - The gate is now wired into production action paths, but no production observer currently calls \`RecoveryPauseGate.pause()\`; the gate remains open unless an upstream caller explicitly pauses it. P3 must connect the passive observer/classifier to this shared gate and preserve the evidence that caused the pause.
 - There is still no automatic CDP reconnect, retry/backoff, witness reacquisition, business ledger reconciliation, or automatic resume.
 - No Poi/CDP session or game UI action was performed. No live anti-cat verification.
+
+
+## P3 — Passive observer drives the pause gate
+
+### Implemented
+
+- \`BackgroundPortSnapshotProvider\` accepts an optional status-transition callback and invokes it only when the observer status changes. It invokes the callback outside its own lock.
+- The callback is deliberately limited to the thread-safe in-memory recovery gate. It does not share the event sink or background-thread correlation context.
+- \`build_runtime()\` connects the existing passive Poi observer to \`classify_recovery_signals()\`; any classification requiring a pause latches the shared \`RecoveryPauseGate\`.
+- CDP target discovery/connection failures, connection closure, observer process/protocol failures and untrusted/unknown statuses now pause the run automatically.
+- A natural-response timeout alone remains non-fatal: it means no natural request was observed, not proof of a network outage.
+- Observer status claiming \`captured\` without an actual witness payload is downgraded to \`invalid_status_without_snapshot\`, which fails closed.
+- Repeated identical observer failures do not repeatedly invoke the callback. A later healthy witness does not clear the latched gate.
+
+### Verification
+
+- GitHub Actions: [run 42142935940](https://github.com/wosafety0/wosafety0clamp/actions/runs/42142935940)
+- Exact tested HEAD and branch HEAD: \`423a623f98ff5a596711455480d6d21904c5c00f\`.
+- Result: success; full Python suite **1815 tests OK / 22 skipped**.
+- New tests cover observer status transition deduplication, runtime observer-fault pause propagation, and false captured status without a witness payload.
+- Python compileall, CLI smoke checks, and offline JavaScript checks passed.
+
+### Remaining boundary
+
+- This phase consumes the existing passive observer's status vocabulary. It does not yet classify visual cat frames, extract API result 201 from game responses, or observe a CDP target-crash event not already surfaced by the current observer.
+- The observer still uses the existing fixed retry delay; bounded exponential backoff and a retry budget are not implemented.
+- A healthy observer status or newly captured witness cannot release the pause. There is no automatic reconnect orchestration, witness-after-pause proof, Action Journal / Dispatch Registry reconciliation, or automatic resume.
+- No Poi/CDP session or game UI action was performed. No live anti-cat verification.
