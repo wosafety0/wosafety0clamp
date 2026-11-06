@@ -11,7 +11,7 @@ This document is the concise handoff entry point. The long design and progress r
 
 1. Read the authoritative global rules: [wosafety0/Agents-global main/AGENTS.md](https://github.com/wosafety0/Agents-global/blob/main/AGENTS.md). Current retrieved version: 2.1.0-rc1 (Candidate).
 2. Check out dev/expedition-closed-loop-mvp. The GitHub default branch main currently contains only .github; it is not the application source baseline.
-3. Read this file, then [Game Rules Knowledge Base](game-rules/README.md) and the relevant domain dossiers before any game-logic planning or code change. The game-rule dossier is a mandatory development gate; UNKNOWN, INFERRED, stale, or conflicting rules must be researched before implementation. Also read [MVP_EXPEDITION_SINGLE_LOOP.md](MVP_EXPEDITION_SINGLE_LOOP.md) and [POI_PORT_RESPONSE_OBSERVER.md](POI_PORT_RESPONSE_OBSERVER.md) when working on the expedition runtime.
+3. Read this file, then [Game Rules Knowledge Base](game-rules/README.md), [Expedition Scheduler Modes](EXPEDITION_SCHEDULER_MODES.md), and the relevant domain dossiers before any game-logic planning or code change. The game-rule dossier is a mandatory development gate; UNKNOWN, INFERRED, stale, or conflicting rules must be researched before implementation. Also read [MVP_EXPEDITION_SINGLE_LOOP.md](MVP_EXPEDITION_SINGLE_LOOP.md) and [POI_PORT_RESPONSE_OBSERVER.md](POI_PORT_RESPONSE_OBSERVER.md) when working on the expedition runtime.
 4. Before coding, run git status --short --branch and preserve any existing local modifications. Do not assume another checkout or worktree is clean.
 5. Keep local credentials, cookies, game data, screenshots, logs containing private state, and machine-specific paths out of the repository.
 
