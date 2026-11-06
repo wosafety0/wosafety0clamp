@@ -102,3 +102,9 @@ The upstream [Yukikaze030/KanColle-Agent](https://github.com/Yukikaze030/KanColl
 - Static dataset completeness does not prove live behavior. Poi freshness is per domain; online/health status or a newly generated snapshot timestamp is not sufficient proof of current game state.
 - This integration is documentation-only. It does not authorize installing or connecting upstream MCP services or changing the current KancolleBot runtime.
 
+
+### 2026-11-06 — Expedition Wiki second-pass research
+
+- Expanded `EXPEDITIONS.md` with EXP-015–EXP-018 covering per-ship fuel/ammunition consumption, Fleet 2 and mission unlock prerequisites, reward-item display semantics, and monthly completion cutoff.
+- Retained COMMUNITY_REPORTED status; the source is a community wiki and several underlying calculations/tables cite 2020/2021 or 2023 material.
+- No current Poi live verification or game operation was performed. No game code may rely on these records as production-grade mechanics until independently verified.
