@@ -214,6 +214,7 @@ class VisibleUiPortRefreshDriver:
                         "target": point.label,
                         "clicks_attempted": clicks_attempted,
                     })
+                    self._arbiter.require_actions_allowed()
                     self._input.click(point)
                     clicks_completed += 1
                     self._emit("ui_refresh_click_sent", {
@@ -264,7 +265,8 @@ class VisibleUiPortRefreshDriver:
                             "reason": "precondition re-proven after the click",
                         })
                         clicks_attempted += 1
-                        self._input.click(point)
+                        self._arbiter.require_actions_allowed()
+                    self._input.click(point)
                         clicks_completed += 1
                         if self._settle_seconds:
                             self._sleep(self._settle_seconds)
