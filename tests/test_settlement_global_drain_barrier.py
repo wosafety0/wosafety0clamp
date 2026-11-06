@@ -268,6 +268,36 @@ class GlobalDrainBarrierTests(unittest.TestCase):
 
         self.assertEqual([name for name, _ in ui.calls], [])
 
+    def test_an_unattributed_drain_still_advances_the_fleet(self):
+        # P0.2 red line: the ledger has no row for fleet 2 (the dispatch event
+        # was never recorded, or ties with another), so attribution is
+        # UNATTRIBUTED. With a global drain the pages are already gone, so the
+        # settlement must be tagged and continued, never stranded.
+        controller, ui, scheduler, events = self.build()
+
+        execution = controller.settle_one_returned(2, pages_drained_globally=True)
+
+        self.assertEqual(execution.fleet_id, 2)
+        # Only the read-only screen probe may run; no reward click is sent.
+        self.assertEqual([name for name, _ in ui.calls], ["settlement_screen"])
+        names = [name for name, _ in events]
+        self.assertIn("settlement_pages_drained_globally", names)
+        self.assertIn("settlement_unattributed", names)
+        # The fleet is advanced to RESUPPLY_REQUIRED despite the open ledger.
+        self.assertEqual(scheduler.fleet(2).phase, FleetPhase.RESUPPLY_REQUIRED)
+        # Fleet 3 is untouched: its own return still has to be accounted for.
+        self.assertEqual(scheduler.fleet(3).phase, FleetPhase.RETURNED_PENDING_UI)
+
+    def test_an_unattributed_drain_without_the_flag_still_refuses(self):
+        # The legacy per-fleet path keeps its fail-closed refusal: there the
+        # clicks have not happened yet, so an ambiguous attribution must wait.
+        controller, ui, _scheduler, _events = self.build()
+
+        with self.assertRaises(ContinuousSettlementError):
+            controller.settle_one_returned(2)
+
+        self.assertEqual([name for name, _ in ui.calls], [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -336,11 +336,22 @@ class ContinuousSettlementController:
                     "dispatch_clicks_sent": 0,
                     "game_api_requests": False,
                 })
-                raise ContinuousSettlementError(
-                    f"Fleet {fleet_id} return cannot be attributed to exactly one "
-                    f"dispatch instance ({attribution.reason}); settlement refused "
-                    "with zero clicks"
-                )
+                # P0.2 red line: a global drain has already clicked through every
+                # settlement page on the account, so this fleet's reward chain is
+                # physically gone. An UNATTRIBUTED verdict (the ledger cannot pin
+                # the return to exactly one dispatch instance - e.g. the dispatch
+                # event was never recorded, or two instances tie) must never block
+                # the bookkeeping that advances the fleet to RESUPPLY_REQUIRED. We
+                # tag it and continue; the dispatch record stays open for manual
+                # reconciliation instead of stranding the fleet. The legacy
+                # per-fleet path keeps its fail-closed refusal, because there the
+                # clicks have not happened yet and guessing is worse than waiting.
+                if not pages_drained_globally:
+                    raise ContinuousSettlementError(
+                        f"Fleet {fleet_id} return cannot be attributed to exactly one "
+                        f"dispatch instance ({attribution.reason}); settlement refused "
+                        "with zero clicks"
+                    )
 
             if (
                 current.phase in (

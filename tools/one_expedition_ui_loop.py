@@ -19,7 +19,7 @@ import os
 import sys
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -332,9 +332,10 @@ def _build_and_start_run_log(args: argparse.Namespace) -> object | None:
         task_kind=TaskKind.EXPEDITION.value,
     )
     _remember_run_log_sink(run_log_sink)
+    plan_fleet_ids, _plan_missions = _resolve_dispatch_plan(args)
     run_log_sink.start(
         _run_log_start_payload(
-            dispatch_fleet_ids=(int(args.fleet_id),),
+            dispatch_fleet_ids=tuple(plan_fleet_ids),
             database=args.database,
             ui_navigation_enabled=bool(args.enable_ui_refresh),
             game_actions_enabled=bool(args.authorize_ui_actions),
@@ -1337,6 +1338,113 @@ def _read_poi_port_supply_snapshot() -> PoiPortSupplySnapshot:
         return read_poi_port_supply_snapshot(poi_session.transport)
 
 
+# Default expedition each dispatchable fleet runs when none is supplied.
+# The map is conflict-free by construction: one expedition id per fleet, so
+# the same expedition never runs on two fleets at once (a game rule the entry
+# enforces before any click). Override per account with --fleet-missions.
+DEFAULT_FLEET_MISSION_MAP: dict[int, int] = {2: 1, 3: 3, 4: 2}
+
+
+def _parse_fleet_missions(raw: str) -> dict[int, int]:
+    """Parse "2:3,3:1,4:2" into {fleet_id: mission_id}.
+
+    Refuses any malformed token, a non-integer, or a fleet that is not in the
+    policy's dispatchable set - the caller has already narrowed the fleet set.
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        raise LoopError("--fleet-missions must be a non-empty \"fleet:mission\" map")
+    parsed: dict[int, int] = {}
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if ":" not in token:
+            raise LoopError(f"--fleet-missions token {token!r} is not fleet:mission")
+        fleet_part, _, mission_part = token.partition(":")
+        try:
+            fleet_id = int(fleet_part)
+            mission_id = int(mission_part)
+        except ValueError as exc:
+            raise LoopError(
+                f"--fleet-missions token {token!r} has a non-integer fleet or mission"
+            ) from exc
+        if fleet_id not in RUNTIME_CONFIG.dispatchable_fleet_ids:
+            raise LoopError(
+                f"--fleet-missions fleet {fleet_id} is not in the dispatchable "
+                f"policy {list(RUNTIME_CONFIG.dispatchable_fleet_ids)}"
+            )
+        if mission_id <= 0:
+            raise LoopError(f"--fleet-missions mission {mission_id} must be positive")
+        parsed[fleet_id] = mission_id
+    if not parsed:
+        raise LoopError("--fleet-missions produced no fleet:mission pairs")
+    return parsed
+
+
+def _refuse_duplicate_missions(mission_map: Mapping[int, int], *, context: str) -> None:
+    """One expedition id may belong to at most one fleet (game rule).
+
+    The caller passes the resolved map; a repeated mission id is refused
+    BEFORE any game connection, never after a click has been sent.
+    """
+    seen: dict[int, int] = {}
+    for fleet_id, mission_id in mission_map.items():
+        if mission_id in seen:
+            raise LoopError(
+                f"{context}: expedition {mission_id} is assigned to both fleet "
+                f"{seen[mission_id]} and fleet {fleet_id}; the same expedition "
+                "cannot run on two fleets at once. Reconfigure so each fleet "
+                "has a distinct expedition."
+            )
+        seen[mission_id] = fleet_id
+
+
+def _resolve_dispatch_plan(args: argparse.Namespace) -> tuple[tuple[int, ...], dict[int, int]]:
+    """Resolve which fleets to dispatch and the expedition each runs.
+
+    ``--fleet-id`` is the legacy single-fleet override and takes precedence;
+    otherwise the entry runs every dispatchable fleet concurrently. The plan
+    is the single source of truth every later stage (build_runtime, the
+    validation, settlement and the supervisor report) consumes, so the single-
+    and multi-fleet paths cannot silently diverge.
+    """
+    fleet_id = getattr(args, "fleet_id", None)
+    if fleet_id is not None:
+        mission_id = getattr(args, "mission_id", None)
+        if mission_id is None:
+            raise LoopError("--fleet-id requires --mission-id")
+        # The legacy override also honours the per-entry composition knobs.
+        return (int(fleet_id),), {int(fleet_id): int(mission_id)}
+    mission_id = getattr(args, "mission_id", None)
+    if mission_id is not None:
+        raise LoopError(
+            "--mission-id without --fleet-id is ambiguous in all-fleets mode; "
+            "pass --fleet-id with --mission-id, or --fleet-missions to map each "
+            "fleet to its expedition"
+        )
+    target_fleet_ids = tuple(int(f) for f in RUNTIME_CONFIG.dispatchable_fleet_ids)
+    fleet_missions = getattr(args, "fleet_missions", None)
+    if fleet_missions:
+        mission_map = _parse_fleet_missions(fleet_missions)
+    else:
+        mission_map = dict(DEFAULT_FLEET_MISSION_MAP)
+    # Keep only the fleets this account is allowed to dispatch, in policy
+    # order, filling any gap with the default so every target has a mission
+    # before the duplicate check.
+    mission_map = {
+        fleet_id: mission_map.get(fleet_id, DEFAULT_FLEET_MISSION_MAP.get(fleet_id))
+        for fleet_id in target_fleet_ids
+    }
+    missing = [fleet_id for fleet_id, mission in mission_map.items() if mission is None]
+    if missing:
+        raise LoopError(
+            f"no expedition configured for dispatchable fleet {missing} in "
+            "all-fleets mode; pass --fleet-missions to set it explicitly"
+        )
+    _refuse_duplicate_missions(mission_map, context="all-fleets mode")
+    return target_fleet_ids, mission_map
+
+
 def _run_production_supervisor_once(args: argparse.Namespace) -> int:
     """Compose the durable monitor/controller/supervisor with the visible CDP driver."""
     from datetime import timedelta
@@ -1383,22 +1491,42 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
 
     runtime = None
     try:
-        target_fleet_id = args.fleet_id
-        target_mission_id = args.mission_id
-        expedition_id = DEFAULT_CATALOG.number_of_mission_id(target_mission_id)
-        if expedition_id is None:
+        target_fleet_ids, mission_map = _resolve_dispatch_plan(args)
+        target_fleet_id = target_fleet_ids[0]
+        target_mission_id = mission_map[target_fleet_id]
+        fleet_label = (
+            target_fleet_id
+            if len(target_fleet_ids) == 1
+            else "-".join(str(f) for f in target_fleet_ids)
+        )
+        multi_fleet = args.fleet_id is None
+        drain_requested = getattr(args, "global_drain", False) is True
+        # Multi-fleet mode dispatches several fleets at once, so two of them
+        # can return together. The per-fleet settlement barrier cannot absorb
+        # that (it raises and stops the run), so the global drain is mandatory
+        # here; the guard fails closed before any game connection.
+        if multi_fleet and not drain_requested:
             raise LoopError(
-                f"Mission id {target_mission_id} is not in the master-data table; "
-                "refusing to guess which row it is"
+                "all-fleets mode dispatches multiple fleets concurrently; "
+                "simultaneous returns require --global-drain, which is not set. "
+                "Pass --global-drain, or use --fleet-id for a single fleet."
             )
-        _validate_dispatch_fleet_id(target_fleet_id)
+        for fleet_id, mission_id in mission_map.items():
+            expedition_id = DEFAULT_CATALOG.number_of_mission_id(mission_id)
+            if expedition_id is None:
+                raise LoopError(
+                    f"Mission id {mission_id} (fleet {fleet_id}) is not in the "
+                    "master-data table; refusing to guess which row it is"
+                )
+        for fleet_id in target_fleet_ids:
+            _validate_dispatch_fleet_id(fleet_id)
         # Account fact check, before the game webview and before any click.
         # An account without Fleet 3/4 must fail closed here rather than have
         # the monitor demand an observation for a fleet that does not exist.
         unlocked_fleet_ids = _probe_unlocked_fleet_ids()
         try:
             resolve_fleet_availability(
-                unlocked_fleet_ids, (target_fleet_id,), strict=True
+                unlocked_fleet_ids, target_fleet_ids, strict=True
             )
         except FleetAvailabilityError as exc:
             raise LoopError(
@@ -1407,15 +1535,26 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
         _print_event(
             "account_fleet_availability_verified",
             unlocked_fleet_ids=list(unlocked_fleet_ids),
-            target_fleet_id=target_fleet_id,
+            target_fleet_ids=list(target_fleet_ids),
             source="poi-cdp-fleet-snapshot",
         )
         with connect_game_webview(timeout=3.0) as game_session:
-            requirement = (
-                None
-                if args.settle_only
-                else _mission_requirement(args, target_fleet_id, target_mission_id)
-            )
+            if args.settle_only:
+                requirement_map = None
+            else:
+                if (
+                    getattr(args, "minimum_ships", None) is not None
+                    or getattr(args, "flagship_level", None) is not None
+                ):
+                    raise LoopError(
+                        "--minimum-ships/--flagship-level are single-fleet "
+                        "composition overrides and must not be used in all-fleets "
+                        "mode; rely on the static requirement rule per mission"
+                    )
+                requirement_map = {
+                    fleet_id: _mission_requirement(args, fleet_id, mission_id)
+                    for fleet_id, mission_id in mission_map.items()
+                }
             # One start-up snapshot decides the path, from the composited layer.
             # A proven reward screen is settled by the settlement controller
             # BEFORE the monitor ever asks for a freshness witness: that
@@ -1478,9 +1617,9 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 observer_script=args.observer_script,
                 observer_timeout_seconds=args.observer_timeout_seconds,
                 max_state_age_seconds=args.max_state_age_seconds,
-                dispatch_fleet_ids=(target_fleet_id,),
+                dispatch_fleet_ids=tuple(target_fleet_ids),
                 mission_requirements=(
-                    None if requirement is None else {target_fleet_id: requirement}
+                    None if requirement_map is None else dict(requirement_map)
                 ),
                 unlocked_fleet_ids=unlocked_fleet_ids,
                 fleet_availability_strict=True,
@@ -1672,10 +1811,10 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
             )
             supervisor_drain_session = None
             supervisor_drain_request = None
-            # ``is True`` on purpose: a test double (or any Namespace-like) that
-            # carries a non-boolean attribute must not silently enable a path
-            # that sends UI inputs.
-            drain_requested = getattr(args, "global_drain", False) is True
+            # ``drain_requested`` is resolved once, before any game connection
+            # (see above): ``is True`` on purpose so a test double (or any
+            # Namespace-like) that carries a non-boolean attribute cannot
+            # silently enable a path that sends UI inputs.
             if drain_requested and settlement_controller is not None:
                 drain_capabilities = (
                     "probe_settlement_page",
@@ -1750,10 +1889,20 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 resupply_controller=resupply_controller,
                 **supervisor_kwargs,
             )
+            # All-fleets mode only works if the global drain is actually wired:
+            # without it two simultaneous returns hit the per-fleet settlement
+            # barrier and crash the run. Refuse clearly rather than limp on.
+            if multi_fleet and supervisor.drain_session is None:
+                raise LoopError(
+                    "all-fleets mode needs a working global drain (--global-drain "
+                    "with a settlement controller wired); without it simultaneous "
+                    "returns cannot be settled and the run would crash on the "
+                    "first concurrent return"
+                )
 
             _print_event(
                 "production_supervisor_started",
-                dispatch_fleets=[target_fleet_id],
+                dispatch_fleets=list(target_fleet_ids),
                 fixed_mission_id=target_mission_id,
                 unlocked_fleet_ids=list(unlocked_fleet_ids),
                 read_only_fleets=list(runtime.scheduler.read_only_fleet_ids),
@@ -1774,56 +1923,82 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 ui_refresh_enabled=args.enable_ui_refresh,
             )
             if startup_screen.state is not None:
-                # Entry-level startup settlement. The gate compares the Fleet's
-                # observed ship-ID set with the composition recorded when it
-                # was dispatched; a missing or different set refuses with zero
-                # game actions. Only after that proof does the controller own
-                # the chain, and it re-proves the screen read-only before the
-                # first click. The monitor is not involved in this decision.
+                # Entry-level startup settlement. The gate compares a fleet's
+                # observed ship-ID set with the composition recorded when it was
+                # dispatched; a missing or different set refuses with zero game
+                # actions. Only after that proof does the controller own the
+                # chain, and it re-proves the screen read-only before the first
+                # click. The monitor is not involved in this decision.
                 if settlement_controller is None:
                     raise LoopError(
                         "startup reward screen detected but no settlement controller "
                         "is wired; refusing to click the chain"
                     )
-                (
-                    (expected_ship_ids, expected_source),
-                    evidence_lookup,
-                    settled_at,
-                    mission_witness,
-                ) = _probe_startup_attribution(args, runtime, target_fleet_id)
-                try:
-                    startup_settlement = settlement_controller.settle_visible_reward_chain(
+                if args.fleet_id is not None:
+                    # Legacy single-fleet path: exactly one fleet can own this
+                    # screen, so we attribute it directly and settle it.
+                    (
+                        (expected_ship_ids, expected_source),
+                        evidence_lookup,
+                        settled_at,
+                        mission_witness,
+                    ) = _probe_startup_attribution(args, runtime, target_fleet_id)
+                    try:
+                        startup_settlement = settlement_controller.settle_visible_reward_chain(
+                            fleet_id=target_fleet_id,
+                            screen=startup_screen,
+                            expected_ship_ids=expected_ship_ids,
+                            expected_ship_ids_source=expected_source,
+                            blocked_evidence=evidence_lookup.evidence,
+                            blocked_evidence_rejection=evidence_lookup.rejection,
+                            settlement_completed_at=settled_at,
+                            mission_result_witness=mission_witness,
+                        )
+                    except StartupSettlementRefused as exc:
+                        raise LoopError(
+                            f"startup settlement refused ({exc.reason}); zero game actions sent"
+                        ) from exc
+                    _print_event(
+                        "STARTUP_SETTLEMENT_CLOSED",
                         fleet_id=target_fleet_id,
-                        screen=startup_screen,
-                        expected_ship_ids=expected_ship_ids,
-                        expected_ship_ids_source=expected_source,
-                        blocked_evidence=evidence_lookup.evidence,
-                        blocked_evidence_rejection=evidence_lookup.rejection,
-                        settlement_completed_at=settled_at,
-                        mission_result_witness=mission_witness,
+                        start_screen=startup_settlement.start_screen,
+                        steps=[state for state, _ in startup_settlement.steps],
+                        ship_ids=list(startup_settlement.ship_ids),
+                        mission_credited=startup_settlement.mission is not None,
+                        recovered_from_blocked=startup_settlement.recovered_from_blocked,
+                        recovery_reason=startup_settlement.recovery_reason,
+                        scheduler_phase_after=startup_settlement.scheduler_phase_after,
+                        mission_result_witness_used=(startup_settlement.witness_verdict is not None),
+                        mission_result_witness_reason=(
+                            startup_settlement.witness_verdict.reason
+                            if startup_settlement.witness_verdict is not None
+                            else None
+                        ),
+                        game_api_requests=False,
                     )
-                except StartupSettlementRefused as exc:
-                    raise LoopError(
-                        f"startup settlement refused ({exc.reason}); zero game actions sent"
-                    ) from exc
-                _print_event(
-                    "STARTUP_SETTLEMENT_CLOSED",
-                    fleet_id=target_fleet_id,
-                    start_screen=startup_settlement.start_screen,
-                    steps=[state for state, _ in startup_settlement.steps],
-                    ship_ids=list(startup_settlement.ship_ids),
-                    mission_credited=startup_settlement.mission is not None,
-                    recovered_from_blocked=startup_settlement.recovered_from_blocked,
-                    recovery_reason=startup_settlement.recovery_reason,
-                    scheduler_phase_after=startup_settlement.scheduler_phase_after,
-                    mission_result_witness_used=(startup_settlement.witness_verdict is not None),
-                    mission_result_witness_reason=(
-                        startup_settlement.witness_verdict.reason
-                        if startup_settlement.witness_verdict is not None
-                        else None
-                    ),
-                    game_api_requests=False,
-                )
+                else:
+                    # All-fleets mode: a reward screen at start-up could belong
+                    # to any of the dispatched fleets, and there may be several
+                    # of them. Picking one fleet would be a guess, so the
+                    # settlement is deferred to the global drain, which is
+                    # mandatory in this mode and walks every settlement page in
+                    # one pass during the first tick.
+                    if supervisor.drain_session is None:
+                        raise LoopError(
+                            "a startup reward screen is up, but all-fleets mode "
+                            "has no global drain wired to settle it; refusing to "
+                            "guess which fleet it belongs to"
+                        )
+                    _print_event(
+                        "STARTUP_SETTLEMENT_DEFERRED_TO_GLOBAL_DRAIN",
+                        startup_screen=startup_screen.state,
+                        target_fleet_ids=list(target_fleet_ids),
+                        reason=(
+                            "multi-fleet startup settlement is handled by the global "
+                            "drain in tick 1"
+                        ),
+                        game_api_requests=False,
+                    )
             # One explicit bootstrap refresh before the first tick.
             #
             # The monitor no longer navigates as a side effect of reading, and
@@ -1897,7 +2072,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                         _print_event(
                             "PRODUCTION_SUPERVISOR_PAUSED",
                             reason=(
-                                f"fleet_{target_fleet_id}_no_trusted_observation_"
+                                f"fleets_{fleet_label}_no_trusted_observation_"
                                 "within_max_ticks"
                             ),
                             dispatch_count=0,
@@ -1913,62 +2088,59 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 if not result.dispatches:
                     if not args.wait_for_return:
                         return pause(
-                            result, f"fleet_{target_fleet_id}_not_ready", tick_index
+                            result, f"fleets_{fleet_label}_not_ready", tick_index
                         )
-                    # Nothing to do and nothing wrong: the fleet is out and the
-                    # return has not been observed yet. Keep waiting, but only
-                    # while the scheduler itself says that is the truth.
-                    waiting = runtime.scheduler.fleet(target_fleet_id)
-                    if not (
-                        waiting.phase is FleetPhase.EXPEDITION_ACTIVE
-                        and waiting.home_port_verified
-                    ):
-                        return pause(
-                            result,
-                            f"fleet_{target_fleet_id}_not_dispatchable_in_phase_"
-                            f"{waiting.phase.value}",
-                            tick_index,
-                        )
+                    # Wait mode: the supervisor drives each fleet's lifecycle
+                    # (out -> settle -> resupply -> re-dispatch) inside this
+                    # tick, so we keep polling until max_ticks rather than
+                    # asserting a single fleet is out. A pause happens only when
+                    # the observation budget is exhausted.
                     if tick_index == max_ticks:
                         return pause(
                             result,
-                            f"fleet_{target_fleet_id}_return_not_observed_within_max_ticks",
+                            f"fleets_{fleet_label}_return_not_observed_within_max_ticks",
                             tick_index,
                         )
                     _print_event(
                         "production_waiting_for_return",
                         tick=tick_index,
-                        fleet_id=target_fleet_id,
-                        mission_id=waiting.mission.mission_id,
-                        final_time_ms=waiting.mission.final_time_ms,
+                        fleet_ids=list(target_fleet_ids),
                         next_tick_seconds=args.tick_interval_seconds,
                     )
                     time.sleep(args.tick_interval_seconds)
                     continue
 
-                if len(result.dispatches) != 1:
+                # Every dispatch the supervisor returned must be one of our
+                # target fleets on its configured mission, left in the verified
+                # active tuple. A fleet outside the plan must never be clicked,
+                # and over-dispatch is caught by the unexpected-set check below.
+                dispatched_ids = {d.fleet_id for d in result.dispatches}
+                unexpected = dispatched_ids - set(target_fleet_ids)
+                if unexpected:
                     raise LoopError(
-                        f"Expected exactly one Fleet {target_fleet_id} dispatch, "
-                        f"observed {len(result.dispatches)}"
+                        f"Supervisor dispatched fleets {sorted(unexpected)} which are "
+                        f"not in the dispatch plan {list(target_fleet_ids)}; refusing "
+                        "the whole result"
                     )
-                dispatch = result.dispatches[0]
-                state = runtime.scheduler.fleet(target_fleet_id)
-                if (
-                    dispatch.fleet_id != target_fleet_id
-                    or dispatch.mission_id != target_mission_id
-                    or state.phase is not FleetPhase.EXPEDITION_ACTIVE
-                    or not state.home_port_verified
-                ):
-                    raise LoopError(
-                        f"Supervisor returned without the exact Fleet {target_fleet_id} / "
-                        f"mission {target_mission_id} active tuple and verified Home Port state"
-                    )
+                for dispatch in result.dispatches:
+                    expected_mission = mission_map[dispatch.fleet_id]
+                    state = runtime.scheduler.fleet(dispatch.fleet_id)
+                    if (
+                        dispatch.mission_id != expected_mission
+                        or state.phase is not FleetPhase.EXPEDITION_ACTIVE
+                        or not state.home_port_verified
+                    ):
+                        raise LoopError(
+                            f"Supervisor returned without the exact fleet "
+                            f"{dispatch.fleet_id} / mission {expected_mission} active "
+                            f"tuple and verified Home Port state"
+                        )
                 _print_event(
                     "PRODUCTION_UI_CONTROLLER_INTEGRATION_VERIFIED",
-                    fleet_id=target_fleet_id,
-                    mission_id=target_mission_id,
-                    final_time_ms=dispatch.mission.final_time_ms,
-                    ship_ids=list(dispatch.mission.ship_ids),
+                    fleet_ids=[d.fleet_id for d in result.dispatches],
+                    mission_ids=[d.mission_id for d in result.dispatches],
+                    final_time_ms=[d.mission.final_time_ms for d in result.dispatches],
+                    ship_ids=[list(d.mission.ship_ids) for d in result.dispatches],
                     home_port_verified=True,
                     tick=tick_index,
                     closed_loop=bool(result.settlements),
@@ -2107,16 +2279,37 @@ def _main_impl(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--fleet-id",
         type=int,
-        default=RUNTIME_CONFIG.production_dispatch_fleet_id,
-        help="Fleet to send (2, 3 or 4); must actually be unlocked on this "
-             "account, and Fleet 4 needs an explicit verified composition "
-             "(--minimum-ships/--flagship-level) until it is calibrated live",
+        default=None,
+        help="Single-fleet legacy override: send exactly this fleet (2, 3 or 4) "
+             "on --mission-id. When omitted (the default), the entry runs every "
+             "dispatchable fleet (2, 3, 4) concurrently; use --fleet-missions to "
+             "set each fleet's expedition. --fleet-id takes precedence over "
+             "--all-fleets and is the only mode that honours --minimum-ships/"
+             "--flagship-level. Concurrent fleets require --global-drain.",
+    )
+    parser.add_argument(
+        "--all-fleets",
+        action="store_true",
+        default=False,
+        help="Run every dispatchable fleet (2, 3, 4) concurrently. This is the "
+             "default behaviour when --fleet-id is not given, so the flag is "
+             "explicitness only; simultaneous returns require --global-drain.",
+    )
+    parser.add_argument(
+        "--fleet-missions",
+        type=str,
+        default=None,
+        metavar="MAP",
+        help="Multi-fleet expedition map, e.g. \"2:3,3:1,4:2\" (fleet:mission). "
+             "Only used in all-fleets mode; each expedition id may appear at "
+             "most once across fleets, or the run is refused before any click.",
     )
     parser.add_argument(
         "--mission-id",
         type=int,
         default=RUNTIME_CONFIG.production_mission_id,
-        help="Master-data mission id; defaults to the configured production mission",
+        help="Master-data mission id for --fleet-id (ignored in all-fleets mode, "
+             "where --fleet-missions or the default map selects each mission)",
     )
     parser.add_argument(
         "--position-index",
