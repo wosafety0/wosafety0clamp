@@ -447,7 +447,13 @@ class SettlementRewardReceiptTests(unittest.TestCase):
 
 
 class WitnessCompositionConfigurationTests(unittest.TestCase):
-    """The production CLI must make the loop self-contained by default."""
+    """The strict-ledger CLI keeps the loop self-contained by default.
+
+    P0 Step 1 made stateless control the CLI default, and stateless mode does
+    not arm the in-process observer. These #134 witness-configuration
+    contracts therefore run with ``--strict`` so they keep pinning the mode
+    they were written for.
+    """
 
     def _parse(self, *extra: str):
         with tempfile.TemporaryDirectory() as temporary:
@@ -463,7 +469,8 @@ class WitnessCompositionConfigurationTests(unittest.TestCase):
                 run = stack.enter_context(patch.object(entry, "run", return_value=0))
                 code = entry._main_impl([
                     "--authorize-ui-actions", "--fleet-id", "3",
-                    "--mission-id", "3", "--log-path", str(log), *extra,
+                    "--mission-id", "3", "--log-path", str(log),
+                    "--strict", *extra,
                 ])
             self.assertEqual(code, 0)
             return run.call_args.args[0]

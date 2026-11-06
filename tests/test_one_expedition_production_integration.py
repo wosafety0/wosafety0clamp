@@ -285,6 +285,11 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
         # pair for this fleet and mission".
         args.minimum_ships = None
         args.flagship_level = None
+        # P0 Step 1: stateless control is now the CLI default. These legacy
+        # composition tests pin the historical strict-ledger path, so opt out
+        # explicitly (the namespace equivalent of ``--strict``).
+        args.strict = True
+        args.stateless = False
         return args
 
     def patch_evidence_sources(self, stack, *, marks):
@@ -569,10 +574,11 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
     def test_stateless_mode_removes_ledger_vetoes_and_keeps_visual_gate(self):
         """P0: prove the architecture change on the real production root.
 
-        --stateless keeps the Poi-driven loop runnable while demoting the
-        ledger to an audit trail and disabling the reward-receipt gate. The
-        two-frame visual click gate, the calibrated UI driver and the same
-        single supervisor stay wired; no new entry point and no ledger deletion.
+        The CLI default (stateless=True, strict=False) keeps the Poi-driven
+        loop runnable while demoting the ledger to an audit trail and
+        disabling the reward-receipt gate. The two-frame visual click gate,
+        the calibrated UI driver and the same single supervisor stay wired;
+        no new entry point and no ledger deletion.
         """
         return_at = datetime.now(timezone.utc) + timedelta(minutes=20)
         idle = make_snapshot()
@@ -588,7 +594,9 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
             database = Path(temporary) / "production" / "state.sqlite3"
             database.parent.mkdir(parents=True)
             args = self.make_args(database)
+            # Mirror the CLI default exactly: stateless on, strict off.
             args.stateless = True
+            args.strict = False
             # Explicitly request the observer anyway: stateless mode must win.
             args.in_process_witness = True
             game_session = MagicMock()
@@ -889,6 +897,9 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
             common = [
                 "--authorize-ui-actions", "--fleet-id", "3", "--mission-id", "3",
                 "--log-path", str(log),
+                # Keep the historical ledger-veto mode explicit: this test
+                # predates the stateless default.
+                "--strict",
             ]
             with (
                 # _main_impl rebinds these module globals; restore them so a
@@ -972,7 +983,12 @@ class RunStopLifecycleTests(unittest.TestCase):
     a ``finally``; the closed-loop entry must do the same on all three exits.
     """
 
-    COMMON = ["--authorize-ui-actions", "--fleet-id", "3", "--mission-id", "3"]
+    # These lifecycle tests pin the legacy strict-ledger invocation; the CLI
+    # default flipped to stateless in P0 Step 1.
+    COMMON = [
+        "--authorize-ui-actions", "--fleet-id", "3", "--mission-id", "3",
+        "--strict",
+    ]
 
     def tearDown(self):
         # The stop helpers mutate a module-level one-slot holder; leave it

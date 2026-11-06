@@ -1551,6 +1551,24 @@ def _witness_configuration(
     return timeout, captures
 
 
+def _stateless_control_enabled(args: argparse.Namespace) -> bool:
+    """Resolve the main-loop control mode from ``--stateless`` / ``--strict``.
+
+    Stateless control is the default; ``--strict`` is the only opt-out back to
+    the historical ledger-veto path and wins even if both flags are given.
+    Strict identity, not truthiness: offline composition tests hand this a
+    MagicMock namespace whose unknown attributes are truthy, so a mock value
+    must never be mistaken for an explicit boolean decision.
+
+    This resolves ONLY the main loop's ledger veto power (other_returns,
+    UNATTRIBUTED and the audit_gate preconditions). The startup settlement
+    path has its own attribution/witness gates and is not consulted here.
+    """
+    if getattr(args, "strict", False) is True:
+        return False
+    return getattr(args, "stateless", True) is not False
+
+
 def _run_production_supervisor_once(args: argparse.Namespace) -> int:
     """Compose the durable monitor/controller/supervisor with the visible CDP driver."""
     from datetime import timedelta
@@ -1597,10 +1615,10 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
 
     runtime = None
     witness_provider = None
-    # Strict identity, not truthiness: offline composition tests hand the
-    # composition root a MagicMock namespace whose unknown attributes are
-    # truthy and would otherwise silently enable stateless mode.
-    stateless = getattr(args, "stateless", False) is True
+    # P0 Step 1: stateless control is now the default; --strict restores the
+    # old ledger-veto semantics. The resolver keeps strict identity so a
+    # MagicMock namespace can never silently flip the control mode.
+    stateless = _stateless_control_enabled(args)
     try:
         target_fleet_ids, mission_map = _resolve_dispatch_plan(args)
         if stateless:
@@ -2501,14 +2519,29 @@ def _main_impl(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--stateless",
         action="store_true",
+        default=True,
+        help=(
+            "P0 stateless control, ON BY DEFAULT: Poi fleet state and the "
+            "visible screen are the only business facts. The dispatch ledger "
+            "keeps writing audit rows but cannot veto settlement, resupply or "
+            "re-dispatch; the in-process reward receipt observer is not armed "
+            "and receipt completeness is not a precondition. The 0.97/0.04 "
+            "fingerprint thresholds and the two-frame click gate are unchanged. "
+            "Pass --strict to restore the historical ledger-veto path; the "
+            "startup settlement gates are unchanged in BOTH modes."
+        ),
+    )
+    parser.add_argument(
+        "--strict",
+        dest="strict",
+        action="store_true",
         default=False,
         help=(
-            "P0 stateless control: Poi fleet state and the visible screen are "
-            "the only business facts. The dispatch ledger keeps writing audit "
-            "rows but cannot veto settlement, resupply or re-dispatch; the "
-            "in-process reward receipt observer is not armed and receipt "
-            "completeness is not a precondition. The 0.97/0.04 fingerprint "
-            "thresholds and the two-frame click gate are unchanged."
+            "Restore the historical strict-ledger control mode of the main "
+            "loop: other_returns and UNATTRIBUTED refuse settlement, a missing "
+            "ledger or an unwritable audit gate stops the click chain, and the "
+            "in-process result observer is armed. Startup settlement gates are "
+            "not affected. Takes precedence over --stateless."
         ),
     )
     parser.add_argument(
