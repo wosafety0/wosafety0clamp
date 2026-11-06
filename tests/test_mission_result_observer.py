@@ -265,5 +265,71 @@ class ObserverTests(unittest.TestCase):
         self.assertEqual(witness["data"]["apiRewardReceipt"]["status"], "incomplete")
 
 
+class ArmedObserverSessionTests(unittest.TestCase):
+    def _node_available(self):
+        import shutil
+        return shutil.which("node") is not None
+
+    def test_arm_returns_only_after_network_listener_is_ready(self):
+        if not self._node_available():
+            self.skipTest("Node.js is not installed")
+        import tempfile
+
+        payload = json.dumps(WITNESS, ensure_ascii=False)
+        script_text = (
+            "module.exports = function () {\n"
+            " console.log('[MissionResultObserver] Network observer armed; "
+            "waiting for a natural expedition result response.');\n"
+            f" setTimeout(() => {{ console.log('{PREFIX}WITNESS_JSON:' + "
+            f"JSON.stringify({payload})); console.log('{PREFIX}STATUS: CAPTURED'); }}, 25);\n"
+            "};\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "observer.js"
+            script.write_text(script_text, encoding="utf-8")
+            observer = PassiveMissionResultObserver(script, timeout_seconds=2)
+            session = observer.arm(arm_timeout_seconds=2)
+            self.assertTrue(session.is_armed)
+            witness = session.wait(timeout_seconds=2)
+        self.assertIsNotNone(witness)
+        self.assertEqual(witness["data"]["apiDeckId"], 4)
+        self.assertEqual(observer.last_status, "captured")
+
+    def test_observer_that_exits_without_arming_is_refused(self):
+        if not self._node_available():
+            self.skipTest("Node.js is not installed")
+        import tempfile
+        from kancollebot.adapters.poi.mission_result_observer import (
+            MissionResultObserverError,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "observer.js"
+            script.write_text("module.exports = function () { console.log('not armed'); };", encoding="utf-8")
+            observer = PassiveMissionResultObserver(script, timeout_seconds=2)
+            with self.assertRaises(MissionResultObserverError):
+                observer.arm(arm_timeout_seconds=2)
+        self.assertEqual(observer.last_status, "no_capture")
+
+    def test_armed_observer_can_be_cancelled_without_waiting_for_timeout(self):
+        if not self._node_available():
+            self.skipTest("Node.js is not installed")
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "observer.js"
+            script.write_text(
+                "module.exports = function () { "
+                "console.log('[MissionResultObserver] Network observer armed; "
+                "waiting for a natural expedition result response.'); "
+                "setInterval(() => {}, 1000); };",
+                encoding="utf-8",
+            )
+            observer = PassiveMissionResultObserver(script, timeout_seconds=30)
+            session = observer.arm(arm_timeout_seconds=2)
+            session.cancel()
+        self.assertEqual(observer.last_status, "cancelled")
+
+
 if __name__ == "__main__":
     unittest.main()

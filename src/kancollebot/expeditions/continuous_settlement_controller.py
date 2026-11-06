@@ -23,6 +23,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
 from kancollebot.core.observed_state import ObservedState
+from kancollebot.core.reward_inventory import (
+    REWARD_INVENTORY_BASELINE_EVENT,
+    RewardInventoryError,
+    RewardInventorySnapshot,
+    RewardInventoryVerdict,
+    reward_inventory_snapshot_fields,
+    verify_reward_inventory_delta,
+)
 from kancollebot.expeditions.continuous_dispatch_controller import (
     PoiFleetStateReader,
     UiStateEvidence,
@@ -43,11 +51,16 @@ from kancollebot.expeditions.dispatch_registry import (
     SqliteDispatchRegistry,
 )
 from kancollebot.expeditions.mission_result_witness import (
+    MISSION_RESULT_EVENT,
     DispatchRecord,
     MissionResultWitness,
+    MissionResultWitnessError,
     WitnessVerdict,
     cross_check_with_dispatch,
     evaluate_witness,
+    parse_observer_witness,
+    reward_receipt_rejection_reason,
+    witness_fields,
 )
 from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
 from kancollebot.observability.event_envelope import new_correlation_id
@@ -87,6 +100,7 @@ class VisibleRewardSettlement:
     #: The verdict of the expedition-result witness, when one was checked.
     witness_verdict: WitnessVerdict | None = None
     recovery_reason: str | None = None
+    inventory_verdict: RewardInventoryVerdict | None = None
 
 
 class ContinuousSettlementUiDriver(Protocol):
@@ -119,6 +133,8 @@ class SettlementExecution:
     return_result_evidence: str
     bonus_items_evidence: str
     reward_claimed_evidence: str
+    witness_verdict: WitnessVerdict | None = None
+    inventory_verdict: RewardInventoryVerdict | None = None
 
 
 class ContinuousSettlementController:
@@ -142,6 +158,12 @@ class ContinuousSettlementController:
         clock: Callable[[], datetime] | None = None,
         dispatch_registry: SqliteDispatchRegistry | None = None,
         audit_gate: Callable[[], None] | None = None,
+        mission_result_observer: object | None = None,
+        mission_result_witness_loader: Callable[[int], MissionResultWitness | None] | None = None,
+        require_mission_result_witness: bool = False,
+        mission_name_resolver: Callable[[int], str] | None = None,
+        reward_inventory_provider: Callable[[], RewardInventorySnapshot] | None = None,
+        reward_inventory_baseline_loader: Callable[[int, str], RewardInventorySnapshot | None] | None = None,
     ) -> None:
         if not callable(event_sink):
             raise ValueError("a durable event_sink is required")
@@ -153,8 +175,35 @@ class ContinuousSettlementController:
             raise ValueError("dispatch_registry must be a SqliteDispatchRegistry or None")
         if audit_gate is not None and not callable(audit_gate):
             raise ValueError("audit_gate must be callable when given")
+        if type(require_mission_result_witness) is not bool:
+            raise ValueError("require_mission_result_witness must be a bool")
+        if mission_result_witness_loader is not None and not callable(mission_result_witness_loader):
+            raise ValueError("mission_result_witness_loader must be callable or None")
+        if mission_name_resolver is not None and not callable(mission_name_resolver):
+            raise ValueError("mission_name_resolver must be callable or None")
+        if reward_inventory_provider is not None and not callable(reward_inventory_provider):
+            raise ValueError("reward_inventory_provider must be callable or None")
+        if reward_inventory_baseline_loader is not None and not callable(reward_inventory_baseline_loader):
+            raise ValueError("reward_inventory_baseline_loader must be callable or None")
+        if require_mission_result_witness:
+            if not callable(getattr(mission_result_observer, "arm", None)):
+                raise ValueError("required mission-result witness needs an armable observer")
+            if not callable(mission_result_witness_loader):
+                raise ValueError("required mission-result witness needs a durable witness loader")
+            if not callable(mission_name_resolver):
+                raise ValueError("required mission-result witness needs a Poi mission-name resolver")
+            if not callable(reward_inventory_provider):
+                raise ValueError("required reward verification needs a Poi inventory reader")
+            if not callable(reward_inventory_baseline_loader):
+                raise ValueError("required reward verification needs a durable inventory baseline loader")
         self.audit_gate = audit_gate
         self.dispatch_registry = dispatch_registry
+        self.mission_result_observer = mission_result_observer
+        self.mission_result_witness_loader = mission_result_witness_loader
+        self.require_mission_result_witness = require_mission_result_witness
+        self.mission_name_resolver = mission_name_resolver
+        self.reward_inventory_provider = reward_inventory_provider
+        self.reward_inventory_baseline_loader = reward_inventory_baseline_loader
         self.scheduler = scheduler
         self.state_reader = state_reader
         self.ui_driver = ui_driver
@@ -163,6 +212,284 @@ class ContinuousSettlementController:
         self.allow_ui_actions = allow_ui_actions
         self.max_state_age = max_state_age
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+
+    def _dispatch_record_from_identity(self, identity: object, *, fleet_id: int) -> DispatchRecord:
+        if getattr(identity, "fleet_id", None) != fleet_id:
+            raise ContinuousSettlementError("dispatch registry returned a different fleet")
+        if getattr(identity, "status", None) != "confirmed":
+            raise ContinuousSettlementError("result witness requires one confirmed dispatch record")
+        mission_id = getattr(identity, "mission_id", None)
+        ship_ids = getattr(identity, "ship_ids", None)
+        quest_name = getattr(identity, "quest_name", None)
+        confirmed_at = getattr(identity, "confirmed_at", None)
+        if (not isinstance(quest_name, str) or not quest_name.strip()) and self.mission_name_resolver is not None:
+            try:
+                quest_name = self.mission_name_resolver(mission_id)
+            except Exception as exc:
+                raise ContinuousSettlementError(
+                    "Poi master-data mission name lookup failed during settlement"
+                ) from exc
+        if (
+            isinstance(mission_id, bool) or not isinstance(mission_id, int) or mission_id < 1
+            or not isinstance(ship_ids, tuple) or not ship_ids
+            or not isinstance(quest_name, str) or not quest_name.strip()
+            or not isinstance(confirmed_at, datetime)
+            or confirmed_at.tzinfo is None or confirmed_at.utcoffset() is None
+        ):
+            raise ContinuousSettlementError("confirmed dispatch record is incomplete for witness attribution")
+        return DispatchRecord(
+            fleet_id=fleet_id, mission_id=mission_id, ship_ids=ship_ids,
+            quest_name=quest_name.strip(), observed_at=confirmed_at,
+        )
+
+    def _single_open_dispatch_identity(self, fleet_id: int, snapshot: object) -> object:
+        if self.dispatch_registry is None:
+            raise ContinuousSettlementError("mission-result witness requires the durable dispatch registry")
+        try:
+            records = self.dispatch_registry.load_for_fleet(fleet_id)
+        except DispatchRegistryError as exc:
+            raise ContinuousSettlementError(f"dispatch registry is unreadable: {exc}") from exc
+        open_records = [record for record in records if getattr(record, "is_open", False)]
+        if len(open_records) != 1:
+            raise ContinuousSettlementError(
+                f"expected exactly one open dispatch for Fleet {fleet_id}; found {len(open_records)}"
+            )
+        identity = open_records[0]
+        self._dispatch_record_from_identity(identity, fleet_id=fleet_id)
+        snapshot_mission = getattr(snapshot, "mission_id", None)
+        if snapshot_mission is not None and snapshot_mission != identity.mission_id:
+            raise ContinuousSettlementError("Poi mission id conflicts with the open dispatch record")
+        snapshot_ships = getattr(snapshot, "ship_ids", None)
+        if isinstance(snapshot_ships, tuple) and snapshot_ships:
+            if set(snapshot_ships) != set(identity.ship_ids):
+                raise ContinuousSettlementError("Poi ship roster conflicts with the open dispatch record")
+        return identity
+
+    def _load_mission_result_witness(self, fleet_id: int) -> MissionResultWitness | None:
+        if self.mission_result_witness_loader is None:
+            return None
+        try:
+            witness = self.mission_result_witness_loader(fleet_id)
+        except Exception as exc:
+            raise ContinuousSettlementError(
+                f"durable mission-result witness log is unreadable: {type(exc).__name__}"
+            ) from exc
+        if witness is not None and not isinstance(witness, MissionResultWitness):
+            raise ContinuousSettlementError("durable mission-result witness loader returned an invalid object")
+        return witness
+
+    def _validate_mission_result_witness(
+        self, *, fleet_id: int, witness: MissionResultWitness, identity: object
+    ) -> WitnessVerdict:
+        record = self._dispatch_record_from_identity(identity, fleet_id=fleet_id)
+        verdict = evaluate_witness(
+            witness=witness, expected_fleet_id=fleet_id,
+            expected_ship_ids=record.ship_ids, expected_quest_name=record.quest_name,
+            observed_at=self.clock(),
+        )
+        if not verdict.allowed:
+            raise ContinuousSettlementError(verdict.reason)
+        cross_check = cross_check_with_dispatch(witness=witness, record=record)
+        if not cross_check.allowed:
+            raise ContinuousSettlementError(cross_check.reason)
+        receipt_rejection = reward_receipt_rejection_reason(witness)
+        if receipt_rejection is not None:
+            raise ContinuousSettlementError(receipt_rejection)
+        self.event_sink("mission_result_witness_verified", {
+            "fleet_id": fleet_id, "mission_id": record.mission_id,
+            "quest_name": witness.quest_name, "ship_ids": list(witness.ship_ids),
+            "result_kind": witness.result_kind,
+            "reward_receipt_status": (
+                witness.reward_receipt.status if witness.reward_receipt is not None else None
+            ),
+            "requested_at": witness.requested_at.isoformat() if witness.requested_at else None,
+            "response_received_at": (
+                witness.response_received_at.isoformat() if witness.response_received_at else None
+            ),
+            "dispatch_witness_verdict": cross_check.reason,
+            "game_api_requests": False, "game_input_sent": False,
+        })
+        return cross_check
+
+    def _arm_mission_result_observer(self, fleet_id: int):
+        if not self.require_mission_result_witness or self.mission_result_observer is None:
+            return None
+        try:
+            session = self.mission_result_observer.arm()
+        except Exception as exc:
+            self.event_sink("mission_result_observer_arm_failed", {
+                "fleet_id": fleet_id,
+                "status": getattr(self.mission_result_observer, "last_status", "unknown"),
+                "error_type": type(exc).__name__,
+                "game_api_requests": False, "game_input_sent": False,
+            })
+            raise ContinuousSettlementError(
+                "passive mission-result observer did not prove it was armed"
+            ) from exc
+        try:
+            self.event_sink("mission_result_observer_armed", {
+                "fleet_id": fleet_id,
+                "status": getattr(self.mission_result_observer, "last_status", "armed"),
+                "armed_before_result_click": True,
+                "game_api_requests": False, "game_input_sent": False,
+            })
+        except Exception:
+            session.cancel()
+            raise
+        return session
+
+    def _capture_and_validate_mission_result(
+        self, *, fleet_id: int, identity: object, session: object
+    ) -> WitnessVerdict:
+        try:
+            raw = session.wait()
+        except Exception as exc:
+            self.event_sink("mission_result_witness_capture_failed", {
+                "fleet_id": fleet_id,
+                "status": getattr(self.mission_result_observer, "last_status", "unknown"),
+                "error_type": type(exc).__name__,
+                "game_api_requests": False, "game_input_sent": False,
+            })
+            raise ContinuousSettlementError("mission-result witness capture failed") from exc
+        if raw is None:
+            status = getattr(self.mission_result_observer, "last_status", "no_capture")
+            self.event_sink("mission_result_witness_capture_failed", {
+                "fleet_id": fleet_id, "status": status,
+                "game_api_requests": False, "game_input_sent": False,
+            })
+            raise ContinuousSettlementError(
+                f"no natural mission-result response was captured ({status})"
+            )
+        try:
+            witness = parse_observer_witness(raw)
+        except MissionResultWitnessError as exc:
+            self.event_sink("mission_result_witness_rejected", {
+                "fleet_id": fleet_id, "reason": str(exc),
+                "game_api_requests": False, "game_input_sent": False,
+            })
+            raise ContinuousSettlementError(f"mission-result witness rejected: {exc}") from exc
+        self.event_sink(MISSION_RESULT_EVENT, witness_fields(witness))
+        return self._validate_mission_result_witness(
+            fleet_id=fleet_id, witness=witness, identity=identity
+        )
+
+    def _capture_reward_inventory_baseline(
+        self, *, fleet_id: int, identity: object
+    ) -> RewardInventorySnapshot:
+        if self.reward_inventory_provider is None:
+            raise ContinuousSettlementError("Poi reward-inventory reader is unavailable")
+        dispatch_id = getattr(identity, "dispatch_id", None)
+        if not isinstance(dispatch_id, str) or not dispatch_id.strip():
+            raise ContinuousSettlementError("confirmed dispatch has no durable dispatch id")
+        try:
+            snapshot = self.reward_inventory_provider()
+        except Exception as exc:
+            raise ContinuousSettlementError(
+                f"pre-result Poi inventory read failed: {type(exc).__name__}"
+            ) from exc
+        if not isinstance(snapshot, RewardInventorySnapshot):
+            raise ContinuousSettlementError("Poi inventory reader returned an invalid snapshot")
+        if snapshot.source != "poi-nanodesu-mcp:info.resources+info.useitems":
+            raise ContinuousSettlementError("reward baseline did not come from the approved Poi MCP inventory paths")
+        fields = reward_inventory_snapshot_fields(
+            snapshot, fleet_id=fleet_id, dispatch_id=dispatch_id
+        )
+        self.event_sink(REWARD_INVENTORY_BASELINE_EVENT, fields)
+        self.event_sink("mission_reward_inventory_baseline_captured", {
+            "fleet_id": fleet_id,
+            "dispatch_id": dispatch_id,
+            "observed_at": snapshot.observed_at.isoformat(),
+            "resource_slots": len(snapshot.resources),
+            "useitem_count": len(snapshot.useitems),
+            "source": snapshot.source,
+            "game_api_requests": False,
+            "game_input_sent": False,
+        })
+        return snapshot
+
+    def _load_reward_inventory_baseline(
+        self, *, fleet_id: int, identity: object
+    ) -> RewardInventorySnapshot:
+        if self.reward_inventory_baseline_loader is None:
+            raise ContinuousSettlementError("durable reward-inventory baseline loader is unavailable")
+        dispatch_id = getattr(identity, "dispatch_id", None)
+        if not isinstance(dispatch_id, str) or not dispatch_id.strip():
+            raise ContinuousSettlementError("confirmed dispatch has no durable dispatch id")
+        try:
+            snapshot = self.reward_inventory_baseline_loader(fleet_id, dispatch_id)
+        except Exception as exc:
+            raise ContinuousSettlementError(
+                f"durable reward-inventory baseline is unreadable: {type(exc).__name__}"
+            ) from exc
+        if not isinstance(snapshot, RewardInventorySnapshot):
+            raise ContinuousSettlementError(
+                "no reward-inventory baseline exists for this exact dispatch"
+            )
+        if snapshot.source != "poi-nanodesu-mcp:info.resources+info.useitems":
+            raise ContinuousSettlementError("persisted reward baseline has an unapproved source")
+        return snapshot
+
+    def _verify_reward_inventory(
+        self, *, fleet_id: int, identity: object,
+        before: RewardInventorySnapshot, witness: MissionResultWitness,
+    ) -> RewardInventoryVerdict:
+        if self.reward_inventory_provider is None:
+            raise ContinuousSettlementError("Poi reward-inventory reader is unavailable")
+        receipt = witness.reward_receipt
+        if (
+            receipt is None or receipt.material is None
+            or witness.requested_at is None or witness.response_received_at is None
+        ):
+            raise ContinuousSettlementError("reward receipt is incomplete for inventory verification")
+        try:
+            after = self.reward_inventory_provider()
+        except Exception as exc:
+            raise ContinuousSettlementError(
+                f"post-result Poi inventory read failed: {type(exc).__name__}"
+            ) from exc
+        if not isinstance(after, RewardInventorySnapshot):
+            raise ContinuousSettlementError("post-result Poi inventory reader returned an invalid snapshot")
+        if after.source != "poi-nanodesu-mcp:info.resources+info.useitems":
+            raise ContinuousSettlementError("post-result inventory did not come from the approved Poi MCP paths")
+        verdict = verify_reward_inventory_delta(
+            before=before,
+            after=after,
+            expected_material=receipt.material,
+            expected_items=receipt.items,
+            requested_at=witness.requested_at,
+            response_received_at=witness.response_received_at,
+        )
+        self.event_sink(
+            "mission_reward_inventory_verified" if verdict.allowed
+            else "mission_reward_inventory_rejected",
+            {
+                "fleet_id": fleet_id,
+                "dispatch_id": getattr(identity, "dispatch_id", None),
+                "reason": verdict.reason,
+                "before_observed_at": before.observed_at.isoformat(),
+                "after_observed_at": after.observed_at.isoformat(),
+                "resource_deltas": list(verdict.resource_deltas),
+                "useitem_deltas": [
+                    {"api_id": item_id, "delta": delta}
+                    for item_id, delta in verdict.useitem_deltas
+                ],
+                "game_api_requests": False,
+                "game_input_sent": False,
+            },
+        )
+        if not verdict.allowed:
+            raise ContinuousSettlementError(verdict.reason)
+        return verdict
+
+    def _require_persisted_mission_result_witness(
+        self, *, fleet_id: int, identity: object
+    ) -> WitnessVerdict:
+        witness = self._load_mission_result_witness(fleet_id)
+        if witness is None:
+            raise ContinuousSettlementError("no durable mission-result witness exists for this settlement")
+        return self._validate_mission_result_witness(
+            fleet_id=fleet_id, witness=witness, identity=identity
+        )
 
     def settle_one_returned(
         self, fleet_id: int, *, pages_drained_globally: bool = False
@@ -353,6 +680,40 @@ class ContinuousSettlementController:
                         "with zero clicks"
                     )
 
+            mission_result_capture_session = None
+            mission_result_witness_verdict: WitnessVerdict | None = None
+            mission_result_inventory_baseline: RewardInventorySnapshot | None = None
+            mission_result_inventory_verdict: RewardInventoryVerdict | None = None
+            if self.require_mission_result_witness:
+                if attribution is None or not attribution.allowed or attribution.record is None:
+                    raise ContinuousSettlementError(
+                        "mission-result witness requires exactly one attributed confirmed dispatch"
+                    )
+                if (
+                    current.phase is FleetPhase.RETURNED_PENDING_UI
+                    and returned is not None
+                    and not pages_drained_globally
+                ):
+                    mission_result_inventory_baseline = self._capture_reward_inventory_baseline(
+                        fleet_id=fleet_id, identity=attribution.record
+                    )
+                    mission_result_capture_session = self._arm_mission_result_observer(fleet_id)
+                else:
+                    mission_result_inventory_baseline = self._load_reward_inventory_baseline(
+                        fleet_id=fleet_id, identity=attribution.record
+                    )
+                    mission_result_witness_verdict = self._require_persisted_mission_result_witness(
+                        fleet_id=fleet_id, identity=attribution.record
+                    )
+                    if mission_result_witness_verdict.witness is None:
+                        raise ContinuousSettlementError("persisted mission-result witness has no payload")
+                    mission_result_inventory_verdict = self._verify_reward_inventory(
+                        fleet_id=fleet_id,
+                        identity=attribution.record,
+                        before=mission_result_inventory_baseline,
+                        witness=mission_result_witness_verdict.witness,
+                    )
+
             if (
                 current.phase in (
                     FleetPhase.RETURNED_PENDING_UI,
@@ -409,15 +770,40 @@ class ContinuousSettlementController:
             reward_claimed_evidence = ""
 
             if current.phase is FleetPhase.RETURNED_PENDING_UI:
-                return_result_evidence = self._advance(
-                    fleet_id, persisted,
-                    ui_call=lambda: self.ui_driver.collect_return_result(fleet_id=fleet_id),
-                    expected_state="RETURN_RESULT",
-                    confirm_fn=lambda: self.scheduler.confirm_return_result(
-                        fleet_id, ui_state="RETURN_RESULT"
-                    ),
-                    event="settlement_return_result_confirmed",
-                )
+                try:
+                    return_result_evidence = self._advance(
+                        fleet_id, persisted,
+                        ui_call=lambda: self.ui_driver.collect_return_result(fleet_id=fleet_id),
+                        expected_state="RETURN_RESULT",
+                        confirm_fn=lambda: self.scheduler.confirm_return_result(
+                            fleet_id, ui_state="RETURN_RESULT"
+                        ),
+                        event="settlement_return_result_confirmed",
+                    )
+                    if mission_result_capture_session is not None:
+                        mission_result_witness_verdict = self._capture_and_validate_mission_result(
+                            fleet_id=fleet_id,
+                            identity=attribution.record,
+                            session=mission_result_capture_session,
+                        )
+                        mission_result_capture_session = None
+                        if (
+                            mission_result_witness_verdict.witness is None
+                            or mission_result_inventory_baseline is None
+                        ):
+                            raise ContinuousSettlementError(
+                                "mission-result witness or inventory baseline is missing"
+                            )
+                        mission_result_inventory_verdict = self._verify_reward_inventory(
+                            fleet_id=fleet_id,
+                            identity=attribution.record,
+                            before=mission_result_inventory_baseline,
+                            witness=mission_result_witness_verdict.witness,
+                        )
+                except Exception:
+                    if mission_result_capture_session is not None:
+                        mission_result_capture_session.cancel()
+                    raise
 
             current = self.scheduler.fleet(fleet_id)
             if current.phase is FleetPhase.RETURN_RESULT:
@@ -451,6 +837,8 @@ class ContinuousSettlementController:
                 return_result_evidence=return_result_evidence,
                 bonus_items_evidence=bonus_items_evidence,
                 reward_claimed_evidence=reward_claimed_evidence,
+                witness_verdict=mission_result_witness_verdict,
+                inventory_verdict=mission_result_inventory_verdict,
             )
 
     def settle_visible_reward_chain(
@@ -664,7 +1052,7 @@ class ContinuousSettlementController:
             # dispatch confirmation - it appears only when the result is
             # settled, long after the dispatch was accepted.
             witness_verdict: WitnessVerdict | None = None
-            if mission_result_witness is not None:
+            if mission_result_witness is not None and not self.require_mission_result_witness:
                 witness_verdict = evaluate_witness(
                     witness=mission_result_witness,
                     expected_fleet_id=fleet_id,
@@ -856,6 +1244,51 @@ class ContinuousSettlementController:
                 )
                 raise StartupSettlementRefused("reward_screen_no_longer_displayed")
 
+            mission_result_capture_session = None
+            dispatch_identity = None
+            mission_result_inventory_baseline = None
+            inventory_verdict = None
+            if self.require_mission_result_witness:
+                try:
+                    dispatch_identity = self._single_open_dispatch_identity(fleet_id, snapshot)
+                    if displayed == "HOME_PORT_RETURN_NOTICE":
+                        mission_result_inventory_baseline = self._capture_reward_inventory_baseline(
+                            fleet_id=fleet_id, identity=dispatch_identity
+                        )
+                        # The natural result request follows this click. The
+                        # observer must be armed before the click, not after it.
+                        mission_result_capture_session = self._arm_mission_result_observer(fleet_id)
+                    else:
+                        mission_result_inventory_baseline = self._load_reward_inventory_baseline(
+                            fleet_id=fleet_id, identity=dispatch_identity
+                        )
+                        if mission_result_witness is None:
+                            mission_result_witness = self._load_mission_result_witness(fleet_id)
+                        if mission_result_witness is None:
+                            raise ContinuousSettlementError(
+                                "startup result/bonus screen has no durable mission-result witness"
+                            )
+                        witness_verdict = self._validate_mission_result_witness(
+                            fleet_id=fleet_id,
+                            witness=mission_result_witness,
+                            identity=dispatch_identity,
+                        )
+                        inventory_verdict = self._verify_reward_inventory(
+                            fleet_id=fleet_id,
+                            identity=dispatch_identity,
+                            before=mission_result_inventory_baseline,
+                            witness=mission_result_witness,
+                        )
+                except ContinuousSettlementError as exc:
+                    self._refuse_startup(
+                        fleet_id,
+                        str(exc),
+                        screen.state,
+                        failed_check="mission_result_witness_and_reward_receipt",
+                        game_actions_sent=0,
+                    )
+                    raise StartupSettlementRefused(str(exc)) from exc
+
             self.event_sink("startup_settlement_started", {
                 "fleet_id": fleet_id,
                 "snapshot_screen": screen.state,
@@ -889,14 +1322,38 @@ class ContinuousSettlementController:
             steps: list[tuple[str, str]] = []
             current_screen = displayed
             if current_screen == "HOME_PORT_RETURN_NOTICE":
-                current_screen = self._advance_visible(
-                    fleet_id, "RETURN_RESULT",
-                    ui_call=lambda: self.ui_driver.collect_return_result(fleet_id=fleet_id),
-                    steps=steps,
-                    confirm_fn=lambda: self._confirm_phase(
-                        fleet_id, FleetPhase.RETURNED_PENDING_UI, "RETURN_RESULT"
-                    ),
-                )
+                try:
+                    current_screen = self._advance_visible(
+                        fleet_id, "RETURN_RESULT",
+                        ui_call=lambda: self.ui_driver.collect_return_result(fleet_id=fleet_id),
+                        steps=steps,
+                        confirm_fn=lambda: self._confirm_phase(
+                            fleet_id, FleetPhase.RETURNED_PENDING_UI, "RETURN_RESULT"
+                        ),
+                    )
+                    if mission_result_capture_session is not None:
+                        witness_verdict = self._capture_and_validate_mission_result(
+                            fleet_id=fleet_id,
+                            identity=dispatch_identity,
+                            session=mission_result_capture_session,
+                        )
+                        mission_result_capture_session = None
+                        if witness_verdict.witness is None or mission_result_inventory_baseline is None:
+                            raise ContinuousSettlementError(
+                                "mission-result witness or inventory baseline is missing"
+                            )
+                        inventory_verdict = self._verify_reward_inventory(
+                            fleet_id=fleet_id,
+                            identity=dispatch_identity,
+                            before=mission_result_inventory_baseline,
+                            witness=witness_verdict.witness,
+                        )
+                except Exception as exc:
+                    if mission_result_capture_session is not None:
+                        mission_result_capture_session.cancel()
+                    if isinstance(exc, StartupSettlementRefused):
+                        raise
+                    raise StartupSettlementRefused(str(exc)) from exc
             if current_screen == "RETURN_RESULT":
                 current_screen = self._advance_visible(
                     fleet_id, "BONUS_ITEMS",
@@ -973,6 +1430,7 @@ class ContinuousSettlementController:
                 recovered_from_blocked=recovered,
                 recovery_reason=recovery_reason,
                 witness_verdict=witness_verdict,
+                inventory_verdict=inventory_verdict,
             )
 
     # -- durable dispatch attribution ---------------------------------------

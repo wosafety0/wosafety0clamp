@@ -203,6 +203,8 @@ class ContinuousDispatchController:
         audit_gate: Callable[[], None] | None = None,
         dispatch_registry: SqliteDispatchRegistry | None = None,
         dispatch_source: str = "supervisor",
+        mission_name_resolver: Callable[[int], str] | None = None,
+        require_mission_name: bool = False,
     ) -> None:
         if set(mission_requirements) != set(scheduler.dispatch_fleet_ids):
             raise ValueError("mission_requirements must configure every and only dispatchable fleet")
@@ -239,6 +241,15 @@ class ContinuousDispatchController:
             raise ValueError("dispatch_registry must be a SqliteDispatchRegistry or None")
         if not isinstance(dispatch_source, str) or not dispatch_source.strip():
             raise ValueError("dispatch_source must be a non-empty string")
+        if mission_name_resolver is not None and not callable(mission_name_resolver):
+            raise ValueError("mission_name_resolver must be callable or None")
+        if type(require_mission_name) is not bool:
+            raise ValueError("require_mission_name must be a bool")
+        if require_mission_name:
+            if dispatch_registry is None:
+                raise ValueError("required mission name needs the durable dispatch registry")
+            if mission_name_resolver is None:
+                raise ValueError("required mission name needs a Poi master-data resolver")
         for label, value in (
             ("unlocked_fleet_ids", unlocked_fleet_ids),
             ("dispatchable_fleet_ids", dispatchable_fleet_ids),
@@ -265,6 +276,8 @@ class ContinuousDispatchController:
         self.audit_gate = audit_gate
         self.dispatch_registry = dispatch_registry
         self.dispatch_source = dispatch_source.strip()
+        self.mission_name_resolver = mission_name_resolver
+        self.require_mission_name = require_mission_name
 
     def dispatch_one_ready(
         self, fleet_id: int, *, dispatch_id: str | None = None
@@ -529,12 +542,48 @@ class ContinuousDispatchController:
         """
         if self.dispatch_registry is None:
             return
+        quest_name = None
+        if self.mission_name_resolver is not None:
+            try:
+                quest_name = self.mission_name_resolver(intent.mission_id)
+            except Exception as exc:
+                self.event_sink("dispatch_mission_name_lookup_failed", {
+                    "dispatch_id": dispatch_id,
+                    "fleet_id": intent.fleet_id,
+                    "mission_id": intent.mission_id,
+                    "error_type": type(exc).__name__,
+                    "game_input_sent": False,
+                    "game_api_requests": False,
+                })
+                if self.require_mission_name:
+                    raise ContinuousDispatchError(
+                        "Poi master-data mission name lookup failed before dispatch"
+                    ) from exc
+        if self.require_mission_name and (
+            not isinstance(quest_name, str) or not quest_name.strip()
+        ):
+            raise ContinuousDispatchError(
+                "Poi master-data lookup did not provide a mission name before dispatch"
+            )
+        if isinstance(quest_name, str):
+            quest_name = quest_name.strip() or None
+        if quest_name is not None:
+            self.event_sink("dispatch_mission_name_resolved", {
+                "dispatch_id": dispatch_id,
+                "fleet_id": intent.fleet_id,
+                "mission_id": intent.mission_id,
+                "quest_name": quest_name,
+                "source": "poi_lookup(kind=missions)",
+                "game_input_sent": False,
+                "game_api_requests": False,
+            })
         self.dispatch_registry.record_intent(
             DispatchIdentity(
                 dispatch_id=dispatch_id,
                 fleet_id=intent.fleet_id,
                 mission_id=intent.mission_id,
                 ship_ids=tuple(intent.ship_ids),
+                quest_name=quest_name,
                 intent_persisted_at=self.clock(),
                 status="pending",
                 task_kind=getattr(self.dispatch_registry, "task_kind", None),
@@ -553,10 +602,12 @@ class ContinuousDispatchController:
         """
         if self.dispatch_registry is None:
             return
+        identity = self.dispatch_registry.get(dispatch_id)
         self.dispatch_registry.record_confirmed(
             dispatch_id,
             confirmed_at=self.clock(),
             final_time_ms=mission.final_time_ms,
+            quest_name=identity.quest_name if identity is not None else None,
         )
 
     def _mark_dispatch_outcome_unknown(self, dispatch_id: str, error: Exception) -> None:

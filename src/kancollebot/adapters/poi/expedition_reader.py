@@ -13,6 +13,7 @@ from kancollebot.adapters.poi.expedition_state_v2 import PoiStateError, normaliz
 from kancollebot.adapters.poi.mcp_client import PoiMcpClient, PoiMcpError
 from kancollebot.adapters.poi.port_freshness import port_snapshot_matches_current_state
 from kancollebot.core.observed_state import ObservedState
+from kancollebot.core.reward_inventory import RewardInventorySnapshot, RewardInventoryError
 from kancollebot.core.observation_contracts import ObservedFleetSnapshot
 
 from .requirement_evidence import (
@@ -87,6 +88,7 @@ class PoiExpeditionReader:
         self._freshness_max_age = freshness_max_age
         self._initialized = False
         self._fleets_description_validated = False
+        self._mission_name_cache: dict[int, str] = {}
 
     def _ensure_ready(self) -> None:
         health = self._client.health()
@@ -336,6 +338,89 @@ class PoiExpeditionReader:
                 if isinstance(field_value, bool) or not isinstance(field_value, int) or field_value < 0:
                     raise PoiMcpError(f"Master ship record {master_id} has invalid {field}")
         return items
+
+    def lookup_mission_name(self, mission_id: int) -> str:
+        """Resolve the game's exact expedition name through Poi's existing master-data API."""
+        if isinstance(mission_id, bool) or not isinstance(mission_id, int) or mission_id < 1:
+            raise PoiMcpError("mission id must be a positive integer")
+        cached = self._mission_name_cache.get(mission_id)
+        if cached is not None:
+            return cached
+        self._ensure_ready()
+        result = _tool_value(
+            self._client.call_read_tool(
+                "poi_lookup",
+                {"kind": "missions", "ids": [mission_id], "select": ["api_name"]},
+            ),
+            "poi_lookup(missions)",
+        )
+        if not isinstance(result, dict) or set(result) != {str(mission_id)}:
+            raise PoiMcpError(
+                f"Poi mission lookup did not return exactly mission {mission_id}"
+            )
+        record = result.get(str(mission_id))
+        if not isinstance(record, dict):
+            raise PoiMcpError(f"Poi mission lookup omitted mission {mission_id}")
+        name = record.get("api_name")
+        if not isinstance(name, str) or not name.strip():
+            raise PoiMcpError(f"Poi mission {mission_id} has no valid api_name")
+        normalized = name.strip()
+        self._mission_name_cache[mission_id] = normalized
+        return normalized
+
+    def read_reward_inventory(self) -> RewardInventorySnapshot:
+        """Read a complete, read-only Poi material and useitem inventory snapshot."""
+        self._ensure_ready()
+        resources_value = _tool_value(
+            self._client.call_read_tool(
+                "poi_get", {"path": "info.resources", "limit": 16}
+            ),
+            "poi_get(info.resources)",
+        )
+        resources = self._collection_items(
+            resources_value, "info.resources", expected_kind="array"
+        )
+        if len(resources) != 8 or any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in resources
+        ):
+            raise PoiMcpError("Poi info.resources must contain eight non-negative integers")
+
+        useitems_value = _tool_value(
+            self._client.call_read_tool(
+                "poi_get",
+                {
+                    "path": "info.useitems",
+                    "limit": 1000,
+                    "select": ["api_id", "api_count"],
+                },
+            ),
+            "poi_get(info.useitems)",
+        )
+        useitems = self._collection_items(
+            useitems_value, "info.useitems", expected_kind="object-map"
+        )
+        normalized_items: list[tuple[int, int]] = []
+        for key, item in useitems.items():
+            if not isinstance(key, str) or not key.isdigit() or not isinstance(item, dict):
+                raise PoiMcpError("Poi info.useitems contains a malformed object-map row")
+            item_id = item.get("api_id")
+            count = item.get("api_count")
+            if (
+                isinstance(item_id, bool) or not isinstance(item_id, int) or item_id < 1
+                or str(item_id) != key
+                or isinstance(count, bool) or not isinstance(count, int) or count < 0
+            ):
+                raise PoiMcpError("Poi info.useitems contains an invalid ID/count pair")
+            normalized_items.append((item_id, count))
+        try:
+            return RewardInventorySnapshot(
+                observed_at=self._clock(),
+                resources=tuple(resources),
+                useitems=tuple(sorted(normalized_items)),
+            )
+        except RewardInventoryError as exc:
+            raise PoiMcpError(f"Poi reward inventory snapshot is invalid: {exc}") from exc
 
     def read_fleets(self) -> ObservedState[tuple[ObservedFleetSnapshot, ...]]:
         """Read fleet and ship instances, then lookup only referenced master records."""

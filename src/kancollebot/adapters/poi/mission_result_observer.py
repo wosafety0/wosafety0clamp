@@ -119,6 +119,135 @@ def _normalize_reward_receipt(value: object) -> dict[str, Any]:
     }
 
 
+class MissionResultObserverError(RuntimeError):
+    """The passive result observer could not be armed safely."""
+
+
+class MissionResultObserverSession:
+    """One armed child process whose lifetime is owned by one settlement."""
+
+    _ARMED_MARKER = (
+        "Network observer armed; waiting for a natural expedition result response."
+    )
+
+    def __init__(self, observer: "PassiveMissionResultObserver", process: subprocess.Popen[str]):
+        self._observer = observer
+        self._process = process
+        self._command = list(process.args) if isinstance(process.args, (list, tuple)) else [str(process.args)]
+        self._stdout: list[str] = []
+        self._stderr: list[str] = []
+        self._lock = threading.Lock()
+        self._armed = threading.Event()
+        self._stdout_closed = threading.Event()
+        self._consumed = False
+        self._stdout_thread = threading.Thread(
+            target=self._read_stdout, name="mission-result-observer-stdout", daemon=True
+        )
+        self._stderr_thread = threading.Thread(
+            target=self._read_stderr, name="mission-result-observer-stderr", daemon=True
+        )
+        self._stdout_thread.start()
+        self._stderr_thread.start()
+
+    @property
+    def is_armed(self) -> bool:
+        return self._armed.is_set()
+
+    def wait_until_armed(self, timeout_seconds: float) -> None:
+        if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+            raise ValueError("arm timeout must be finite and positive")
+        deadline = time.monotonic() + timeout_seconds
+        while not self._armed.is_set():
+            if self._process.poll() is not None:
+                self._finish_readers()
+                self._consume_output()
+                raise MissionResultObserverError(
+                    f"observer exited before arming ({self._observer.last_status})"
+                )
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self.cancel()
+                self._observer.last_status = "arm_timeout"
+                raise MissionResultObserverError("observer did not prove Network.enable was armed")
+            self._armed.wait(min(0.05, remaining))
+
+    def wait(self, *, timeout_seconds: float | None = None) -> dict[str, Any] | None:
+        if self._consumed:
+            raise MissionResultObserverError("observer session result was already consumed")
+        timeout = self._observer.timeout_seconds if timeout_seconds is None else timeout_seconds
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("result timeout must be finite and positive")
+        deadline = time.monotonic() + timeout
+        while self._process.poll() is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self.cancel()
+                self._observer.last_status = "process_timeout"
+                self._consumed = True
+                return None
+            self._stdout_closed.wait(min(0.05, remaining))
+        self._process.wait()
+        self._finish_readers()
+        self._consumed = True
+        return self._consume_output()
+
+    def cancel(self) -> None:
+        if self._process.poll() is None:
+            try:
+                self._process.terminate()
+                self._process.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+                self._process.wait()
+            except OSError:
+                pass
+        self._finish_readers()
+        self._consumed = True
+        self._observer.last_status = "cancelled"
+
+    def _read_stdout(self) -> None:
+        try:
+            stream = self._process.stdout
+            if stream is None:
+                return
+            for line in stream:
+                with self._lock:
+                    self._stdout.append(line)
+                if self._ARMED_MARKER in line:
+                    self._armed.set()
+        finally:
+            self._stdout_closed.set()
+
+    def _read_stderr(self) -> None:
+        stream = self._process.stderr
+        if stream is None:
+            return
+        for line in stream:
+            with self._lock:
+                self._stderr.append(line)
+
+    def _finish_readers(self) -> None:
+        self._stdout_closed.wait(1.0)
+        for thread in (self._stdout_thread, self._stderr_thread):
+            if thread is not threading.current_thread():
+                thread.join(timeout=1.0)
+        for stream in (self._process.stdout, self._process.stderr):
+            if stream is not None:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+
+    def _consume_output(self) -> dict[str, Any] | None:
+        with self._lock:
+            stdout = "".join(self._stdout)
+            stderr = "".join(self._stderr)
+        result = subprocess.CompletedProcess(
+            self._command, self._process.returncode, stdout, stderr
+        )
+        return self._observer._consume_result(result)
+
+
 class PassiveMissionResultObserver:
     """One-shot passive observer wrapper; no observer is started by default."""
 
@@ -138,6 +267,47 @@ class PassiveMissionResultObserver:
         self.timeout_seconds = timeout_seconds
         self.last_status = "not_started"
         self.last_detail: dict[str, Any] | None = None
+
+    def arm(self, *, arm_timeout_seconds: float = 10.0) -> MissionResultObserverSession:
+        """Start the passive observer and return only after its Network listener is armed."""
+        self.last_detail = None
+        script = self.script_path.resolve()
+        if not script.is_file():
+            self.last_status = "script_missing"
+            raise MissionResultObserverError("mission-result observer script is missing")
+
+        env = child_environment(self.timeout_seconds)
+        command = [
+            self.node_executable,
+            "-e",
+            "require(process.argv[1])()",
+            str(script),
+        ]
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=str(script.parent),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+            )
+        except OSError as exc:
+            self.last_status = "launch_failed"
+            raise MissionResultObserverError("mission-result observer failed to launch") from exc
+
+        session = MissionResultObserverSession(self, process)
+        try:
+            session.wait_until_armed(arm_timeout_seconds)
+        except Exception:
+            if process.poll() is None:
+                session.cancel()
+            raise
+        self.last_status = "armed"
+        return session
 
     def capture(self) -> dict[str, Any] | None:
         """Wait for one natural result exchange; return its witness or None."""

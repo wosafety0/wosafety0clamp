@@ -24,6 +24,7 @@ from kancollebot.calibration import (
     RowLocation,
 )
 from kancollebot.core.observed_state import ObservedState
+from kancollebot.core.reward_inventory import RewardInventorySnapshot
 from kancollebot.expeditions.continuous_monitor import ContinuousExpeditionMonitor
 from kancollebot.expeditions.continuous_scheduler import (
     ContinuousExpeditionScheduler,
@@ -40,6 +41,20 @@ class FakeReader:
         self.snapshots = list(snapshots)
         self.fresh = fresh
         self.read_count = 0
+        self.mission_name_lookups = []
+
+    def lookup_mission_name(self, mission_id):
+        self.mission_name_lookups.append(mission_id)
+        return {1: "????", 3: "????"}.get(
+            mission_id, f"?????{mission_id}"
+        )
+
+    def read_reward_inventory(self):
+        return RewardInventorySnapshot(
+            observed_at=datetime.now(timezone.utc),
+            resources=(0, 0, 0, 0, 0, 0, 0, 0),
+            useitems=(),
+        )
 
     def read_fleets(self):
         self.read_count += 1

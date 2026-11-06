@@ -1486,8 +1486,12 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
     from kancollebot.adapters.poi.continuous_expedition_ui import (
         CdpContinuousExpeditionUiDriver,
     )
+    from kancollebot.adapters.poi.mission_result_observer import (
+        PassiveMissionResultObserver,
+    )
     from kancollebot.expeditions.continuous_dispatch_controller import (
         ContinuousDispatchController,
+        SqliteDispatchEventLog,
         UiStateEvidence,
     )
     from kancollebot.expeditions.continuous_monitor import ContinuousMonitorError
@@ -1505,6 +1509,8 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
         ContinuousExpeditionSupervisor,
     )
     from kancollebot.expeditions.startup_settlement import StartupSettlementRefused
+    from kancollebot.expeditions.mission_result_witness import latest_witness_for_fleet
+    from kancollebot.core.reward_inventory import latest_reward_inventory_baseline_for_fleet
     from kancollebot.expeditions.port_supply_provider import (
         PoiReduxFleetSupplyProvider,
     )
@@ -1533,7 +1539,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
             if len(target_fleet_ids) == 1
             else "-".join(str(f) for f in target_fleet_ids)
         )
-        multi_fleet = args.fleet_id is None
+        multi_fleet = args.fleet_id is None or len(target_fleet_ids) != 1
         drain_requested = getattr(args, "global_drain", False) is True
         # Multi-fleet mode dispatches several fleets at once, so two of them
         # can return together. The per-fleet settlement barrier cannot absorb
@@ -1544,6 +1550,11 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 "all-fleets mode dispatches multiple fleets concurrently; "
                 "simultaneous returns require --global-drain, which is not set. "
                 "Pass --global-drain, or use --fleet-id for a single fleet."
+            )
+        if multi_fleet:
+            raise LoopError(
+                "production reward-witness capture is currently single-fleet only; "
+                "pass --fleet-id and --mission-id"
             )
         for fleet_id, mission_id in mission_map.items():
             expedition_id = DEFAULT_CATALOG.number_of_mission_id(mission_id)
@@ -1718,6 +1729,25 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 args.database,
                 task_kind=RUNTIME_CONFIG.dispatch_policy_task_kind,
             )
+            # The result observer is armed by the settlement controller before
+            # the result-notice click. It reads only the client's natural
+            # /api_req_mission/result exchange; it never creates a request.
+            mission_result_observer = PassiveMissionResultObserver(
+                ROOT / "tools" / "hand_sandbox" / "poi_mission_result_observer_20261105.js",
+                timeout_seconds=130.0,
+            )
+            mission_result_event_log = SqliteDispatchEventLog(str(args.database))
+
+            def load_mission_result_witness(fleet_id: int):
+                return latest_witness_for_fleet(
+                    mission_result_event_log.load_all(), fleet_id
+                )
+
+            def load_reward_inventory_baseline(fleet_id: int, dispatch_id: str):
+                return latest_reward_inventory_baseline_for_fleet(
+                    mission_result_event_log.load_all(), fleet_id, dispatch_id
+                )
+
             # One arbiter for every visible click in this process. The refresh
             # driver, the dispatch controller, the settlement controller and the
             # resupply controller must exclude one another, or two of them could
@@ -1771,6 +1801,8 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     audit_gate=audit_gate(runtime.monitor.event_sink),
                     dispatch_registry=dispatch_registry,
                     dispatch_source="supervisor",
+                    mission_name_resolver=runtime.monitor.state_reader.lookup_mission_name,
+                    require_mission_name=True,
                 )
             # R3: the settlement and resupply controllers are the two branches
             # supervisor.tick() could never reach while they were absent. They
@@ -1808,6 +1840,12 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     # Same gate as dispatch: a settlement that cannot be
                     # recorded must not click a reward chain.
                     audit_gate=audit_gate(runtime.monitor.event_sink),
+                    mission_result_observer=mission_result_observer,
+                    mission_result_witness_loader=load_mission_result_witness,
+                    require_mission_result_witness=True,
+                    mission_name_resolver=runtime.monitor.state_reader.lookup_mission_name,
+                    reward_inventory_provider=runtime.monitor.state_reader.read_reward_inventory,
+                    reward_inventory_baseline_loader=load_reward_inventory_baseline,
                 )
             else:
                 _print_event(

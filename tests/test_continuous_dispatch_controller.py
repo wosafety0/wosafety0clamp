@@ -23,6 +23,10 @@ from kancollebot.expeditions.expedition_requirement_checker import (
     ExpeditionRequirementChecker,
 )
 from kancollebot.expeditions.fleet_state_store import SqliteFleetStateStore
+from kancollebot.expeditions.dispatch_registry import (
+    SqliteDispatchRegistry,
+    new_dispatch_id,
+)
 from kancollebot.expeditions.mission_eligibility import MissionCompositionRequirement
 from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
 
@@ -172,6 +176,9 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
         requirement_checker=None,
         unlocked_fleet_ids=None,
         dispatchable_fleet_ids=None,
+        dispatch_registry=None,
+        mission_name_resolver=None,
+        require_mission_name=False,
     ):
         db_path = Path(directory) / "state.sqlite3"
         scheduler = ContinuousExpeditionScheduler(
@@ -198,6 +205,9 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
             requirement_checker=requirement_checker,
             unlocked_fleet_ids=unlocked_fleet_ids,
             dispatchable_fleet_ids=dispatchable_fleet_ids,
+            dispatch_registry=dispatch_registry,
+            mission_name_resolver=mission_name_resolver,
+            require_mission_name=require_mission_name,
         )
         return controller, scheduler, intent_store, events
 
@@ -615,6 +625,64 @@ class ContinuousDispatchControllerTests(unittest.TestCase):
             with self.assertRaisesRegex(ContinuousDispatchError, "Poi Redux"):
                 controller.dispatch_one_ready(2)
             self.assertEqual(ui.dispatches, [])
+
+
+    def test_required_mission_name_is_persisted_before_dispatch_click(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "state.sqlite3"
+            registry = SqliteDispatchRegistry(db_path, task_kind="expedition")
+            controller, _, _, events = self.make_controller(
+                directory,
+                FakeReader(),
+                FakeUi(),
+                dispatch_registry=registry,
+                mission_name_resolver=lambda mission_id: "????",
+                require_mission_name=True,
+            )
+            dispatch_id = new_dispatch_id()
+            intent = type("Intent", (), {
+                "fleet_id": 2,
+                "mission_id": 1,
+                "ship_ids": (1, 2),
+            })()
+            controller._persist_dispatch_identity(dispatch_id, intent)
+            record = registry.get(dispatch_id)
+        self.assertEqual(record.quest_name, "????")
+        self.assertEqual(record.status, "pending")
+        names = [name for name, _ in events]
+        self.assertIn("dispatch_mission_name_resolved", names)
+
+    def test_required_mission_name_lookup_failure_refuses_to_persist_dispatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "state.sqlite3"
+            registry = SqliteDispatchRegistry(db_path, task_kind="expedition")
+
+            def fail_lookup(mission_id):
+                raise RuntimeError("Poi lookup unavailable")
+
+            controller, _, _, events = self.make_controller(
+                directory,
+                FakeReader(),
+                FakeUi(),
+                dispatch_registry=registry,
+                mission_name_resolver=fail_lookup,
+                require_mission_name=True,
+            )
+            dispatch_id = new_dispatch_id()
+            intent = type("Intent", (), {
+                "fleet_id": 2,
+                "mission_id": 1,
+                "ship_ids": (1, 2),
+            })()
+            with self.assertRaisesRegex(
+                ContinuousDispatchError, "mission name lookup failed before dispatch"
+            ):
+                controller._persist_dispatch_identity(dispatch_id, intent)
+            self.assertIsNone(registry.get(dispatch_id))
+        self.assertIn(
+            "dispatch_mission_name_lookup_failed",
+            [name for name, _ in events],
+        )
 
 
 class R3IRequirementGateTests(unittest.TestCase):

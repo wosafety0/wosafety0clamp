@@ -578,5 +578,83 @@ class RequirementEvidenceReaderTests(unittest.TestCase):
             self.assertNotIn("api_slot", select)
 
 
+class PoiMissionNameLookupTests(unittest.TestCase):
+    def test_mission_name_is_resolved_through_existing_poi_lookup_and_cached(self):
+        client = FakeClient(lookup={"3": {"api_name": "????"}})
+        reader = PoiExpeditionReader(client=client, clock=lambda: NOW)
+        self.assertEqual(reader.lookup_mission_name(3), "????")
+        self.assertEqual(reader.lookup_mission_name(3), "????")
+        calls = [args for name, args in client.calls if name == "poi_lookup"]
+        self.assertEqual(
+            calls,
+            [{"kind": "missions", "ids": [3], "select": ["api_name"]}],
+        )
+
+    def test_missing_mission_name_is_rejected(self):
+        client = FakeClient(lookup={"3": {"api_id": 3}})
+        reader = PoiExpeditionReader(client=client, clock=lambda: NOW)
+        with self.assertRaisesRegex(PoiMcpError, "no valid api_name"):
+            reader.lookup_mission_name(3)
+
+    def test_invalid_mission_id_is_rejected_before_mcp_call(self):
+        client = FakeClient()
+        reader = PoiExpeditionReader(client=client, clock=lambda: NOW)
+        with self.assertRaises(PoiMcpError):
+            reader.lookup_mission_name(True)
+        self.assertEqual(client.calls, [])
+
+
+class PoiRewardInventoryReaderTests(unittest.TestCase):
+    def payloads(self):
+        value = sample_payloads()
+        value["info.resources"] = {
+            "kind": "array", "total": 8, "returned": 8, "truncated": False,
+            "items": [100, 200, 300, 400, 5, 6, 7, 8],
+        }
+        value["info.useitems"] = {
+            "kind": "object-map", "total": 2, "returned": 2, "truncated": False,
+            "items": {
+                "6": {"api_id": 6, "api_count": 2},
+                "10": {"api_id": 10, "api_count": 4},
+            },
+        }
+        return value
+
+    def test_reads_complete_resources_and_useitems_through_existing_mcp_client(self):
+        client = FakeClient(payloads=self.payloads())
+        reader = PoiExpeditionReader(client=client, clock=lambda: NOW)
+        snapshot = reader.read_reward_inventory()
+        self.assertEqual(snapshot.observed_at, NOW)
+        self.assertEqual(snapshot.resources, (100, 200, 300, 400, 5, 6, 7, 8))
+        self.assertEqual(snapshot.useitems, ((6, 2), (10, 4)))
+        self.assertEqual(
+            [args["path"] for name, args in client.calls if name == "poi_get"],
+            ["info.resources", "info.useitems"],
+        )
+
+    def test_truncated_useitem_inventory_is_rejected(self):
+        payloads = self.payloads()
+        payloads["info.useitems"]["truncated"] = True
+        reader = PoiExpeditionReader(client=FakeClient(payloads=payloads), clock=lambda: NOW)
+        with self.assertRaisesRegex(PoiMcpError, "truncated"):
+            reader.read_reward_inventory()
+
+    def test_useitem_object_key_must_match_api_id(self):
+        payloads = self.payloads()
+        payloads["info.useitems"]["items"]["6"]["api_id"] = 7
+        reader = PoiExpeditionReader(client=FakeClient(payloads=payloads), clock=lambda: NOW)
+        with self.assertRaisesRegex(PoiMcpError, "invalid ID/count"):
+            reader.read_reward_inventory()
+
+    def test_resources_must_be_exactly_eight_nonnegative_integers(self):
+        payloads = self.payloads()
+        payloads["info.resources"]["items"] = [100, 200, 300, 400]
+        payloads["info.resources"]["total"] = 4
+        payloads["info.resources"]["returned"] = 4
+        reader = PoiExpeditionReader(client=FakeClient(payloads=payloads), clock=lambda: NOW)
+        with self.assertRaisesRegex(PoiMcpError, "eight non-negative integers"):
+            reader.read_reward_inventory()
+
+
 if __name__ == "__main__":
     unittest.main()

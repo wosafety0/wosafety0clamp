@@ -15,8 +15,10 @@ from kancollebot.expeditions.mission_result_witness import (
     cross_check_with_dispatch,
     evaluate_witness,
     latest_witness_for_fleet,
+    parse_observer_witness,
     parse_witness,
     read_witnesses,
+    reward_receipt_rejection_reason,
     witness_fields,
 )
 
@@ -387,6 +389,107 @@ class ResultReceiptAndCycleIdentityTests(unittest.TestCase):
             "items": [],
         }))
         self.assertEqual(parsed.reward_receipt.status, "incomplete")
+
+
+class ObserverEnvelopeAndRewardGateTests(unittest.TestCase):
+    def observer_payload(self, *, clear_result=2, host="w14h.kancolle-server.com",
+                         http_status=200, receipt_status="complete"):
+        return {
+            "schemaVersion": 1,
+            "source": {
+                "kind": "cdp-network-mission-result",
+                "path": "/kcsapi/api_req_mission/result",
+                "host": host,
+                "httpStatus": http_status,
+                "requestedAt": "2026-11-05T08:51:58.000Z",
+                "responseReceivedAt": "2026-11-05T08:51:59.000Z",
+            },
+            "data": {
+                "apiDeckId": FLEET,
+                "apiQuestName": "????",
+                "apiClearResult": clear_result,
+                "apiShipId": list(SHIPS),
+                "apiRewardReceipt": {
+                    "status": receipt_status,
+                    "material": [10, 20, 30, 40],
+                    "useitemFlags": [1, 0],
+                    "items": [{"slot": 1, "useitemId": 6, "useitemCount": 2}],
+                },
+            },
+            "safety": {
+                "gameInputSent": False,
+                "gameApiRequestInitiated": False,
+                "runtimeEvaluateUsed": False,
+                "rawRequestBodySaved": False,
+                "rawResponseBodySaved": False,
+            },
+        }
+
+    def test_observer_envelope_is_validated_and_normalized(self):
+        parsed = parse_observer_witness(self.observer_payload())
+        self.assertEqual(parsed.fleet_id, FLEET)
+        self.assertEqual(parsed.quest_name, "????")
+        self.assertEqual(parsed.result_kind, "great_success")
+        self.assertEqual(parsed.reward_receipt.status, "complete")
+        self.assertEqual(parsed.reward_receipt.material, (10, 20, 30, 40))
+        self.assertEqual(parsed.reward_receipt.items, ((1, 6, 2),))
+
+    def test_non_kancolle_host_is_rejected(self):
+        with self.assertRaises(MissionResultWitnessError):
+            parse_observer_witness(self.observer_payload(host="example.com"))
+
+    def test_non_200_result_is_rejected(self):
+        with self.assertRaises(MissionResultWitnessError):
+            parse_observer_witness(self.observer_payload(http_status=503))
+
+    def test_missing_safety_flag_is_rejected(self):
+        payload = self.observer_payload()
+        del payload["safety"]["rawResponseBodySaved"]
+        with self.assertRaises(MissionResultWitnessError):
+            parse_observer_witness(payload)
+
+    def test_success_requires_complete_reward_receipt(self):
+        complete = parse_observer_witness(self.observer_payload())
+        incomplete = parse_observer_witness(
+            self.observer_payload(receipt_status="incomplete")
+        )
+        self.assertIsNone(reward_receipt_rejection_reason(complete))
+        self.assertEqual(
+            reward_receipt_rejection_reason(incomplete),
+            "witness_reward_receipt_incomplete",
+        )
+
+    def test_failure_accepts_only_explicit_no_reward_receipt(self):
+        failed = parse_observer_witness(
+            self.observer_payload(clear_result=0, receipt_status="no_reward")
+        )
+        malformed = parse_observer_witness(
+            self.observer_payload(clear_result=0, receipt_status="incomplete")
+        )
+        self.assertEqual(failed.result_kind, "failure")
+        self.assertIsNone(reward_receipt_rejection_reason(failed))
+        self.assertEqual(
+            reward_receipt_rejection_reason(malformed),
+            "witness_failure_receipt_invalid",
+        )
+
+    def test_unknown_result_code_is_never_accepted(self):
+        unknown = parse_observer_witness(
+            self.observer_payload(clear_result=9, receipt_status="unknown")
+        )
+        self.assertEqual(
+            reward_receipt_rejection_reason(unknown),
+            "witness_result_unknown",
+        )
+
+    def test_success_without_receipt_is_rejected(self):
+        payload = self.observer_payload()
+        del payload["data"]["apiRewardReceipt"]
+        parsed = parse_observer_witness(payload)
+        self.assertEqual(
+            reward_receipt_rejection_reason(parsed),
+            "witness_reward_receipt_missing",
+        )
 
 
 if __name__ == "__main__":

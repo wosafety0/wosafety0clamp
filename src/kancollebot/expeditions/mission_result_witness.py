@@ -235,6 +235,99 @@ def parse_witness(fields: Mapping[str, object]) -> MissionResultWitness:
     )
 
 
+def parse_observer_witness(value: object) -> MissionResultWitness:
+    """Validate the passive CDP envelope, then normalize its allowlisted fields."""
+    if not isinstance(value, Mapping):
+        raise MissionResultWitnessError("observer witness must be a mapping")
+    source = value.get("source")
+    data = value.get("data")
+    safety = value.get("safety")
+    if not isinstance(source, Mapping) or not isinstance(data, Mapping):
+        raise MissionResultWitnessError("observer witness source/data is missing")
+    if source.get("kind") != "cdp-network-mission-result":
+        raise MissionResultWitnessError("observer witness is not a mission-result response")
+    if source.get("path") != "/kcsapi/api_req_mission/result":
+        raise MissionResultWitnessError("observer witness path is not the mission-result endpoint")
+    host = source.get("host")
+    if not isinstance(host, str):
+        raise MissionResultWitnessError("observer witness host is missing")
+    normalized_host = host.lower().rstrip(".")
+    if not (
+        normalized_host == "kancolle-server.com"
+        or normalized_host.endswith(".kancolle-server.com")
+    ):
+        raise MissionResultWitnessError("observer witness host is not a Kancolle server")
+    if type(source.get("httpStatus")) is not int or source["httpStatus"] != 200:
+        raise MissionResultWitnessError("observer witness is not an HTTP 200 response")
+    requested_at = _parse_timestamp(source.get("requestedAt"))
+    response_received_at = _parse_timestamp(source.get("responseReceivedAt"))
+    if requested_at is None or response_received_at is None:
+        raise MissionResultWitnessError("observer witness request/response timestamps are incomplete")
+    if response_received_at < requested_at:
+        raise MissionResultWitnessError("observer witness response predates its request")
+    required_safety_flags = (
+        "gameInputSent",
+        "gameApiRequestInitiated",
+        "runtimeEvaluateUsed",
+        "rawRequestBodySaved",
+        "rawResponseBodySaved",
+    )
+    if not isinstance(safety, Mapping) or any(
+        safety.get(flag) is not False for flag in required_safety_flags
+    ):
+        raise MissionResultWitnessError("observer witness safety flags are missing or unsafe")
+
+    receipt_value = data.get("apiRewardReceipt")
+    receipt = None
+    if isinstance(receipt_value, Mapping):
+        raw_items = receipt_value.get("items")
+        items = []
+        if isinstance(raw_items, list):
+            for item in raw_items:
+                if not isinstance(item, Mapping):
+                    items.append(item)
+                    continue
+                items.append({
+                    "slot": item.get("slot"),
+                    "useitem_id": item.get("useitemId"),
+                    "count": item.get("useitemCount"),
+                })
+        receipt = {
+            "status": receipt_value.get("status"),
+            "material": receipt_value.get("material"),
+            "useitem_flags": receipt_value.get("useitemFlags"),
+            "items": items if isinstance(raw_items, list) else raw_items,
+        }
+
+    return parse_witness({
+        "fleet_id": data.get("apiDeckId"),
+        "quest_name": data.get("apiQuestName"),
+        "clear_result": data.get("apiClearResult"),
+        "ship_ids": data.get("apiShipId"),
+        "requested_at": requested_at.isoformat(),
+        "response_received_at": response_received_at.isoformat(),
+        "reward_receipt": receipt,
+    })
+
+
+def reward_receipt_rejection_reason(
+    witness: MissionResultWitness | None,
+) -> str | None:
+    """Require a known result and a complete reward receipt before UI progression."""
+    if witness is None:
+        return "witness_missing"
+    if witness.result_kind == "unknown":
+        return "witness_result_unknown"
+    receipt = witness.reward_receipt
+    if receipt is None:
+        return "witness_reward_receipt_missing"
+    if witness.result_kind == "failure":
+        return None if receipt.status == "no_reward" else "witness_failure_receipt_invalid"
+    if receipt.status != "complete":
+        return "witness_reward_receipt_incomplete"
+    return None
+
+
 def read_witnesses(
     events: Iterable[Mapping[str, object]],
 ) -> tuple[MissionResultWitness, ...]:
