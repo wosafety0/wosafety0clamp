@@ -132,6 +132,55 @@ def _index(entries: dict[int, str], *, tab: int = 0) -> ExpeditionListIndex:
     return index
 
 
+    def test_tab_and_scroll_clicks_emit_critical_attempt_and_sent_rows(self) -> None:
+        fake = FakeList(9, tab=4)
+        events: list[tuple[str, dict[str, object]]] = []
+        session = ExpeditionListSession(
+            scan=fake.scan,
+            click=fake.click,
+            index=_index({8: "D1"}),
+            event_sink=lambda event, fields: events.append((event, dict(fields))),
+        )
+
+        location = session.locate_any_tab("D1")
+
+        self.assertEqual(location.tab, 0)
+        self.assertEqual(
+            [name for _, name in fake.clicks],
+            ["expedition-tab-1", "expedition-list-down"],
+        )
+        attempts = [fields["target"] for event, fields in events if event == "expedition_list_click_attempted"]
+        sent = [fields["target"] for event, fields in events if event == "expedition_list_click_sent"]
+        self.assertEqual(attempts, ["expedition-tab-1", "expedition-list-down"])
+        self.assertEqual(sent, attempts)
+
+    def test_audit_failure_before_tab_or_scroll_click_prevents_input(self) -> None:
+        def fail_attempt(event: str, fields: Mapping[str, object]) -> None:
+            if event == "expedition_list_click_attempted":
+                raise RuntimeError("audit unavailable")
+
+        tab_fake = FakeList(9, tab=4)
+        tab_session = ExpeditionListSession(
+            scan=tab_fake.scan,
+            click=tab_fake.click,
+            index=_index({8: "D1"}),
+            event_sink=fail_attempt,
+        )
+        with self.assertRaisesRegex(RuntimeError, "audit unavailable"):
+            tab_session.locate_any_tab("D1")
+        self.assertEqual(tab_fake.clicks, [])
+
+        scroll_fake = FakeList(9, tab=0)
+        scroll_session = ExpeditionListSession(
+            scan=scroll_fake.scan,
+            click=scroll_fake.click,
+            index=_index({8: "D1"}),
+            event_sink=fail_attempt,
+        )
+        with self.assertRaisesRegex(RuntimeError, "audit unavailable"):
+            scroll_session.locate("D1")
+        self.assertEqual(scroll_fake.clicks, [])
+
 class LocateOnFirstPageTests(unittest.TestCase):
     def test_a_row_on_the_first_page_needs_no_scroll(self) -> None:
         fake = FakeList(9)
