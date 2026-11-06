@@ -50,20 +50,23 @@ A successful click is not a successful dispatch. If the resulting server state c
 
 ### Step 3 — Wait for the expedition timer
 
-- While the fleet remains on an expedition and its timer has not expired, continue waiting; do not dispatch it again.
+- While the fleet remains on an expedition and its timer has not expired, put the controller/script into a real sleep for the remaining wait duration (or the next scheduled deadline). Do not poll Poi, inspect CDP state, capture screenshots, classify frames, or perform other read-only probes during this wait. Do not busy-loop.
 - When the timer expires, wait an additional **3 seconds** before starting the return-state refresh sequence.
-- Timer expiry means only that the system should check for a return. It does not prove that the fleet has returned, that settlement is pending, or that the result has been collected.
+- Timer expiry means only that the system should begin checking for a return. It does not prove that the fleet has returned, that settlement is pending, or that the result has been collected.
+- Wake early only for an explicitly supported external shutdown/cancellation signal; do not add periodic screenshot or state polling as a wake-up mechanism.
 
-Each fleet's waiting decision follows its own actual state and timer. A fleet that is still on an expedition must not block an unrelated idle fleet from being considered, subject to the shared UI being operated serially.
+Each fleet's waiting decision follows its own actual state and timer. A fleet that is still on an expedition must not block an unrelated idle fleet from being considered, subject to the shared UI being operated serially. If no other eligible work exists, sleep until the next fleet deadline rather than repeatedly sampling the screen or game state.
 
 ### Step 4 — Refresh the fleet state through Sortie → Home Port
 
 After the additional 3-second delay:
 
-1. Use the normal UI to click **出击 (Sortie)**.
-2. From the sortie screen, click **母港 (Home Port)** at the upper-left.
-3. Read the fleet state from Poi again, using a fresh observation.
-4. Check whether the target fleet is now in the pending-settlement state.
+1. Use the normal UI to enter **出击 (Sortie)**.
+2. Locate and activate the **母港 (Home Port)** control in the upper-left navigation area.
+3. Do not identify or click this control by a fixed coordinate alone. Use the expected navigation region as a search constraint, then recognize the button from visual characteristics such as its brightness, color distribution, contrast, and other stable appearance features. The button may be animated/rotating, so recognition must tolerate changes in orientation and animation frame rather than relying on one static template.
+4. Use a deliberately tolerant initial match threshold, then calibrate it against representative live frames. The relaxed threshold is a test hypothesis, not an already-proven setting: verify that it still distinguishes the Home Port control from nearby UI elements and animation/background changes before unattended use. Combine visual match with the expected page/context; do not click on a weak or ambiguous match.
+5. Read the fleet state from Poi again, using a fresh observation.
+6. Check whether the target fleet is now in the pending-settlement state.
 
 If the target fleet is **not** pending settlement:
 
@@ -129,8 +132,9 @@ READ FLEET STATE
                  └─ DISPATCH VIA UI
                       └─ CONFIRM SERVER STATE = ON EXPEDITION
                            └─ RECORD TIMESTAMP; START TIMER
-                                └─ TIMER EXPIRES; WAIT 3 SECONDS
-                                     └─ SORTIE -> HOME PORT
+                                └─ SLEEP UNTIL TIMER EXPIRES (NO SCREENSHOTS / POLLING)
+                                     └─ WAIT 3 SECONDS
+                                          └─ SORTIE -> VISUALLY RECOGNIZE HOME PORT CONTROL -> CLICK
                                           └─ READ FRESH POI STATE
                                                ├─ not pending -> repeat refresh
                                                └─ pending -> DRAIN ALL SETTLEMENTS
@@ -150,9 +154,21 @@ For each implementation stage, report separately:
 - which lifecycle steps are implemented;
 - which focused tests passed and what they cover;
 - whether the Poi freshness and UI state gates are integrated;
+- whether the expedition wait uses sleep without screenshot, CDP, or Poi polling;
+- whether the animated Home Port control is recognized using rotation-tolerant visual features (including brightness/color), and whether the relaxed threshold was tested against false matches;
 - whether the normal UI path was verified;
 - whether the complete lifecycle was reproduced in the live game.
 
 A navigation-only test is not a dispatch test. An offline test is not a live-game test. One successful live cycle does not prove repeated or multi-fleet stability.
 
 Any change to this business flow must update this document first or in the same change, explain the behavioral reason, and preserve the distinction between game mechanics and automation policy.
+
+
+## Change history
+
+### 2026-11-06 — Clarify idle waiting and animated Home Port recognition
+
+- During an active expedition timer wait, the script sleeps until the deadline; no periodic screenshots, CDP inspection, Poi reads, or other redundant read-only probes are performed.
+- After timer expiry, the existing additional 3-second delay remains.
+- Home Port navigation recognition is not coordinate-only: use the expected screen region plus rotation/animation-tolerant visual characteristics such as brightness and color.
+- A relaxed recognition threshold is to be calibrated and tested against live representative frames, including false-positive checks. It is not marked verified until those tests exist.
