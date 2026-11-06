@@ -308,6 +308,8 @@ class RunLogSink:
     # -- emit --------------------------------------------------------------
 
     def __call__(self, event: str, fields: Mapping[str, Any]) -> None:
+        if type(event) is not str:
+            raise TypeError("event must be a built-in str")
         critical = is_critical_event(event)
         if critical and self._degraded_reason is not None:
             # A later successful append cannot repair an earlier missing row.
@@ -507,6 +509,8 @@ class TeeEventSink:
         self._others = tuple(others)
 
     def __call__(self, event: str, fields: Mapping[str, Any]) -> None:
+        if type(event) is not str:
+            raise TypeError("event must be a built-in str")
         if is_critical_event(event):
             # Check every capable sink before the primary write. A known-degraded
             # secondary run log must not leave a misleading SQLite-only row.
