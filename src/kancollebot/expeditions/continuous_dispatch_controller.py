@@ -203,6 +203,7 @@ class ContinuousDispatchController:
         audit_gate: Callable[[], None] | None = None,
         dispatch_registry: SqliteDispatchRegistry | None = None,
         dispatch_source: str = "supervisor",
+        ledger_audit_only: bool = False,
     ) -> None:
         if set(mission_requirements) != set(scheduler.dispatch_fleet_ids):
             raise ValueError("mission_requirements must configure every and only dispatchable fleet")
@@ -264,6 +265,10 @@ class ContinuousDispatchController:
         self.passive_witness_wait_seconds = float(passive_witness_wait_seconds)
         self.audit_gate = audit_gate
         self.dispatch_registry = dispatch_registry
+        # P0 stateless: the ledger keeps writing audit rows but a failed write
+        # must never stop a dispatch the game already accepted. False restores
+        # the historical fail-closed contract verbatim.
+        self.ledger_audit_only = bool(ledger_audit_only)
         self.dispatch_source = dispatch_source.strip()
 
     def dispatch_one_ready(
@@ -522,27 +527,55 @@ class ContinuousDispatchController:
     def _persist_dispatch_identity(self, dispatch_id: str, intent) -> None:
         """Record the attempt before the irreversible input.
 
-        No registry wired means offline doubles keep working unchanged. With a
-        registry, a write failure propagates: an unrecorded dispatch must not
-        be sent, because the settlement half of the loop could never attribute
-        its result.
+        No registry wired means offline doubles keep working unchanged. In
+        strict-ledger mode a write failure propagates: an unrecorded dispatch
+        must not be sent. In stateless mode the ledger is an audit trail only,
+        so a failed write is logged and the dispatch continues - Poi decides
+        whether the expedition actually started.
         """
         if self.dispatch_registry is None:
             return
-        self.dispatch_registry.record_intent(
-            DispatchIdentity(
-                dispatch_id=dispatch_id,
-                fleet_id=intent.fleet_id,
-                mission_id=intent.mission_id,
-                ship_ids=tuple(intent.ship_ids),
-                intent_persisted_at=self.clock(),
-                status="pending",
-                task_kind=getattr(self.dispatch_registry, "task_kind", None),
-                source=self.dispatch_source,
-                action_completed_at=None,
-                detail="intent persisted before the expedition start click",
+        try:
+            self.dispatch_registry.record_intent(
+                DispatchIdentity(
+                    dispatch_id=dispatch_id,
+                    fleet_id=intent.fleet_id,
+                    mission_id=intent.mission_id,
+                    ship_ids=tuple(intent.ship_ids),
+                    intent_persisted_at=self.clock(),
+                    status="pending",
+                    task_kind=getattr(self.dispatch_registry, "task_kind", None),
+                    source=self.dispatch_source,
+                    action_completed_at=None,
+                    detail="intent persisted before the expedition start click",
+                )
             )
-        )
+        except Exception as exc:
+            if not self.ledger_audit_only:
+                raise
+            self._audit_ledger_failure("intent", dispatch_id, exc)
+
+    def _audit_ledger_failure(
+        self, phase: str, dispatch_id: str, error: Exception
+    ) -> None:
+        """Record a failed ledger write without stopping the expedition.
+
+        P0 stateless: the ledger is diagnostic only. A failed write must never
+        strand a dispatch that Poi can confirm, and must never be silent: the
+        row stays in the audit trail so the loss of evidence is visible.
+        """
+        try:
+            self.event_sink("dispatch_ledger_write_failed_audit_only", {
+                "phase": phase,
+                "dispatch_id": dispatch_id,
+                "error_type": type(error).__name__,
+                "ledger_authority": "audit_only",
+                "dispatch_blocked": False,
+                "game_api_requests": False,
+                "game_input_sent": False,
+            })
+        except Exception:
+            pass
 
     def _confirm_dispatch_identity(self, dispatch_id: str, mission) -> None:
         """Record Poi's confirmation of the active mission.
@@ -553,11 +586,16 @@ class ContinuousDispatchController:
         """
         if self.dispatch_registry is None:
             return
-        self.dispatch_registry.record_confirmed(
-            dispatch_id,
-            confirmed_at=self.clock(),
-            final_time_ms=mission.final_time_ms,
-        )
+        try:
+            self.dispatch_registry.record_confirmed(
+                dispatch_id,
+                confirmed_at=self.clock(),
+                final_time_ms=mission.final_time_ms,
+            )
+        except Exception as exc:
+            if not self.ledger_audit_only:
+                raise
+            self._audit_ledger_failure("confirmation", dispatch_id, exc)
 
     def _mark_dispatch_outcome_unknown(self, dispatch_id: str, error: Exception) -> None:
         """Record an attempt whose outcome was never proven.

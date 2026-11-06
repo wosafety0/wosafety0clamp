@@ -1597,8 +1597,21 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
 
     runtime = None
     witness_provider = None
+    # Strict identity, not truthiness: offline composition tests hand the
+    # composition root a MagicMock namespace whose unknown attributes are
+    # truthy and would otherwise silently enable stateless mode.
+    stateless = getattr(args, "stateless", False) is True
     try:
         target_fleet_ids, mission_map = _resolve_dispatch_plan(args)
+        if stateless:
+            _print_event(
+                "stateless_mode_enabled",
+                ledger_authority="audit_only",
+                reward_receipt_gate="disabled",
+                visual_click_gate="unchanged",
+                game_api_requests=False,
+                game_input_sent=False,
+            )
         target_fleet_id = target_fleet_ids[0]
         target_mission_id = mission_map[target_fleet_id]
         fleet_label = (
@@ -1746,7 +1759,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
             # observer script, the existing ``mission_result_observed`` row
             # format, the single-frame drain probe and the calibrated
             # fingerprint asset. No new template, screenshot or game request.
-            if getattr(args, "in_process_witness", False) is True:
+            if not stateless and getattr(args, "in_process_witness", False) is True:
                 from kancollebot.adapters.poi.mission_result_observer import (
                     PassiveMissionResultObserver,
                 )
@@ -1936,9 +1949,14 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     # proves the log is writable before an intent is persisted or
                     # a control is clicked. A sink without a probe yields None,
                     # which restores the historical behaviour exactly.
-                    audit_gate=audit_gate(runtime.monitor.event_sink),
+                    # P0 stateless: the run-log gate is an audit concern, not a
+                    # precondition for an expedition the game can confirm.
+                    audit_gate=(
+                        None if stateless else audit_gate(runtime.monitor.event_sink)
+                    ),
                     dispatch_registry=dispatch_registry,
                     dispatch_source="supervisor",
+                    ledger_audit_only=stateless,
                 )
             # R3: the settlement and resupply controllers are the two branches
             # supervisor.tick() could never reach while they were absent. They
@@ -1973,9 +1991,13 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     allow_ui_actions=True,
                     max_state_age=timedelta(seconds=args.max_state_age_seconds),
                     dispatch_registry=dispatch_registry,
-                    # Same gate as dispatch: a settlement that cannot be
-                    # recorded must not click a reward chain.
-                    audit_gate=audit_gate(runtime.monitor.event_sink),
+                    # P0 stateless: a settlement the game already accepted is
+                    # never vetoed by an audit write. The strict-ledger path
+                    # keeps the historical gate verbatim.
+                    audit_gate=(
+                        None if stateless else audit_gate(runtime.monitor.event_sink)
+                    ),
+                    ledger_audit_only=stateless,
                     # #134: the armed in-process observer is consumed at
                     # close-out. Optional: without it the controller behaves
                     # exactly as the previously verified production path.
@@ -2476,6 +2498,19 @@ def _main_impl(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--observer-timeout-seconds", type=float, default=RUNTIME_CONFIG.observer_timeout_seconds)
     parser.add_argument("--max-state-age-seconds", type=float, default=RUNTIME_CONFIG.max_state_age_seconds)
+    parser.add_argument(
+        "--stateless",
+        action="store_true",
+        default=False,
+        help=(
+            "P0 stateless control: Poi fleet state and the visible screen are "
+            "the only business facts. The dispatch ledger keeps writing audit "
+            "rows but cannot veto settlement, resupply or re-dispatch; the "
+            "in-process reward receipt observer is not armed and receipt "
+            "completeness is not a precondition. The 0.97/0.04 fingerprint "
+            "thresholds and the two-frame click gate are unchanged."
+        ),
+    )
     parser.add_argument(
         "--no-in-process-witness",
         dest="in_process_witness",

@@ -566,6 +566,101 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
             self.assertIsNotNone(provider.port_witness_provider)
             self.assertIs(provider.port_witness_provider, runtime.provider)
 
+    def test_stateless_mode_removes_ledger_vetoes_and_keeps_visual_gate(self):
+        """P0: prove the architecture change on the real production root.
+
+        --stateless keeps the Poi-driven loop runnable while demoting the
+        ledger to an audit trail and disabling the reward-receipt gate. The
+        two-frame visual click gate, the calibrated UI driver and the same
+        single supervisor stay wired; no new entry point and no ledger deletion.
+        """
+        return_at = datetime.now(timezone.utc) + timedelta(minutes=20)
+        idle = make_snapshot()
+        active = make_snapshot(status=1, mission_id=3, return_at=return_at)
+        runtime, _, _ = self.make_runtime([idle, idle, active, active])
+        marks = FakeMarks(selected=2)
+        real_supervisor = supervisor_module.ContinuousExpeditionSupervisor
+
+        def capture_real_supervisor(*pos, **kw):
+            return real_supervisor(*pos, **kw)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "production" / "state.sqlite3"
+            database.parent.mkdir(parents=True)
+            args = self.make_args(database)
+            args.stateless = True
+            # Explicitly request the observer anyway: stateless mode must win.
+            args.in_process_witness = True
+            game_session = MagicMock()
+            game_input = FakeGameInput(marks=marks, fleet_after_confirm=2)
+            game_session.input = game_input
+            game_session.__enter__.return_value = game_session
+            game_session.__exit__.return_value = False
+            FakeWitnessProvider.instances = []
+            FakeWitnessProvider.trace = []
+
+            with ExitStack() as stack:
+                stack.enter_context(
+                    patch.object(entry, "connect_game_webview", return_value=game_session)
+                )
+                stack.enter_context(patch.object(entry, "_capture_home_reference"))
+                require_ui_state = stack.enter_context(
+                    patch.object(
+                        entry, "_require_ui_state",
+                        return_value="two_consecutive_in_memory_ooi_fingerprints",
+                    )
+                )
+                print_event = stack.enter_context(patch.object(entry, "_print_event"))
+                stack.enter_context(
+                    patch("kancollebot.adapters.poi.visual_target.require_visual_dependencies")
+                )
+                stack.enter_context(
+                    patch.object(
+                        entry, "_probe_unlocked_fleet_ids",
+                        return_value=(1, 2, 3, 4),
+                    )
+                )
+                self.patch_evidence_sources(stack, marks=marks)
+                stack.enter_context(
+                    patch.object(monitor_runtime, "build_runtime", return_value=runtime)
+                )
+                supervisor_cls = stack.enter_context(
+                    patch.object(
+                        supervisor_module, "ContinuousExpeditionSupervisor",
+                        side_effect=capture_real_supervisor,
+                    )
+                )
+                stack.enter_context(
+                    patch(
+                        "kancollebot.expeditions.mission_result_witness_provider."
+                        "MissionResultWitnessProvider",
+                        FakeWitnessProvider,
+                    )
+                )
+                self.assertEqual(entry.run(args), 0)
+
+            names = [call.args[0] for call in print_event.call_args_list
+                     if call.args]
+            self.assertIn("stateless_mode_enabled", names)
+            self.assertNotIn("in_process_witness_wired", names)
+            self.assertNotIn("in_process_witness_stopped", names)
+            self.assertEqual(FakeWitnessProvider.instances, [])
+            # The visual gate is unchanged: it is still called and real clicks
+            # still go through the calibrated driver.
+            self.assertTrue(require_ui_state.called)
+            self.assertTrue(game_input.clicks)
+
+            assembly = supervisor_cls.call_args.kwargs
+            settlement = assembly["settlement_controller"]
+            dispatch = assembly["dispatch_controller"]
+            self.assertIs(settlement.ledger_audit_only, True)
+            self.assertIsNone(settlement.witness_provider)
+            self.assertIsNone(settlement.audit_gate)
+            self.assertIs(dispatch.ledger_audit_only, True)
+            # The ledger is demoted, not deleted: it is still wired for audit.
+            self.assertIsNotNone(dispatch.dispatch_registry)
+            self.assertIsNotNone(settlement.dispatch_registry)
+
     def test_in_process_witness_is_armed_before_clicks_and_cancelled_on_exit(self):
         """#134: production owns the passive observer, not an external helper.
 

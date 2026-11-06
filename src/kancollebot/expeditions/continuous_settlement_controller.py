@@ -181,6 +181,7 @@ class ContinuousSettlementController:
         audit_gate: Callable[[], None] | None = None,
         witness_provider: SettlementWitnessProvider | None = None,
         witness_wait_seconds: float = 2.0,
+        ledger_audit_only: bool = False,
     ) -> None:
         if not callable(event_sink):
             raise ValueError("a durable event_sink is required")
@@ -204,6 +205,11 @@ class ContinuousSettlementController:
             raise ValueError("witness_wait_seconds must be a non-negative number")
         self.witness_provider = witness_provider
         self.witness_wait_seconds = float(witness_wait_seconds)
+        # P0 stateless control: the ledger remains an optional audit trail, but
+        # it is never more authoritative than Poi. When enabled, an unresolved
+        # attribution is recorded and the UI chain continues; when disabled,
+        # every historical fail-closed refusal is preserved verbatim.
+        self.ledger_audit_only = bool(ledger_audit_only)
         self.audit_gate = audit_gate
         self.dispatch_registry = dispatch_registry
         self.scheduler = scheduler
@@ -336,32 +342,44 @@ class ContinuousSettlementController:
                 # credited fleet 4.
                 other_returns = self._other_fleets_awaiting_result(baseline, fleet_id)
                 if other_returns:
-                    # P0.2: the barrier is migrated, not deleted. With a global
-                    # drain the pages are gone and the ambiguity it protected
-                    # against no longer exists - but only the ledger can say
-                    # which instance this fleet's return closes, so no ledger
-                    # means the old refusal.
-                    if not pages_drained_globally:
-                        raise ContinuousSettlementError(
-                            f"Fleet {fleet_id} reads idle but fleets {other_returns} are "
-                            "waiting for their expedition result; the reward screens "
-                            "cannot be attributed to one fleet, so settlement is "
-                            "refused until only one return is pending"
-                        )
-                    if self.dispatch_registry is None:
-                        raise ContinuousSettlementError(
-                            f"Fleet {fleet_id} reads idle but fleets {other_returns} are "
-                            "waiting for their expedition result, and no dispatch "
-                            "ledger is wired to attribute the result; settlement is "
-                            "refused"
-                        )
+                    # P0 stateless: Poi and the visible UI are the only business
+                    # facts. An audit ledger may not veto a settlement that the
+                    # game has already accepted. The historical barrier stays
+                    # intact for the strict-ledger path (ledger_audit_only=False).
+                    if self.ledger_audit_only:
+                        self.event_sink("other_returns_audit_only", {
+                            "fleet_id": fleet_id,
+                            "other_fleets_awaiting_result": list(other_returns),
+                            "pages_drained_globally": pages_drained_globally,
+                            "ledger_authority": "audit_only",
+                            "settlement_refused": False,
+                            "game_api_requests": False,
+                            "game_input_sent": False,
+                        })
+                    else:
+                        if not pages_drained_globally:
+                            raise ContinuousSettlementError(
+                                f"Fleet {fleet_id} reads idle but fleets {other_returns} are "
+                                "waiting for their expedition result; the reward screens "
+                                "cannot be attributed to one fleet, so settlement is "
+                                "refused until only one return is pending"
+                            )
+                        if self.dispatch_registry is None:
+                            raise ContinuousSettlementError(
+                                f"Fleet {fleet_id} reads idle but fleets {other_returns} are "
+                                "waiting for their expedition result, and no dispatch "
+                                "ledger is wired to attribute the result; settlement is "
+                                "refused"
+                            )
                     self.event_sink("settlement_pages_drained_globally", {
                         "fleet_id": fleet_id,
                         "phase": current.phase.value,
                         "mission_id": persisted.mission_id,
                         "final_time_ms": persisted.final_time_ms,
                         "other_fleets_awaiting_result": list(other_returns),
-                        "attribution_source": "dispatch_ledger",
+                        "attribution_source": (
+                            "not_required" if self.ledger_audit_only else "dispatch_ledger"
+                        ),
                         "game_api_requests": False,
                     })
                 self.event_sink("settlement_resumed_after_result_taken", {
@@ -397,12 +415,24 @@ class ContinuousSettlementController:
                 # reconciliation instead of stranding the fleet. The legacy
                 # per-fleet path keeps its fail-closed refusal, because there the
                 # clicks have not happened yet and guessing is worse than waiting.
-                if not pages_drained_globally:
+                if not pages_drained_globally and not self.ledger_audit_only:
                     raise ContinuousSettlementError(
                         f"Fleet {fleet_id} return cannot be attributed to exactly one "
                         f"dispatch instance ({attribution.reason}); settlement refused "
                         "with zero clicks"
                     )
+                if not pages_drained_globally and self.ledger_audit_only:
+                    # P0 stateless: UNATTRIBUTED is an audit row, not a veto.
+                    # The game's own state and the visible screen decide the
+                    # next action; a stale ledger row may never strand a fleet.
+                    self.event_sink("settlement_unattributed_audit_only", {
+                        "fleet_id": fleet_id,
+                        "reason": attribution.reason,
+                        "ledger_authority": "audit_only",
+                        "settlement_refused": False,
+                        "game_api_requests": False,
+                        "game_input_sent": False,
+                    })
 
             if (
                 current.phase in (
