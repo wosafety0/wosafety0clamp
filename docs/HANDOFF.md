@@ -5,6 +5,19 @@
 - **Working branch at the time of this handoff (historical):** dev/expedition-closed-loop-mvp
 - **Code baseline before this documentation update:** 1aba35893daa3974c55a6ac54aec2c9dcac8cccb
 
+## Current state (2026-11-07) — supersedes the 2026-11-04 table below
+
+This is the current handoff entry point. Sections 1-10 remain a 2026-11-03/04 point-in-time record and are not overwritten.
+
+- **Working branch:** `feat/production-settlement-resupply-wiring-20261105`. `main` is still `a4f3777` and was not touched. Re-check with `git ls-remote origin <branch>` before relying on any SHA here.
+- **Cooldown defect fixed (`76aa921`):** `FreshnessRefreshingStateReader` keeps the last verified Poi witness. A caller arriving during the 30s navigation cooldown reuses a still-valid witness with zero clicks (`witness_reused`); with no valid witness it waits out the cooldown and takes the existing refresh/witness path. `cooldown_suppressed` still audits `witness_verified=false` and no clicks. `require_fresh`, the page thresholds and every click gate are unchanged; no second refresh or wait mechanism was added.
+- **Offline verification:** 6 focused tests (reuse, expiry, caller `require_fresh` gate, fail-closed, no extra clicks, audit honesty) plus 3 cooldown tests updated to the documented semantics. Full suite **2212 OK** (2 skipped, 1 expected failure); `compileall`, `git diff --check` and node 29/29 green.
+- **Live run (one launch, no human intervention):** the existing production coordinator took over F2/expedition 1 from an already-active, already-due mission and completed return detection (Poi status 2), the real screen order `return_notice -> expedition_result -> reward_panel -> home_port` (3 drain actions), settlement, resupply (fuel 16) and a fresh dispatch confirmed by Poi. `EXIT=0`, `closed_loop=true`, `run_stopped: loop_completed`, zero `supervisor_paused` / `fail_closed`. Final ledger `dispatch-20261107T133627Z-c944e13adf3f` (`confirmed`, `ship_ids_json=[12613,16733,16323,13519]`) matches Poi F2 `[1,1,1794059534667,0]`; the previous dispatch is `settled`.
+- **Explicit limits:** this run emitted **zero** `cooldown_suppressed` and zero `witness_reused` events. Its bootstrap refresh and settlement baseline were 54s apart, outside the 30s cooldown, so the new cooldown branch was **not exercised in production** - the fix is proven offline, not yet on a real cooldown timing. The run started from an already-active mission, so it contains no long timer-sleep window; the timer contract (zero probes, Poi `final_time_ms` deadline) was verified in the earlier 2026-11-07 continuation run. `closed_loop=true` alone is not proof of unattended operation; the event chain above is.
+- **Recovery pointers:** `logs/phase5_acceptance_cooldown_fixed_20261107.out`, `logs/run_log_phase5_cooldown_fixed/run-2026-11-07.jsonl`, ledger `logs/phase5_acceptance_run3_20261107.sqlite3`. The older `logs/phase5_acceptance_20261107.sqlite3` still holds a historical `RETURNED_PENDING_UI` residual; it must not be cleaned up to accommodate a test.
+- **Next:** one clean-HOME_PORT launch that starts with the first dispatch and runs through a full timer sleep, so the cooldown branch and `d3acf15` (wait-mode first dispatch) are exercised together in one uninterrupted lifecycle.
+- **Archival gate:** local commit, push and GitHub readback are separate states and are reported separately for this round. Section 9's "no unattended operation before acceptance gates pass" checklist item is superseded for this branch by the verified run above.
+
 ## Current integration state (2026-11-04) — read this first
 
 The body of this file is a **2026-11-03 point-in-time handoff**. Its branch names, baseline SHA and CI run describe that moment only; they are not the current integration target.
