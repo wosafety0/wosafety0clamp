@@ -5141,3 +5141,12 @@ The Hand plugin's read-only probe reported:
 - **VERIFIED（只读实机核对，16:08 GMT+8）** 新阈值生产路径生效：default `HOME_PORT 0.9984 accepted=True`、`composited UNKNOWN accepted=False`、门禁 **GO**，与旧阈值下判定完全一致（满分类页无回归）。真实奖励页（RETURN_RESULT/BONUS_ITEMS）在新阈值下的首次实机分类，将随 F2 已到期的返航结算自然发生（见 LIMITS）。
 - **ARCHIVE** 本地保存并提交；推送后远程回读核对；`main` 未动。
 - **LIMITS / NEXT** ①F2 返航 16:01:20 已过（Poi 待自然刷新推进）——下一次 settle-only（用已收养账本 `20261107c`）将同时完成：真实结算闭环 + 新阈值在真实奖励页上的首验。②被搁浅页面的"复活"（如 composited 层 ~0.90 的 SORTIE_MENU）意味着 drain 探针从此可能接受以前永远 UNKNOWN 的页——这是本次调整的目的，但其安全性依赖既有双帧/守卫层，需在实机返航中观察确认。③三处非家族机制（任务名匹配/灰度模板/母港按钮）保持原值，已记录裁决理由。
+
+## 2026-11-07 - 补记：新阈值下的首个真实结算闭环（F2 遠征2，settle-only 收口）
+
+> **状态：** 真实奖励页全链路成功。本节是对上一节 LIMITS① 的闭环。
+
+- **运行**（run `run-20261107T081120Z-88413c941edf`，16:12 GMT+8，`--settle-only --adopt-observed-mission --fleet-id 2 --mission-id 2` + 已收养账本 `verify_settleonly_20261107c.sqlite3`）：启动恢复（过渡帧 RETURN_RESULT 0.7248 → UNKNOWN，**正确等待不盲点**；两帧确认 HOME_PORT）→ Poi 推进 `api_mission[0]=2` → `RETURNED_PENDING_UI` → 三步结算 `return_result → bonus_items → reward`，每步双帧确认（`two_consecutive_in_memory_ooi_fingerprints`）→ `settlement_reward_claimed` → 补给（fuel_required=28，`live_verified` 校准）→ `resupply_confirmed`（caller_poi_observation）→ 终态 F2 `READY`，settle-only 对待发舰队按既定语义拒绝派遣（`ui_actions_disabled`，EXIT=2）。
+- **新阈值实机首验成立**：过渡帧仍被拒（0.7248 < 0.90）、稳定奖励页双帧确认通过——搁浅问题解决的同时混淆防护保留。`settlement_unattributed_audit_only`（stateless 账本仅审计、不拒结算）按架构裁决表现正常。
+- **收尾核对（16:15 只读）**：四队全 `[0,0,0,0]`，F2 满补 4 舰，画面 default `HOME_PORT 0.9897 accepted=True`，门禁 GO，奖励探针 None。
+- **归档**：本节与证据文件 `logs/live_settleonly_closeout_20261107T0812.stdout`、run log 按 `run-20261107T081120Z` 过滤；提交后推送并远程回读。
