@@ -167,6 +167,20 @@ class VisualFingerprintTests(unittest.TestCase):
         )
         self.assertEqual(label, "UNKNOWN")
 
+    def test_generic_classifier_default_accepts_scores_above_0_90(self):
+        current = (0,) * 100
+        near_match = (23,) * 100
+        distant_match = (255,) * 100
+
+        label, scores = classify_fingerprints(
+            current,
+            {"NEAR_MATCH": near_match, "DISTANT_MATCH": distant_match},
+        )
+
+        self.assertGreaterEqual(scores["NEAR_MATCH"], 0.90)
+        self.assertLess(scores["NEAR_MATCH"], 0.92)
+        self.assertEqual(label, "NEAR_MATCH")
+
     def test_screenshot_classifier_uses_state_specific_crop_and_clear_margin(self):
         document = {
             "version": 1,
