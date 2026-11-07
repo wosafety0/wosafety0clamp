@@ -2195,6 +2195,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
     from kancollebot.expeditions.continuous_supervisor import (
         ContinuousExpeditionSupervisor,
     )
+    from kancollebot.expeditions.page_intent import PageEvidence
     from kancollebot.expeditions.startup_settlement import StartupSettlementRefused
     from kancollebot.expeditions.port_supply_provider import (
         PoiReduxFleetSupplyProvider,
@@ -2401,6 +2402,12 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     ),
                 )
 
+            # The last page verdict the refresh probe produced, stamped with the
+            # monotonic moment it was read. The supervisor only accepts it while
+            # it is fresh (see page_intent), so evidence from before a 30-minute
+            # timer sleep can never veto a dispatch.
+            page_evidence: list[PageEvidence] = []
+
             def refresh_observe_page() -> PageSample:
                 game_session.transport.send(
                     "Input.dispatchMouseEvent",
@@ -2412,6 +2419,13 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     payload, refresh_fingerprint_document
                 )
                 coarse = classify_coarse_page(ranking)
+                page_evidence[:] = [
+                    PageEvidence(
+                        page=coarse.page,
+                        detail_state=coarse.detail_state,
+                        observed_at=time.monotonic(),
+                    )
+                ]
                 sample = PageSample(
                     state=ranking.state,
                     scores=ranking.scores,
@@ -2420,9 +2434,9 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 _print_event(
                     "refresh_page_observed",
                     observed=ranking.state,
-                    # Phase-2 coarse summary: additive audit field only. The
-                    # detailed identity above stays authoritative for every
-                    # business decision; the coarse class authorises nothing.
+                    # Coarse summary: the detailed identity above stays
+                    # authoritative, and the class can only withhold an action
+                    # (phase 3 veto-only evidence) - it never authorises one.
                     coarse_page=coarse.page,
                     coarse_reason=coarse.reason,
                     coarse_detail_state=coarse.detail_state,
@@ -3082,7 +3096,9 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
             max_ticks = args.max_ticks if args.wait_for_return else 1
             for tick_index in range(1, max_ticks + 1):
                 try:
-                    result = supervisor.tick()
+                    result = supervisor.tick(
+                        page_evidence=page_evidence[-1] if page_evidence else None
+                    )
                 except ContinuousMonitorError as exc:
                     # Waiting for a return means most ticks legitimately have
                     # no trusted observation: the witness is 30s old and the

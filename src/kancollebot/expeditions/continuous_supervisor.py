@@ -2,8 +2,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from time import monotonic as _monotonic
 from typing import Any, Optional
 
+from kancollebot.expeditions.page_intent import (
+    ACTION_DISPATCH,
+    ACTION_RESUPPLY,
+    ACTION_SETTLEMENT,
+    PageEvidence,
+    check_page_evidence,
+)
 from kancollebot.expeditions.settlement_drain import (
     DrainErrorType,
     DrainResult,
@@ -397,7 +405,7 @@ class ContinuousExpeditionSupervisor:
             drain=drain,
         )
 
-    def tick(self) -> SupervisorTickResult:
+    def tick(self, *, page_evidence: PageEvidence | None = None) -> SupervisorTickResult:
         """Run one scheduling decision and record what it decided.
 
         The supervisor used to make the single most important decision of the
@@ -415,16 +423,68 @@ class ContinuousExpeditionSupervisor:
         """
         progress = _TickProgress()
         try:
-            result = self._tick_once(progress)
+            result = self._tick_once(progress, page_evidence)
         except Exception as exc:
             self._record_failure(exc, progress)
             raise
         self._record_decision(result)
         return result
 
-    def _tick_once(self, progress: _TickProgress) -> SupervisorTickResult:
+    def _page_intent(self) -> Optional[str]:
+        """The action this tick intends, derived from the existing phases only.
+
+        This is a projection of ``_pending_actions`` (the one interpreter of
+        FleetPhase) plus the same READY scan the dispatch step uses. It never
+        invents work: a page class cannot reach this method, and an empty
+        scheduler returns ``None`` rather than a synthetic intent.
+        """
+        kinds = {action.kind for action in self._pending_actions()}
+        if "settlement" in kinds:
+            return ACTION_SETTLEMENT
+        if "resupply" in kinds:
+            return ACTION_RESUPPLY
+        if kinds:
+            # Blocked / dispatch_reconciliation / home_port_verification keep
+            # their existing handling; page evidence does not veto them.
+            return None
+        if self._ready_fleet_ids():
+            return ACTION_DISPATCH
+        return None
+
+    def _tick_once(
+        self, progress: _TickProgress, page_evidence: PageEvidence | None = None
+    ) -> SupervisorTickResult:
         progress.note("monitor")
         monitor_result = self.monitor.tick()
+
+        # Page evidence is veto-only (see ``page_intent``): the phases above
+        # decide what must happen, and a fresh, accepted, incompatible page
+        # class can only stop it from happening this tick. UNKNOWN is not
+        # evidence and is never read as Home Port.
+        intent = self._page_intent()
+        if page_evidence is not None:
+            check = check_page_evidence(intent, page_evidence)
+            self._emit("supervisor_page_evidence", {
+                "intent": check.intent,
+                "page": check.page,
+                "detail_state": page_evidence.detail_state,
+                "allowed": check.allowed,
+                "reason": check.reason,
+                "evidence_age_seconds": round(
+                    max(0.0, _monotonic() - page_evidence.observed_at), 3
+                ),
+            })
+            if not check.allowed:
+                reason = f"page_mismatch:{check.intent}:{check.page}"
+                self._emit("supervisor_page_mismatch", {
+                    "intent": check.intent,
+                    "page": check.page,
+                    "detail_state": page_evidence.detail_state,
+                    "paused_reason": reason,
+                    "clicks_sent_this_tick": 0,
+                    "next_step": "hold_for_next_observation",
+                })
+                return self._paused(monitor_result, reason, (), ())
 
         # Two ways to resolve a returned fleet, chosen by whether the loop owns
         # a global drain session:
@@ -659,6 +719,24 @@ class ContinuousExpeditionSupervisor:
         progress.resupplies.append(result)
         return result
 
+    def _ready_fleet_ids(self) -> list[Any]:
+        """READY fleets in configured dispatch order.
+
+        The single READY scan: the dispatch step and the page-intent projection
+        must agree on what "ready to sail" means, so they share this.
+        """
+        scheduler = self.monitor.scheduler
+        ready: list[Any] = []
+        for fleet_id in tuple(getattr(scheduler, "dispatch_fleet_ids", ())):
+            try:
+                state = scheduler.fleet(fleet_id)
+            except (KeyError, LookupError):
+                continue
+
+            if self._phase_name(state) == "READY":
+                ready.append(fleet_id)
+        return ready
+
     def _dispatch_ready_fleets(
         self,
         monitor_result: Any,
@@ -668,19 +746,7 @@ class ContinuousExpeditionSupervisor:
     ) -> SupervisorTickResult:
         """Dispatch every READY fleet in scheduler order, stopping on surprise."""
         scheduler = self.monitor.scheduler
-        dispatch_order = tuple(
-            getattr(scheduler, "dispatch_fleet_ids", ())
-        )
-
-        ready = []
-        for fleet_id in dispatch_order:
-            try:
-                state = scheduler.fleet(fleet_id)
-            except (KeyError, LookupError):
-                continue
-
-            if self._phase_name(state) == "READY":
-                ready.append(fleet_id)
+        ready = self._ready_fleet_ids()
 
         if not bool(
             getattr(

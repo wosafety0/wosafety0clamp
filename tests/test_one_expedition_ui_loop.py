@@ -1505,6 +1505,12 @@ class CoarsePageWiringTests(unittest.TestCase):
         source = self._refresh_observe_page_source()
         self.assertIn("authorizes_click=False", source)
 
+    def test_refresh_probe_stamps_fresh_page_evidence_for_the_supervisor(self):
+        source = inspect.getsource(controller._run_production_supervisor_once)
+        self.assertIn("PageEvidence(", source)
+        self.assertIn("observed_at=time.monotonic()", source)
+        self.assertIn("page_evidence=page_evidence[-1] if page_evidence else None", source)
+
 
 if __name__ == "__main__":
     unittest.main()
