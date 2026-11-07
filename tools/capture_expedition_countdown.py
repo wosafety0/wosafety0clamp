@@ -21,6 +21,11 @@ Two steps, both read-only:
            --cell 19x24 --cells 5 --text 14:59 \\
            --out src/kancollebot/adapters/poi/expedition_countdown_glyphs.json
 
+   The client renders ``HH:MM:SS`` in vertically layered cells, not one
+   horizontal row. Pass the real layout with ``--cells 8 --cell-rows 8`` (a
+   single vertical column) or any ``--cell-rows`` that divides ``--cells``
+   exactly; the boxes are then tiled into that ``rows x cols`` grid.
+
 The text must be read off the screen by a human the first time: that is the
 ground truth the glyphs are bound to. Recording it from a timer would defeat the
 whole point of reading the display.
@@ -83,17 +88,30 @@ def cmd_record(args: argparse.Namespace) -> int:
     text = args.text.strip()
     x, y, width, height = args.roi
     cell_width, cell_height = args.cell
+    cell_rows = args.cell_rows
     if len(text) != args.cells:
         raise SystemExit(
             f"--text has {len(text)} characters but --cells is {args.cells}"
         )
-    if cell_width * args.cells > width:
-        raise SystemExit("the cells do not fit inside --roi")
+    if cell_rows <= 0 or args.cells % cell_rows != 0:
+        raise SystemExit("--cell-rows must divide --cells exactly")
+    cols = args.cells // cell_rows
+    if cell_width * cols > width:
+        raise SystemExit("the cells do not fit horizontally inside --roi")
+    if cell_height * cell_rows > height:
+        raise SystemExit("the cells do not fit vertically inside --roi")
 
     glyphs: dict[str, list[int]] = {}
     conflicts: list[str] = []
     for index, character in enumerate(text):
-        box = (x + index * cell_width, y, cell_width, cell_height)
+        row = index // cols
+        column = index % cols
+        box = (
+            x + column * cell_width,
+            y + row * cell_height,
+            cell_width,
+            cell_height,
+        )
         descriptor = list(compute_grid_fingerprint(payload, crop=box, grid=args.grid))
         existing = glyphs.get(character)
         if existing is None:
@@ -118,6 +136,7 @@ def cmd_record(args: argparse.Namespace) -> int:
         "cell_width": cell_width,
         "cell_height": cell_height,
         "cells": args.cells,
+        "cell_rows": cell_rows,
         "minimum_score": args.minimum_score,
         "grid": list(args.grid),
         "glyphs": glyphs,
@@ -150,6 +169,13 @@ def main(argv: list[str] | None = None) -> int:
     record.add_argument("--roi", required=True, type=_parse_roi)
     record.add_argument("--cell", required=True, type=_parse_cell)
     record.add_argument("--cells", type=int, default=5)
+    record.add_argument(
+        "--cell-rows",
+        type=int,
+        default=1,
+        help="rows the cells are stacked into (1 = horizontal row; for the "
+        "client's vertically layered HH:MM:SS use --cells 8 --cell-rows 8)",
+    )
     record.add_argument("--text", required=True)
     record.add_argument("--minimum-score", type=float, default=0.93)
     record.add_argument("--grid", type=int, nargs=2, default=(8, 12))

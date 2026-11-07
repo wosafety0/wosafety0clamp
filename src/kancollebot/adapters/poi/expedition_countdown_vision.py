@@ -68,8 +68,15 @@ class CountdownTemplates:
     glyphs: Mapping[str, tuple[int, ...]]
     #: Similarity a cell must reach before its glyph is accepted.
     minimum_score: float = 0.93
-    #: How many cells wide the box is drawn (``00:00`` is five).
+    #: How many cells the box is drawn as, total. ``00:00`` is five; the
+    #: client's ``HH:MM:SS`` countdown is eight.
     cells: int = 5
+    #: How many rows the cells are stacked into. ``1`` (the default) reproduces
+    #: the historical single horizontal row. The client renders ``HH:MM:SS`` in
+    #: vertically layered cells, so a real calibration uses ``cell_rows`` such
+    #: that ``cell_rows * cols == cells`` (for a single vertical column,
+    #: ``cell_rows == cells`` and ``cols == 1``).
+    cell_rows: int = 1
     #: Descriptor grid used when the glyphs were recorded. It has to travel with
     #: the templates: a descriptor recorded on one grid is meaningless on another.
     grid: tuple[int, int] = (8, 12)
@@ -83,8 +90,13 @@ class CountdownTemplates:
             raise ValueError("roi must be an integer (x, y, width, height) tuple")
         if self.cell_width <= 0 or self.cell_height <= 0 or self.cells <= 0:
             raise ValueError("cell_width, cell_height and cells must be positive")
-        if self.cell_width * self.cells > self.roi[2]:
-            raise ValueError("the cells do not fit inside the configured roi")
+        if self.cell_rows <= 0 or self.cells % self.cell_rows != 0:
+            raise ValueError("cell_rows must be a positive divisor of cells")
+        cols = self.cells // self.cell_rows
+        if self.cell_width * cols > self.roi[2]:
+            raise ValueError("the cells do not fit horizontally inside the roi")
+        if self.cell_height * self.cell_rows > self.roi[3]:
+            raise ValueError("the cells do not fit vertically inside the roi")
         if not 0 < self.minimum_score <= 1:
             raise ValueError("minimum_score must be in (0, 1]")
         if (
@@ -122,9 +134,10 @@ class CountdownTemplates:
             cell_width = int(document["cell_width"])
             cell_height = int(document["cell_height"])
             cells = int(document.get("cells", 5))
+            cell_rows = int(document.get("cell_rows", 1))
         except (KeyError, TypeError, ValueError) as exc:
             raise CountdownTemplateError(
-                "cell_width, cell_height and cells must be integers"
+                "cell_width, cell_height, cells and cell_rows must be integers"
             ) from exc
         raw_glyphs = document.get("glyphs")
         if not isinstance(raw_glyphs, Mapping):
@@ -165,6 +178,7 @@ class CountdownTemplates:
                 glyphs=glyphs,
                 minimum_score=minimum_score,
                 cells=cells,
+                cell_rows=cell_rows,
                 grid=(int(raw_grid[0]), int(raw_grid[1])),
             )
         except ValueError as exc:
@@ -186,10 +200,20 @@ class CountdownTemplates:
 
     def cell_boxes(self) -> list[tuple[int, int, int, int]]:
         x, y, _width, _height = self.roi
-        return [
-            (x + index * self.cell_width, y, self.cell_width, self.cell_height)
-            for index in range(self.cells)
-        ]
+        cols = self.cells // self.cell_rows
+        boxes: list[tuple[int, int, int, int]] = []
+        for index in range(self.cells):
+            row = index // cols
+            column = index % cols
+            boxes.append(
+                (
+                    x + column * self.cell_width,
+                    y + row * self.cell_height,
+                    self.cell_width,
+                    self.cell_height,
+                )
+            )
+        return boxes
 
 
 class CountdownReader:

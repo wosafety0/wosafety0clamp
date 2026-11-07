@@ -40,7 +40,10 @@ GLYPH_COLOURS = {
     "3": (160, 10, 10),
     "4": (210, 10, 10),
     "5": (10, 60, 10),
-    "9": (10, 110, 10),
+    "6": (10, 110, 10),
+    "7": (10, 160, 10),
+    "8": (10, 210, 10),
+    "9": (60, 60, 10),
     ":": (10, 10, 60),
 }
 
@@ -76,6 +79,56 @@ def templates_for(text: str = "0:12") -> CountdownTemplates:
     )
 
 
+# A separate, taller region used for grid / vertical-column layouts.
+GRID_ROI = (0, 0, 16, 96)
+GRID_CELL_WIDTH = 8
+GRID_CELL_HEIGHT = 12
+
+
+def frame_for_grid(text: str, *, rows: int) -> str:
+    cols = len(text) // rows
+    palette = dict(GLYPH_COLOURS)
+    width, height = GRID_ROI[2], GRID_ROI[3]
+    pixel_rows: list[bytes] = []
+    for cell_row in range(rows):
+        characters = text[cell_row * cols:(cell_row + 1) * cols]
+        for _y in range(GRID_CELL_HEIGHT):
+            row = bytearray()
+            for character in characters:
+                row.extend((bytes(palette[character]) + b"\xff") * GRID_CELL_WIDTH)
+            row.extend(b"\x00\x00\x00\xff" * (width - GRID_CELL_WIDTH * cols))
+            pixel_rows.append(bytes(row))
+    while len(pixel_rows) < height:
+        pixel_rows.append(b"\x00\x00\x00\xff" * width)
+    return _encode_rgba(width, height, pixel_rows)
+
+
+def templates_for_grid(text: str, *, rows: int) -> CountdownTemplates:
+    payload = frame_for_grid(text, rows=rows)
+    cols = len(text) // rows
+    glyphs = {}
+    for index, character in enumerate(text):
+        cell_row = index // cols
+        cell_column = index % cols
+        box = (
+            cell_column * GRID_CELL_WIDTH,
+            cell_row * GRID_CELL_HEIGHT,
+            GRID_CELL_WIDTH,
+            GRID_CELL_HEIGHT,
+        )
+        glyphs[character] = compute_grid_fingerprint(payload, crop=box, grid=(4, 4))
+    return CountdownTemplates(
+        roi=GRID_ROI,
+        cell_width=GRID_CELL_WIDTH,
+        cell_height=GRID_CELL_HEIGHT,
+        glyphs=glyphs,
+        minimum_score=0.99,
+        cells=len(text),
+        cell_rows=rows,
+        grid=(4, 4),
+    )
+
+
 class ReadingTests(unittest.TestCase):
     def test_an_uncalibrated_reader_refuses_to_read(self):
         reader = CountdownReader(capture=lambda: self.fail("must not capture"))
@@ -106,6 +159,85 @@ class ReadingTests(unittest.TestCase):
         reader = CountdownReader(capture=capture, templates=templates_for("0:12"))
 
         self.assertIsNone(reader.read_text())
+
+    def test_a_vertical_column_layout_is_read_end_to_end(self):
+        # The client renders HH:MM:SS in vertically stacked cells (one column
+        # of eight). The reader must slice that column, not assume a row.
+        reader = CountdownReader(
+            capture=lambda: frame_for_grid("00:17:32", rows=8),
+            templates=templates_for_grid("00:17:32", rows=8),
+        )
+
+        self.assertEqual(reader.read_text(), "00:17:32")
+
+
+class CellBoxLayoutTests(unittest.TestCase):
+    def test_default_layout_is_a_single_horizontal_row(self):
+        templates = CountdownTemplates(
+            roi=ROI,
+            cell_width=CELL_WIDTH,
+            cell_height=CELL_HEIGHT,
+            glyphs={"0": (1, 2, 3)},
+            cells=4,
+        )
+
+        boxes = templates.cell_boxes()
+
+        self.assertEqual(len(boxes), 4)
+        self.assertEqual([box[1] for box in boxes], [0, 0, 0, 0])
+        self.assertEqual([box[0] for box in boxes], [0, 8, 16, 24])
+
+    def test_a_grid_layout_stacks_cells_vertically(self):
+        templates = CountdownTemplates(
+            roi=GRID_ROI,
+            cell_width=GRID_CELL_WIDTH,
+            cell_height=GRID_CELL_HEIGHT,
+            glyphs={"0": (1, 2, 3)},
+            cells=8,
+            cell_rows=8,
+        )
+
+        boxes = templates.cell_boxes()
+
+        self.assertEqual(len(boxes), 8)
+        self.assertEqual([box[0] for box in boxes], [0] * 8)
+        self.assertEqual(
+            [box[1] for box in boxes],
+            [0, 12, 24, 36, 48, 60, 72, 84],
+        )
+
+    def test_a_two_by_four_grid_mixes_rows_and_columns(self):
+        templates = CountdownTemplates(
+            roi=(0, 0, 32, 24),
+            cell_width=8,
+            cell_height=12,
+            glyphs={"0": (1, 2, 3)},
+            cells=8,
+            cell_rows=2,
+        )
+
+        boxes = templates.cell_boxes()
+
+        # cols == 4: x repeats 0,8,16,24 across each of the two rows.
+        self.assertEqual(
+            [box[0] for box in boxes],
+            [0, 8, 16, 24, 0, 8, 16, 24],
+        )
+        self.assertEqual(
+            [box[1] for box in boxes],
+            [0, 0, 0, 0, 12, 12, 12, 12],
+        )
+
+    def test_cell_rows_that_do_not_divide_cells_are_refused(self):
+        with self.assertRaises(ValueError):
+            CountdownTemplates(
+                roi=GRID_ROI,
+                cell_width=GRID_CELL_WIDTH,
+                cell_height=GRID_CELL_HEIGHT,
+                glyphs={"0": (1, 2, 3)},
+                cells=8,
+                cell_rows=3,
+            )
 
 
 class TemplateDocumentTests(unittest.TestCase):
@@ -155,6 +287,48 @@ class TemplateDocumentTests(unittest.TestCase):
                 glyphs={"0": (1, 2, 3)},
                 cells=5,
             )
+
+    def test_cell_rows_round_trips_through_the_document(self):
+        templates = CountdownTemplates(
+            roi=GRID_ROI,
+            cell_width=GRID_CELL_WIDTH,
+            cell_height=GRID_CELL_HEIGHT,
+            glyphs={"0": (1, 2, 3)},
+            cells=8,
+            cell_rows=8,
+        )
+        document = {
+            "version": 1,
+            "roi": list(templates.roi),
+            "cell_width": templates.cell_width,
+            "cell_height": templates.cell_height,
+            "cells": templates.cells,
+            "cell_rows": templates.cell_rows,
+            "glyphs": {name: list(value) for name, value in templates.glyphs.items()},
+            "grid": list(templates.grid),
+        }
+
+        restored = CountdownTemplates.from_document(document)
+
+        self.assertEqual(restored.cell_rows, 8)
+        self.assertEqual(restored.cell_boxes(), templates.cell_boxes())
+
+    def test_a_document_without_cell_rows_defaults_to_a_single_row(self):
+        # Backward compatibility: old templates recorded before cell_rows
+        # existed must still load and behave like a horizontal row.
+        document = {
+            "version": 1,
+            "roi": [0, 0, 40, 12],
+            "cell_width": 8,
+            "cell_height": 12,
+            "cells": 5,
+            "glyphs": {"0": [1, 2, 3]},
+        }
+
+        restored = CountdownTemplates.from_document(document)
+
+        self.assertEqual(restored.cell_rows, 1)
+        self.assertEqual([box[1] for box in restored.cell_boxes()], [0, 0, 0, 0, 0])
 
 
 if __name__ == "__main__":
