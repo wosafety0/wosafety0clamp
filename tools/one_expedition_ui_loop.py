@@ -3197,14 +3197,14 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                             "page_fallback_held_for_business_handler",
                             **fallback_fields,
                             navigation_sent=0,
-                            next_step="existing_controller_owns_this_page",
+                            next_step="paused_page_untouched",
                         )
                         _recovery_emit(
                             _active_run_log_sink(),
                             "page_fallback_held_for_business_handler",
                             **fallback_fields,
                             navigation_sent=0,
-                            next_step="existing_controller_owns_this_page",
+                            next_step="paused_page_untouched",
                         )
                         return pause(result, "", tick_index)
                     if fallback.route == ROUTE_HOME_NAVIGATION:

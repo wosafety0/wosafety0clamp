@@ -28,8 +28,8 @@ from kancollebot.expeditions.page_navigation import (
     REASON_PAGE_IS_MENU,
     REASON_PAGE_IS_MODAL,
     REASON_PAGE_IS_UNKNOWN,
-    ROUTE_BUSINESS_HANDLER,
     ROUTE_CONTINUE,
+    ROUTE_HOLD_FOR_BUSINESS_HANDLER,
     ROUTE_HOME_NAVIGATION,
     ROUTE_OBSERVE_AGAIN,
     ROUTE_UNCHANGED,
@@ -59,15 +59,40 @@ class RouteTableTests(unittest.TestCase):
         self.assertEqual(NAVIGATION_HOME_PORT_RECOVERY, "home_port_recovery")
         self.assertTrue(fallback.reobserve)
 
-    def test_modal_is_held_for_a_business_handler(self):
+    def test_modal_is_held_without_a_hand_off(self):
         fallback = plan_page_fallback(MODAL, "dispatch")
-        self.assertEqual(fallback.route, ROUTE_BUSINESS_HANDLER)
+        self.assertEqual(fallback.route, ROUTE_HOLD_FOR_BUSINESS_HANDLER)
         self.assertEqual(fallback.reason, REASON_PAGE_IS_MODAL)
         self.assertTrue(fallback.hold)
         # No navigation and no re-observation: the overlay stays for the
         # settlement / reward controller that owns it.
         self.assertIsNone(fallback.delegates_navigation)
         self.assertFalse(fallback.reobserve)
+
+    def test_the_modal_route_name_does_not_promise_a_call(self):
+        # The route is logged and read back during review, so the word has to
+        # match the code. Phase 4 sends nothing on MODAL and stops; a route
+        # called "business_handler" would claim a hand-off that never happens.
+        self.assertEqual(
+            ROUTE_HOLD_FOR_BUSINESS_HANDLER, "hold_for_business_handler"
+        )
+        self.assertIn("hold", ROUTE_HOLD_FOR_BUSINESS_HANDLER)
+        for page in (HOME, MODAL, UNKNOWN):
+            self.assertIsNone(
+                plan_page_fallback(page, "dispatch").delegates_navigation, page
+            )
+
+    def test_only_the_menu_route_names_a_delegate(self):
+        delegates = {
+            page: plan_page_fallback(page, "dispatch").delegates_navigation
+            for page in (HOME, MENU, MODAL, UNKNOWN)
+        }
+        self.assertEqual(delegates[MENU], NAVIGATION_HOME_PORT_RECOVERY)
+        self.assertEqual(
+            [page for page, name in delegates.items() if name is not None],
+            [MENU],
+            "MENU is the only class that hands work to an existing routine",
+        )
 
     def test_unknown_is_observed_again(self):
         fallback = plan_page_fallback(UNKNOWN, "dispatch")

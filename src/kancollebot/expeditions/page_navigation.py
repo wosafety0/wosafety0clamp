@@ -4,14 +4,28 @@ Phase 3 let an incompatible page class *withhold* an action and stopped there.
 Phase 4 answers the next question - "so what should happen about the page?" -
 with the smallest possible policy, one route per coarse class:
 
-===========  ==================  ==========================================
-class        route               what the loop may do
-===========  ==================  ==========================================
-``HOME``     ``continue``        nothing; the intended controller proceeds
-``MENU``     ``home_navigation``  delegate to the existing Home Port routine
-``MODAL``    ``business_handler`` hold; an existing controller owns the page
-``UNKNOWN``  ``observe_again``    look again; never click
-===========  ==================  ==========================================
+===========  ===========================  ==================================
+class        route                        what the loop may do
+===========  ===========================  ==================================
+``HOME``     ``continue``                 nothing; the intended controller
+                                          proceeds
+``MENU``     ``home_navigation``          delegate to the existing Home Port
+                                          routine
+``MODAL``    ``hold_for_business_handler`` hold: send nothing, then stop. Not a
+                                          hand-off - see below
+``UNKNOWN``  ``observe_again``            look again; never click
+===========  ===========================  ==================================
+
+The two delegating-looking rows are not the same thing, and the names say so:
+
+* ``home_navigation`` really does call something. The caller runs the existing
+  ``home_port_recovery`` with that routine's own bounds and proofs.
+* ``hold_for_business_handler`` calls nothing. It states that the page belongs
+  to a controller this loop is not (the settlement drain, the reward
+  controller) and that sending a generic click would bypass the handler that
+  proves what it advances. The caller therefore stops with the same pause
+  label phase 3 used, leaving the page untouched. No code path here invokes
+  the settlement or reward controller; they run on their own when they run.
 
 Three boundaries are structural, not conventions:
 
@@ -25,7 +39,10 @@ Three boundaries are structural, not conventions:
   page and the reward pages advance on a click anywhere and belong to the
   settlement / reward controllers. A generic "close the overlay" route would
   bypass exactly the handlers that prove what they advance, so ``MODAL`` is a
-  hold: zero clicks, zero navigation.
+  hold: zero clicks, zero navigation. The route is named
+  ``hold_for_business_handler`` and not ``business_handler`` on purpose - the
+  loop does not call that handler, it declines to act so the handler keeps its
+  authority over the page.
 * **``UNKNOWN`` cannot become ``HOME``.** There is no attempt counter, no
   elapsed-time fallback and no default argument that returns ``HOME`` or
   ``continue``: the route is a pure function of the page string, so observing
@@ -44,7 +61,7 @@ from dataclasses import dataclass
 ROUTE_UNCHANGED = "unchanged"
 ROUTE_CONTINUE = "continue"
 ROUTE_HOME_NAVIGATION = "home_navigation"
-ROUTE_BUSINESS_HANDLER = "business_handler"
+ROUTE_HOLD_FOR_BUSINESS_HANDLER = "hold_for_business_handler"
 ROUTE_OBSERVE_AGAIN = "observe_again"
 
 #: The coarse classes this policy was taught. Anything else - a page name from
@@ -72,9 +89,9 @@ class PageFallback:
     """One route decision, with enough detail to audit it in the run log.
 
     ``hold`` means "send nothing and stop this tick": the page belongs to a
-    business controller that is not the one this tick wanted to run.
-    ``reobserve`` means the caller should read the page again before trying
-    anything else, and must not click in the meantime.
+    controller this loop is not, and nothing in this module calls that
+    controller. ``reobserve`` means the caller should read the page again
+    before trying anything else, and must not click in the meantime.
     """
 
     route: str
@@ -136,7 +153,7 @@ def plan_page_fallback(page: str | None, intent: str | None = None) -> PageFallb
         )
     if page == MODAL:
         return PageFallback(
-            route=ROUTE_BUSINESS_HANDLER,
+            route=ROUTE_HOLD_FOR_BUSINESS_HANDLER,
             page=page,
             intent=intent,
             reason=REASON_PAGE_IS_MODAL,

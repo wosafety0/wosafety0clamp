@@ -210,6 +210,82 @@ class MultiLayerTests(unittest.TestCase):
         self.assertFalse(verdict.conflict)
 
 
+class TransitionFrameTests(unittest.TestCase):
+    """Frames caught mid-transition, using the scores the live runs recorded.
+
+    These are the numbers ``ui_refresh_observation_sample`` and the drain
+    samples actually logged (0.7248 on the way out of Home Port, 0.8840 /
+    0.8815 while the result page was still painting, 0.8806 on the composited
+    layer, and a 0.0167 gap on the worst observed same-page confusion). Every
+    one of them must stay UNKNOWN: a transition is exactly the state in which a
+    bucket would be a guess, and MODAL/HOME are the two buckets a controller
+    would act on.
+    """
+
+    #: ``(near-miss state, top score, runner-up state, runner-up score)``.
+    RECORDED_TRANSITIONS = (
+        ("RETURN_RESULT", 0.7248, "HOME_PORT", 0.6134),
+        ("RETURN_RESULT", 0.8840, "HOME_PORT", 0.7021),
+        ("RETURN_RESULT", 0.8815, "HOME_PORT", 0.6998),
+        ("HOME_PORT", 0.8806, "HOME_PORT_RETURN_NOTICE", 0.8512),
+    )
+
+    def test_recorded_transition_frames_never_leave_unknown(self):
+        for state, score, second, second_score in self.RECORDED_TRANSITIONS:
+            with self.subTest(state=state, score=score):
+                verdict = classify_coarse_page(
+                    _ranking(state, score, second, second_score, accepted=False)
+                )
+                self.assertEqual(verdict.page, COARSE_UNKNOWN)
+                self.assertEqual(verdict.reason, REASON_NO_ACCEPTED_EVIDENCE)
+                # The near miss stays visible for the audit trail; it just
+                # does not vote.
+                self.assertEqual(verdict.best_name, state)
+                self.assertEqual(verdict.detail_state, "UNKNOWN")
+                self.assertAlmostEqual(verdict.best_score, score)
+                self.assertFalse(verdict.conflict)
+
+    def test_a_frame_a_hair_below_the_line_is_not_promoted(self):
+        verdict = classify_coarse_page(
+            _ranking("HOME_PORT", 0.8999, "SORTIE_MENU", 0.40, accepted=False)
+        )
+        self.assertEqual(verdict.page, COARSE_UNKNOWN)
+        self.assertEqual(verdict.reason, REASON_NO_ACCEPTED_EVIDENCE)
+
+    def test_passing_the_absolute_line_is_not_enough_without_the_margin(self):
+        # The recorded worst same-page confusion gap is 0.0167 (SORTIE_MENU vs
+        # SUPPLY_MENU). Above 0.90 but inside the 0.02 margin the ranker
+        # rejects, so the coarse layer must not see an accepted vote at all.
+        verdict = classify_coarse_page(
+            _ranking("SORTIE_MENU", 0.9500, "SUPPLY_MENU", 0.9333, accepted=False)
+        )
+        self.assertEqual(verdict.page, COARSE_UNKNOWN)
+        self.assertGreater(verdict.best_score, 0.90)
+        self.assertEqual(verdict.reason, REASON_NO_ACCEPTED_EVIDENCE)
+
+    def test_one_settled_frame_next_to_a_transition_frame_still_counts(self):
+        # The realistic sampling pattern: the first frame is mid-paint and the
+        # second has settled. The settled one decides; the transition frame is
+        # not allowed to drag a correct read down to UNKNOWN.
+        verdict = classify_coarse_page(
+            _ranking("RETURN_RESULT", 0.8815, "HOME_PORT", 0.6998, accepted=False),
+            _ranking("RETURN_RESULT", 0.9930, "HOME_PORT", 0.7100),
+        )
+        self.assertEqual(verdict.page, COARSE_MODAL)
+        self.assertEqual(verdict.detail_state, "RETURN_RESULT")
+
+    def test_two_transition_frames_are_still_unknown(self):
+        # Both layers mid-paint: no accepted evidence anywhere, so the answer
+        # is UNKNOWN rather than "probably the one with the higher score".
+        verdict = classify_coarse_page(
+            _ranking("RETURN_RESULT", 0.8840, "HOME_PORT", 0.7021, accepted=False),
+            _ranking("HOME_PORT", 0.8806, "HOME_PORT_RETURN_NOTICE", 0.8512, accepted=False),
+        )
+        self.assertEqual(verdict.page, COARSE_UNKNOWN)
+        self.assertEqual(verdict.reason, REASON_NO_ACCEPTED_EVIDENCE)
+        self.assertFalse(verdict.conflict)
+
+
 class RankerIntegrationTests(unittest.TestCase):
     """End-to-end: real ranker (0.90 / 0.02) -> coarse class, on frames
     rebuilt from the checked-in live templates."""

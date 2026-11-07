@@ -98,7 +98,16 @@ def check_page_evidence(
     demonstrably incompatible page class blocks an action.
     """
     if intent is None:
-        return PageIntentCheck(True, None, None, REASON_UNKNOWN_INTENT)
+        # Nothing was intended this tick, so nothing can be withheld. The page
+        # is still reported when one was observed: the run log should be able
+        # to say "we looked at MODAL and there was nothing to do", and no
+        # decision reads this field on this path.
+        return PageIntentCheck(
+            True,
+            None,
+            None if evidence is None else evidence.page,
+            REASON_UNKNOWN_INTENT,
+        )
     if evidence is None:
         return PageIntentCheck(True, intent, None, REASON_NO_EVIDENCE)
 

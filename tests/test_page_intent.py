@@ -38,7 +38,7 @@ from kancollebot.expeditions.page_intent import (
 )
 from kancollebot.expeditions.page_navigation import (
     NAVIGATION_HOME_PORT_RECOVERY,
-    ROUTE_BUSINESS_HANDLER,
+    ROUTE_HOLD_FOR_BUSINESS_HANDLER,
     ROUTE_HOME_NAVIGATION,
 )
 
@@ -84,7 +84,23 @@ class FakeDispatchController:
         return SimpleNamespace(fleet_id=fleet_id)
 
 
+class FakeSettlementController:
+    """The settlement controller reduced to what the supervisor touches."""
+
+    def __init__(self, scheduler, *, enabled=True, event_sink=None):
+        self.scheduler = scheduler
+        self.event_sink = event_sink
+        self.allow_ui_actions = enabled
+        self.calls = []
+
+    def settle_one_returned(self, fleet_id):
+        self.calls.append(fleet_id)
+        self.scheduler.states[fleet_id].phase = FleetPhase.RESUPPLY_REQUIRED
+        return SimpleNamespace(fleet_id=fleet_id, settled=True)
+
+
 class RecordingSink:
+
     def __init__(self):
         self.rows = []
 
@@ -297,14 +313,14 @@ class SupervisorPageFallbackTests(unittest.TestCase):
         self.assertEqual(report.paused_reason, "page_mismatch:dispatch:MENU")
         self.assertEqual(row["paused_reason"], report.paused_reason)
 
-    def test_modal_mismatch_is_held_for_the_business_handler(self):
+    def test_modal_mismatch_is_held_without_a_hand_off(self):
         supervisor, _, controller, sink = self.make_supervisor(
             {2: FleetPhase.READY}
         )
         report = supervisor.tick(page_evidence=_evidence("MODAL", detail="BONUS_ITEMS"))
         self.assertEqual(controller.calls, [])
         fallback = report.page_fallback
-        self.assertEqual(fallback.route, ROUTE_BUSINESS_HANDLER)
+        self.assertEqual(fallback.route, ROUTE_HOLD_FOR_BUSINESS_HANDLER)
         self.assertTrue(fallback.hold)
         self.assertIsNone(fallback.delegates_navigation)
         self.assertFalse(fallback.authorizes_click)
@@ -341,6 +357,155 @@ class SupervisorPageFallbackTests(unittest.TestCase):
         report = supervisor.tick(page_evidence=_evidence("UNKNOWN"))
         self.assertIsNone(report.page_fallback)
         self.assertEqual(controller.calls, [2])
+
+
+class ModalsBelongToTheBusinessControllersTests(unittest.TestCase):
+    """Phase 5: a MODAL page must never cost the settlement controller a tick.
+
+    Phase 4 holds a MODAL page so the generic navigator cannot click through
+    it. That hold is only correct because the settlement and reward controllers
+    keep working: they are the ones that advance those pages with proof. These
+    tests pin the distinction - the coarse class can withhold a *dispatch* or a
+    *resupply*, and must not touch *settlement*.
+    """
+
+    def make_supervisor(self, phases, *, settlement_enabled=True):
+        scheduler = FakeScheduler(phases)
+        sink = RecordingSink()
+        monitor = FakeMonitor(scheduler, sink)
+        dispatch = FakeDispatchController(scheduler, event_sink=sink)
+        settlement = FakeSettlementController(
+            scheduler, enabled=settlement_enabled, event_sink=sink
+        )
+        supervisor = ContinuousExpeditionSupervisor(
+            monitor=monitor,
+            dispatch_controller=dispatch,
+            settlement_controller=settlement,
+        )
+        return supervisor, scheduler, dispatch, settlement, sink
+
+    def test_a_reward_page_does_not_block_the_settlement_controller(self):
+        # The real situation: the return notice / result / bonus page is up and
+        # the fleet still owes a settlement. The page is MODAL, and settlement
+        # must proceed - the controller is the only thing allowed to advance it.
+        for phase in (
+            FleetPhase.RETURNED_PENDING_UI,
+            FleetPhase.RETURN_RESULT,
+            FleetPhase.BONUS_ITEMS,
+        ):
+            with self.subTest(phase=phase):
+                supervisor, _, dispatch, settlement, sink = self.make_supervisor(
+                    {2: phase}
+                )
+                report = supervisor.tick(
+                    page_evidence=_evidence("MODAL", detail="BONUS_ITEMS")
+                )
+                self.assertEqual(settlement.calls, [2])
+                self.assertEqual(dispatch.calls, [])
+                self.assertIsNone(report.page_fallback)
+                self.assertNotIn("supervisor_page_mismatch", sink.events())
+                row = sink.one("supervisor_page_evidence")
+                self.assertTrue(row["allowed"])
+                self.assertEqual(row["reason"], REASON_COMPATIBLE)
+
+    def test_the_hold_still_applies_to_a_resupply_intent(self):
+        # MODAL is a hold for dispatch/resupply - it is a business overlay the
+        # resupply walk cannot start from - but never for settlement.
+        supervisor, _, dispatch, settlement, sink = self.make_supervisor(
+            {2: FleetPhase.RESUPPLY_REQUIRED}
+        )
+        report = supervisor.tick(page_evidence=_evidence("MODAL", detail="RETURN_RESULT"))
+        self.assertEqual(settlement.calls, [])
+        self.assertEqual(report.paused_reason, "page_mismatch:resupply:MODAL")
+        self.assertEqual(
+            report.page_fallback.route, ROUTE_HOLD_FOR_BUSINESS_HANDLER
+        )
+        self.assertTrue(sink.one("supervisor_page_mismatch"))
+
+    def test_a_disabled_settlement_controller_still_fails_closed(self):
+        # The page class must not be what makes a settlement possible: with UI
+        # actions disabled the supervisor pauses exactly as it did before
+        # phase 3, whatever the page says.
+        supervisor, _, _, settlement, _ = self.make_supervisor(
+            {2: FleetPhase.RETURN_RESULT}, settlement_enabled=False
+        )
+        report = supervisor.tick(page_evidence=_evidence("MODAL"))
+        self.assertEqual(settlement.calls, [])
+        self.assertIsNotNone(report.paused_reason)
+
+
+class RepeatedUnknownObservationTests(unittest.TestCase):
+    """Phase 5: UNKNOWN repeated is still no evidence, and still no click.
+
+    UNKNOWN is the most common real reading (transition frames, partially
+    painted overlays). Observing it many times in a row must not accumulate
+    into authority: the supervisor keeps its old behaviour, sends nothing, and
+    never attaches a route. Repetition is not evidence.
+    """
+
+    def make_supervisor(self, phases, home_verified=None, *, enabled=True):
+        scheduler = FakeScheduler(phases, home_verified)
+        sink = RecordingSink()
+        monitor = FakeMonitor(scheduler, sink)
+        dispatch = FakeDispatchController(scheduler, enabled=enabled, event_sink=sink)
+        settlement = FakeSettlementController(scheduler, event_sink=sink)
+        supervisor = ContinuousExpeditionSupervisor(
+            monitor=monitor,
+            dispatch_controller=dispatch,
+            settlement_controller=settlement,
+        )
+        return supervisor, scheduler, dispatch, settlement, sink
+
+    def test_twenty_unknown_observations_send_nothing(self):
+        supervisor, _, dispatch, settlement, sink = self.make_supervisor(
+            {2: FleetPhase.EXPEDITION_ACTIVE}, home_verified={2: True}
+        )
+        for _ in range(20):
+            report = supervisor.tick(page_evidence=_evidence("UNKNOWN"))
+            self.assertEqual(report.dispatches, ())
+            self.assertIsNone(report.page_fallback)
+            self.assertIsNone(report.paused_reason)
+        self.assertEqual(dispatch.calls, [])
+        self.assertEqual(settlement.calls, [])
+        self.assertNotIn("supervisor_page_mismatch", sink.events())
+        # Every single observation was recorded as UNKNOWN - none of them was
+        # rewritten into a class the loop could act on.
+        rows = [row for row in sink.rows if row["event"] == "supervisor_page_evidence"]
+        self.assertEqual(len(rows), 20)
+        self.assertEqual({row["page"] for row in rows}, {"UNKNOWN"})
+        self.assertEqual({row["allowed"] for row in rows}, {True})
+
+    def test_unknown_under_a_real_intent_is_still_read_as_no_evidence(self):
+        # A dispatch is wanted and UI actions are off: UNKNOWN neither unblocks
+        # it nor turns into a route. The reason stays unknown_page across ticks.
+        supervisor, _, dispatch, _, sink = self.make_supervisor(
+            {2: FleetPhase.READY}, enabled=False
+        )
+        for _ in range(5):
+            supervisor.tick(page_evidence=_evidence("UNKNOWN"))
+        self.assertEqual(dispatch.calls, [])
+        rows = [row for row in sink.rows if row["event"] == "supervisor_page_evidence"]
+        self.assertEqual(len(rows), 5)
+        self.assertEqual({row["reason"] for row in rows}, {REASON_UNKNOWN_PAGE})
+        self.assertEqual({row["page"] for row in rows}, {"UNKNOWN"})
+        self.assertNotIn("supervisor_page_fallback", sink.events())
+
+    def test_unknown_never_unblocks_a_blocked_fleet(self):
+        supervisor, _, dispatch, _, _ = self.make_supervisor({2: FleetPhase.BLOCKED})
+        for _ in range(5):
+            report = supervisor.tick(page_evidence=_evidence("UNKNOWN"))
+            self.assertEqual(dispatch.calls, [])
+            self.assertIsNone(report.page_fallback)
+            self.assertIsNotNone(report.paused_reason)
+
+    def test_unknown_carries_no_route_even_when_it_allows_the_tick(self):
+        # Allowed-with-no-route is the whole point: the dispatch that follows is
+        # the controller's own decision under its own two-frame Home Port gate,
+        # not something the page class granted.
+        supervisor, _, dispatch, _, _ = self.make_supervisor({2: FleetPhase.READY})
+        report = supervisor.tick(page_evidence=_evidence("UNKNOWN"))
+        self.assertEqual(dispatch.calls, [2])
+        self.assertIsNone(report.page_fallback)
 
 
 if __name__ == "__main__":

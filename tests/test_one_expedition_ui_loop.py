@@ -1555,6 +1555,10 @@ class PageFallbackWiringTests(unittest.TestCase):
         hold = region[start:end]
         self.assertIn("page_fallback_held_for_business_handler", hold)
         self.assertIn("navigation_sent=0", hold)
+        # The event states what actually happens: the run stops and the page is
+        # left alone. It must not claim the business controller was invoked.
+        self.assertIn('next_step="paused_page_untouched"', hold)
+        self.assertNotIn("existing_controller_owns_this_page", hold)
         self.assertIn("return pause(result", hold)
         self.assertNotIn(".click(", hold)
         self.assertNotIn("_recover_home_port(", hold)
