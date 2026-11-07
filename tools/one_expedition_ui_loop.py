@@ -80,6 +80,7 @@ from kancollebot.adapters.poi.expedition_countdown_vision import (  # noqa: E402
     CountdownTemplateError,
     CountdownTemplates,
 )
+from kancollebot.observability.coarse_page import classify_coarse_page  # noqa: E402
 from kancollebot.observability.page_observation import (  # noqa: E402
     DEFAULT_CHANGED_UNKNOWN_LIMIT,
     DEFAULT_TOTAL_BUDGET_SECONDS,
@@ -2410,6 +2411,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 ranking = rank_screenshot_fingerprints(
                     payload, refresh_fingerprint_document
                 )
+                coarse = classify_coarse_page(ranking)
                 sample = PageSample(
                     state=ranking.state,
                     scores=ranking.scores,
@@ -2418,6 +2420,12 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 _print_event(
                     "refresh_page_observed",
                     observed=ranking.state,
+                    # Phase-2 coarse summary: additive audit field only. The
+                    # detailed identity above stays authoritative for every
+                    # business decision; the coarse class authorises nothing.
+                    coarse_page=coarse.page,
+                    coarse_reason=coarse.reason,
+                    coarse_detail_state=coarse.detail_state,
                     best_name=ranking.best_name,
                     best_score=round(ranking.best_score, 4),
                     second_name=ranking.second_name,

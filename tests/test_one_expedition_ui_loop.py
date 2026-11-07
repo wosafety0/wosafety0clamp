@@ -1471,5 +1471,40 @@ class ObservedHomePortRecoveryTests(unittest.TestCase):
         self.assertGreaterEqual(game_session.input.click.call_count, 4)
 
 
+class CoarsePageWiringTests(unittest.TestCase):
+    """Phase-2 wiring: the refresh observation event carries the coarse page
+    summary as ADDITIVE audit fields.
+
+    The detailed ``observed`` identity stays authoritative for every business
+    decision; the coarse class must never replace it and must never gate or
+    authorise anything in this phase.
+    """
+
+    def _refresh_observe_page_source(self) -> str:
+        source = inspect.getsource(controller._run_production_supervisor_once)
+        start = source.index("def refresh_observe_page(")
+        return source[start:source.index("def refresh_checkpoint(", start)] \
+            if "def refresh_checkpoint(" in source else source[start:]
+
+    def test_refresh_event_reports_the_coarse_summary_additively(self):
+        source = self._refresh_observe_page_source()
+        self.assertIn("classify_coarse_page(ranking)", source)
+        self.assertIn("coarse_page=coarse.page", source)
+        self.assertIn("coarse_reason=coarse.reason", source)
+
+    def test_detailed_identity_stays_the_authoritative_observed_field(self):
+        source = self._refresh_observe_page_source()
+        self.assertIn(
+            "observed=ranking.state",
+            source,
+            "the detailed fingerprint state must remain the primary observed "
+            "identity; the coarse class is only a summary",
+        )
+
+    def test_coarse_class_authorises_nothing(self):
+        source = self._refresh_observe_page_source()
+        self.assertIn("authorizes_click=False", source)
+
+
 if __name__ == "__main__":
     unittest.main()
