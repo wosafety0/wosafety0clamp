@@ -5283,3 +5283,25 @@ The Hand plugin's read-only probe reported:
   3. **验收参数基线**（沿用既有实机基线）：`--fleet-id 2 --mission-id 1 --authorize-ui-actions --wait-for-return --global-drain --drain-max-actions 24 --drain-timeout-seconds 150 --post-expiry-grace-seconds 20`，加 `--run-log-dir` 与干净 `--database`。`--wait-for-return` 是「单次启动」的必要条件（不带则 `max_ticks=1`，派遣后即退出，会退化成人工串联子脚本，属禁止事项）。
   4. **未启动原因**：该验收是一次性、约 15–20 分钟、期间客户端不得被任何人操作的长跑，且起点存在「F2 未满补」这一待观察变量；「只启动一次」不允许靠重试猜状态，故先请用户放行启动时机，不擅自启动。异常只允许安全暂停告警。
 - **ARCHIVE** 本地保存并提交；推送后远程回读核对；`main` 未动。
+
+## 2026-11-07 - 阶段5（六）：单舰队验收首轮（单次启动）——仅完成补给+派遣，全生命周期未达成
+
+> **状态：** 用户放行后**只启动了一次**生产入口，EXIT=0、零误操作，但 `closed_loop=false`、tick 仅 1 次 —— **验收未达成**。已安全暂停，不再擅自启动、不改代码。裁决不变：**尚不允许宣布阶段5完成**。
+
+- **IMPLEMENTED** 无代码改动（本轮为验收运行 + 只读取证）。
+- **VERIFIED（运行与取证）**
+  - 命令：`--fleet-id 2 --mission-id 1 --authorize-ui-actions --wait-for-return --global-drain --drain-max-actions 24 --post-expiry-grace-seconds 20 --database logs/phase5_acceptance_20261107.sqlite3 --run-log-dir logs/run_log_phase5_acceptance --log-path logs/phase5_acceptance_20261107.out`。**刻意不传 `--drain-timeout-seconds`**，`global_drain_wired timeout_seconds=150.0` ⇒ 缺陷5 的新默认值在实机生效。
+  - 20:34:43Z 起，3m25s，`PRODUCTION_EXIT=0`，`run_stopped reason=loop_completed`。取证：`logs/phase5_acceptance_20261107.out`（84 行）、`logs/phase5_acceptance_20261107.stdout.log`、`logs/run_log_phase5_acceptance/run-2026-11-07.jsonl`。
+  - **实际完成**：`fleet_monitor_transition IDLE→RESUPPLY_REQUIRED`（fuel 不足）→ `resupply_confirmed`（fuel 16，双帧 OOI 证据）→ `dispatch_confirmed_by_poi`（F2/远征1，`dispatch-20261107T123650Z-f384a24aa3f8`，`final_time_ms=1794055955622` = **20:52:35 GMT+8** 返航）。
+  - **未完成**：等待返航、结算、奖励、补给、再派遣。`PRODUCTION_UI_CONTROLLER_INTEGRATION_VERIFIED` 报 `closed_loop=false`；零 `settlement_drain_*`（本轮确实没有返航）。
+- **TESTED（五项修复中两项获得实机正面证据）**
+  - **缺陷1**：干净新库 `fleet_runtime` F2=`EXPEDITION_ACTIVE`，**`ship_ids_json` 保留 `[12613,16733,16323,13519]`**（不再在 RESUPPLY_REQUIRED 置 NULL）；`dispatch_identities` status=**`confirmed` 而非 `settled`** —— 双证据门禁没有把刚派遣误判成已结算。
+  - **缺陷5**：未传 `--drain-timeout-seconds` 时 `global_drain_wired` 读到的就是新默认 **150.0**。
+  - 缺陷2/3/4 本轮**未被触发**（屏幕上从未出现结算/奖励页，也没有返航后的长睡新鲜度窗口），不能据此宣称已实机验证。
+- **SAFETY** 零 `STOPPED_FAIL_CLOSED`、零 `supervisor_paused`、零 `supervisor_page_mismatch`、`game_api_requests=false`；本轮点击全部落在补给/派遣导航合法路径（`continuous_ui_click_sent 10` / `ui_refresh_click_sent 3` / `home_port_button_click_sent 1`），`_pre_click_guard` 因未遇结算页而未触发。旧库 `logs/phase5_20261107.sqlite3` 未动；两个受保护未跟踪脚本未执行/未修改/未提交/未删除；`main` 未动。
+- **LIMITS / 新阻塞（只读定位，非参数错误、非 fail-closed）**
+  - `tools/one_expedition_ui_loop.py:3379` 在 `result.dispatches` 非空（本 tick 刚派遣）时**无条件 `return 0`**；`--wait-for-return` 的等待 / `timer_sleep` 分支只在 `not result.dispatches`（3281-3330 行）时进入。⇒ 从零启动（补给→派遣）必然在派遣后立刻正常退出；`--wait-for-return` 实际只对「启动时舰队已在途」有效，即旧两段式的第二段。
+  - 因此「**只启动一次**生产入口、程序自主完成 派遣→等待→结算→奖励→补给→再派遣」在当前代码结构下**不成立**。这是五项缺陷之外的新缺口，超出「不扩大范围」的修复授权，故**未擅自修改**。
+  - **当前真实游戏状态**：F2 在途，20:52:35 GMT+8 返航；若不接管，归投气泡/结果页将留屏待人工处理。
+  - 「只启动一次」额度已用掉，未擅自再启动。下一步须用户裁决：①利用当前在途窗口做一次「接续闭环」验收（从在途 → 返航→结算→奖励→补给→再派遣，走 wait 分支）；②授权修复 `return 0` 缺口后再安排新的单周期验收；③维持暂停。
+- **ARCHIVE** 本地保存并提交；推送后远程回读核对；`main` 未动。
