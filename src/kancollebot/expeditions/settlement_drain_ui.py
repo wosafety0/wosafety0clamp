@@ -113,12 +113,25 @@ class PoiSettlementDrainObserver:
 
 
 class PoiSettlementDrainDriver:
-    """Perform exactly one input for a settlement page, then return."""
+    """Perform exactly one input for a settlement page, then return.
 
-    __slots__ = ("_driver",)
+    ``ui_arbiter`` is the *same* cross-process mutex the dispatch, settlement
+    and resupply controllers take. The global drain used to click outside it:
+    the controllers and the drain run in one process and therefore in one
+    thread, but the mutex is also what excludes a SECOND process (a calibration
+    or supply tool) from the client, so a drain that skipped it was the one
+    visible click path with no exclusion at all. The lock is taken per input,
+    not for the whole drain, so a long drain never blocks another workflow
+    longer than one click.
 
-    def __init__(self, driver: Any) -> None:
+    ``None`` keeps every offline double exactly as it was: no lock, no change.
+    """
+
+    __slots__ = ("_driver", "_ui_arbiter")
+
+    def __init__(self, driver: Any, *, ui_arbiter: Any = None) -> None:
         self._driver = _require_driver(driver, "advance_settlement_page")
+        self._ui_arbiter = ui_arbiter
 
     def advance(self, page: DrainPageState) -> None:
         if not isinstance(page, DrainPageState):
@@ -129,4 +142,8 @@ class PoiSettlementDrainDriver:
             # contract says it only ever advances pages it recognises, so this
             # is a programming error worth failing loudly on.
             raise ValueError(f"{page.value} is not an advanceable settlement page")
-        self._driver.advance_settlement_page(screen)
+        if self._ui_arbiter is None:
+            self._driver.advance_settlement_page(screen)
+            return
+        with self._ui_arbiter.operation(f"settlement-drain-{page.value}"):
+            self._driver.advance_settlement_page(screen)

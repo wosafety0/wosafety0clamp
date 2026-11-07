@@ -2816,7 +2816,11 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
 
                     supervisor_drain_session = SettlementDrainSession(
                         PoiSettlementDrainObserver(ui_driver),
-                        PoiSettlementDrainDriver(ui_driver),
+                        # The drain is the one visible click path that used to
+                        # run outside the shared mutex: it is wired with the
+                        # SAME arbiter every controller takes, so a second
+                        # process cannot interleave a click with it.
+                        PoiSettlementDrainDriver(ui_driver, ui_arbiter=ui_arbiter),
                         event_sink=runtime.monitor.event_sink,
                         settlement_settled=_no_fleet_pending_settlement,
                     )
@@ -2829,6 +2833,7 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                         ),
                         stable_frame_count=supervisor_drain_request.stable_frame_count,
                         passes_fleet_id=False,
+                        ui_arbiter_shared=True,
                         game_api_requests=False,
                     )
             elif drain_requested:

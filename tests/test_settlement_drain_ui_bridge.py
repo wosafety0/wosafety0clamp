@@ -8,6 +8,7 @@ recognise.
 from __future__ import annotations
 
 import unittest
+from contextlib import contextmanager
 
 from kancollebot.expeditions.settlement_drain import DrainPageState
 from kancollebot.expeditions.settlement_drain_ui import (
@@ -101,6 +102,91 @@ class DriverTests(unittest.TestCase):
     def test_a_driver_without_advance_is_refused(self):
         with self.assertRaisesRegex(ValueError, "advance_settlement_page"):
             PoiSettlementDrainDriver(object())
+
+
+class _RecordingArbiter:
+    """The shape of ``UiOperationArbiter``: one context manager per input."""
+
+    def __init__(self):
+        self.labels: list[str] = []
+        self.held: list[str] = []
+
+    @contextmanager
+    def operation(self, label):
+        self.labels.append(label)
+        self.held.append(label)
+        try:
+            yield
+        finally:
+            self.held.pop()
+
+
+class _LockAwareDriver(FakeDriver):
+    """Records whether the shared mutex was held at the moment of the click."""
+
+    def __init__(self, arbiter):
+        super().__init__()
+        self._arbiter = arbiter
+        self.clicked_while_held: list[bool] = []
+
+    def advance_settlement_page(self, screen):
+        self.clicked_while_held.append(bool(self._arbiter.held))
+        super().advance_settlement_page(screen)
+
+
+class DrainDriverMutexTests(unittest.TestCase):
+    """The global drain's click must sit inside the shared Poi UI mutex.
+
+    It is the one visible click path that used to take no lock at all. The
+    controllers hold it, and it is also what excludes a second process, so a
+    drain clicking beside it defeats the exclusion the whole run depends on.
+    """
+
+    def test_the_input_is_sent_inside_the_shared_mutex(self):
+        arbiter = _RecordingArbiter()
+        driver = _LockAwareDriver(arbiter)
+
+        PoiSettlementDrainDriver(driver, ui_arbiter=arbiter).advance(
+            DrainPageState.EXPEDITION_RESULT
+        )
+
+        self.assertEqual(driver.advanced, ["RETURN_RESULT"])
+        self.assertEqual(driver.clicked_while_held, [True])
+        self.assertEqual(
+            arbiter.labels, ["settlement-drain-expedition_result"]
+        )
+        self.assertEqual(arbiter.held, [])
+
+    def test_each_advanced_page_takes_its_own_short_operation(self):
+        arbiter = _RecordingArbiter()
+        driver = FakeDriver()
+        bridge = PoiSettlementDrainDriver(driver, ui_arbiter=arbiter)
+
+        for page in (
+            DrainPageState.RETURN_NOTICE,
+            DrainPageState.EXPEDITION_RESULT,
+            DrainPageState.REWARD_PANEL,
+        ):
+            bridge.advance(page)
+
+        self.assertEqual(len(arbiter.labels), 3)
+        self.assertEqual(len(set(arbiter.labels)), 3)
+
+    def test_without_an_arbiter_the_bridge_behaves_exactly_as_before(self):
+        driver = FakeDriver()
+
+        PoiSettlementDrainDriver(driver).advance(DrainPageState.EXPEDITION_RESULT)
+
+        self.assertEqual(driver.advanced, ["RETURN_RESULT"])
+
+    def test_a_refused_page_never_takes_the_lock(self):
+        arbiter = _RecordingArbiter()
+        with self.assertRaisesRegex(ValueError, "not an advanceable"):
+            PoiSettlementDrainDriver(
+                FakeDriver(), ui_arbiter=arbiter
+            ).advance(DrainPageState.UNKNOWN)
+
+        self.assertEqual(arbiter.labels, [])
 
 
 if __name__ == "__main__":
