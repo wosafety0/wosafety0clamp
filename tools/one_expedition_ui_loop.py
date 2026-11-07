@@ -1713,6 +1713,24 @@ def _collect_fleet_timers(runtime, supervisor, target_fleet_ids) -> dict[int, in
     return timers
 
 
+def _dispatch_awaits_return(args, result) -> bool:
+    """Whether a just-dispatched fleet must stay in this process until return.
+
+    ``--wait-for-return`` promises that return, settlement, resupply and
+    re-dispatch happen in one process instead of a second run. Returning as
+    soon as the *first* dispatch is verified breaks that promise (live
+    2026-11-07: a clean launch exited after resupply + dispatch with
+    ``closed_loop=false`` and tick=1). A dispatch that already comes with
+    settlements is the re-dispatch closing a loop, so it is the one case that
+    may exit successfully.
+
+    Strict ``is True``: a MagicMock or any other truthy non-bool must never be
+    mistaken for an enabled wait mode.
+    """
+    wait_mode = getattr(args, "wait_for_return", False)
+    return wait_mode is True and not result.settlements
+
+
 def _pending_timer_work_fleet_ids(supervisor) -> tuple[int, ...]:
     """Fleets with executable work right now; a timer must never sleep past them."""
     return tuple(
@@ -3377,6 +3395,34 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     ],
                     evidence="fresh_poi_before_after_and_two_frame_home_port",
                 )
+                # The first dispatch of a wait-mode run is only half of the
+                # lifecycle. Keep ticking so this same process observes the
+                # Poi-authored timer, settles the return, resupplies and
+                # re-dispatches. The next tick sees no dispatch and takes the
+                # existing bounded timer-sleep branch; a dispatch that already
+                # carries settlements is the loop-closing re-dispatch and exits.
+                if _dispatch_awaits_return(args, result):
+                    if tick_index >= max_ticks:
+                        _print_event(
+                            "production_dispatch_return_wait_budget_exhausted",
+                            tick=tick_index,
+                            of=max_ticks,
+                            fleet_ids=[d.fleet_id for d in result.dispatches],
+                            next_step="hold_for_human",
+                            game_actions_sent=0,
+                        )
+                        return 0
+                    _print_event(
+                        "production_dispatch_awaits_return",
+                        tick=tick_index,
+                        fleet_ids=[d.fleet_id for d in result.dispatches],
+                        final_time_ms=[
+                            d.mission.final_time_ms for d in result.dispatches
+                        ],
+                        next_step="wait_for_fleet_timer_then_settle_and_redispatch",
+                        game_actions_sent=0,
+                    )
+                    continue
                 return 0
     except Exception as exc:
         try:

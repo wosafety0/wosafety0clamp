@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import ast
 import base64
 import inspect
 import os
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -227,6 +229,83 @@ class SettleOnlyEmptyQueueReplayTests(unittest.TestCase):
         self.assertEqual(report.paused_reason, "ui_actions_disabled")
         self.assertEqual(report.dispatches, ())
         self.assertIn("supervisor_paused", [name for name, _ in events])
+
+
+class WaitModeDispatchContinuationTests(unittest.TestCase):
+    """A wait-mode launch must not exit right after its first dispatch.
+
+    Live 2026-11-07: a clean single-process launch completed resupply +
+    dispatch and exited with ``closed_loop=false`` and tick=1, because the
+    loop returned unconditionally whenever ``result.dispatches`` was non-empty.
+    """
+
+    @staticmethod
+    def make_result(settlements=()):
+        return SimpleNamespace(settlements=settlements)
+
+    def test_the_first_dispatch_in_wait_mode_stays_in_the_process(self):
+        args = SimpleNamespace(wait_for_return=True)
+        self.assertTrue(controller._dispatch_awaits_return(args, self.make_result()))
+
+    def test_a_re_dispatch_after_settlement_closes_the_loop(self):
+        args = SimpleNamespace(wait_for_return=True)
+        result = self.make_result(settlements=(object(),))
+        self.assertFalse(controller._dispatch_awaits_return(args, result))
+
+    def test_single_tick_mode_never_waits_even_without_settlements(self):
+        args = SimpleNamespace(wait_for_return=False)
+        self.assertFalse(controller._dispatch_awaits_return(args, self.make_result()))
+
+    def test_a_truthy_non_bool_is_not_wait_mode(self):
+        args = SimpleNamespace(wait_for_return=MagicMock())
+        self.assertFalse(controller._dispatch_awaits_return(args, self.make_result()))
+
+    def test_a_missing_wait_flag_is_not_wait_mode(self):
+        args = SimpleNamespace()
+        self.assertFalse(controller._dispatch_awaits_return(args, self.make_result()))
+
+    def test_the_loop_continues_after_the_first_dispatch_instead_of_returning(self):
+        source = textwrap.dedent(
+            inspect.getsource(controller._run_production_supervisor_once)
+        )
+        tree = ast.parse(source)
+        guard = None
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.If):
+                continue
+            called = [
+                call.func.id
+                for call in ast.walk(node.test)
+                if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+            ]
+            if "_dispatch_awaits_return" in called:
+                guard = node
+                break
+        self.assertIsNotNone(
+            guard, "the dispatch branch no longer consults _dispatch_awaits_return"
+        )
+        self.assertTrue(
+            any(isinstance(node, ast.Continue) for node in ast.walk(guard)),
+            "wait mode must keep ticking instead of returning after dispatch",
+        )
+        zero_returns = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Return)
+            and isinstance(node.value, ast.Constant)
+            and node.value.value == 0
+        ]
+        self.assertGreaterEqual(
+            len(zero_returns),
+            2,
+            "both the budget-exhausted hold and the loop-closing exit must remain",
+        )
+        self.assertIn("production_dispatch_awaits_return", source)
+        self.assertIn("production_dispatch_return_wait_budget_exhausted", source)
+        # The continuation must land in the existing bounded timer wait, not a
+        # second polling loop or an extra navigation.
+        self.assertIn("production_waiting_for_return", source)
+        self.assertIn("_wait_before_next_observation", source)
 
 
 class WaitForReturnArgumentTests(unittest.TestCase):
