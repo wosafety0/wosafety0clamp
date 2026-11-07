@@ -746,17 +746,30 @@ class FreshnessRefreshingStateReader:
         max_wait_seconds: float = 45.0,
         poll_interval_seconds: float = 0.5,
         refresh_cooldown_seconds: float = 30.0,
+        rebuild_max_attempts: int = 2,
+        rebuild_backoff_seconds: float = 5.0,
         event_sink: Callable[[str, Mapping[str, object]], None] | None = None,
         refresh_id_factory: Callable[[], str] | None = None,
         clock: Callable[[], datetime] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
-        values = (max_wait_seconds, poll_interval_seconds, refresh_cooldown_seconds)
+        values = (
+            max_wait_seconds,
+            poll_interval_seconds,
+            refresh_cooldown_seconds,
+            rebuild_backoff_seconds,
+        )
         if any(not math.isfinite(value) for value in values):
             raise ValueError("refresh timing values must be finite")
         if max_wait_seconds <= 0 or poll_interval_seconds <= 0 or refresh_cooldown_seconds < 0:
             raise ValueError("refresh wait/poll must be positive and cooldown non-negative")
+        if rebuild_backoff_seconds < 0:
+            raise ValueError("rebuild_backoff_seconds must be non-negative")
+        if isinstance(rebuild_max_attempts, bool) or not isinstance(rebuild_max_attempts, int):
+            raise ValueError("rebuild_max_attempts must be a positive int")
+        if rebuild_max_attempts < 1:
+            raise ValueError("rebuild_max_attempts must be at least 1")
         if not callable(getattr(reader, "read_fleets", None)):
             raise ValueError("reader must provide read_fleets()")
         if not callable(getattr(refresh_driver, "refresh_port_state", None)):
@@ -774,6 +787,8 @@ class FreshnessRefreshingStateReader:
         self._max_wait_seconds = max_wait_seconds
         self._poll_interval_seconds = poll_interval_seconds
         self._refresh_cooldown_seconds = refresh_cooldown_seconds
+        self._rebuild_max_attempts = rebuild_max_attempts
+        self._rebuild_backoff_seconds = rebuild_backoff_seconds
         self._monotonic = monotonic
         self._sleep = sleep
         self._refresh_lock = threading.Lock()
@@ -825,6 +840,7 @@ class FreshnessRefreshingStateReader:
         waited_seconds: float = 0.0,
         error_type: str | None = None,
         navigation_sent: bool = False,
+        rebuild_attempts: int = 0,
     ) -> None:
         """Record one refresh attempt, whether or not a navigation was sent.
 
@@ -850,6 +866,8 @@ class FreshnessRefreshingStateReader:
             "triggered_at": triggered_at.isoformat(),
             "waited_seconds": round(max(waited_seconds, 0.0), 3),
         }
+        if rebuild_attempts:
+            fields["rebuild_attempts"] = int(rebuild_attempts)
         if error_type is not None:
             fields["error_type"] = error_type
         try:
@@ -976,15 +994,25 @@ class FreshnessRefreshingStateReader:
         )
 
     def _await_witness(self, *, deadline_seconds: float) -> Any:
-        """Wait for a natural port response; never clicks, never raises."""
+        """Wait for a natural port response; never clicks, never raises.
+
+        Polls ``read_fleets`` at ``poll_interval_seconds`` until a trusted
+        witness arrives or ``deadline_seconds`` elapses. A read only happens
+        while the deadline is still ahead, so a timeout returns the last
+        observation read *before* the deadline rather than performing one extra
+        read at the boundary; the first read always runs so a zero deadline
+        still yields a fresh observation.
+        """
         deadline = self._monotonic() + deadline_seconds
-        observation = self._reader.read_fleets()
-        while not self._is_trusted(observation, None):
+        observation: Any | None = None
+        while observation is None or self._monotonic() < deadline:
+            observation = self._reader.read_fleets()
+            if self._is_trusted(observation, None):
+                return observation
             remaining = deadline - self._monotonic()
             if remaining <= 0:
-                return observation
+                break
             self._sleep(min(self._poll_interval_seconds, remaining))
-            observation = self._reader.read_fleets()
         return observation
 
     def _observe_fleet(self, fleet_id: int) -> FleetReturnView:
@@ -1094,16 +1122,22 @@ class FreshnessRefreshingStateReader:
             self._last_refresh_at = now
             started_at = self._monotonic()
             try:
-                if self._driver_takes_audit:
-                    self._refresh_driver.refresh_port_state(
-                        refresh_id=refresh_id, origin=origin
+                # A bounded freshness rebuild: navigate home and wait for the
+                # natural port witness, retrying with a backoff when the witness
+                # does not arrive. After a long timer sleep the client's first
+                # natural port response may not land inside one wait window, and
+                # the cooldown above would otherwise suppress the next few ticks
+                # before a second navigation was even attempted (live 2026-11-07).
+                for attempt in range(1, self._rebuild_max_attempts + 1):
+                    if self._driver_takes_audit:
+                        self._refresh_driver.refresh_port_state(
+                            refresh_id=refresh_id, origin=origin
+                        )
+                    else:
+                        self._refresh_driver.refresh_port_state()
+                    observation = self._await_witness(
+                        deadline_seconds=self._max_wait_seconds
                     )
-                else:
-                    self._refresh_driver.refresh_port_state()
-
-                deadline = self._monotonic() + self._max_wait_seconds
-                while self._monotonic() < deadline:
-                    observation = self._reader.read_fleets()
                     if self._is_trusted(observation, None):
                         self._audit(
                             refresh_id=refresh_id,
@@ -1113,12 +1147,11 @@ class FreshnessRefreshingStateReader:
                             triggered_at=triggered_at,
                             waited_seconds=self._monotonic() - started_at,
                             navigation_sent=True,
+                            rebuild_attempts=attempt,
                         )
                         return observation
-                    remaining = deadline - self._monotonic()
-                    if remaining <= 0:
-                        break
-                    self._sleep(min(self._poll_interval_seconds, remaining))
+                    if attempt < self._rebuild_max_attempts:
+                        self._sleep(self._rebuild_backoff_seconds)
                 self._audit(
                     refresh_id=refresh_id,
                     origin=origin,
@@ -1127,6 +1160,7 @@ class FreshnessRefreshingStateReader:
                     triggered_at=triggered_at,
                     waited_seconds=self._monotonic() - started_at,
                     navigation_sent=True,
+                    rebuild_attempts=self._rebuild_max_attempts,
                 )
                 return observation
             except Exception as exc:

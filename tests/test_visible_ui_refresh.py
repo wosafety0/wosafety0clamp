@@ -249,6 +249,7 @@ class FreshnessRefreshingStateReaderTests(unittest.TestCase):
             driver,
             max_wait_seconds=1.0,
             poll_interval_seconds=0.5,
+            rebuild_max_attempts=1,
             monotonic=lambda: clock[0],
             sleep=sleep,
         )
@@ -274,6 +275,7 @@ class FreshnessRefreshingStateReaderTests(unittest.TestCase):
             max_wait_seconds=0.5,
             poll_interval_seconds=0.5,
             refresh_cooldown_seconds=10.0,
+            rebuild_max_attempts=1,
             monotonic=lambda: clock[0],
             sleep=sleep,
         )
@@ -300,6 +302,7 @@ class FreshnessRefreshingStateReaderTests(unittest.TestCase):
             max_wait_seconds=1.0,
             poll_interval_seconds=0.5,
             refresh_cooldown_seconds=0.5,
+            rebuild_max_attempts=1,
             monotonic=lambda: clock[0],
             sleep=sleep,
         )
@@ -315,6 +318,113 @@ class FreshnessRefreshingStateReaderTests(unittest.TestCase):
         clock[0] += 0.5
         wrapper.ensure_fresh(origin="test_reader")
         self.assertEqual(refresh_calls, ["refresh", "refresh"])
+
+
+class FreshnessRebuildTests(unittest.TestCase):
+    """Defect 4: after a long timer sleep the client's first natural port
+    response may not land inside one wait window, so a single navigation can
+    fail to recover freshness. ``ensure_fresh`` now rebuilds up to
+    ``rebuild_max_attempts`` times with a backoff, and still fails closed when
+    every rebuild times out."""
+
+    @staticmethod
+    def _make(observations, *, rebuild_max_attempts=2, rebuild_backoff_seconds=0.5):
+        reader = FakeReader(observations)
+        refresh_calls = []
+        events = []
+        driver = SimpleNamespace(
+            refresh_port_state=lambda **kwargs: refresh_calls.append("refresh")
+        )
+        clock = [0.0]
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        wrapper = FreshnessRefreshingStateReader(
+            reader,
+            driver,
+            max_wait_seconds=0.5,
+            poll_interval_seconds=0.5,
+            refresh_cooldown_seconds=0.0,
+            rebuild_max_attempts=rebuild_max_attempts,
+            rebuild_backoff_seconds=rebuild_backoff_seconds,
+            event_sink=lambda event, fields: events.append((event, dict(fields))),
+            monotonic=lambda: clock[0],
+            sleep=sleep,
+        )
+        return wrapper, reader, refresh_calls, events
+
+    @staticmethod
+    def _audits(events):
+        return [fields for name, fields in events if name == "ui_refresh_audit"]
+
+    def test_a_rebuild_retries_and_succeeds_when_the_witness_arrives_late(self):
+        wrapper, _, refresh_calls, events = self._make(
+            [observation(False), observation(False), observation(True)]
+        )
+
+        result = wrapper.ensure_fresh(origin="monitor_tick")
+
+        self.assertTrue(result.source_freshness_verified)
+        self.assertEqual(refresh_calls, ["refresh", "refresh"])
+        audits = self._audits(events)
+        self.assertEqual(audits[-1]["outcome"], "refreshed")
+        self.assertEqual(audits[-1]["rebuild_attempts"], 2)
+
+    def test_a_rebuild_that_never_finds_a_witness_stays_fail_closed(self):
+        wrapper, _, refresh_calls, events = self._make([observation(False)])
+
+        result = wrapper.ensure_fresh(origin="monitor_tick")
+
+        self.assertFalse(result.source_freshness_verified)
+        self.assertEqual(refresh_calls, ["refresh", "refresh"])
+        audits = self._audits(events)
+        self.assertEqual(audits[-1]["outcome"], "witness_timeout")
+        self.assertEqual(audits[-1]["rebuild_attempts"], 2)
+
+    def test_rebuild_is_bounded_to_the_configured_attempts(self):
+        wrapper, _, refresh_calls, _ = self._make(
+            [observation(False)], rebuild_max_attempts=3
+        )
+
+        result = wrapper.ensure_fresh(origin="monitor_tick")
+
+        self.assertFalse(result.source_freshness_verified)
+        self.assertEqual(refresh_calls, ["refresh", "refresh", "refresh"])
+
+    def test_repeated_cached_reads_do_not_count_as_a_rebuild_success(self):
+        # The reader keeps handing back the same cached, unverified object; the
+        # wait polling it again and again must never look like a witness.
+        cached = observation(False)
+        reader = FakeReader([cached])
+        refresh_calls = []
+        events = []
+        driver = SimpleNamespace(
+            refresh_port_state=lambda **kwargs: refresh_calls.append("refresh")
+        )
+        clock = [0.0]
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        wrapper = FreshnessRefreshingStateReader(
+            reader,
+            driver,
+            max_wait_seconds=2.0,
+            poll_interval_seconds=0.5,
+            refresh_cooldown_seconds=0.0,
+            rebuild_max_attempts=1,
+            event_sink=lambda event, fields: events.append((event, dict(fields))),
+            monotonic=lambda: clock[0],
+            sleep=sleep,
+        )
+
+        result = wrapper.ensure_fresh(origin="monitor_tick")
+
+        self.assertFalse(result.source_freshness_verified)
+        self.assertEqual(refresh_calls, ["refresh"])
+        audits = self._audits(events)
+        self.assertEqual(audits[-1]["outcome"], "witness_timeout")
 
 
 class PassiveWitnessWaitTests(unittest.TestCase):
