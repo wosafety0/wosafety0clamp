@@ -5305,3 +5305,26 @@ The Hand plugin's read-only probe reported:
   - **当前真实游戏状态**：F2 在途，20:52:35 GMT+8 返航；若不接管，归投气泡/结果页将留屏待人工处理。
   - 「只启动一次」额度已用掉，未擅自再启动。下一步须用户裁决：①利用当前在途窗口做一次「接续闭环」验收（从在途 → 返航→结算→奖励→补给→再派遣，走 wait 分支）；②授权修复 `return 0` 缺口后再安排新的单周期验收；③维持暂停。
 - **ARCHIVE** 本地保存并提交；推送后远程回读核对；`main` 未动。
+
+## 2026-11-07 - 阶段5（七）：接续闭环实机、cooldown 新缺口、wait 模式生命周期修复
+
+> **状态：** 用户裁决「保窗口 + 授权修缺口」。接续闭环实机 **EXIT=2 fail-closed（安全暂停、零误点击）**；`return 0` 缺口已修并归档（`d3acf15`，四门禁全绿）。**验收仍未达成**：新发现的 cooldown 缺口未修，且修复本身尚未经实机验证。裁决不变：**尚不允许宣布阶段5完成**。
+
+- **IMPLEMENTED（提交 `d3acf15`，用户明确授权）**
+  - 新增纯决策函数 `_dispatch_awaits_return(args, result)`：`wait_for_return is True and not result.settlements`，严格布尔（MagicMock / 其他 truthy 非 bool 不误判）。
+  - 主循环在 `PRODUCTION_UI_CONTROLLER_INTEGRATION_VERIFIED` 之后：首次派遣（无 settlements）发 `production_dispatch_awaits_return` 并 `continue`，让**同一进程**的下一 tick 落入既有 `production_waiting_for_return` + `_wait_before_next_observation` 有界计时器睡眠；结算后的再派遣（带 settlements）仍 `return 0` 成功退出；不带 `--wait-for-return` 的单 tick 行为完全不变。
+  - tick 预算已耗尽时发 `production_dispatch_return_wait_budget_exhausted` 并安全 `return 0`，避免循环走完后隐式返回 `None`。**不新增第二套等待或导航**。
+- **VERIFIED（接续闭环实机，第二次启动已重新授权）**
+  - 同账本、独立日志 `logs/phase5_acceptance_continue_20261107.out` / `logs/run_log_phase5_continue/`；12m8s，`PRODUCTION_EXIT=2`。
+  - 计时器链路完全合规：`production_waiting_for_return`（tick1）→ `expedition_timer_sleep_started`（deadline = Poi `final_time_ms` 12:52:35.622Z，grace 20s）→ `expedition_timer_sleep_finished`（actual 556.704s、`probe_calls_total_during_sleep=0`、`probe_violation=false`、`timer_is_return_evidence=false`、`dispatches_sent=0`）。零手工 sleep、零人工干预。
+  - **缺陷4 工作正常**：两次 `ui_refresh_audit` 都 `outcome="refreshed"` / `witness_verified=true` / `rebuild_attempts=1`；`fleet_monitor_transition EXPEDITION_ACTIVE→RETURNED_PENDING_UI`。
+  - **结算页收口成功**：`settlement_drain_finished reached_home=true, completed_pages=1, actions_performed=1, error=null, requires_manual_intervention=false`（归投气泡被合法点掉 1 次）。
+  - **新缺口（精确）**：`settlement_started` 后 `settlement_baseline` 的 `ui_refresh_audit` = `outcome="cooldown_suppressed"` / `witness_verified=false` / `clicks_sent=0`（12:54:05 monitor_tick 刷新刚消耗冷却期，12:54:25 结算控制器拿不到见证）→ `continuous_settlement_controller.py:1391-1400` 的 `require_fresh` 抛 `ContinuousSettlementError: Poi observation is not trusted` → `supervisor_paused fleet_2_settlement_failed` → `run_stopped loop_failed_closed`。**不是**缺陷4 重建失败。
+- **TESTED** 新增 6 个专项测试（严格布尔 5 例 + AST 控制流守卫，后者确认 `continue` 分支、预算耗尽退出、既有计时器等待分支均在位）。全量 **2206 OK**（2 skip / 1 expectedFailure）、`compileall -q src tests tools` OK、`git diff --check` CLEAN、`node --test` 29/29。
+- **SAFETY** 零误点击、零 `game_api_requests`；失败后只读状态：Poi F2 `[2,1,1794055955622,0]`（返航未结算）、屏幕两层 `UNKNOWN`（best `EXPEDITION_LIST 0.8493`）⇒ **门禁 FAIL_CLOSED**、账本 `fleet_runtime=RETURNED_PENDING_UI` 且 `ship_ids_json` 保留 `[12613,16733,16323,13519]`、`dispatch_identities` 仍 `confirmed`（缺陷1 双证据继续生效）。旧库未动；两个受保护未跟踪脚本未执行/未修改/未提交/未删除；`main` 未动。
+- **LIMITS / NEXT**
+  1. **第二个必要修复（未做，超出本次授权）**：刷新冷却期抑制结算控制器 baseline 读取。即使 `return 0` 已修，完整验收仍会在结算起点 fail-closed。须用户授权后单独处理（不得靠放宽 `require_fresh` 或降阈值绕过）。
+  2. `d3acf15` **只有离线证据**，尚未实机验证；当前屏幕门禁 FAIL_CLOSED、Poi 返航未结算，**不能直接启动下一次验收**。
+  3. 收口当前残留状态需要新的启动授权（原「只启动一次」额度及第二次接续授权均已用尽）或用户手动清屏；不得靠重试/重复点击猜状态。
+  4. 裁决不变：**尚不允许宣布阶段5完成**；`--early-return` 仍关，倒计时模板仍缺 `{1,4,6,7,8,9}`。
+- **ARCHIVE** 本地保存并提交；推送后远程回读核对；`main` 未动。
