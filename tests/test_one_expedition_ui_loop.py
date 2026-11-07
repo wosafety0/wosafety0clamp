@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +17,8 @@ import one_expedition_ui_loop as controller
 from kancollebot.adapters.poi.cdp_fleet_state import PoiFleetMissionState, PoiShipSupplyState
 from kancollebot.adapters.poi.cdp_input import RecordedPoint
 from kancollebot.adapters.poi.home_port_button_vision import StaticHomePortLocator
+from kancollebot.expeditions.continuous_scheduler import FleetPhase
+from kancollebot.expeditions.continuous_supervisor import ContinuousExpeditionSupervisor
 
 #: The reviewed control name keeps the tests asserting on ``point.label``; only
 #: the frame evidence is stubbed, because these tests have no real game frame.
@@ -128,6 +131,102 @@ class SettleOnlyDispatcherTests(unittest.TestCase):
         self.assertIs(dispatcher.state_reader, reader)
         self.assertIs(dispatcher.event_sink, sink)
         self.assertEqual(dispatcher.mission_requirements, {})
+
+
+class _ReplayScheduler:
+    """The two attributes the supervisor reads, in the shape the live run had."""
+
+    dispatch_fleet_ids = (2, 3)
+
+    def __init__(self, phases, home_verified=None):
+        self.states = {
+            fleet_id: SimpleNamespace(
+                phase=phase,
+                home_port_verified=(home_verified or {}).get(fleet_id, False),
+            )
+            for fleet_id, phase in phases.items()
+        }
+
+    def fleet(self, fleet_id):
+        return self.states[fleet_id]
+
+
+class _ReplayMonitor:
+    def __init__(self, scheduler, state_reader, event_sink):
+        self.scheduler = scheduler
+        self.state_reader = state_reader
+        self.event_sink = event_sink
+        self.calls = 0
+
+    def tick(self):
+        self.calls += 1
+        return SimpleNamespace(fleets=())
+
+
+class SettleOnlyEmptyQueueReplayTests(unittest.TestCase):
+    """Replay of the 2026-11-07 03:25:48Z settle-only run, at the decision layer.
+
+    That run reported ``ui_actions_disabled`` while its own ``fleet_decisions``
+    said fleet 2 was ``EXPEDITION_ACTIVE``: no fleet was waiting to sail, so no
+    start click was withheld and the label was wrong. The repair computes the
+    READY list first; these tests pin both halves against the REAL
+    ``SettleOnlyDispatcher`` - the class that triggered it, because it carries no
+    ``allow_ui_actions`` attribute at all and ``getattr(..., False)`` reads that
+    absence as "may not click".
+    """
+
+    def build(self, phases, *, home_verified=None):
+        scheduler = _ReplayScheduler(phases, home_verified)
+        reader = object()
+        events: list[tuple[str, dict]] = []
+
+        def sink(event, payload):
+            events.append((event, dict(payload)))
+
+        monitor = _ReplayMonitor(scheduler, reader, sink)
+        dispatcher = controller.SettleOnlyDispatcher(
+            scheduler=scheduler,
+            state_reader=reader,
+            event_sink=sink,
+            mission_requirements=None,
+            ui_arbiter=None,
+        )
+        supervisor = ContinuousExpeditionSupervisor(
+            monitor=monitor,
+            dispatch_controller=dispatcher,
+        )
+        return supervisor, scheduler, events
+
+    def test_an_empty_dispatch_queue_is_not_reported_as_a_refused_click(self):
+        supervisor, _, events = self.build(
+            {2: FleetPhase.EXPEDITION_ACTIVE, 3: FleetPhase.EXPEDITION_ACTIVE},
+            home_verified={2: True, 3: True},
+        )
+
+        report = supervisor.tick()
+
+        self.assertIsNone(report.paused_reason)
+        self.assertEqual(report.dispatches, ())
+        self.assertNotIn("supervisor_paused", [name for name, _ in events])
+        decision = [payload for name, payload in events if name == "supervisor_tick"]
+        self.assertEqual(len(decision), 1)
+        self.assertEqual(decision[0]["dispatch_count"], 0)
+        self.assertIsNone(decision[0]["paused_reason"])
+
+    def test_a_fleet_that_became_ready_is_still_refused(self):
+        # The 04:19:53Z half of the same day: the resupply left fleet 2 READY,
+        # so settle-only really did withhold a start click and the label is the
+        # designed meaning - not the empty-queue defect.
+        supervisor, _, events = self.build(
+            {2: FleetPhase.READY, 3: FleetPhase.EXPEDITION_ACTIVE},
+            home_verified={2: True, 3: True},
+        )
+
+        report = supervisor.tick()
+
+        self.assertEqual(report.paused_reason, "ui_actions_disabled")
+        self.assertEqual(report.dispatches, ())
+        self.assertIn("supervisor_paused", [name for name, _ in events])
 
 
 class WaitForReturnArgumentTests(unittest.TestCase):
