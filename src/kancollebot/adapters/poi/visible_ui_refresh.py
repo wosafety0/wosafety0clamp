@@ -15,7 +15,7 @@ import time
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 
 from kancollebot.adapters.poi.cdp_input import RecordedPoint, home_port_point
@@ -793,6 +793,11 @@ class FreshnessRefreshingStateReader:
         self._sleep = sleep
         self._refresh_lock = threading.Lock()
         self._last_refresh_at: float | None = None
+        # The last observation that actually carried a port witness. A caller
+        # that arrives during the navigation cooldown may reuse it instead of
+        # being handed an unverified read (live 2026-11-07: the settlement
+        # baseline failed closed 20s after a successful monitor refresh).
+        self._last_verified_observation: Any | None = None
         self._event_sink = event_sink
         self._refresh_id_factory = refresh_id_factory or (
             lambda: f"rfr-{uuid.uuid4().hex[:12]}"
@@ -884,6 +889,22 @@ class FreshnessRefreshingStateReader:
             return True
         observed_at = getattr(observation, "observed_at", None)
         return isinstance(observed_at, datetime) and observed_at > newer_than
+
+    def _witness_reusable(self, candidate: Any) -> bool:
+        """Whether a previously verified witness still satisfies the caller's gate.
+
+        The cooldown window is the same 30s bound the monitor and the
+        settlement controller use for ``require_fresh``, so a witness older
+        than the cooldown is not handed to a second caller: that caller must
+        get a new one through the existing refresh path instead.
+        """
+        if not self._is_trusted(candidate, None):
+            return False
+        observed_at = getattr(candidate, "observed_at", None)
+        if not isinstance(observed_at, datetime):
+            return False
+        age = self._clock() - observed_at
+        return timedelta(0) <= age <= timedelta(seconds=self._refresh_cooldown_seconds)
 
     def await_passive_witness(
         self,
@@ -1079,6 +1100,7 @@ class FreshnessRefreshingStateReader:
             started_generation = self._generation
             observation = self._reader.read_fleets()
             if self._is_trusted(observation, None):
+                self._last_verified_observation = observation
                 self._audit(
                     refresh_id=None,
                     origin=origin,
@@ -1093,6 +1115,16 @@ class FreshnessRefreshingStateReader:
                 self._last_refresh_at is not None
                 and now - self._last_refresh_at < self._refresh_cooldown_seconds
             ):
+                cached = self._last_verified_observation
+                if cached is not None and self._witness_reusable(cached):
+                    self._audit(
+                        refresh_id=None,
+                        origin=origin,
+                        outcome="witness_reused",
+                        witness_verified=True,
+                        triggered_at=triggered_at,
+                    )
+                    return cached
                 self._audit(
                     refresh_id=None,
                     origin=origin,
@@ -1100,7 +1132,14 @@ class FreshnessRefreshingStateReader:
                     witness_verified=False,
                     triggered_at=triggered_at,
                 )
-                return observation
+                # No usable witness: wait out the cooldown and take the existing
+                # refresh/witness path below. Returning an unverified read here
+                # made the settlement baseline fail closed 20s after a
+                # successful monitor refresh (live 2026-11-07).
+                remaining = self._refresh_cooldown_seconds - (now - self._last_refresh_at)
+                if remaining > 0:
+                    self._sleep(remaining)
+                now = self._monotonic()
 
             refresh_id = self._refresh_id_factory()
             # P0-4: a stale round must never click. If a newer round started
@@ -1139,6 +1178,7 @@ class FreshnessRefreshingStateReader:
                         deadline_seconds=self._max_wait_seconds
                     )
                     if self._is_trusted(observation, None):
+                        self._last_verified_observation = observation
                         self._audit(
                             refresh_id=refresh_id,
                             origin=origin,

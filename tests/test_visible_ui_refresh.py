@@ -13,6 +13,7 @@ from kancollebot.adapters.poi.visible_ui_refresh import (
     VisibleUiPortRefreshDriver,
     VisibleUiRefreshError,
 )
+from kancollebot.core.observed_state import ObservedState
 from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
 from kancollebot.expeditions.continuous_scheduler import UiOperationArbiter
 
@@ -45,8 +46,11 @@ class FakeReader:
         return self.observations[0]
 
 
-def observation(fresh: bool):
-    return SimpleNamespace(source_freshness_verified=fresh)
+def observation(fresh: bool, *, observed_at: datetime | None = None):
+    return SimpleNamespace(
+        source_freshness_verified=fresh,
+        observed_at=observed_at or datetime.now(timezone.utc),
+    )
 
 
 class VisibleUiPortRefreshDriverTests(unittest.TestCase):
@@ -261,12 +265,21 @@ class FreshnessRefreshingStateReaderTests(unittest.TestCase):
         self.assertEqual(reader.calls, 3)
 
     def test_cooldown_prevents_repeating_an_ambiguous_navigation(self):
+        """The cooldown is waited out, never skipped or replayed immediately."""
         reader = FakeReader([observation(False)])
         refresh_calls = []
-        driver = SimpleNamespace(refresh_port_state=lambda: refresh_calls.append("refresh"))
+        refresh_at = []
         clock = [0.0]
 
+        def refresh():
+            refresh_calls.append("refresh")
+            refresh_at.append(clock[0])
+
+        driver = SimpleNamespace(refresh_port_state=refresh)
+        sleeps = []
+
         def sleep(seconds):
+            sleeps.append(seconds)
             clock[0] += seconds
 
         wrapper = FreshnessRefreshingStateReader(
@@ -285,15 +298,28 @@ class FreshnessRefreshingStateReaderTests(unittest.TestCase):
 
         self.assertFalse(first.source_freshness_verified)
         self.assertFalse(second.source_freshness_verified)
-        self.assertEqual(refresh_calls, ["refresh"])
+        # A second navigation is allowed only after the remaining cooldown has
+        # actually elapsed; it is never replayed inside the window.
+        self.assertEqual(refresh_calls, ["refresh", "refresh"])
+        self.assertEqual(refresh_at, [0.0, 10.5])
+        self.assertEqual(sleeps, [0.5, 10.0, 0.5])
 
     def test_cooldown_starts_after_the_witness_wait_finishes(self):
+        """The cooldown clock starts at the end of the witness wait, not its start."""
         reader = FakeReader([observation(False)])
         refresh_calls = []
-        driver = SimpleNamespace(refresh_port_state=lambda: refresh_calls.append("refresh"))
+        refresh_at = []
         clock = [0.0]
 
+        def refresh():
+            refresh_calls.append("refresh")
+            refresh_at.append(clock[0])
+
+        driver = SimpleNamespace(refresh_port_state=refresh)
+        sleeps = []
+
         def sleep(seconds):
+            sleeps.append(seconds)
             clock[0] += seconds
 
         wrapper = FreshnessRefreshingStateReader(
@@ -310,14 +336,15 @@ class FreshnessRefreshingStateReaderTests(unittest.TestCase):
         first = wrapper.ensure_fresh(origin="test_reader")
         self.assertFalse(first.source_freshness_verified)
         self.assertEqual(clock[0], 1.0)
+        self.assertEqual(refresh_at, [0.0])
 
+        # With no reusable witness the second navigation must wait out the
+        # cooldown that began at clock=1.0, so it happens at 1.5, not 1.0.
         second = wrapper.ensure_fresh(origin="test_reader")
         self.assertFalse(second.source_freshness_verified)
-        self.assertEqual(refresh_calls, ["refresh"])
-
-        clock[0] += 0.5
-        wrapper.ensure_fresh(origin="test_reader")
         self.assertEqual(refresh_calls, ["refresh", "refresh"])
+        self.assertEqual(refresh_at, [0.0, 1.5])
+        self.assertEqual(sleeps[2], 0.5)
 
 
 class FreshnessRebuildTests(unittest.TestCase):
@@ -425,6 +452,170 @@ class FreshnessRebuildTests(unittest.TestCase):
         self.assertEqual(refresh_calls, ["refresh"])
         audits = self._audits(events)
         self.assertEqual(audits[-1]["outcome"], "witness_timeout")
+
+
+class CooldownWitnessReuseTests(unittest.TestCase):
+    """A monitor refresh must not be lost to the navigation cooldown.
+
+    Live 2026-11-07: monitor_tick refreshed at 12:54:05, the settlement
+    baseline at 12:54:25 was handed ``cooldown_suppressed`` (unverified) and
+    the supervisor paused. A still-valid witness is now reused with zero
+    clicks; when none is valid the cooldown is waited out and the existing
+    refresh path obtains a new one; suppression is never reported as success.
+    """
+
+    NOW = datetime(2026, 11, 7, 12, 54, 5, tzinfo=timezone.utc)
+
+    @classmethod
+    def _obs(cls, fresh: bool, *, age_seconds: float = 0.0):
+        return observation(
+            fresh,
+            observed_at=cls.NOW - timedelta(seconds=age_seconds),
+        )
+
+    @classmethod
+    def _build(cls, observations, *, cooldown=30.0):
+        refresh_calls = []
+        sleeps = []
+        events = []
+        mono = [0.0]
+
+        def sleep(seconds):
+            sleeps.append(seconds)
+            mono[0] += seconds
+
+        driver = SimpleNamespace(
+            refresh_port_state=lambda **kwargs: refresh_calls.append(
+                kwargs.get("origin")
+            ),
+            last_refresh_stats={
+                "clicks_completed": 3,
+                "steps": [
+                    "open_sortie",
+                    "open_expedition_list",
+                    "return_home_port",
+                ],
+            },
+        )
+        wrapper = FreshnessRefreshingStateReader(
+            FakeReader(observations),
+            driver,
+            max_wait_seconds=1.0,
+            poll_interval_seconds=0.5,
+            refresh_cooldown_seconds=cooldown,
+            rebuild_max_attempts=1,
+            event_sink=lambda event, fields: events.append((event, dict(fields))),
+            refresh_id_factory=lambda: "rfr-fixed",
+            clock=lambda: cls.NOW,
+            monotonic=lambda: mono[0],
+            sleep=sleep,
+        )
+        return wrapper, refresh_calls, sleeps, events
+
+    @staticmethod
+    def _audits(events):
+        return [fields for name, fields in events if name == "ui_refresh_audit"]
+
+    def test_monitor_refresh_then_settlement_read_reuses_the_witness(self):
+        witness = self._obs(True)
+        wrapper, refreshes, _, events = self._build([
+            self._obs(False), self._obs(False), witness, self._obs(False),
+        ])
+
+        monitor = wrapper.ensure_fresh(origin="monitor_tick")
+        self.assertTrue(monitor.source_freshness_verified)
+        self.assertEqual(refreshes, ["monitor_tick"])
+
+        baseline = wrapper.ensure_fresh(origin="settlement_baseline")
+        self.assertIs(baseline, witness)
+        self.assertEqual(refreshes, ["monitor_tick"])
+        audit = self._audits(events)[-1]
+        self.assertEqual(audit["outcome"], "witness_reused")
+        self.assertTrue(audit["witness_verified"])
+        self.assertEqual(audit["clicks_sent"], 0)
+        self.assertEqual(audit["navigation_steps"], [])
+
+    def test_reused_witness_passes_the_callers_require_fresh_gate(self):
+        witness = ObservedState(
+            payload=(),
+            observed_at=self.NOW,
+            source="poi-redux:test",
+            source_freshness_verified=True,
+        )
+        wrapper, _, _, _ = self._build([
+            self._obs(False), self._obs(False), witness, self._obs(False),
+        ])
+
+        wrapper.ensure_fresh(origin="monitor_tick")
+        baseline = wrapper.ensure_fresh(origin="settlement_baseline")
+
+        self.assertIs(baseline, witness)
+        baseline.require_fresh(now=self.NOW, max_age=timedelta(seconds=30))
+
+    def test_an_expired_witness_is_reobtained_after_the_cooldown(self):
+        stale = self._obs(True, age_seconds=60.0)
+        fresh = self._obs(True)
+        wrapper, refreshes, sleeps, events = self._build([
+            self._obs(False), self._obs(False), stale,
+            self._obs(False), self._obs(False), fresh,
+        ])
+
+        wrapper.ensure_fresh(origin="monitor_tick")
+        baseline = wrapper.ensure_fresh(origin="settlement_baseline")
+
+        self.assertIs(baseline, fresh)
+        self.assertEqual(refreshes, ["monitor_tick", "settlement_baseline"])
+        self.assertIn(30.0, sleeps)
+        audits = self._audits(events)
+        self.assertEqual(audits[1]["outcome"], "cooldown_suppressed")
+        self.assertFalse(audits[1]["witness_verified"])
+        self.assertEqual(audits[-1]["outcome"], "refreshed")
+
+    def test_no_witness_waits_out_the_cooldown_and_stays_fail_closed(self):
+        wrapper, refreshes, sleeps, events = self._build([self._obs(False)])
+
+        wrapper.ensure_fresh(origin="monitor_tick")
+        baseline = wrapper.ensure_fresh(origin="settlement_baseline")
+
+        self.assertFalse(baseline.source_freshness_verified)
+        self.assertEqual(refreshes, ["monitor_tick", "settlement_baseline"])
+        self.assertIn(30.0, sleeps)
+        audits = self._audits(events)
+        self.assertEqual(audits[1]["outcome"], "cooldown_suppressed")
+        self.assertFalse(audits[1]["witness_verified"])
+        self.assertEqual(audits[-1]["outcome"], "witness_timeout")
+        self.assertFalse(audits[-1]["witness_verified"])
+
+    def test_reuse_sends_no_extra_ui_action(self):
+        witness = self._obs(True)
+        wrapper, refreshes, _, events = self._build([
+            self._obs(False), self._obs(False), witness, self._obs(False),
+        ])
+
+        wrapper.ensure_fresh(origin="monitor_tick")
+        wrapper.ensure_fresh(origin="settlement_baseline")
+
+        self.assertEqual(refreshes, ["monitor_tick"])
+        audits = self._audits(events)
+        self.assertEqual([a["clicks_sent"] for a in audits], [3, 0])
+        self.assertEqual(audits[-1]["navigation_steps"], [])
+
+    def test_cooldown_suppression_is_never_reported_as_verification(self):
+        wrapper, _, _, events = self._build([self._obs(False)])
+
+        wrapper.ensure_fresh(origin="monitor_tick")
+        wrapper.ensure_fresh(origin="settlement_baseline")
+
+        audits = self._audits(events)
+        suppressed = [a for a in audits if a["outcome"] == "cooldown_suppressed"]
+        self.assertEqual(len(suppressed), 1)
+        for audit in suppressed:
+            self.assertIs(audit["witness_verified"], False)
+            self.assertEqual(audit["clicks_sent"], 0)
+            self.assertEqual(audit["navigation_steps"], [])
+        self.assertFalse(
+            any(a["outcome"] in {"refreshed", "witness_reused"} for a in audits)
+        )
 
 
 class PassiveWitnessWaitTests(unittest.TestCase):
@@ -612,8 +803,11 @@ class RefreshAttributionTests(unittest.TestCase):
 
     def test_a_suppressed_refresh_says_so_instead_of_looking_like_a_navigation(self):
         events = []
+        refresh_calls = []
         driver = SimpleNamespace(
-            refresh_port_state=lambda **kwargs: self.fail("unexpected refresh"),
+            refresh_port_state=lambda **kwargs: refresh_calls.append(
+                kwargs.get("origin")
+            ),
             last_refresh_stats={"clicks_completed": 3, "steps": ["open_sortie"]},
         )
         wrapper, clock = self._reader(
@@ -627,6 +821,14 @@ class RefreshAttributionTests(unittest.TestCase):
         audits = [fields for name, fields in events if name == "ui_refresh_audit"]
         self.assertEqual(audits[0]["outcome"], "cooldown_suppressed")
         self.assertEqual(audits[0]["clicks_sent"], 0)
+        self.assertEqual(audits[0]["navigation_steps"], [])
+        self.assertFalse(audits[0]["witness_verified"])
+        # With no reusable witness the cooldown is waited out (29s of the 30s
+        # window) and the existing refresh path is then used. The two calls are
+        # the two bounded rebuild attempts of this single ensure_fresh, not a
+        # second refresh request.
+        self.assertEqual(refresh_calls, ["dispatch_post_action"] * 2)
+        self.assertGreaterEqual(clock[0], 30.0)
 
     def test_origin_is_required(self):
         events = []
