@@ -12,6 +12,10 @@ from kancollebot.expeditions.page_intent import (
     PageEvidence,
     check_page_evidence,
 )
+from kancollebot.expeditions.page_navigation import (
+    PageFallback,
+    plan_page_fallback,
+)
 from kancollebot.expeditions.settlement_drain import (
     DrainErrorType,
     DrainResult,
@@ -103,6 +107,11 @@ class SupervisorTickResult:
     #: used the per-fleet settlement path (no drain session wired) or had
     #: nothing to drain.
     drain: Optional[DrainResult] = None
+    #: The phase-4 route for the page that withheld this tick, if any. ``None``
+    #: for every tick that was not paused by page evidence. The supervisor does
+    #: not execute the route - it cannot even click - so this field is a
+    #: decision the loop acts on, never an action already taken.
+    page_fallback: Optional[PageFallback] = None
 
 
 class ContinuousExpeditionSupervisor:
@@ -395,6 +404,7 @@ class ContinuousExpeditionSupervisor:
         dispatches: tuple[Any, ...] = (),
         *,
         drain: Any = None,
+        page_fallback: Optional[PageFallback] = None,
     ) -> SupervisorTickResult:
         return SupervisorTickResult(
             monitor_result=monitor_result,
@@ -403,6 +413,7 @@ class ContinuousExpeditionSupervisor:
             settlements=settlements,
             resupplies=resupplies,
             drain=drain,
+            page_fallback=page_fallback,
         )
 
     def tick(self, *, page_evidence: PageEvidence | None = None) -> SupervisorTickResult:
@@ -476,6 +487,11 @@ class ContinuousExpeditionSupervisor:
             })
             if not check.allowed:
                 reason = f"page_mismatch:{check.intent}:{check.page}"
+                # Phase 4: name the smallest route back, but do not take it.
+                # The supervisor still sends nothing; the loop owns the game
+                # session, so it executes the route and this tick stops with
+                # the same ``page_mismatch`` label it always had.
+                fallback = plan_page_fallback(check.page, check.intent)
                 self._emit("supervisor_page_mismatch", {
                     "intent": check.intent,
                     "page": check.page,
@@ -484,7 +500,13 @@ class ContinuousExpeditionSupervisor:
                     "clicks_sent_this_tick": 0,
                     "next_step": "hold_for_next_observation",
                 })
-                return self._paused(monitor_result, reason, (), ())
+                self._emit(
+                    "supervisor_page_fallback",
+                    {"paused_reason": reason, **fallback.as_log_fields()},
+                )
+                return self._paused(
+                    monitor_result, reason, (), (), page_fallback=fallback
+                )
 
         # Two ways to resolve a returned fleet, chosen by whether the loop owns
         # a global drain session:

@@ -1512,5 +1512,72 @@ class CoarsePageWiringTests(unittest.TestCase):
         self.assertIn("page_evidence=page_evidence[-1] if page_evidence else None", source)
 
 
+class PageFallbackWiringTests(unittest.TestCase):
+    """Phase-4 wiring: a withheld tick is routed, and the route is executed by
+    the routines that already exist.
+
+    These are source-level assertions because the branch lives inside the
+    production loop, which needs a live CDP session. They pin the three
+    boundaries rather than re-testing the pure policy (see
+    ``test_page_navigation``): the existing Home Port routine is *called*, not
+    reimplemented; a MODAL page is held with zero clicks; an UNKNOWN page is
+    observed again and never rewritten to HOME.
+    """
+
+    def _fallback_region(self) -> str:
+        source = inspect.getsource(controller._run_production_supervisor_once)
+        start = source.index('fallback = getattr(result, "page_fallback"')
+        return source[start:source.index("if not result.dispatches:", start)]
+
+    def test_the_loop_routes_with_the_phase_four_constant(self):
+        source = inspect.getsource(controller._run_production_supervisor_once)
+        self.assertIn("ROUTE_HOME_NAVIGATION", source)
+        self.assertIn('getattr(result, "page_fallback", None)', source)
+
+    def test_the_recovery_budget_is_bounded(self):
+        self.assertGreaterEqual(controller.PAGE_FALLBACK_MAX_ATTEMPTS, 1)
+        region = self._fallback_region()
+        self.assertIn("page_fallback_attempts >= PAGE_FALLBACK_MAX_ATTEMPTS", region)
+        self.assertIn('"page_fallback_exhausted"', region)
+
+    def test_menu_delegates_to_the_existing_recovery_instead_of_rewriting_it(self):
+        region = self._fallback_region()
+        self.assertIn("_recover_home_port(", region)
+        module_source = inspect.getsource(controller)
+        # Exactly one definition: phase 4 must not add a second walk.
+        self.assertEqual(module_source.count("def _recover_home_port("), 1)
+        self.assertEqual(module_source.count("def _recover_home_port_by_observation("), 1)
+
+    def test_modal_is_held_without_navigation_or_clicks(self):
+        region = self._fallback_region()
+        start = region.index("if fallback.hold:")
+        end = region.index("if fallback.route == ROUTE_HOME_NAVIGATION:", start)
+        hold = region[start:end]
+        self.assertIn("page_fallback_held_for_business_handler", hold)
+        self.assertIn("navigation_sent=0", hold)
+        self.assertIn("return pause(result", hold)
+        self.assertNotIn(".click(", hold)
+        self.assertNotIn("_recover_home_port(", hold)
+
+    def test_unknown_is_reobserved_without_clicking_or_becoming_home(self):
+        region = self._fallback_region()
+        # Every fallback row states zero clicks; the observation branch adds
+        # zero navigation on top of it.
+        self.assertIn('"clicks_sent_this_tick": 0', region)
+        start = region.index("# UNKNOWN (and the defensive HOME")
+        observe = region[start:]
+        self.assertIn("page_fallback_reobserve", observe)
+        self.assertIn("navigation_sent=0", observe)
+        self.assertIn("refresh_observe_page()", observe)
+        # No page class is ever rewritten here.
+        self.assertNotIn('page="HOME"', observe)
+        self.assertNotIn("page='HOME'", observe)
+
+    def test_the_fallback_sends_no_click_of_its_own(self):
+        region = self._fallback_region()
+        self.assertNotIn(".input.click(", region)
+        self.assertNotIn("input.click(", region)
+
+
 if __name__ == "__main__":
     unittest.main()

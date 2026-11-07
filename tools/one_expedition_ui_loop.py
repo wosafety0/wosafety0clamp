@@ -81,6 +81,9 @@ from kancollebot.adapters.poi.expedition_countdown_vision import (  # noqa: E402
     CountdownTemplates,
 )
 from kancollebot.observability.coarse_page import classify_coarse_page  # noqa: E402
+from kancollebot.expeditions.page_navigation import (  # noqa: E402
+    ROUTE_HOME_NAVIGATION,
+)
 from kancollebot.observability.page_observation import (  # noqa: E402
     DEFAULT_CHANGED_UNKNOWN_LIMIT,
     DEFAULT_TOTAL_BUDGET_SECONDS,
@@ -123,6 +126,20 @@ from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
 # Long enough for the Home Port scene to finish settling before a frame is
 # classified; the same settle the state gate uses between its two samples.
 HOME_REFERENCE_SETTLE_SECONDS = 0.3
+
+# How many page-fallback recoveries one process may attempt. Each attempt is
+# either one call to the existing Home Port routine or one fresh observation -
+# never a click of our own - and the count is a *run* budget, not a per-page
+# one: a page that will not settle must stop the loop, not be retried forever.
+PAGE_FALLBACK_MAX_ATTEMPTS = 3
+
+# How long an unnamed page is given to finish rendering before it is read
+# again. This is a screen-settle wait, not a poll: it happens at most
+# PAGE_FALLBACK_MAX_ATTEMPTS times per process, only after a page withheld a
+# tick, and nothing is read or sent during it. It mirrors the settle wait the
+# observed Home Port recovery already uses before its first click - sampling a
+# page mid-transition is what produced the 2026-11-07 0.88 readings.
+PAGE_FALLBACK_REOBSERVE_SECONDS = 3.0
 
 # How long before a fleet's own deadline the loop starts looking at the
 # *displayed* countdown. This number decides nothing about the game: the wiki is
@@ -3094,6 +3111,9 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
             # wait, which is what makes a full round trip observable in one
             # process instead of requiring a human to re-run the tool later.
             max_ticks = args.max_ticks if args.wait_for_return else 1
+            # Phase 4 run budget: how many page-fallback recoveries this
+            # process has already attempted. Reset per process, never per page.
+            page_fallback_attempts = 0
             for tick_index in range(1, max_ticks + 1):
                 try:
                     result = supervisor.tick(
@@ -3138,7 +3158,126 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     continue
                 report_actions(tick_index, result)
                 if result.paused_reason is not None:
-                    return pause(result, "", tick_index)
+                    fallback = getattr(result, "page_fallback", None)
+                    if fallback is None:
+                        return pause(result, "", tick_index)
+                    # Phase 4: a page class withheld this tick. The route comes
+                    # from ``page_navigation`` (decided by the class alone);
+                    # this loop only executes it, and every branch is bounded
+                    # by PAGE_FALLBACK_MAX_ATTEMPTS and by the tick budget.
+                    if page_fallback_attempts >= PAGE_FALLBACK_MAX_ATTEMPTS:
+                        _print_event(
+                            "page_fallback_exhausted",
+                            route=fallback.route,
+                            page=fallback.page,
+                            attempts=page_fallback_attempts,
+                            clicks_sent=0,
+                            next_step="hold_for_human",
+                        )
+                        return pause(result, "", tick_index)
+                    page_fallback_attempts += 1
+                    fallback_fields = {
+                        "attempt": page_fallback_attempts,
+                        "of": PAGE_FALLBACK_MAX_ATTEMPTS,
+                        "route": fallback.route,
+                        "page": fallback.page,
+                        "intent": fallback.intent,
+                        "reason": fallback.reason,
+                        "clicks_sent_this_tick": 0,
+                    }
+                    last_tick = tick_index >= max_ticks
+                    if fallback.hold:
+                        # MODAL: the return notice, the result page and the
+                        # reward pages advance on a click anywhere and belong
+                        # to the settlement / reward controllers. Sending a
+                        # generic dismiss click here would bypass exactly the
+                        # handlers that prove each screen they advance, so the
+                        # correct fallback is to hold.
+                        _print_event(
+                            "page_fallback_held_for_business_handler",
+                            **fallback_fields,
+                            navigation_sent=0,
+                            next_step="existing_controller_owns_this_page",
+                        )
+                        _recovery_emit(
+                            _active_run_log_sink(),
+                            "page_fallback_held_for_business_handler",
+                            **fallback_fields,
+                            navigation_sent=0,
+                            next_step="existing_controller_owns_this_page",
+                        )
+                        return pause(result, "", tick_index)
+                    if fallback.route == ROUTE_HOME_NAVIGATION:
+                        # MENU: delegate to the routine that already exists. It
+                        # keeps its own bounded attempts, its own post-click
+                        # state proof and its own reward-screen refusal; none
+                        # of that is reimplemented here.
+                        _print_event(
+                            "page_fallback_navigation_started",
+                            **fallback_fields,
+                            delegate=fallback.delegates_navigation,
+                        )
+                        _recovery_emit(
+                            _active_run_log_sink(),
+                            "page_fallback_navigation_started",
+                            **fallback_fields,
+                            delegate=fallback.delegates_navigation,
+                        )
+                        _recover_home_port(
+                            game_session, event_sink=_active_run_log_sink()
+                        )
+                        if last_tick:
+                            # Nothing left to tick: the recovery still ran (it
+                            # is the point of this phase), and the process ends
+                            # with the same honest pause label.
+                            _print_event(
+                                "page_fallback_navigation_completed",
+                                **fallback_fields,
+                                next_step="tick_budget_exhausted_rerun",
+                            )
+                            return pause(result, "", tick_index)
+                        # The verdict that withheld the tick describes a page
+                        # the recovery has just left. Replace it with a fresh
+                        # observation instead of letting the stale row veto the
+                        # next tick; with no observer wired, carrying nothing is
+                        # the honest state - and dispatch still needs its own
+                        # two-frame Home Port proof, which no page class gives.
+                        if (
+                            args.enable_ui_refresh
+                            and refresh_fingerprint_document is not None
+                        ):
+                            refresh_observe_page()
+                        else:
+                            page_evidence.clear()
+                        _recovery_emit(
+                            _active_run_log_sink(),
+                            "page_fallback_navigation_completed",
+                            **fallback_fields,
+                            next_step="fresh_page_observation_then_next_tick",
+                        )
+                        continue
+                    # UNKNOWN (and the defensive HOME / no-evidence routes):
+                    # look again without clicking. Repetition cannot change the
+                    # class - ``page_navigation`` has no attempt counter - so
+                    # this can never walk an UNKNOWN page into HOME.
+                    if last_tick:
+                        return pause(result, "", tick_index)
+                    _print_event(
+                        "page_fallback_reobserve",
+                        **fallback_fields,
+                        navigation_sent=0,
+                        wait_seconds=PAGE_FALLBACK_REOBSERVE_SECONDS,
+                        next_step="fresh_page_observation_then_next_tick",
+                    )
+                    time.sleep(PAGE_FALLBACK_REOBSERVE_SECONDS)
+                    if (
+                        args.enable_ui_refresh
+                        and refresh_fingerprint_document is not None
+                    ):
+                        refresh_observe_page()
+                    else:
+                        page_evidence.clear()
+                    continue
                 if not result.dispatches:
                     if not args.wait_for_return:
                         return pause(

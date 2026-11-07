@@ -36,6 +36,11 @@ from kancollebot.expeditions.page_intent import (
     PageEvidence,
     check_page_evidence,
 )
+from kancollebot.expeditions.page_navigation import (
+    NAVIGATION_HOME_PORT_RECOVERY,
+    ROUTE_BUSINESS_HANDLER,
+    ROUTE_HOME_NAVIGATION,
+)
 
 
 # -- doubles ---------------------------------------------------------------
@@ -249,6 +254,93 @@ class SupervisorPageEvidenceTests(unittest.TestCase):
         self.assertEqual(controller.calls, [])
         self.assertEqual(report.dispatches, ())
         self.assertIsNone(report.paused_reason)
+
+
+# -- phase 4: the route attached to a withheld tick -------------------------
+
+class SupervisorPageFallbackTests(unittest.TestCase):
+    """A withheld tick now names the smallest route back - and still sends
+    nothing. The supervisor cannot click, so the route is a decision the loop
+    executes, never an action already taken."""
+
+    def make_supervisor(self, phases, *, enabled=True, home_verified=None):
+        scheduler = FakeScheduler(phases, home_verified)
+        sink = RecordingSink()
+        monitor = FakeMonitor(scheduler, sink)
+        controller = FakeDispatchController(
+            scheduler, enabled=enabled, event_sink=sink
+        )
+        supervisor = ContinuousExpeditionSupervisor(
+            monitor=monitor, dispatch_controller=controller
+        )
+        return supervisor, scheduler, controller, sink
+
+    def test_menu_mismatch_carries_the_home_navigation_route(self):
+        supervisor, _, controller, sink = self.make_supervisor(
+            {2: FleetPhase.READY}
+        )
+        report = supervisor.tick(page_evidence=_evidence("MENU", detail="EXPEDITION_LIST"))
+        self.assertEqual(controller.calls, [])
+        fallback = report.page_fallback
+        self.assertIsNotNone(fallback)
+        self.assertEqual(fallback.route, ROUTE_HOME_NAVIGATION)
+        self.assertEqual(fallback.delegates_navigation, NAVIGATION_HOME_PORT_RECOVERY)
+        self.assertFalse(fallback.authorizes_click)
+
+        row = sink.one("supervisor_page_fallback")
+        self.assertEqual(row["route"], ROUTE_HOME_NAVIGATION)
+        self.assertEqual(row["page"], "MENU")
+        self.assertEqual(row["intent"], ACTION_DISPATCH)
+        self.assertEqual(row["delegates_navigation"], "home_port_recovery")
+        self.assertFalse(row["authorizes_click"])
+        # The phase-3 label is unchanged: same pause, same reason.
+        self.assertEqual(report.paused_reason, "page_mismatch:dispatch:MENU")
+        self.assertEqual(row["paused_reason"], report.paused_reason)
+
+    def test_modal_mismatch_is_held_for_the_business_handler(self):
+        supervisor, _, controller, sink = self.make_supervisor(
+            {2: FleetPhase.READY}
+        )
+        report = supervisor.tick(page_evidence=_evidence("MODAL", detail="BONUS_ITEMS"))
+        self.assertEqual(controller.calls, [])
+        fallback = report.page_fallback
+        self.assertEqual(fallback.route, ROUTE_BUSINESS_HANDLER)
+        self.assertTrue(fallback.hold)
+        self.assertIsNone(fallback.delegates_navigation)
+        self.assertFalse(fallback.authorizes_click)
+        self.assertTrue(sink.one("supervisor_page_fallback")["hold"])
+
+    def test_a_tick_that_was_not_withheld_carries_no_route(self):
+        for page in ("HOME", "UNKNOWN"):
+            supervisor, _, controller, sink = self.make_supervisor(
+                {2: FleetPhase.READY}
+            )
+            report = supervisor.tick(page_evidence=_evidence(page))
+            self.assertEqual(controller.calls, [2], page)
+            self.assertIsNone(report.page_fallback, page)
+            self.assertNotIn("supervisor_page_fallback", sink.events(), page)
+
+    def test_no_evidence_tick_carries_no_route(self):
+        supervisor, _, _, _ = self.make_supervisor({2: FleetPhase.READY})
+        report = supervisor.tick()
+        self.assertIsNone(report.page_fallback)
+
+    def test_the_route_never_satisfies_the_ui_action_gate(self):
+        # A planned MENU route must not make a disabled controller clickable.
+        supervisor, _, controller, _ = self.make_supervisor(
+            {2: FleetPhase.READY}, enabled=False
+        )
+        report = supervisor.tick(page_evidence=_evidence("MENU"))
+        self.assertEqual(controller.calls, [])
+        # The page veto fires first and carries a route; the gate still stands
+        # for every tick that reaches the controller.
+        self.assertEqual(report.paused_reason, "page_mismatch:dispatch:MENU")
+
+    def test_unknown_evidence_never_produces_a_home_route(self):
+        supervisor, _, controller, _ = self.make_supervisor({2: FleetPhase.READY})
+        report = supervisor.tick(page_evidence=_evidence("UNKNOWN"))
+        self.assertIsNone(report.page_fallback)
+        self.assertEqual(controller.calls, [2])
 
 
 if __name__ == "__main__":
