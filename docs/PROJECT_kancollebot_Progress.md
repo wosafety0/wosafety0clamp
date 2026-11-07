@@ -5261,3 +5261,25 @@ The Hand plugin's read-only probe reported:
 - **BLOCKED** 无（代码面）。
 - **LIMITS / NEXT** ①缺陷5 后需补一次全量 unittest（预期 2200 OK：2209 − 删除的 9 个 v1 测试）。②整体回归通过后进入**单舰队真实运行**：只启动一次生产入口，程序自主完成全生命周期（派遣→等待→结算→奖励→补给→再派遣），不允许 WB/AI/用户任何操作，异常仅允许安全暂停告警。③`--early-return` 仍关，倒计时模板仍缺 `{1,4,6,7,8,9}`。④阶段3 真实扣留、阶段4 MENU 归位仍无真实生产 tick 证据，留待自然时机。⑤两个受保护未跟踪脚本保持未跟踪（未执行、未修改、未提交、未删除）。
 - **ARCHIVE** 本地保存并提交；推送后远程回读核对；`main` 未动。
+
+## 2026-11-07 - 阶段5（五）：整体回归闭环与验收前置只读复核（代码零改动）
+
+> **状态：** 步骤6 四道门禁全部补齐并归档；步骤7 的**前置状态已只读核清**，但**未启动生产入口**——验收「只启动一次」不可回滚，须用户放行启动时机。裁决不变：**尚不允许宣布阶段5完成**。
+
+- **IMPLEMENTED** 无代码改动（五项缺陷修复已在前一节五连提交完成）。
+- **VERIFIED / TESTED（步骤6 整体回归，四道门禁全绿）**
+  - 全量 `PYTHONPATH=src python -m unittest discover -s tests` = **2200 OK**（2 skip / 1 expectedFailure），耗时 120.9s；与预期 `2209 − 9`（删除的 v1 测试）逐项吻合。缺陷5 提交后被打断的遗留门禁已补齐。
+  - `python -m compileall -q src tests tools` OK；`git diff --check` CLEAN；`node --test tests/*.test.cjs` 29/29（0 fail）。
+  - 分支 `feat/production-settlement-resupply-wiring-20261105`，HEAD `6394aba`；工作区仅两个受保护未跟踪脚本，`main` 未动。
+- **VERIFIED（步骤7 前置只读复核，`manual_expedition_walkthrough.py check --fleet-id 2 --mission-id 1 --database logs/phase5_20261107.sqlite3`）**
+  - Poi 四队 `api_mission` 全 `[0,0,0,0]`（无在途远征）；F2 编成 4 舰、等级 `[17,16,14,31]`、**`all_full=False` 未满补**。
+  - 屏幕：`composited UNKNOWN 0.8755`（best HOME_PORT）/ `default HOME_PORT 0.9862 accepted` / 生产双图层 `reward_probe=None` ⇒ **若现在启动主循环，门禁 = GO**。阶段5（三）留下挂在屏上的 `RETURN_RESULT` 已被清掉。
+  - 账本只读：`fleet_runtime` F2 = `RESUPPLY_REQUIRED`，且 **`ship_ids_json=NULL`**（10:36 UTC 写入，属缺陷1 修复之前的旧记录）；`dispatch_identities` 最近 3 条均 `settled`。
+  - `check` 为纯只读体检：零点击、零游戏 API，仅本地落盘证据截图与 stdout。
+- **SAFETY** 本轮未发送任何游戏输入；未执行/未修改/未提交/未删除 `test_manual_drain.py` 与 `tools/_tmp_nav_countdown.py`；未清旧账本。
+- **LIMITS / NEXT**
+  1. **时间线澄清**：12:04 的「F2/远征1 连续三轮完整闭环」属 `ba054e4`/`765d375` 时代旧代码；阶段5 实机（`ff4e214`）需三个进程才收口，正是它引出五项缺陷。**修复后代码尚未做过「一次启动自主完成全生命周期」的验收。**
+  2. **旧库不复用**：`ship_ids_json=NULL` 是缺陷1 修复前写入，按约定「不清旧账本、改用新库」，验收须另用干净 `--database`，否则补给归属仍可能被旧记录干扰。
+  3. **验收参数基线**（沿用既有实机基线）：`--fleet-id 2 --mission-id 1 --authorize-ui-actions --wait-for-return --global-drain --drain-max-actions 24 --drain-timeout-seconds 150 --post-expiry-grace-seconds 20`，加 `--run-log-dir` 与干净 `--database`。`--wait-for-return` 是「单次启动」的必要条件（不带则 `max_ticks=1`，派遣后即退出，会退化成人工串联子脚本，属禁止事项）。
+  4. **未启动原因**：该验收是一次性、约 15–20 分钟、期间客户端不得被任何人操作的长跑，且起点存在「F2 未满补」这一待观察变量；「只启动一次」不允许靠重试猜状态，故先请用户放行启动时机，不擅自启动。异常只允许安全暂停告警。
+- **ARCHIVE** 本地保存并提交；推送后远程回读核对；`main` 未动。
