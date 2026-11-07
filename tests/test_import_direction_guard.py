@@ -166,7 +166,6 @@ class ImportDirectionGuardTests(unittest.TestCase):
             continuous_expedition_ui,
             dock_reader,
             expedition_reader,
-            expedition_state,
             expedition_state_v2,
             visible_ui_refresh,
         )
@@ -177,7 +176,7 @@ class ImportDirectionGuardTests(unittest.TestCase):
             self.assertIs(module.UiStateEvidence, core_oc.UiStateEvidence)
         self.assertIs(dock_reader.DockShip, core_oc.DockShip)
         self.assertIs(dock_reader.FleetCompositionSnapshot, core_oc.FleetCompositionSnapshot)
-        for module in (expedition_reader, expedition_state, expedition_state_v2):
+        for module in (expedition_reader, expedition_state_v2):
             self.assertIs(module.ObservedFleetSnapshot, core_oc.ObservedFleetSnapshot)
         self.assertIs(visible_ui_refresh.UiOperationArbiter, lock.UiOperationArbiter)
 

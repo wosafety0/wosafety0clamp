@@ -3615,16 +3615,17 @@ def _main_impl(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--drain-timeout-seconds",
         type=float,
-        # Measured, not chosen for comfort. A three-page walk on the live client
-        # costs about 47s (2026-11-07 03:20Z: 47.489s to reach home) because each
-        # transition needs 9-19s of UNKNOWN frames before the next page is
-        # identifiable. The old 45s default expired 1.08s after the home port
-        # appeared at 0.9979 (03:39Z) and reported reached_home=false for a
-        # settlement the server had already booked. 120s is the same bounded
-        # window the observation engine uses, so there is one budget vocabulary
-        # rather than a second magic number, and it leaves room for one slow
-        # transition to repeat.
-        default=120.0,
+        # A wall-clock budget, not a click authorization: inputs stay bounded
+        # by --drain-max-actions and the per-click Poi settled guard, so a
+        # wider window never lets the drain send an extra action. A three-page
+        # walk costs about 47s on the live client (2026-11-07 03:20Z: 47.489s
+        # to reach home) because each transition needs 9-19s of UNKNOWN frames
+        # before the next page is identifiable; the old 45s default expired
+        # 1.08s after the home port appeared at 0.9979 (03:39Z) and reported
+        # reached_home=false for a settlement the server had already booked.
+        # 150s is the value the verified closed loop ran with, leaving room
+        # for one slow transition to repeat.
+        default=150.0,
         help="Wall-clock budget for one global drain",
     )
     parser.add_argument(
