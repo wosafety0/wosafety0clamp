@@ -5,7 +5,7 @@ global settlement drain. These tests prove the three things that must not
 change while doing so:
 
 * one screenshot is scored against EVERY candidate state, Top 1 / Top 2 are
-  ranked, and 0.97 / 0.04 are still the decision thresholds;
+  ranked, and 0.90 / 0.02 are the decision thresholds;
 * an UNKNOWN (or a broken probe) never authorises a fixed-coordinate click;
 * the click path still goes through ``_confirm`` -> the injected verifier that
   requires two consecutive independently captured frames.
@@ -214,13 +214,13 @@ def _build_driver(
 
 
 class FingerprintRankingTests(unittest.TestCase):
-    def test_default_thresholds_are_unchanged(self) -> None:
+    def test_default_thresholds_are_0_90_and_0_02(self) -> None:
         signature = inspect.signature(rank_screenshot_fingerprints)
-        self.assertEqual(signature.parameters["minimum_score"].default, 0.97)
-        self.assertEqual(signature.parameters["minimum_margin"].default, 0.04)
+        self.assertEqual(signature.parameters["minimum_score"].default, 0.90)
+        self.assertEqual(signature.parameters["minimum_margin"].default, 0.02)
         wrapper = inspect.signature(classify_screenshot_fingerprints)
-        self.assertEqual(wrapper.parameters["minimum_score"].default, 0.97)
-        self.assertEqual(wrapper.parameters["minimum_margin"].default, 0.04)
+        self.assertEqual(wrapper.parameters["minimum_score"].default, 0.90)
+        self.assertEqual(wrapper.parameters["minimum_margin"].default, 0.02)
 
     def test_top1_top2_are_exposed_and_a_clear_winner_is_accepted(self) -> None:
         document = _document(A=_state([100] * 3), B=_state([115] * 3))
@@ -234,19 +234,33 @@ class FingerprintRankingTests(unittest.TestCase):
         self.assertAlmostEqual(ranking.second_score, 1 - 15 / 255, places=4)
         self.assertGreaterEqual(ranking.best_score - ranking.second_score, 0.04)
 
-    def test_margin_below_0_04_is_unknown(self) -> None:
-        document = _document(A=_state([100] * 3), B=_state([107] * 3))
+    def test_margin_below_0_02_is_unknown(self) -> None:
+        document = _document(A=_state([100] * 3), B=_state([103] * 3))
         ranking = rank_screenshot_fingerprints(_one_pixel((100, 100, 100)), document)
-        self.assertLess(ranking.best_score - ranking.second_score, 0.04)
+        self.assertLess(ranking.best_score - ranking.second_score, 0.02)
         self.assertFalse(ranking.accepted)
         self.assertEqual(ranking.state, "UNKNOWN")
 
-    def test_best_score_below_0_97_is_unknown_even_with_a_weak_runner_up(self) -> None:
-        document = _document(A=_state([110] * 3), B=_state([200] * 3))
+    def test_best_score_below_0_90_is_unknown_even_with_a_weak_runner_up(self) -> None:
+        document = _document(A=_state([130] * 3), B=_state([200] * 3))
         pixel = _one_pixel((100, 100, 100))
         ranking = rank_screenshot_fingerprints(pixel, document)
-        self.assertLess(ranking.best_score, 0.97)
+        self.assertLess(ranking.best_score, 0.90)
         self.assertGreaterEqual(ranking.best_score - ranking.second_score, 0.04)
+        self.assertFalse(ranking.accepted)
+        self.assertEqual(ranking.state, "UNKNOWN")
+
+    def test_margin_0_02_is_accepted_but_0_01_is_unknown(self) -> None:
+        document = _document(A=_state([100] * 3), B=_state([110] * 3))
+        pixel = _one_pixel((100, 100, 100))
+
+        with patch.object(vf, "fingerprint_similarity", side_effect=[0.91, 0.89]):
+            ranking = rank_screenshot_fingerprints(pixel, document)
+        self.assertTrue(ranking.accepted)
+        self.assertEqual(ranking.state, "A")
+
+        with patch.object(vf, "fingerprint_similarity", side_effect=[0.91, 0.90]):
+            ranking = rank_screenshot_fingerprints(pixel, document)
         self.assertFalse(ranking.accepted)
         self.assertEqual(ranking.state, "UNKNOWN")
 

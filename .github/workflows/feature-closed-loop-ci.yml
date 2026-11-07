@@ -9,11 +9,13 @@ on:
     branches:
       - feat/closed-loop-settlement-20261104
       - feat/run-log-critical-ui-gate-current-base-20261107
+      - feat/audit-home-port-recovery-clicks-20261107
   pull_request:
     branches:
       - main
       - "dev/**"
       - feat/production-settlement-resupply-wiring-20261105
+      - feat/run-log-critical-ui-gate-current-base-20261107
   workflow_dispatch:
 
 permissions:

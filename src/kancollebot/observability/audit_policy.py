@@ -64,6 +64,8 @@ CRITICAL_AUDIT_EVENTS: frozenset[str] = frozenset(
         "ui_refresh_click_sent",
         "expedition_list_click_attempted",
         "expedition_list_click_sent",
+        "home_port_recovery_click_attempted",
+        "home_port_recovery_click_sent",
         # settlement drain (P0.1)
         "settlement_drain_action",
         "settlement_drain_finished",
