@@ -94,6 +94,26 @@ class FleetStateStoreTests(unittest.TestCase):
         self.assertEqual(state.mission.mission_status, 2)
         self.assertFalse(state.home_port_verified)
 
+    def test_resupply_composition_survives_restart_without_a_mission_tuple(self):
+        # Defect 1: a fleet in RESUPPLY_REQUIRED has no mission tuple, but its
+        # composition must survive a restart so attribution is still possible.
+        scheduler = ContinuousExpeditionScheduler(
+            state_store=SqliteFleetStateStore(self.db_path)
+        )
+        self.dispatch_and_return_home(scheduler)
+        scheduler.confirm_returned(3, self.returned())
+        scheduler.confirm_return_result(3, ui_state="RETURN_RESULT")
+        scheduler.confirm_bonus_items(3, ui_state="BONUS_ITEMS")
+        scheduler.confirm_reward_claimed(3, claimed=True)
+
+        restarted = ContinuousExpeditionScheduler(
+            state_store=SqliteFleetStateStore(self.db_path)
+        )
+        state = restarted.fleet(3)
+        self.assertEqual(state.phase, FleetPhase.RESUPPLY_REQUIRED)
+        self.assertIsNone(state.mission)
+        self.assertEqual(state.resupply_ship_ids, self.mission.ship_ids)
+
     def test_corrupt_persisted_mission_tuple_fails_closed(self):
         store = SqliteFleetStateStore(self.db_path)
         scheduler = ContinuousExpeditionScheduler(state_store=store)

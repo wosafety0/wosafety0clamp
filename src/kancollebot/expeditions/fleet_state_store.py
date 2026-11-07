@@ -62,23 +62,31 @@ class SqliteFleetStateStore:
                 phase = FleetPhase(phase_value)
                 if home_verified not in (0, 1):
                     raise ValueError("invalid home_port_verified flag")
-                mission = None
-                mission_fields = (status, mission_id, final_time, reserved, ships_json)
-                if mission_id is not None:
-                    if any(value is None for value in mission_fields):
-                        raise ValueError("incomplete persisted mission tuple")
-                    ship_ids = json.loads(ships_json)
-                    if not isinstance(ship_ids, list):
+                ship_ids = None
+                if ships_json is not None:
+                    parsed = json.loads(ships_json)
+                    if not isinstance(parsed, list):
                         raise ValueError("persisted ship membership must be a JSON array")
+                    ship_ids = tuple(parsed)
+                mission = None
+                resupply_ship_ids = None
+                if mission_id is not None:
+                    if status is None or final_time is None or reserved is None or ship_ids is None:
+                        raise ValueError("incomplete persisted mission tuple")
                     mission = MissionTuple(
                         mission_status=status,
                         mission_id=mission_id,
                         final_time_ms=final_time,
                         reserved=reserved,
-                        ship_ids=tuple(ship_ids),
+                        ship_ids=ship_ids,
                     )
-                elif any(value is not None for value in mission_fields):
-                    raise ValueError("mission fields exist without a mission ID")
+                else:
+                    if status is not None or final_time is not None or reserved is not None:
+                        raise ValueError("mission fields exist without a mission ID")
+                    # ``ship_ids_json`` may outlive the mission tuple: it is the
+                    # composition kept through RESUPPLY_REQUIRED until resupply
+                    # is verified.
+                    resupply_ship_ids = ship_ids
                 if phase is FleetPhase.EXPEDITION_ACTIVE and mission is None:
                     raise ValueError("active fleet has no persisted mission tuple")
                 if home_verified and phase is not FleetPhase.EXPEDITION_ACTIVE:
@@ -92,6 +100,7 @@ class SqliteFleetStateStore:
                         mission=mission,
                         home_port_verified=bool(home_verified),
                         blocked_reason=blocked,
+                        resupply_ship_ids=resupply_ship_ids,
                     )
                 )
             except (TypeError, ValueError, json.JSONDecodeError) as exc:
@@ -104,6 +113,7 @@ class SqliteFleetStateStore:
         if not isinstance(state, FleetRuntime):
             raise TypeError("state must be a FleetRuntime")
         mission = state.mission
+        ship_ids = mission.ship_ids if mission is not None else state.resupply_ship_ids
         values = (
             state.fleet_id,
             state.phase.value,
@@ -111,7 +121,7 @@ class SqliteFleetStateStore:
             None if mission is None else mission.mission_id,
             None if mission is None else mission.final_time_ms,
             None if mission is None else mission.reserved,
-            None if mission is None else json.dumps(mission.ship_ids, separators=(",", ":")),
+            None if ship_ids is None else json.dumps(ship_ids, separators=(",", ":")),
             int(state.home_port_verified),
             state.blocked_reason,
             datetime.now(timezone.utc).isoformat(),

@@ -1243,12 +1243,20 @@ class CdpContinuousExpeditionUiDriver:
     SETTLEMENT_SCREENS = ("HOME_PORT_RETURN_NOTICE", "RETURN_RESULT", "BONUS_ITEMS")
 
     def settlement_screen(self, *, fleet_id: int) -> str | None:
-        """Return the reward screen on display, or None when none is.
+        """Return the reward screen on display, or None when none is proven.
 
-        Read-only: three bounded probes, no clicks. It answers the one question
-        a restart cannot answer from Poi alone - "is there anything left to
+        Read-only: bounded probes, no clicks. It answers the one question a
+        restart cannot answer from Poi alone - "is there anything left to
         click?" - so the caller can finish a settlement that was interrupted
         after its reward request had already been accepted.
+
+        "None" is only a trustworthy answer when the screen is *positively*
+        Home Port. A negative (no settlement screen recognized) is not proof of
+        absence: a result screen still fading in scores below the accept line,
+        so it is neither recognized as ``RETURN_RESULT`` nor as ``HOME_PORT``.
+        Claiming "absent" on that negative would close a settlement that is in
+        fact one click from its reward - live 2026-11-07. The absent answer is
+        therefore gated on ``probe_home_port`` and refuses otherwise.
         """
         if isinstance(fleet_id, bool) or not isinstance(fleet_id, int) or fleet_id < 1:
             raise ContinuousUiDriverError("fleet_id must be a positive integer")
@@ -1266,12 +1274,7 @@ class CdpContinuousExpeditionUiDriver:
                     "clicks_sent": 0,
                 })
                 return state
-            self._event_sink("continuous_ui_settlement_screen_absent", {
-                "fleet_id": fleet_id,
-                "probed": list(self.SETTLEMENT_SCREENS),
-                "clicks_sent": 0,
-            })
-            return None
+            return self._settlement_absence_proven(fleet_id)
         for screen in self.SETTLEMENT_SCREENS:
             if self._probe_state(screen, phase=f"probe {screen}") is not None:
                 self._event_sink("continuous_ui_settlement_screen_detected", {
@@ -1280,9 +1283,30 @@ class CdpContinuousExpeditionUiDriver:
                     "clicks_sent": 0,
                 })
                 return screen
+        return self._settlement_absence_proven(fleet_id)
+
+    def _settlement_absence_proven(self, fleet_id: int) -> None:
+        """Return None (no settlement screen) only once Home Port is confirmed.
+
+        A settlement screen that is merely *unrecognized* - the transition frame
+        case - must not read as "absent": it reads as "cannot prove absent", and
+        that is a refusal, never a close-out.
+        """
+        if not self.probe_home_port():
+            self._event_sink("continuous_ui_settlement_absence_unproven", {
+                "fleet_id": fleet_id,
+                "probed": list(self.SETTLEMENT_SCREENS),
+                "home_port_confirmed": False,
+                "clicks_sent": 0,
+            })
+            raise ContinuousUiDriverError(
+                f"fleet {fleet_id}: no settlement screen was recognized and Home Port "
+                "was not positively confirmed; refusing to treat the chain as absent"
+            )
         self._event_sink("continuous_ui_settlement_screen_absent", {
             "fleet_id": fleet_id,
             "probed": list(self.SETTLEMENT_SCREENS),
+            "home_port_confirmed": True,
             "clicks_sent": 0,
         })
         return None

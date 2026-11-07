@@ -75,6 +75,10 @@ class FleetRuntime:
     mission: MissionTuple | None = None
     home_port_verified: bool = False
     blocked_reason: str | None = None
+    #: The ships of the last dispatch, kept through ``RESUPPLY_REQUIRED`` so a
+    #: later process can still attribute the fleet's composition. Cleared only
+    #: once resupply is verified (``confirm_resupply`` -> READY).
+    resupply_ship_ids: tuple[int, ...] | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.fleet_id, bool) or not isinstance(self.fleet_id, int) or self.fleet_id < 1:
@@ -83,6 +87,17 @@ class FleetRuntime:
             raise ValueError("phase must be a FleetPhase")
         if self.mission is not None and not isinstance(self.mission, MissionTuple):
             raise ValueError("mission must be a MissionTuple or None")
+        if self.resupply_ship_ids is not None:
+            if (
+                not isinstance(self.resupply_ship_ids, tuple)
+                or not self.resupply_ship_ids
+                or any(
+                    isinstance(ship_id, bool) or not isinstance(ship_id, int) or ship_id < 1
+                    for ship_id in self.resupply_ship_ids
+                )
+                or len(set(self.resupply_ship_ids)) != len(self.resupply_ship_ids)
+            ):
+                raise ValueError("resupply_ship_ids must be a non-empty tuple of unique positive integers")
         if not isinstance(self.home_port_verified, bool):
             raise ValueError("home_port_verified must be a bool")
         if self.phase is FleetPhase.EXPEDITION_ACTIVE and (
@@ -279,7 +294,8 @@ class ContinuousExpeditionScheduler:
         if current.phase is not FleetPhase.BONUS_ITEMS or not claimed:
             raise SchedulerInvariantError("reward completion requires a confirmed claim from BONUS_ITEMS")
         return self._set(replace(current, phase=FleetPhase.RESUPPLY_REQUIRED,
-                                 mission=None, home_port_verified=False))
+                                 mission=None, home_port_verified=False,
+                                 resupply_ship_ids=current.mission.ship_ids))
 
     def confirm_settlement_already_complete(
         self, fleet_id: int, *, evidence: str
@@ -303,7 +319,8 @@ class ContinuousExpeditionScheduler:
         if not isinstance(evidence, str) or not evidence.strip():
             raise SchedulerInvariantError("closing a settlement requires UI evidence")
         return self._set(replace(current, phase=FleetPhase.RESUPPLY_REQUIRED,
-                                 mission=None, home_port_verified=False))
+                                 mission=None, home_port_verified=False,
+                                 resupply_ship_ids=current.mission.ship_ids))
 
     def confirm_active_fleet_settled(
         self, fleet_id: int, *, evidence: str
@@ -333,6 +350,7 @@ class ContinuousExpeditionScheduler:
         return self._set(replace(
             current, phase=FleetPhase.RESUPPLY_REQUIRED, mission=None,
             home_port_verified=False, blocked_reason=None,
+            resupply_ship_ids=current.mission.ship_ids,
         ))
 
     def require_resupply(self, fleet_id: int) -> FleetRuntime:
@@ -360,7 +378,7 @@ class ContinuousExpeditionScheduler:
         current = self.fleet(fleet_id)
         if current.phase is not FleetPhase.RESUPPLY_REQUIRED or not fully_supplied:
             raise SchedulerInvariantError("READY requires verified resupply")
-        return self._set(replace(current, phase=FleetPhase.READY))
+        return self._set(replace(current, phase=FleetPhase.READY, resupply_ship_ids=None))
 
     def block(self, fleet_id: int, reason: str) -> FleetRuntime:
         if not isinstance(reason, str) or not reason.strip():
@@ -422,6 +440,11 @@ class ContinuousExpeditionScheduler:
         return self._set(replace(
             current, phase=FleetPhase.RESUPPLY_REQUIRED, mission=None,
             home_port_verified=False, blocked_reason=None,
+            resupply_ship_ids=(
+                current.mission.ship_ids
+                if current.mission is not None
+                else current.resupply_ship_ids
+            ),
         ))
 
     def _set(self, state: FleetRuntime) -> FleetRuntime:

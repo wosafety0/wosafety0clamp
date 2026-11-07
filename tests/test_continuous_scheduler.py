@@ -96,6 +96,44 @@ class ContinuousSchedulerTests(unittest.TestCase):
         self.scheduler.confirm_resupply(2, fully_supplied=True)
         self.assertEqual(self.scheduler.fleet(2).phase, FleetPhase.READY)
 
+    def test_resupply_ship_ids_survive_until_resupply_is_verified(self):
+        # Defect 1 criterion 4/5: the composition is kept through RESUPPLY_REQUIRED
+        # and cleared only after resupply is verified.
+        self.dispatch(2, self.mission2)
+        self.home_port(2, self.mission2)
+        self.scheduler.confirm_returned(2, self.returned(self.mission2))
+        self.scheduler.confirm_return_result(2, ui_state="RETURN_RESULT")
+        self.scheduler.confirm_bonus_items(2, ui_state="BONUS_ITEMS")
+        self.scheduler.confirm_reward_claimed(2, claimed=True)
+        state = self.scheduler.fleet(2)
+        self.assertEqual(state.phase, FleetPhase.RESUPPLY_REQUIRED)
+        self.assertIsNone(state.mission)
+        self.assertEqual(state.resupply_ship_ids, self.mission2.ship_ids)
+        ready = self.scheduler.confirm_resupply(2, fully_supplied=True)
+        self.assertEqual(ready.phase, FleetPhase.READY)
+        self.assertIsNone(ready.resupply_ship_ids)
+
+    def test_active_fleet_settled_keeps_the_ship_identity(self):
+        self.dispatch(2, self.mission2)
+        self.home_port(2, self.mission2)
+        state = self.scheduler.confirm_active_fleet_settled(
+            2, evidence="home_port_and_idle_fleet"
+        )
+        self.assertEqual(state.phase, FleetPhase.RESUPPLY_REQUIRED)
+        self.assertIsNone(state.mission)
+        self.assertEqual(state.resupply_ship_ids, self.mission2.ship_ids)
+
+    def test_settlement_already_complete_keeps_the_ship_identity(self):
+        self.dispatch(2, self.mission2)
+        self.home_port(2, self.mission2)
+        self.scheduler.confirm_returned(2, self.returned(self.mission2))
+        state = self.scheduler.confirm_settlement_already_complete(
+            2, evidence="home_port_without_reward_screen"
+        )
+        self.assertEqual(state.phase, FleetPhase.RESUPPLY_REQUIRED)
+        self.assertIsNone(state.mission)
+        self.assertEqual(state.resupply_ship_ids, self.mission2.ship_ids)
+
     def test_bonus_page_cannot_be_skipped(self):
         self.dispatch(2, self.mission2)
         self.home_port(2, self.mission2)

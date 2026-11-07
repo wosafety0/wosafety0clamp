@@ -357,5 +357,43 @@ class EventTrailTests(unittest.TestCase):
         )
 
 
+class SettlementScreenAbsenceTests(unittest.TestCase):
+    """The settlement screen probe only claims "absent" on a positive Home Port.
+
+    Defect 1: a result screen still fading in scores below the accept line, so
+    it is neither RETURN_RESULT nor HOME_PORT. Treating that negative as "no
+    settlement screen" closed a chain one click from its reward (live 2026-11-07).
+    """
+
+    def test_a_settlement_screen_is_detected_not_absent(self) -> None:
+        screen = ScriptedScreen("RETURN_RESULT")
+        clicks: list[RecordedPoint] = []
+        driver = build_driver(screen, clicks)
+        self.assertEqual(driver.settlement_screen(fleet_id=2), "RETURN_RESULT")
+        self.assertEqual(clicks, [])
+
+    def test_home_port_is_the_only_proof_of_absence(self) -> None:
+        screen = ScriptedScreen("HOME_PORT")
+        clicks: list[RecordedPoint] = []
+        events: list[str] = []
+        driver = build_driver(screen, clicks, events=events)
+        self.assertIsNone(driver.settlement_screen(fleet_id=2))
+        self.assertEqual(clicks, [])
+        self.assertIn("continuous_ui_settlement_screen_absent", events)
+
+    def test_an_unrecognized_non_home_screen_refuses_absence(self) -> None:
+        # Not a settlement screen and not Home Port: absence is unprovable, so
+        # the probe must refuse rather than return None.
+        screen = ScriptedScreen("SORTIE_MENU")
+        clicks: list[RecordedPoint] = []
+        events: list[str] = []
+        driver = build_driver(screen, clicks, events=events)
+        with self.assertRaises(ContinuousUiDriverError):
+            driver.settlement_screen(fleet_id=2)
+        self.assertEqual(clicks, [])
+        self.assertIn("continuous_ui_settlement_absence_unproven", events)
+        self.assertNotIn("continuous_ui_settlement_screen_absent", events)
+
+
 if __name__ == "__main__":
     unittest.main()
