@@ -23,6 +23,8 @@ from kancollebot.adapters.poi.expedition_countdown_vision import (
     CountdownReader,
     CountdownTemplateError,
     CountdownTemplates,
+    _cell_ink,
+    _ink_similarity,
 )
 from kancollebot.adapters.poi.visual_fingerprint import compute_grid_fingerprint
 from tests.test_home_port_button_vision import _encode_rgba
@@ -238,6 +240,151 @@ class CellBoxLayoutTests(unittest.TestCase):
                 cells=8,
                 cell_rows=3,
             )
+
+
+def frame_for_boxes(text: str, boxes, *, width: int = 32, height: int = 24,
+                    colours=None) -> str:
+    """A frame where each explicit box is filled with one glyph's flat colour."""
+    palette = dict(GLYPH_COLOURS if colours is None else colours)
+    buf = bytearray(b"\x00\x00\x00\xff" * (width * height))
+    for character, (x, y, w, h) in zip(text, boxes):
+        colour = bytes(palette[character]) + b"\xff"
+        for yy in range(y, y + h):
+            for xx in range(x, x + w):
+                index = (yy * width + xx) * 4
+                buf[index:index + 4] = colour
+    rows = [bytes(buf[y * width * 4:(y + 1) * width * 4]) for y in range(height)]
+    return _encode_rgba(width, height, rows)
+
+
+#: The real client shape: HH:MM on the first line, SS on the second. We skip the
+#: colon (a fixed literal) and read six digit cells, grouped 2/2/2.
+SIX_BOXES = (
+    (0, 0, 8, 12),
+    (8, 0, 8, 12),
+    (16, 0, 8, 12),
+    (24, 0, 8, 12),
+    (8, 12, 8, 12),
+    (16, 12, 8, 12),
+)
+
+
+def templates_for_boxes(text: str) -> CountdownTemplates:
+    payload = frame_for_boxes(text, SIX_BOXES)
+    glyphs = {}
+    for character, box in zip(text, SIX_BOXES):
+        glyphs[character] = compute_grid_fingerprint(payload, crop=box, grid=(4, 4))
+    return CountdownTemplates(
+        roi=(0, 0, 32, 24),
+        cell_width=8,
+        cell_height=12,
+        glyphs=glyphs,
+        minimum_score=0.99,
+        cells=len(SIX_BOXES),
+        boxes=SIX_BOXES,
+        groups=(2, 2, 2),
+        grid=(4, 4),
+    )
+
+
+class ExplicitBoxLayoutTests(unittest.TestCase):
+    def test_six_explicit_boxes_read_as_hh_mm_ss(self):
+        # "002532" laid out as HH:MM / SS must come back as "00:25:32", which is
+        # what the display actually renders even though the second colon is not
+        # drawn.
+        reader = CountdownReader(
+            capture=lambda: frame_for_boxes("002532", SIX_BOXES),
+            templates=templates_for_boxes("002532"),
+        )
+
+        self.assertEqual(reader.read_text(), "00:25:32")
+
+    def test_explicit_boxes_round_trip_through_the_document(self):
+        templates = templates_for_boxes("002532")
+        document = {
+            "version": 1,
+            "roi": list(templates.roi),
+            "cell_width": templates.cell_width,
+            "cell_height": templates.cell_height,
+            "cells": templates.cells,
+            "cell_rows": 1,
+            "boxes": [list(box) for box in templates.boxes],
+            "groups": list(templates.groups),
+            "glyphs": {name: list(value) for name, value in templates.glyphs.items()},
+            "grid": list(templates.grid),
+        }
+
+        restored = CountdownTemplates.from_document(document)
+
+        self.assertEqual(restored.boxes, templates.boxes)
+        self.assertEqual(restored.groups, (2, 2, 2))
+        self.assertEqual(restored.cell_boxes(), list(SIX_BOXES))
+
+    def test_groups_must_sum_to_cells(self):
+        with self.assertRaises(ValueError):
+            CountdownTemplates(
+                roi=(0, 0, 32, 24),
+                cell_width=8,
+                cell_height=12,
+                glyphs={"0": (1, 2, 3)},
+                cells=6,
+                boxes=SIX_BOXES,
+                groups=(2, 2, 1),
+            )
+
+    def test_boxes_must_match_the_cell_count(self):
+        with self.assertRaises(ValueError):
+            CountdownTemplates(
+                roi=(0, 0, 32, 24),
+                cell_width=8,
+                cell_height=12,
+                glyphs={"0": (1, 2, 3)},
+                cells=5,
+                boxes=SIX_BOXES,
+            )
+
+
+def _pattern_frame(width: int, height: int, dark):
+    rows = []
+    for y in range(height):
+        row = bytearray()
+        for x in range(width):
+            if dark(x / width, y / height):
+                row.extend((0, 0, 0, 255))
+            else:
+                row.extend((200, 200, 200, 255))
+        rows.append(bytes(row))
+    return _encode_rgba(width, height, rows)
+
+
+class InkDescriptorTests(unittest.TestCase):
+    #: The real box draws the same digit at two sizes (HH:MM larger, SS smaller);
+    #: the descriptor must be size-normalised, else one digit needs two templates.
+    def test_the_same_shape_at_two_sizes_is_the_same_descriptor(self):
+        left = lambda fx, fy: fx < 0.5
+        small = _cell_ink(_pattern_frame(10, 14, left), (0, 0, 10, 14), (8, 12))
+        large = _cell_ink(_pattern_frame(20, 28, left), (0, 0, 20, 28), (8, 12))
+
+        self.assertGreater(_ink_similarity(small, large), 0.9)
+
+    def test_a_different_shape_is_a_different_descriptor(self):
+        left = lambda fx, fy: fx < 0.5
+        right = lambda fx, fy: fx >= 0.5
+        left_desc = _cell_ink(_pattern_frame(10, 14, left), (0, 0, 10, 14), (8, 12))
+        right_desc = _cell_ink(_pattern_frame(10, 14, right), (0, 0, 10, 14), (8, 12))
+
+        self.assertLess(_ink_similarity(left_desc, right_desc), 0.5)
+
+    def test_binarisation_splits_ink_from_a_bright_background(self):
+        # The local-median threshold must mark only the dark bar as ink and leave
+        # the bright background empty.
+        def bar(fx, fy):
+            return fx < 0.3
+
+        desc = _cell_ink(_pattern_frame(10, 14, bar), (0, 0, 10, 14), (8, 12))
+        # Left third ink, the rest empty: the first grid columns are saturated.
+        self.assertTrue(all(value > 500 for value in desc[:2]))
+        self.assertTrue(all(value == 0 for value in desc[-2:]))
 
 
 class TemplateDocumentTests(unittest.TestCase):

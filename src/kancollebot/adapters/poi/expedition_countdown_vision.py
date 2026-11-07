@@ -33,6 +33,7 @@ from pathlib import Path
 
 from kancollebot.adapters.poi.visual_fingerprint import (
     VisualFingerprintError,
+    _decode_png_rgba,
     compute_grid_fingerprint,
     fingerprint_similarity,
 )
@@ -51,6 +52,68 @@ GLYPH_ALPHABET = "0123456789:"
 DEFAULT_COUNTDOWN_TEMPLATE_PATH = (
     Path(__file__).resolve().parent / "expedition_countdown_glyphs.json"
 )
+
+#: "Ink" descriptor grid. Each cell is binarised (darker than a fraction of its
+#: own median = glyph ink) and box-filtered into this many bins. Because the
+#: result is size-normalised and background-invariant, the same digit reads the
+#: same whether it is drawn at the larger HH:MM size or the smaller SS size, and
+#: the green gradient behind it does not leak into the descriptor. This is what
+#: the real two-row countdown box needs; the plain grid fingerprint treats the
+#: background and font size as signal and cannot bind one descriptor per digit.
+INK_GRID: tuple[int, int] = (8, 12)
+INK_THRESHOLD_RATIO = 0.65
+
+
+def _cell_ink(
+    payload: str, box: tuple[int, int, int, int], grid: tuple[int, int]
+) -> tuple[int, ...]:
+    """Binarised, size-normalised ink coverage of one cell, as per mille ints."""
+    width, height, rgba = _decode_png_rgba(payload)
+    x, y, w, h = box
+    gw, gh = grid
+    if w <= 0 or h <= 0 or gw <= 0 or gh <= 0:
+        raise VisualFingerprintError("cell box and grid must be positive")
+    x0, y0 = max(0, x), max(0, y)
+    x1, y1 = min(width, x + w), min(height, y + h)
+    bw, bh = x1 - x0, y1 - y0
+    if bw <= 0 or bh <= 0:
+        raise VisualFingerprintError("cell box lies outside the frame")
+    luminances: list[list[float]] = []
+    for yy in range(y0, y1):
+        base = (yy * width) * 4
+        row: list[float] = []
+        for xx in range(x0, x1):
+            index = base + xx * 4
+            row.append(
+                0.299 * rgba[index] + 0.587 * rgba[index + 1] + 0.114 * rgba[index + 2]
+            )
+        luminances.append(row)
+    flat = sorted(value for row in luminances for value in row)
+    median = flat[len(flat) // 2]
+    threshold = median * INK_THRESHOLD_RATIO
+    ink = [0] * (gw * gh)
+    counts = [0] * (gw * gh)
+    for j, row in enumerate(luminances):
+        gy = min(gh - 1, j * gh // bh)
+        for i, value in enumerate(row):
+            gx = min(gw - 1, i * gw // bw)
+            cell = gy * gw + gx
+            counts[cell] += 1
+            if value < threshold:
+                ink[cell] += 1
+    return tuple(
+        int(round(1000.0 * ink[cell] / counts[cell])) if counts[cell] else 0
+        for cell in range(gw * gh)
+    )
+
+
+def _ink_similarity(left: tuple[int, ...], right: tuple[int, ...]) -> float:
+    if not left or len(left) != len(right):
+        raise VisualFingerprintError(
+            "ink descriptors must be non-empty and of equal length"
+        )
+    total = sum(abs(a - b) for a, b in zip(left, right))
+    return 1.0 - total / (len(left) * 1000.0)
 
 
 class CountdownTemplateError(RuntimeError):
@@ -80,8 +143,23 @@ class CountdownTemplates:
     #: Descriptor grid used when the glyphs were recorded. It has to travel with
     #: the templates: a descriptor recorded on one grid is meaningless on another.
     grid: tuple[int, int] = (8, 12)
+    #: Explicit per-cell boxes ``(x, y, width, height)`` in reading order. When
+    #: set they replace the uniform ``rows x cols`` tiling: the real client lays
+    #: ``HH:MM`` on one line and ``SS`` on the next, a shape no uniform grid can
+    #: express. ``None`` keeps the historical uniform behaviour.
+    boxes: tuple[tuple[int, int, int, int], ...] | None = None
+    #: How to assemble the read glyphs into text. ``None`` concatenates them; a
+    #: tuple such as ``(2, 2, 2)`` reads HH/MM/SS groups and joins with ``':'``
+    #: so a six-cell layout still yields ``HH:MM:SS``.
+    groups: tuple[int, ...] | None = None
+    #: ``"grid"`` (the historical full-crop fingerprint) or ``"ink"`` (binarised,
+    #: size-normalised, background-invariant). The real two-row countdown needs
+    #: ``"ink"``: one grid fingerprint cannot cover a digit drawn at two sizes.
+    descriptor: str = "grid"
 
     def __post_init__(self) -> None:
+        if self.descriptor not in ("grid", "ink"):
+            raise ValueError("descriptor must be 'grid' or 'ink'")
         if (
             not isinstance(self.roi, tuple)
             or len(self.roi) != 4
@@ -92,11 +170,38 @@ class CountdownTemplates:
             raise ValueError("cell_width, cell_height and cells must be positive")
         if self.cell_rows <= 0 or self.cells % self.cell_rows != 0:
             raise ValueError("cell_rows must be a positive divisor of cells")
-        cols = self.cells // self.cell_rows
-        if self.cell_width * cols > self.roi[2]:
-            raise ValueError("the cells do not fit horizontally inside the roi")
-        if self.cell_height * self.cell_rows > self.roi[3]:
-            raise ValueError("the cells do not fit vertically inside the roi")
+        if self.boxes is None:
+            cols = self.cells // self.cell_rows
+            if self.cell_width * cols > self.roi[2]:
+                raise ValueError("the cells do not fit horizontally inside the roi")
+            if self.cell_height * self.cell_rows > self.roi[3]:
+                raise ValueError("the cells do not fit vertically inside the roi")
+        else:
+            if not isinstance(self.boxes, tuple) or len(self.boxes) != self.cells:
+                raise ValueError("boxes must be a tuple with one entry per cell")
+            for box in self.boxes:
+                if (
+                    not isinstance(box, tuple)
+                    or len(box) != 4
+                    or any(isinstance(v, bool) or not isinstance(v, int) for v in box)
+                ):
+                    raise ValueError(
+                        "each box must be an integer (x, y, width, height) tuple"
+                    )
+                if box[2] <= 0 or box[3] <= 0:
+                    raise ValueError("box width and height must be positive")
+        if self.groups is not None:
+            if (
+                not isinstance(self.groups, tuple)
+                or not self.groups
+                or any(
+                    isinstance(v, bool) or not isinstance(v, int) or v <= 0
+                    for v in self.groups
+                )
+            ):
+                raise ValueError("groups must be a tuple of positive integers")
+            if sum(self.groups) != self.cells:
+                raise ValueError("groups must sum to cells")
         if not 0 < self.minimum_score <= 1:
             raise ValueError("minimum_score must be in (0, 1]")
         if (
@@ -165,6 +270,39 @@ class CountdownTemplates:
             or any(isinstance(v, bool) or not isinstance(v, int) for v in raw_grid)
         ):
             raise CountdownTemplateError("grid must be a list of two integers")
+        raw_boxes = document.get("boxes")
+        boxes: tuple[tuple[int, int, int, int], ...] | None = None
+        if raw_boxes is not None:
+            if not isinstance(raw_boxes, list) or not raw_boxes:
+                raise CountdownTemplateError("boxes must be a non-empty list")
+            parsed_boxes: list[tuple[int, int, int, int]] = []
+            for item in raw_boxes:
+                if (
+                    not isinstance(item, (list, tuple))
+                    or len(item) != 4
+                    or any(isinstance(v, bool) or not isinstance(v, int) for v in item)
+                ):
+                    raise CountdownTemplateError("each box must be four integers")
+                parsed_boxes.append((int(item[0]), int(item[1]), int(item[2]), int(item[3])))
+            boxes = tuple(parsed_boxes)
+        raw_groups = document.get("groups")
+        groups: tuple[int, ...] | None = None
+        if raw_groups is not None:
+            if (
+                not isinstance(raw_groups, list)
+                or not raw_groups
+                or any(
+                    isinstance(v, bool) or not isinstance(v, int) or v <= 0
+                    for v in raw_groups
+                )
+            ):
+                raise CountdownTemplateError(
+                    "groups must be a non-empty list of positive integers"
+                )
+            groups = tuple(int(v) for v in raw_groups)
+        descriptor = document.get("descriptor", "grid")
+        if descriptor not in ("grid", "ink"):
+            raise CountdownTemplateError("descriptor must be 'grid' or 'ink'")
         score = document.get("minimum_score", 0.93)
         try:
             minimum_score = float(score)
@@ -180,6 +318,9 @@ class CountdownTemplates:
                 cells=cells,
                 cell_rows=cell_rows,
                 grid=(int(raw_grid[0]), int(raw_grid[1])),
+                boxes=boxes,
+                groups=groups,
+                descriptor=descriptor,
             )
         except ValueError as exc:
             raise CountdownTemplateError(str(exc)) from exc
@@ -199,6 +340,8 @@ class CountdownTemplates:
         return cls.from_document(document)
 
     def cell_boxes(self) -> list[tuple[int, int, int, int]]:
+        if self.boxes is not None:
+            return list(self.boxes)
         x, y, _width, _height = self.roi
         cols = self.cells // self.cell_rows
         boxes: list[tuple[int, int, int, int]] = []
@@ -247,10 +390,16 @@ class CountdownReader:
             return None
         try:
             payload = self._capture()
-            cells = [
-                compute_grid_fingerprint(payload, crop=box, grid=templates.grid)
-                for box in templates.cell_boxes()
-            ]
+            if templates.descriptor == "ink":
+                cells = [
+                    _cell_ink(payload, box, templates.grid)
+                    for box in templates.cell_boxes()
+                ]
+            else:
+                cells = [
+                    compute_grid_fingerprint(payload, crop=box, grid=templates.grid)
+                    for box in templates.cell_boxes()
+                ]
         except (VisualFingerprintError, ValueError, OSError):
             return None
         characters: list[str] = []
@@ -263,7 +412,14 @@ class CountdownReader:
             if best_score - runner_up < 0.01:
                 return None
             characters.append(best_name)
-        return "".join(characters)
+        if templates.groups is None:
+            return "".join(characters)
+        parts: list[str] = []
+        index = 0
+        for size in templates.groups:
+            parts.append("".join(characters[index:index + size]))
+            index += size
+        return ":".join(parts)
 
     @staticmethod
     def _classify(
@@ -272,7 +428,11 @@ class CountdownReader:
         scored: list[tuple[str, float]] = []
         for name, reference in templates.glyphs.items():
             try:
-                scored.append((name, fingerprint_similarity(descriptor, reference)))
+                if templates.descriptor == "ink":
+                    score = _ink_similarity(descriptor, reference)
+                else:
+                    score = fingerprint_similarity(descriptor, reference)
+                scored.append((name, score))
             except VisualFingerprintError:
                 continue
         if not scored:

@@ -262,8 +262,25 @@ class ParsingTests(unittest.TestCase):
             read_remaining_from_text("00：30").remaining_seconds, 30
         )
 
+    def test_hours_minutes_seconds_are_parsed_from_the_display(self):
+        # The client renders HH:MM on one line and SS on the next, so a faithful
+        # read is three colon-separated fields.
+        reading = read_remaining_from_text("00:25:32")
+
+        self.assertEqual(reading.remaining_seconds, 25 * 60 + 32)
+        self.assertEqual(reading.text, "00:25:32")
+
     def test_impossible_values_are_refused(self):
-        for text in ("", "abc", "1:2:3", "00:99", "-1:20", "１２:３０"):
+        for text in (
+            "",
+            "abc",
+            "00:99",
+            "-1:20",
+            "１２:３０",
+            "1:99:00",
+            "1:00:99",
+            "1:2:3:4",
+        ):
             with self.subTest(text=text):
                 self.assertIsNone(read_remaining_from_text(text))
 

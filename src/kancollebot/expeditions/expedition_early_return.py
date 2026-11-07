@@ -326,7 +326,11 @@ class ExpeditionEarlyReturn:
 
 
 def read_remaining_from_text(text: str) -> CountdownReading | None:
-    """Parse ``M:SS`` / ``MM:SS`` / ``SS`` out of a displayed countdown.
+    """Parse ``M:SS`` / ``MM:SS`` / ``HH:MM:SS`` / ``SS`` out of a countdown.
+
+    The client renders the remaining time as ``HH:MM`` on one line and ``SS`` on
+    the next, so a faithful read is three colon-separated fields; the two-field
+    and bare-seconds forms are kept for older sources.
 
     Kept next to the coordinator so the parsing rule has one definition; the
     caller passes the *displayed* string, never a locally computed duration.
@@ -343,16 +347,25 @@ def read_remaining_from_text(text: str) -> CountdownReading | None:
         return bool(value) and value.isascii() and value.isdigit()
 
     if ":" in cleaned:
-        head, _, tail = cleaned.rpartition(":")
-        if not _ascii_digits(tail) or not head.lstrip("-").isdigit():
+        parts = cleaned.split(":")
+        if len(parts) not in (2, 3) or not all(_ascii_digits(part) for part in parts):
             return None
-        if not head.isascii():
+        values = [int(part) for part in parts]
+        if any(value < 0 for value in values):
             return None
-        minutes = int(head)
-        seconds = int(tail)
-        if minutes < 0 or seconds < 0 or seconds >= 60:
+        if len(values) == 2:
+            minutes, seconds = values
+            if seconds >= 60:
+                return None
+            return CountdownReading(
+                text=cleaned, remaining_seconds=minutes * 60 + seconds
+            )
+        hours, minutes, seconds = values
+        if minutes >= 60 or seconds >= 60:
             return None
-        return CountdownReading(text=cleaned, remaining_seconds=minutes * 60 + seconds)
+        return CountdownReading(
+            text=cleaned, remaining_seconds=hours * 3600 + minutes * 60 + seconds
+        )
     if _ascii_digits(cleaned):
         return CountdownReading(text=cleaned, remaining_seconds=int(cleaned))
     return None

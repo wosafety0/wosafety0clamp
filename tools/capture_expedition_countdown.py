@@ -45,6 +45,8 @@ if str(ROOT / "src") not in sys.path:
 from kancollebot.adapters.poi.expedition_countdown_vision import (  # noqa: E402
     CountdownTemplates,
     CountdownTemplateError,
+    _cell_ink,
+    _ink_similarity,
 )
 from kancollebot.adapters.poi.visual_fingerprint import compute_grid_fingerprint  # noqa: E402
 
@@ -84,42 +86,113 @@ def _parse_cell(value: str) -> tuple[int, int]:
     return parts[0], parts[1]
 
 
+def _parse_boxes(value: str) -> list[tuple[int, int, int, int]]:
+    boxes: list[tuple[int, int, int, int]] = []
+    for part in value.split(";"):
+        part = part.strip()
+        if not part:
+            continue
+        nums = [int(item) for item in part.replace(" ", "").split(",")]
+        if len(nums) != 4:
+            raise argparse.ArgumentTypeError(
+                "each --boxes entry needs x,y,width,height"
+            )
+        boxes.append((nums[0], nums[1], nums[2], nums[3]))
+    if not boxes:
+        raise argparse.ArgumentTypeError("--boxes needs at least one entry")
+    return boxes
+
+
+def _parse_groups(value: str) -> tuple[int, ...]:
+    parts = [int(item) for item in value.replace(" ", "").split(",") if item]
+    if not parts or any(item <= 0 for item in parts):
+        raise argparse.ArgumentTypeError("--groups needs positive integers")
+    return tuple(parts)
+
+
 def cmd_record(args: argparse.Namespace) -> int:
     frame = Path(args.frame)
     if not frame.is_file():
         raise SystemExit(f"frame not found: {frame}")
     payload = base64.b64encode(frame.read_bytes()).decode("ascii")
     text = args.text.strip()
-    x, y, width, height = args.roi
-    cell_width, cell_height = args.cell
-    cell_rows = args.cell_rows
-    if len(text) != args.cells:
-        raise SystemExit(
-            f"--text has {len(text)} characters but --cells is {args.cells}"
-        )
-    if cell_rows <= 0 or args.cells % cell_rows != 0:
-        raise SystemExit("--cell-rows must divide --cells exactly")
-    cols = args.cells // cell_rows
-    if cell_width * cols > width:
-        raise SystemExit("the cells do not fit horizontally inside --roi")
-    if cell_height * cell_rows > height:
-        raise SystemExit("the cells do not fit vertically inside --roi")
+    grid = tuple(args.grid)
+
+    explicit_boxes = getattr(args, "boxes", None)
+    groups = getattr(args, "groups", None)
+    if explicit_boxes:
+        cell_box_list = [tuple(box) for box in explicit_boxes]
+        cells = len(cell_box_list)
+        for (bx, by, bw, bh) in cell_box_list:
+            if bx < 0 or by < 0 or bw <= 0 or bh <= 0:
+                raise SystemExit("boxes need non-negative x/y and positive width/height")
+        if len(text) != cells:
+            raise SystemExit(
+                f"--text has {len(text)} characters but --boxes has {cells} entries"
+            )
+        if groups is not None and sum(groups) != cells:
+            raise SystemExit("--groups must sum to the number of --boxes")
+        min_x = min(box[0] for box in cell_box_list)
+        min_y = min(box[1] for box in cell_box_list)
+        max_x = max(box[0] + box[2] for box in cell_box_list)
+        max_y = max(box[1] + box[3] for box in cell_box_list)
+        roi = (min_x, min_y, max_x - min_x, max_y - min_y)
+        cell_width = max(box[2] for box in cell_box_list)
+        cell_height = max(box[3] for box in cell_box_list)
+        cell_rows = 1
+    else:
+        if args.roi is None or args.cell is None:
+            raise SystemExit("--roi and --cell are required unless --boxes is given")
+        x, y, width, height = args.roi
+        cell_width, cell_height = args.cell
+        cell_rows = args.cell_rows
+        if len(text) != args.cells:
+            raise SystemExit(
+                f"--text has {len(text)} characters but --cells is {args.cells}"
+            )
+        if cell_rows <= 0 or args.cells % cell_rows != 0:
+            raise SystemExit("--cell-rows must divide --cells exactly")
+        cols = args.cells // cell_rows
+        if cell_width * cols > width:
+            raise SystemExit("the cells do not fit horizontally inside --roi")
+        if cell_height * cell_rows > height:
+            raise SystemExit("the cells do not fit vertically inside --roi")
+        cells = args.cells
+        roi = (x, y, width, height)
+        cell_box_list = []
+        for index in range(cells):
+            row = index // cols
+            column = index % cols
+            cell_box_list.append(
+                (
+                    x + column * cell_width,
+                    y + row * cell_height,
+                    cell_width,
+                    cell_height,
+                )
+            )
+
+    expected_boxes = tuple(cell_box_list) if explicit_boxes else None
+    expected_groups = groups if explicit_boxes else None
+    descriptor_kind = getattr(args, "descriptor", "grid")
+    if descriptor_kind not in ("grid", "ink"):
+        raise SystemExit("--descriptor must be 'grid' or 'ink'")
 
     glyphs: dict[str, list[int]] = {}
     conflicts: list[str] = []
-    for index, character in enumerate(text):
-        row = index // cols
-        column = index % cols
-        box = (
-            x + column * cell_width,
-            y + row * cell_height,
-            cell_width,
-            cell_height,
-        )
-        descriptor = list(compute_grid_fingerprint(payload, crop=box, grid=args.grid))
+    for character, box in zip(text, cell_box_list):
+        if descriptor_kind == "ink":
+            descriptor = list(_cell_ink(payload, box, grid))
+        else:
+            descriptor = list(compute_grid_fingerprint(payload, crop=box, grid=grid))
         existing = glyphs.get(character)
         if existing is None:
             glyphs[character] = descriptor
+        elif descriptor_kind == "ink":
+            # The same digit at the larger HH:MM size and the smaller SS size is
+            # never byte-identical; accept it when it is clearly the same glyph.
+            if _ink_similarity(tuple(existing), tuple(descriptor)) < 0.85:
+                conflicts.append(character)
         elif existing != descriptor:
             # Same character rendering differently in one frame means the cell
             # grid is misaligned. Recording it would make every later read
@@ -128,8 +201,8 @@ def cmd_record(args: argparse.Namespace) -> int:
     if conflicts:
         raise SystemExit(
             "the same glyph produced different descriptors "
-            f"({sorted(set(conflicts))}); adjust --roi/--cell until the cells "
-            "line up, then record again"
+            f"({sorted(set(conflicts))}); adjust the boxes/cells until they line "
+            "up, then record again"
         )
 
     out = Path(args.out)
@@ -140,21 +213,27 @@ def cmd_record(args: argparse.Namespace) -> int:
         except (OSError, ValueError, CountdownTemplateError) as exc:
             raise SystemExit(f"--merge target is not a usable template: {exc}")
         if (
-            existing.roi != (x, y, width, height)
+            existing.roi != roi
             or existing.cell_width != cell_width
             or existing.cell_height != cell_height
-            or existing.cells != args.cells
+            or existing.cells != cells
             or existing.cell_rows != cell_rows
-            or existing.grid != args.grid
+            or existing.grid != grid
+            or existing.boxes != expected_boxes
+            or existing.groups != expected_groups
+            or existing.descriptor != descriptor_kind
         ):
             raise SystemExit(
-                "--merge target has a different roi/cell/grid layout; "
-                "re-record it from scratch without --merge"
+                "--merge target has a different layout; re-record it from "
+                "scratch without --merge"
             )
         merged: dict[str, list[int]] = {name: list(value) for name, value in existing.glyphs.items()}
         for character, descriptor in glyphs.items():
             if character in merged:
-                if merged[character] != list(descriptor):
+                if descriptor_kind == "ink":
+                    if _ink_similarity(tuple(merged[character]), tuple(descriptor)) < 0.85:
+                        conflicts.append(character)
+                elif merged[character] != list(descriptor):
                     # This character already had a descriptor from an earlier
                     # frame and now renders differently: the grid has drifted
                     # between captures, so refuse rather than overwrite.
@@ -167,7 +246,7 @@ def cmd_record(args: argparse.Namespace) -> int:
             raise SystemExit(
                 "a merged glyph disagrees with the earlier recording "
                 f"({sorted(set(conflicts))}); the cell grid is not stable, fix "
-                "--roi/--cell before merging"
+                "the boxes before merging"
             )
         glyphs = merged
 
@@ -175,15 +254,20 @@ def cmd_record(args: argparse.Namespace) -> int:
         "version": 1,
         "source": str(frame),
         "recorded_text": text,
-        "roi": [x, y, width, height],
+        "roi": list(roi),
         "cell_width": cell_width,
         "cell_height": cell_height,
-        "cells": args.cells,
+        "cells": cells,
         "cell_rows": cell_rows,
         "minimum_score": args.minimum_score,
-        "grid": list(args.grid),
+        "grid": list(grid),
+        "descriptor": descriptor_kind,
         "glyphs": glyphs,
     }
+    if expected_boxes is not None:
+        document["boxes"] = [list(box) for box in expected_boxes]
+    if expected_groups is not None:
+        document["groups"] = list(expected_groups)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(document, indent=1, ensure_ascii=False), encoding="utf-8")
     print(json.dumps({
@@ -208,8 +292,21 @@ def main(argv: list[str] | None = None) -> int:
 
     record = sub.add_parser("record", help="bind glyph descriptors from a frame")
     record.add_argument("--frame", required=True)
-    record.add_argument("--roi", required=True, type=_parse_roi)
-    record.add_argument("--cell", required=True, type=_parse_cell)
+    record.add_argument("--roi", default=None, type=_parse_roi)
+    record.add_argument("--cell", default=None, type=_parse_cell)
+    record.add_argument(
+        "--boxes",
+        default=None,
+        type=_parse_boxes,
+        help="explicit per-cell boxes 'x,y,w,h;x,y,w,h;...' for non-uniform "
+        "layouts (e.g. the client's HH:MM / SS); replaces --roi/--cell/--cells",
+    )
+    record.add_argument(
+        "--groups",
+        default=None,
+        type=_parse_groups,
+        help="how to join the read glyphs, e.g. '2,2,2' -> HH:MM:SS",
+    )
     record.add_argument("--cells", type=int, default=5)
     record.add_argument(
         "--cell-rows",
@@ -227,6 +324,13 @@ def main(argv: list[str] | None = None) -> int:
         "previously recorded glyph (cell grid not stable)",
     )
     record.add_argument("--minimum-score", type=float, default=0.93)
+    record.add_argument(
+        "--descriptor",
+        choices=("grid", "ink"),
+        default="grid",
+        help="glyph descriptor: 'grid' (full-crop fingerprint) or 'ink' "
+        "(binarised, size-normalised; needed for the two-row HH:MM/SS box)",
+    )
     record.add_argument("--grid", type=int, nargs=2, default=(8, 12))
     record.add_argument(
         "--out",
