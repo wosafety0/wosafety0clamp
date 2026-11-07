@@ -5235,3 +5235,13 @@ The Hand plugin's read-only probe reported:
   3. **可见刷新（`open_sortie`）不受页面证据约束**：刷新只认「期望 SORTIE_MENU」，当返航结果页在刷新途中出现时抛 `VisibleUiRefreshError`；且该点击发生在页面证据判定之后、点击之前无第二道「此刻是否已变成奖励页」检查。本次点击落在 HOME_PORT 上未推进任何页面，但顺序上不排除点穿结果页（结果页点击即推进）。阶段3/4 的否决与 MODAL 扣留**只覆盖 supervisor tick，不覆盖 bootstrap 刷新**。
   4. **启动结算对页面推进过严**：推进结果页后仍要求看到 `RETURN_RESULT`，实际已是 `BONUS_ITEMS` → `STOPPED_FAIL_CLOSED`，把「正常推进」误判为「指纹不符」，代价是奖励页留在屏上需要再来一次进程才收口。
 - **ARCHIVE** 本地保存并提交；推送后远程回读核对；`main` 未动；两个受保护未跟踪脚本保持未跟踪（未执行、未修改、未提交、未删除）。
+
+## 2026-11-07 - 阶段5（三）：收口把自动化锁死（缺陷5，需人工一击）
+
+> **状态：** 屏幕停在 `RETURN_RESULT`（0.9930 accepted），Poi `api_mission=[0,0,0,0]`，F2 `RESUPPLY_REQUIRED` 且未满补。**所有自动化路径现在一律拒绝动作（零点击）**，原因是账本状态自相矛盾，不是识别失败。
+
+- **现象** 四条命令路径全部零点击退出：`--settle-only`（±adoption）→ `startup settlement refused (recorded_composition_unavailable)`；正常路径 → 同一条拒绝；`--settle-only --no-ui-refresh` → 同一拒绝；`--minimum-ships 5` → 被「must not be used in all-fleets mode」挡回。
+- **根因（只读查账）** `dispatch_identities` 最后一条 `dispatch-20261107T101835Z-26a09fec4216` 已 `status=settled`、`settled_at=10:36:13`，而这一次的记录是 **18:36:13 由 settle-only 的可见刷新**写下的——它按 Poi 无在途就把身份判成已结算，**屏幕上的奖励页并没有被推进**。与此同时 `fleet_runtime` 转入 `RESUPPLY_REQUIRED` 时 `ship_ids_json` 被写成 **NULL**，于是启动结算取 `expected_ship_ids=[]`、`expected_ship_ids_source=null`，判 `startup_attribution` 失败并拒绝。
+- **结论** 「身份已 settled」与「奖励页仍在屏上且未领」同时成立 ⇒ 结算控制器认为无可归属，导航认为不该点，补给又要求先到母港。三方互锁，且**这是安全设计生效的结果，不是漏点**。
+- ** IMPLEMENTED** 无（未改代码）。**TESTED** 无新增。**BLOCKED** 需要一次人工点击把结果页推回母港。
+- **LIMITS / NEXT** ①`settle-only` 的「按 Poi 判定已结算」会与屏幕证据脱钩，应要求屏幕收口（或至少记录 screen）才置 `settled`——待裁决。②`fleet_runtime.ship_ids_json` 在 `RESUPPLY_REQUIRED` 置 NULL，使启动结算无法归属，建议保留最后一次编成到补给完成。③不得为了绕过互锁而放宽 `startup_attribution`。
