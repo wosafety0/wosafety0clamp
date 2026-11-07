@@ -183,15 +183,24 @@ def _decide_gate(layers: dict, reward_probe: str | None,
 
 
 def _filter_rows(rows: list[dict], start_iso: str, run_id: str | None) -> list[dict]:
-    """run-log 是按日期追加的单文件，必须按时间窗 + run_id 过滤，否则混入旧轮次。"""
+    """run-log 是按日期追加的单文件，必须按时间窗 + run_id 过滤，否则混入旧轮次。
+
+    run_id 只作为**可选收窄**：stdout 与 run-log 对同一个 run 使用不同的标识
+    （stdout 是 ``20261107T024140.740206Z``，run-log 是
+    ``run-20261107T023729Z-87dca0685e53``），硬按 run_id 过滤会把整轮证据清成 0
+    行（2026-11-07 实测：113 行被报成 0 行）。时间窗已经能分开不同轮次，因此
+    只有在确实匹配到行时才收窄。
+    """
     kept = []
     for row in rows:
         ts = str(row.get("timestamp_utc") or row.get("timestamp") or "")[:19]
         if start_iso and ts and ts < start_iso:
             continue
-        if run_id and row.get("run_id") and row.get("run_id") != run_id:
-            continue
         kept.append(row)
+    if run_id:
+        narrowed = [row for row in kept if row.get("run_id") in (None, run_id)]
+        if narrowed and len(narrowed) < len(kept):
+            return narrowed
     return kept
 
 

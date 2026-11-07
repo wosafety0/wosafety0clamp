@@ -479,8 +479,16 @@ class RefreshAttributionTests(unittest.TestCase):
 
     def test_an_already_fresh_read_records_no_navigation(self):
         events = []
+        # Stale stats on purpose: this is what a driver holds after an earlier
+        # navigation. Re-reporting them would claim three clicks this call never
+        # sent (seen live 2026-11-07: three "already_fresh" audits each claiming
+        # clicks_sent=3, all copied from one bootstrap refresh).
         driver = SimpleNamespace(
-            refresh_port_state=lambda **kwargs: self.fail("unexpected refresh")
+            refresh_port_state=lambda **kwargs: self.fail("unexpected refresh"),
+            last_refresh_stats={
+                "clicks_completed": 3,
+                "steps": ["open_sortie", "open_expedition_list", "return_home_port"],
+            },
         )
         wrapper, _ = self._reader([observation(True)], events=events, driver=driver)
 
@@ -490,11 +498,13 @@ class RefreshAttributionTests(unittest.TestCase):
         self.assertEqual(audits[0]["outcome"], "already_fresh")
         self.assertIsNone(audits[0]["refresh_id"])
         self.assertEqual(audits[0]["clicks_sent"], 0)
+        self.assertEqual(audits[0]["navigation_steps"], [])
 
     def test_a_suppressed_refresh_says_so_instead_of_looking_like_a_navigation(self):
         events = []
         driver = SimpleNamespace(
-            refresh_port_state=lambda **kwargs: self.fail("unexpected refresh")
+            refresh_port_state=lambda **kwargs: self.fail("unexpected refresh"),
+            last_refresh_stats={"clicks_completed": 3, "steps": ["open_sortie"]},
         )
         wrapper, clock = self._reader(
             [observation(False)], events=events, driver=driver

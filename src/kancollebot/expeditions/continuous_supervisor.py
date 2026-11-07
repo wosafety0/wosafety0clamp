@@ -667,6 +667,21 @@ class ContinuousExpeditionSupervisor:
         progress: _TickProgress,
     ) -> SupervisorTickResult:
         """Dispatch every READY fleet in scheduler order, stopping on surprise."""
+        scheduler = self.monitor.scheduler
+        dispatch_order = tuple(
+            getattr(scheduler, "dispatch_fleet_ids", ())
+        )
+
+        ready = []
+        for fleet_id in dispatch_order:
+            try:
+                state = scheduler.fleet(fleet_id)
+            except (KeyError, LookupError):
+                continue
+
+            if self._phase_name(state) == "READY":
+                ready.append(fleet_id)
+
         if not bool(
             getattr(
                 self.dispatch_controller,
@@ -674,18 +689,27 @@ class ContinuousExpeditionSupervisor:
                 False,
             )
         ):
+            if not ready:
+                # Nothing is waiting to sail, so a controller that may not click
+                # has not refused anything. Reporting the refusal here labelled a
+                # settle-only pass over an empty dispatch queue as a blocked
+                # click (2026-11-07: ``game_actions_sent=0`` next to
+                # ``ui_actions_disabled``, which reads as a failure and is not
+                # one). The gap between settlements and dispatch is simply empty.
+                return SupervisorTickResult(
+                    monitor_result=monitor_result,
+                    dispatches=(),
+                    paused_reason=None,
+                    settlements=settlements,
+                    resupplies=resupplies,
+                )
             return self._paused(
                 monitor_result, "ui_actions_disabled", settlements, resupplies
             )
 
-        scheduler = self.monitor.scheduler
-        dispatch_order = tuple(
-            getattr(scheduler, "dispatch_fleet_ids", ())
-        )
-
         dispatches = []
 
-        for fleet_id in dispatch_order:
+        for fleet_id in ready:
             try:
                 state = scheduler.fleet(fleet_id)
             except (KeyError, LookupError):

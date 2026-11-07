@@ -169,6 +169,28 @@ class ContinuousExpeditionSupervisorTests(unittest.TestCase):
         self.assertEqual(controller.calls, [])
         self.assertEqual(report.paused_reason, "ui_actions_disabled")
 
+    def test_a_monitor_only_tick_with_nothing_to_dispatch_refuses_nothing(self):
+        """A controller that may not click only has something to refuse when a
+        fleet is actually waiting to sail.
+
+        ``--settle-only`` hands the supervisor a controller that can never
+        dispatch, so every tick reported ``ui_actions_disabled`` - including the
+        ticks where no fleet was READY and therefore no click was withheld. The
+        run log then paired that reason with ``game_actions_sent=0`` and read as
+        a blocked dispatch attempt when nothing was pending (2026-11-07
+        03:25Z). The gap between settlements and dispatch is simply empty here.
+        """
+        supervisor, _, monitor, controller = self.make_supervisor(
+            {2: FleetPhase.EXPEDITION_ACTIVE, 3: FleetPhase.EXPEDITION_ACTIVE},
+            home_verified={2: True, 3: True},
+            enabled=False,
+        )
+        report = supervisor.tick()
+        self.assertEqual(monitor.calls, 1)
+        self.assertEqual(controller.calls, [])
+        self.assertIsNone(report.paused_reason)
+        self.assertEqual(report.dispatches, ())
+
     def test_failed_post_dispatch_home_port_proof_stops_next_fleet(self):
         supervisor, scheduler, _, controller = self.make_supervisor(
             {

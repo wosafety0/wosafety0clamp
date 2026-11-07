@@ -93,6 +93,12 @@ _ADVANCEABLE_PAGES: frozenset[DrainPageState] = frozenset(
     }
 )
 
+#: The single page whose click *claims* the expedition reward. Clicking it a
+#: second time is the double-claim the server guard exists to prevent; the other
+#: advanceable pages are the reward screens it opens, and walking those is how
+#: the client gets back to home port.
+_CLAIM_PAGES: frozenset[DrainPageState] = frozenset({DrainPageState.RETURN_NOTICE})
+
 #: Pages that must never be clicked and the error they map to.
 _TERMINAL_PAGE_ERRORS: dict[DrainPageState, DrainErrorType] = {
     DrainPageState.NETWORK_ERROR_POPUP: DrainErrorType.NETWORK_ERROR,
@@ -335,9 +341,11 @@ class SettlementDrainSession:
         event_sink: Callable[[str, Mapping[str, object]], None] | None = None,
         # Read-only server-side check: "has the settlement already been
         # collected?" It is consulted *before* every action and while waiting.
-        # Once it is true the drain may only observe the UI - clicking a
-        # settlement page the server no longer knows about is exactly the
-        # double-claim this guard exists to prevent.
+        # Once it is true the drain will not repeat the *claim* click: clicking
+        # the return notice a second time is exactly the double-claim this guard
+        # exists to prevent. Advancing an already-open reward page is still
+        # allowed, because that only walks the UI back to home port - refusing
+        # it would leave the result page on screen and block the next dispatch.
         settlement_settled: Callable[[], bool] | None = None,
     ) -> None:
         if not callable(getattr(observer, "observe", None)):
@@ -462,25 +470,38 @@ class SettlementDrainSession:
                 )
 
             if self._settled():
-                # The server already shows no pending settlement. The client is
-                # only catching up, and clicking a page the account no longer
-                # owes a claim for is the double-claim this guard prevents.
-                self._emit("settlement_drain_ui_only_wait", {
+                # The server already shows no pending settlement. Only the claim
+                # click can claim twice, so only that one is forbidden; refusing
+                # every click here would leave an already-open reward page on
+                # screen forever, and a stuck result page blocks the next
+                # dispatch far more effectively than a second "next" ever could.
+                if page in _CLAIM_PAGES:
+                    self._emit("settlement_drain_ui_only_wait", {
+                        "page": page.value,
+                        "actions_performed": actions_performed,
+                        "clicks_sent": 0,
+                        "error": DrainErrorType.SETTLED_UI_PENDING.value,
+                        "reason": (
+                            "the server reports no pending settlement; only the "
+                            "UI is still catching up, so the claim click is not "
+                            "repeated"
+                        ),
+                    })
+                    return self._result(
+                        completed_pages=completed_pages,
+                        actions_performed=actions_performed,
+                        final_page=page,
+                        error=DrainErrorType.SETTLED_UI_PENDING,
+                    )
+                self._emit("settlement_drain_advance_after_settled", {
                     "page": page.value,
                     "actions_performed": actions_performed,
-                    "clicks_sent": 0,
-                    "error": DrainErrorType.SETTLED_UI_PENDING.value,
+                    "clicks_sent": 1,
                     "reason": (
-                        "the server reports no pending settlement; only the UI "
-                        "is still catching up, so no settlement click is sent"
+                        "the reward page is already open: advancing it only "
+                        "walks the UI to home port and cannot claim again"
                     ),
                 })
-                return self._result(
-                    completed_pages=completed_pages,
-                    actions_performed=actions_performed,
-                    final_page=page,
-                    error=DrainErrorType.SETTLED_UI_PENDING,
-                )
 
             # The row describing the action is written BEFORE the input, so an
             # unwritable audit log stops the drain here instead of clicking.
@@ -602,6 +623,11 @@ class SettlementDrainSession:
           click, and stop with ``SETTLED_UI_PENDING`` when the budget runs out;
         * moving but never naming a page -> ``OBSERVATION_BUDGET_EXHAUSTED``.
 
+        ``UNKNOWN`` is never returned as the "changed" page: the classifier not
+        answering is not the screen arriving somewhere. Only an observer without
+        any fingerprint falls back to the historical ``unknown_page`` verdict,
+        because then there is nothing better to base the answer on.
+
         With an observer that exposes no fingerprint the historical verdict is
         kept verbatim, because there is nothing better to base it on.
         """
@@ -674,6 +700,25 @@ class SettlementDrainSession:
 
             reverted_run = 0
             seen_change = True
+            if page is DrainPageState.UNKNOWN and sample.fingerprint is not None:
+                # UNKNOWN is the classifier declining to answer, not a page that
+                # the screen moved to. Returning it as one ended a live drain as
+                # "unknown_page" five seconds after the click (2026-11-07): the
+                # notice had just been dismissed, home port showed for one frame,
+                # and the incoming result page was still animating at 0.8265, so
+                # two UNKNOWN frames in a row looked "stable". Keep observing -
+                # only the budget may end this - and let a real page, or the
+                # server guard, decide what happens next.
+                last = page
+                run = 0
+                if now >= observation_deadline:
+                    if self._settled():
+                        return _failed(DrainErrorType.SETTLED_UI_PENDING, last)
+                    return _failed(
+                        DrainErrorType.OBSERVATION_BUDGET_EXHAUSTED, last
+                    )
+                self._clock.sleep(self._frame_poll_interval)
+                continue
             if page is last and run > 0:
                 run += 1
             else:

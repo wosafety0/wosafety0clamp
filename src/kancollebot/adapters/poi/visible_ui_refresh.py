@@ -763,11 +763,22 @@ class FreshnessRefreshingStateReader:
         triggered_at: datetime,
         waited_seconds: float = 0.0,
         error_type: str | None = None,
+        navigation_sent: bool = False,
     ) -> None:
-        """Record one refresh attempt, whether or not a navigation was sent."""
+        """Record one refresh attempt, whether or not a navigation was sent.
+
+        ``navigation_sent`` is what keeps ``clicks_sent`` honest. When no
+        navigation ran, the driver still holds the *previous* refresh's stats;
+        reporting those again would claim clicks that were never sent, and an
+        audit that invents clicks cannot be used to rule out double clicking.
+        """
         if self._event_sink is None:
             return
-        stats = getattr(self._refresh_driver, "last_refresh_stats", None) or {}
+        stats = (
+            getattr(self._refresh_driver, "last_refresh_stats", None) or {}
+            if navigation_sent
+            else {}
+        )
         fields: dict[str, object] = {
             "refresh_id": refresh_id,
             "origin": origin,
@@ -1040,6 +1051,7 @@ class FreshnessRefreshingStateReader:
                             witness_verified=True,
                             triggered_at=triggered_at,
                             waited_seconds=self._monotonic() - started_at,
+                            navigation_sent=True,
                         )
                         return observation
                     remaining = deadline - self._monotonic()
@@ -1053,6 +1065,7 @@ class FreshnessRefreshingStateReader:
                     witness_verified=False,
                     triggered_at=triggered_at,
                     waited_seconds=self._monotonic() - started_at,
+                    navigation_sent=True,
                 )
                 return observation
             except Exception as exc:
@@ -1064,6 +1077,7 @@ class FreshnessRefreshingStateReader:
                     triggered_at=triggered_at,
                     waited_seconds=self._monotonic() - started_at,
                     error_type=type(exc).__name__,
+                    navigation_sent=True,
                 )
                 raise
             finally:

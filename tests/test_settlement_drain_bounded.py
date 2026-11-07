@@ -31,6 +31,7 @@ from kancollebot.expeditions.settlement_drain import (
 HOME = DrainPageState.HOME_PORT
 NOTICE = DrainPageState.RETURN_NOTICE
 RESULT = DrainPageState.EXPEDITION_RESULT
+REWARD = DrainPageState.REWARD_PANEL
 
 POLL = 0.1
 FROZEN = (64,) * 8
@@ -184,6 +185,65 @@ class AnimatingScreenTests(unittest.TestCase):
 
         self.assertIs(result.error_encountered, DrainErrorType.UI_STUCK)
 
+    def test_a_gap_between_the_notice_and_the_result_page_is_not_a_page(self):
+        """Live 2026-11-07 02:55Z, reproduced.
+
+        The drain clicked the return notice; one frame later home port showed,
+        then the result page was still animating and classified UNKNOWN twice.
+        Two UNKNOWN frames in a row were returned as a "changed page" and the
+        whole drain ended as ``unknown_page`` 5 s after the click, while the
+        server had already claimed the reward and the result page went on to
+        score 0.9930. UNKNOWN must never be the answer.
+        """
+        clock = FakeClock()
+        observer = TimelineObserver(
+            clock,
+            [
+                (NOTICE, 0.5),
+                # One frame of home port, exactly as captured live (02:55:44.77
+                # HOME_PORT, 02:55:47.28 and 02:55:49.65 UNKNOWN) - not long
+                # enough to be "two consecutive home port frames".
+                (HOME, 0.52),
+                (DrainPageState.UNKNOWN, 9.0),
+                (RESULT, 9.6),
+                (HOME, 1e9),
+            ],
+            animate_until=9.6,
+        )
+        # The server finishes the claim as soon as the click lands.
+        session, events = make_session(observer, clock, settled=lambda: clock.now >= 1.0)
+
+        result = session.drain(request())
+
+        self.assertNotEqual(
+            result.error_encountered, DrainErrorType.UNKNOWN_PAGE
+        )
+        # The result page is walked home instead of the drain giving up on it.
+        self.assertTrue(result.reached_home)
+        self.assertIsNone(result.error_encountered)
+        # One claim click, one advance: the notice is never clicked twice.
+        self.assertEqual(
+            session._driver.actions, [NOTICE, RESULT]  # type: ignore[attr-defined]
+        )
+        self.assertIn(
+            "settlement_drain_advance_after_settled", [name for name, _ in events]
+        )
+
+    def test_an_unrecognised_screen_that_never_resolves_costs_a_budget_not_a_human(self):
+        clock = FakeClock()
+        observer = TimelineObserver(
+            clock, [(NOTICE, 0.5), (DrainPageState.UNKNOWN, 1e9)], animate_until=1e9
+        )
+        session, _ = make_session(observer, clock, settled=lambda: False)
+
+        result = session.drain(request(action_observation_seconds=6.0))
+
+        self.assertIs(
+            result.error_encountered, DrainErrorType.OBSERVATION_BUDGET_EXHAUSTED
+        )
+        self.assertFalse(result.requires_manual_intervention)
+        self.assertEqual(result.actions_performed, 1)
+
 
 class ServerFirstTests(unittest.TestCase):
     def test_a_settled_account_never_gets_another_settlement_click(self):
@@ -225,6 +285,31 @@ class ServerFirstTests(unittest.TestCase):
         self.assertEqual(session._driver.actions, [NOTICE])  # type: ignore[attr-defined]
         self.assertIs(result.error_encountered, DrainErrorType.SETTLED_UI_PENDING)
         self.assertIn("settlement_drain_ui_only_wait", [name for name, _ in events])
+
+    def test_a_settled_account_still_walks_an_open_reward_page_home(self):
+        """Refusing every click after the claim would strand the result page.
+
+        Live 2026-11-07 02:56Z the reward was already claimed (all fleets back to
+        ``api_mission[0] == 0``) while the result page was still on screen at
+        0.9930. Only the claim click can claim twice; advancing the reward page
+        it already opened is how the client reaches home port again.
+        """
+        clock = FakeClock()
+        observer = TimelineObserver(
+            clock, [(RESULT, 2.0), (REWARD, 4.0), (HOME, 1e9)], animate_until=0.0
+        )
+        session, events = make_session(observer, clock, settled=lambda: True)
+
+        result = session.drain(request())
+
+        self.assertTrue(result.reached_home)
+        self.assertIsNone(result.error_encountered)
+        self.assertEqual(
+            session._driver.actions, [RESULT, REWARD]  # type: ignore[attr-defined]
+        )
+        self.assertIn(
+            "settlement_drain_advance_after_settled", [name for name, _ in events]
+        )
 
     def test_a_failing_settled_check_is_not_read_as_settled(self):
         clock = FakeClock()

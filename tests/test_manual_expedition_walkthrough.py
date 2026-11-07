@@ -88,6 +88,23 @@ class RunLogWindowTests(unittest.TestCase):
         kept = walk._filter_rows(rows, "2026-11-06T14:42:00", "A")
         self.assertEqual([r.get("run_id") for r in kept], ["A", None])
 
+    def test_a_run_id_from_the_other_sink_never_empties_the_window(self):
+        """stdout and the run log label one run differently.
+
+        Live 2026-11-07 the summary reported "0 rows" for a run that wrote 113,
+        because stdout said ``20261107T024140.740206Z`` while the run log said
+        ``run-20261107T023729Z-87dca0685e53``. A run id that matches nothing is
+        no evidence, so the time window stands on its own.
+        """
+        rows = [
+            {"timestamp_utc": "2026-11-07T02:37:29Z", "run_id": "run-20261107T023729Z-abc", "event": "x"},
+            {"timestamp_utc": "2026-11-07T02:37:31Z", "run_id": "run-20261107T023729Z-abc", "event": "y"},
+        ]
+
+        kept = walk._filter_rows(rows, "2026-11-07T02:37:00", "20261107T024140.740206Z")
+
+        self.assertEqual(len(kept), 2)
+
 
 class ProductionArgvTests(unittest.TestCase):
     def _args(self, strict=False):
