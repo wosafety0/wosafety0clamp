@@ -24,3 +24,6 @@ local_config.json
 logs/
 *.log
 poi-profile/
+
+# WorkBuddy local project data: frame captures, one-off analysis scripts
+.workbuddy/
