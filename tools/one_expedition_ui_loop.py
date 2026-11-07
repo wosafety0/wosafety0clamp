@@ -2279,7 +2279,22 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
         )
         with connect_game_webview(timeout=3.0) as game_session:
             if args.settle_only:
-                requirement_map = None
+                # settle-only never dispatches, but the monitor still needs the
+                # configured mission identity per fleet: --adopt-observed-mission
+                # compares the observed in-flight mission against the configured
+                # requirement for that fleet. Passing None here made
+                # build_runtime fall back to the static default assignment
+                # {2: 1, 3: 3, 4: 1}, which rejected a real in-flight mission 2
+                # on fleet 2 (live 2026-11-07 "observed mission 2 is not the
+                # configured mission 1") and fail-closed BLOCKED instead of
+                # adopting. The requirements gate nothing here that the
+                # SettleOnlyDispatcher does not already refuse, so sharing the
+                # dispatch-mode construction cannot widen what a settle-only
+                # run may click: it clicks nothing by construction.
+                requirement_map = {
+                    fleet_id: _mission_requirement(args, fleet_id, mission_id)
+                    for fleet_id, mission_id in mission_map.items()
+                }
             else:
                 if (
                     getattr(args, "minimum_ships", None) is not None

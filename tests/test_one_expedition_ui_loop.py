@@ -416,6 +416,48 @@ class R3IProductionGateWiringTests(unittest.TestCase):
         self.assertNotIn("minimum_ships=2,", source)
 
 
+class SettleOnlyRequirementMapWiringTests(unittest.TestCase):
+    """--adopt-observed-mission needs the configured mission identity.
+
+    The settle-only branch used to hand ``requirement_map=None`` to
+    ``build_runtime``, which fell back to the static default assignment
+    ``{2: 1, 3: 3, 4: 1}``. A real in-flight mission 2 on fleet 2 was then
+    rejected with "observed mission 2 is not the configured mission 1" and the
+    fleet fail-closed BLOCKED instead of adopting (live 2026-11-07,
+    run-20261107T073617Z). The settle-only branch must build the requirement
+    map from the same mission_map the operator named with --fleet-id /
+    --mission-id, exactly as the dispatch branch does.
+    """
+
+    def _settle_only_branch(self) -> str:
+        source = inspect.getsource(controller._run_production_supervisor_once)
+        start = source.index("if args.settle_only:")
+        branch = source[start:]
+        return branch[: branch.index("else:")]
+
+    def test_settle_only_does_not_fall_back_to_the_static_default_assignment(self):
+        source = inspect.getsource(controller._run_production_supervisor_once)
+        self.assertNotIn(
+            "requirement_map = None",
+            source,
+            "settle-only passing requirement_map=None rejects a real in-flight "
+            "mission with the static default {2: 1, 3: 3, 4: 1}",
+        )
+
+    def test_settle_only_branch_builds_requirements_from_the_named_mission_map(self):
+        branch = self._settle_only_branch()
+        self.assertIn("_mission_requirement(args, fleet_id, mission_id)", branch)
+        self.assertIn("mission_map.items()", branch)
+
+    def test_the_neutral_map_shape_is_still_passed_through_to_build_runtime(self):
+        # build_runtime still receives a plain dict keyed by the dispatch
+        # fleets; only its source changed from None to the mission map.
+        source = inspect.getsource(controller._run_production_supervisor_once)
+        self.assertIn(
+            "None if requirement_map is None else dict(requirement_map)", source
+        )
+
+
 class DispatchFleetValidationTests(unittest.TestCase):
     """The static policy gate: Fleet 1 reserved, 2/3/4 dispatchable."""
 
