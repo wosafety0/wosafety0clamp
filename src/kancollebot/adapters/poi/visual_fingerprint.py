@@ -264,7 +264,7 @@ def rank_screenshot_fingerprints(
     screenshot_base64: str,
     document: Mapping[str, object],
     *,
-    minimum_score: float = 0.97,
+    minimum_score: float = 0.90,
     minimum_margin: float = 0.04,
 ) -> FingerprintRanking:
     """Score EVERY state from ONE screenshot and rank Top 1 / Top 2.
@@ -361,7 +361,7 @@ def classify_screenshot_fingerprints(
     screenshot_base64: str,
     document: Mapping[str, object],
     *,
-    minimum_score: float = 0.97,
+    minimum_score: float = 0.90,
     minimum_margin: float = 0.04,
 ) -> tuple[str, dict[str, float]]:
     """Classify one screenshot against state-specific crops stored as RGB descriptors."""
@@ -381,7 +381,7 @@ def classify_supply_checkbox_state(
     *,
     fleet_index: int = 2,
     ship_index: int = 1,
-    minimum_score: float = 0.97,
+    minimum_score: float = 0.90,
     minimum_margin: float = 0.04,
 ) -> tuple[str, dict[str, float]]:
     """Classify one fleet ship checkbox after its selected-fleet parent matches."""
