@@ -5213,3 +5213,25 @@ The Hand plugin's read-only probe reported:
 - **BLOCKED** 无（离线）。真实闭环与两项生产 tick 证据未执行，见 LIMITS。
 - **LIMITS / NEXT** ①**MODAL 语义已按事实记录**：路线是「扣留并结束本次 tick」，不是「调用业务处理器」；结算/奖励控制器在它们自己的时机会话里运行，本循环不调用、也不关闭覆盖层。②阶段3 真实 `page_mismatch` 扣留、阶段4 MENU 自动归位**仍无真实生产 tick 证据**，按用户裁决留待自然出现，不为制造条件操作舰队。③完整真实闭环（派遣→等待→结算→奖励→补给→再次可派遣）尚未在本轮代码上执行。④`--early-return` 仍关，倒计时模板仍缺 `{1,4,6,7,8,9}`。
 - **ARCHIVE** 本地保存并提交；推送后远程回读核对；`main` 未动；两个受保护未跟踪脚本保持未跟踪（未执行、未修改、未提交、未删除）。
+
+## 2026-11-07 - 阶段5（二）：真实远征闭环实机证据 + 返航瞬间四个缺陷
+
+> **状态：** 完整链路（派遣 → 等待 → 结算 → 奖励 → 补给 → 再次派遣）在真机跑通，但需要**三个进程**才走完；返航瞬间的失败全部是 fail-closed，**零误点击、零重复领奖**。四个缺陷已取证、**未修**，等审查决定。
+
+- **PLANNED（用户裁决）** 真实闭环与两项生产 tick 证据进入阶段5 验收；不得为制造条件干扰舰队。用户选定 **F2 + 远征1（约15分钟）**。命令基线：`--authorize-ui-actions --fleet-id 2 --mission-id 1 --database logs/phase5_20261107.sqlite3 --run-log-dir logs/run_log_phase5 --wait-for-return --global-drain --drain-max-actions 24 --post-expiry-grace-seconds 20`（新库、新 run-log 目录，不碰旧账本）。
+- **IMPLEMENTED** 无代码改动。本回合只做验收取证；四个缺陷按「先取证、不擅自修」处理。
+- **VERIFIED（实机，逐段）**
+  - **A 派遣 17:37:09** `EXIT=0`，`PRODUCTION_UI_CONTROLLER_INTEGRATION_VERIFIED`：F2 / 远征1 / 4 舰 `[12613,16733,16323,13519]` / `final_time 1794045098196` / 两帧母港，`closed_loop=false`（本段只派遣）。途中 `MISSION_SELECTED 0.9734 vs SUPPLY_MENU 0.9348`（gap 0.0386）被正确接受——即阶段1.5 修掉的那个 margin 案例。
+  - **B 返航 17:51:58 起** `EXIT=2`，`paused_reason=settlement_drain_stopped:timeout`。drain 实测：3 次点击（return_notice 7.1s → expedition_result 26.4s → reward_panel 37.4s），`final_page=home_port`、`actions_performed=3`、`completed_pages=2`、`reached_home=false`、`error=timeout`、`elapsed=46.072s`。**页面确实走到了母港，只是 45s 时长上限比 46.07s 短了一秒**，于是按 timeout 记账并暂停。
+  - **C 收口 17:56 起** `EXIT=0`、**`closed_loop=true`**：drain 0 点击且 `reached_home=true` → `settlement_screens_gone_after_global_drain` → `settlement_closed_without_reward_screens`（**未重复领奖**）→ 补给真实执行 `fuel_required=16`、`calibration_level=live_verified`（supply tab located → button verified → click → completed → `resupply_confirmed`）→ `dispatch_confirmed_by_poi` + `dispatch_home_port_verified`（再次派遣远征1，到期 18:11:47）。此段为单进程同 tick 完成「确认结算 + 补给 + 派遣」。
+  - **D 第二周期返航 18:11:47 起** `EXIT=2`，三段错误：①18:13:41 与 18:14:01 两次 `monitor_failed:ContinuousMonitorError — Poi observation is not trusted: Source data freshness has not been verified`；②18:14:46 `monitor_failed:VisibleUiRefreshError — after open_sortie: a different calibrated page (RETURN_RESULT) was stable on 2 consecutive frames`；③全程零点击新增错误。
+  - **E 18:15:52 收口尝试** `EXIT=2`，`STOPPED_FAIL_CLOSED — Expected RETURN_RESULT; Ooi fingerprint classified BONUS_ITEMS`：启动结算把结果页推进到奖励页后，仍按「必须看到 RETURN_RESULT」校验，判失败并停。
+  - **F 18:16:43 收口** `EXIT=0`：启动期把 BONUS_ITEMS 页推移回母港（`startup_reward_screen_detected`）→ 补给真实执行 → 再次派遣远征1（`final_time 1794047660583`，到期 18:34:20）、两帧母港、`closed_loop=false`（结算发生在 tick 之前，故计数为 false）。
+- **收口后的账实** 三段共 6 次真实补给/派遣类点击链、**无一次点击落在错误页面**；`api_mission` 与屏幕在每段结束时一致（派遣后在途 `[1,1,...]` 且满补 True；返航后 `[0,0,0,0]`）。第二次收口后 F2 满补在途至 18:34:20。
+- **BLOCKED** 无。
+- **LIMITS（四个带证据的缺陷，均已取证未修）**
+  1. **`--drain-timeout-seconds` 默认 45.0 短于实测链路 46.07s**：`settlement_drain_finished` 报 `reached_home=false / error=timeout`，而 `final_page` 已是 `home_port`。这是**时长上限**而非点击授权，放宽它不会放宽任何安全门禁（点击仍受 `max_actions=24` 与「Poi 无 2 就不再点」约束），但默认值是否上调需裁决。本次以 150s 跑通。
+  2. **长睡眠后的首个 Poi 读取可能不可信**：`Source data freshness has not been verified` 连续两次令 monitor fail-closed（零点击）。未见自动重试成功，第三次尝试才进入刷新。
+  3. **可见刷新（`open_sortie`）不受页面证据约束**：刷新只认「期望 SORTIE_MENU」，当返航结果页在刷新途中出现时抛 `VisibleUiRefreshError`；且该点击发生在页面证据判定之后、点击之前无第二道「此刻是否已变成奖励页」检查。本次点击落在 HOME_PORT 上未推进任何页面，但顺序上不排除点穿结果页（结果页点击即推进）。阶段3/4 的否决与 MODAL 扣留**只覆盖 supervisor tick，不覆盖 bootstrap 刷新**。
+  4. **启动结算对页面推进过严**：推进结果页后仍要求看到 `RETURN_RESULT`，实际已是 `BONUS_ITEMS` → `STOPPED_FAIL_CLOSED`，把「正常推进」误判为「指纹不符」，代价是奖励页留在屏上需要再来一次进程才收口。
+- **ARCHIVE** 本地保存并提交；推送后远程回读核对；`main` 未动；两个受保护未跟踪脚本保持未跟踪（未执行、未修改、未提交、未删除）。
