@@ -540,6 +540,8 @@ class SingleFrameProbeEventContractTests(unittest.TestCase):
             second_score=0.7733,
             scores={"HOME_PORT": 0.9845, "SORTIE_MENU": 0.7733},
             accepted=True,
+            minimum_score=0.90,
+            minimum_margin=0.02,
         )
 
     def test_ranking_fields_do_not_occupy_the_state_parameter(self):
@@ -548,8 +550,11 @@ class SingleFrameProbeEventContractTests(unittest.TestCase):
         self.assertEqual(fields["observed"], "HOME_PORT")
         self.assertEqual(fields["best_score"], 0.9845)
         self.assertEqual(fields["second_score"], 0.7733)
-        self.assertEqual(fields["minimum_score"], 0.97)
-        self.assertEqual(fields["minimum_margin"], 0.04)
+        # The event reports the thresholds read back from the ranking itself
+        # (the values that actually produced the verdict), not a second
+        # hardcoded copy.
+        self.assertEqual(fields["minimum_score"], 0.90)
+        self.assertEqual(fields["minimum_margin"], 0.02)
         self.assertFalse(fields["authorizes_click"])
 
     def test_real_event_emitter_accepts_the_probe_fields(self):

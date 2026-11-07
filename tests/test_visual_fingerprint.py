@@ -14,6 +14,7 @@ from kancollebot.adapters.poi.visual_fingerprint import (
     classify_fingerprints,
     compute_grid_fingerprint,
     fingerprint_similarity,
+    rank_screenshot_fingerprints,
 )
 
 
@@ -495,6 +496,158 @@ class CanonicalVariantMergeTests(unittest.TestCase):
         }
         label, _scores = classify_screenshot_fingerprints(self.image, document)
         self.assertEqual(label, "BONUS_ITEMS_M1")
+
+
+class ThresholdRecalibrationTests(unittest.TestCase):
+    """The 2026-11-07 family-wide recalibration: absolute 0.97->0.90, margin 0.04->0.02.
+
+    Every score in this class is EXACT: on the solid 2x2 image the computed
+    fingerprint is (100,)*12 and ``fingerprint_similarity`` is
+    ``1 - D/3060`` where D is the sum of per-channel differences, so a state
+    reference placed D channel-units away scores exactly ``1 - D/3060``.
+    """
+
+    maxDiff = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.image = _png_rgb(
+            2,
+            2,
+            [bytes((100, 100, 100)) * 2, bytes((100, 100, 100)) * 2],
+        )
+
+    def _state(self, name: str, total_diff: int) -> dict:
+        offsets = []
+        remaining = total_diff
+        for _ in range(12):
+            # Each channel can carry up to +155 (value 100 -> 255 stays in range).
+            step = min(155, remaining)
+            offsets.append(step)
+            remaining -= step
+        assert remaining == 0, f"total_diff {total_diff} exceeds the 12x155 spread"
+        return {"crop": [0, 0, 2, 2], "grid": [2, 2], "fingerprint": [100 + off for off in offsets]}
+
+    def _document(self, states: dict[str, int]) -> dict:
+        return {
+            "version": 1,
+            "viewport": [2, 2],
+            "states": {name: self._state(name, diff) for name, diff in states.items()},
+        }
+
+    def test_absolute_boundary_exactly_0_90_is_accepted(self):
+        # D=306 -> similarity exactly 0.90; second candidate far below.
+        document = self._document({"HOME_PORT": 306, "SORTIE_MENU": 1200})
+        label, scores = classify_screenshot_fingerprints(self.image, document)
+        self.assertAlmostEqual(scores["HOME_PORT"], 0.90)
+        self.assertEqual(label, "HOME_PORT")
+
+    def test_absolute_boundary_just_below_0_90_is_unknown(self):
+        # D=307 -> similarity 0.89967...; huge margin, absolute floor still rejects.
+        document = self._document({"HOME_PORT": 307, "SORTIE_MENU": 1200})
+        label, _ = classify_screenshot_fingerprints(self.image, document)
+        self.assertEqual(label, "UNKNOWN")
+
+    def test_margin_boundary_gap_just_at_0_02_is_accepted(self):
+        # best 1.0 vs second 1 - 62/3060 -> gap 0.02026 >= 0.02.
+        document = self._document({"HOME_PORT": 0, "SORTIE_MENU": 62})
+        label, _ = classify_screenshot_fingerprints(self.image, document)
+        self.assertEqual(label, "HOME_PORT")
+
+    def test_margin_boundary_gap_just_under_0_02_is_unknown(self):
+        # best 1.0 vs second 1 - 61/3060 -> gap 0.01993 < 0.02.
+        document = self._document({"HOME_PORT": 0, "SORTIE_MENU": 61})
+        label, _ = classify_screenshot_fingerprints(self.image, document)
+        self.assertEqual(label, "UNKNOWN")
+
+    def test_adjacent_candidates_inside_margin_stay_unknown_even_when_absolute_passes(self):
+        # best 0.91993 (D=245), second 0.91013 (D=275): the absolute floor
+        # passes at 0.90 but the 0.02 margin still refuses the confusion.
+        document = self._document({"HOME_PORT": 245, "SORTIE_MENU": 275})
+        label, scores = classify_screenshot_fingerprints(self.image, document)
+        self.assertGreaterEqual(scores["HOME_PORT"], 0.90)
+        self.assertEqual(label, "UNKNOWN")
+
+    def test_live_20261107_stranded_sample_now_accepts(self):
+        # The real mission-detail edge sample scored MISSION_SELECTED 0.9729
+        # against SUPPLY_MENU 0.9348 (gap 0.0381): correct under the old
+        # absolute floor but stranded UNKNOWN by the old 0.04 margin.
+        # D=83 -> 0.97288, D=199 -> 0.93497 reproduce that shape exactly.
+        document = self._document({"MISSION_SELECTED": 83, "SUPPLY_MENU": 199})
+        label, _ = classify_screenshot_fingerprints(self.image, document)
+        self.assertEqual(label, "MISSION_SELECTED")
+
+    def test_explicit_thresholds_still_tighten_the_decision(self):
+        ranking = rank_screenshot_fingerprints(
+            self.image,
+            self._document({"MISSION_SELECTED": 83, "SUPPLY_MENU": 199}),
+            minimum_score=0.97,
+            minimum_margin=0.04,
+        )
+        self.assertEqual(ranking.state, "UNKNOWN")
+        self.assertFalse(ranking.accepted)
+        self.assertEqual(ranking.minimum_score, 0.97)
+        self.assertEqual(ranking.minimum_margin, 0.04)
+
+    def test_ranking_carries_the_thresholds_that_produced_the_verdict(self):
+        ranking = rank_screenshot_fingerprints(
+            self.image,
+            self._document({"HOME_PORT": 0, "SORTIE_MENU": 1200}),
+        )
+        self.assertEqual(ranking.minimum_score, 0.90)
+        self.assertEqual(ranking.minimum_margin, 0.02)
+        self.assertTrue(ranking.accepted)
+
+    def test_family_defaults_are_090_absolute_and_002_margin(self):
+        import inspect
+
+        from kancollebot.adapters.poi import visual_fingerprint as vf
+
+        for func in (
+            vf.rank_screenshot_fingerprints,
+            vf.classify_screenshot_fingerprints,
+            vf.classify_supply_checkbox_state,
+        ):
+            params = inspect.signature(func).parameters
+            self.assertEqual(params["minimum_score"].default, 0.90, func.__name__)
+            self.assertEqual(params["minimum_margin"].default, 0.02, func.__name__)
+        # The offline single-match helper keeps its own calibrated absolute
+        # floor but shares the family margin.
+        params = inspect.signature(vf.classify_fingerprints).parameters
+        self.assertEqual(params["minimum_score"].default, 0.92)
+        self.assertEqual(params["minimum_margin"].default, 0.02)
+
+    def test_checkbox_classifier_shares_the_family_margin_boundary(self):
+        parent = {
+            "version": 1,
+            "viewport": [2, 2],
+            "states": {
+                "SUPPLY_MENU": self._state("SUPPLY_MENU", 1200),
+                "SUPPLY_FLEET_2_SELECTED": self._state("SUPPLY_FLEET_2_SELECTED", 0),
+            },
+        }
+        # checked matches the image exactly; unchecked sits 62 channel-units
+        # away -> gap 0.02026 >= 0.02 -> accepted under the new margin.
+        checkbox = {
+            "version": 1,
+            "viewport": [2, 2],
+            "states": {
+                "SUPPLY_FLEET_2_SHIP_1_CHECKED": self._state("CHECKED", 0),
+                "SUPPLY_FLEET_2_SHIP_1_UNCHECKED": self._state("UNCHECKED", 62),
+            },
+        }
+        label, _ = classify_supply_checkbox_state(self.image, parent, checkbox)
+        self.assertEqual(label, "SUPPLY_FLEET_2_SHIP_1_CHECKED")
+
+        tighter = {
+            **checkbox,
+            "states": {
+                "SUPPLY_FLEET_2_SHIP_1_CHECKED": checkbox["states"]["SUPPLY_FLEET_2_SHIP_1_CHECKED"],
+                "SUPPLY_FLEET_2_SHIP_1_UNCHECKED": self._state("UNCHECKED", 61),
+            },
+        }
+        label, _ = classify_supply_checkbox_state(self.image, parent, tighter)
+        self.assertEqual(label, "UNKNOWN")
 
 
 if __name__ == "__main__":

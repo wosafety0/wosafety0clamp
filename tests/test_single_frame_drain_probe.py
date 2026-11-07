@@ -221,13 +221,15 @@ def _build_driver(
 
 
 class FingerprintRankingTests(unittest.TestCase):
-    def test_default_thresholds_are_unchanged(self) -> None:
+    def test_default_thresholds_are_the_20261107_calibration(self) -> None:
+        # Live 2026-11-07: absolute 0.97 -> 0.90, margin 0.04 -> 0.02 (one
+        # family-wide decision; see visual_fingerprint.py for the evidence).
         signature = inspect.signature(rank_screenshot_fingerprints)
-        self.assertEqual(signature.parameters["minimum_score"].default, 0.97)
-        self.assertEqual(signature.parameters["minimum_margin"].default, 0.04)
+        self.assertEqual(signature.parameters["minimum_score"].default, 0.90)
+        self.assertEqual(signature.parameters["minimum_margin"].default, 0.02)
         wrapper = inspect.signature(classify_screenshot_fingerprints)
-        self.assertEqual(wrapper.parameters["minimum_score"].default, 0.97)
-        self.assertEqual(wrapper.parameters["minimum_margin"].default, 0.04)
+        self.assertEqual(wrapper.parameters["minimum_score"].default, 0.90)
+        self.assertEqual(wrapper.parameters["minimum_margin"].default, 0.02)
 
     def test_top1_top2_are_exposed_and_a_clear_winner_is_accepted(self) -> None:
         document = _document(A=_state([100] * 3), B=_state([115] * 3))
@@ -239,21 +241,21 @@ class FingerprintRankingTests(unittest.TestCase):
         self.assertEqual(ranking.second_name, "B")
         self.assertAlmostEqual(ranking.best_score, 1.0, places=4)
         self.assertAlmostEqual(ranking.second_score, 1 - 15 / 255, places=4)
-        self.assertGreaterEqual(ranking.best_score - ranking.second_score, 0.04)
+        self.assertGreaterEqual(ranking.best_score - ranking.second_score, 0.02)
 
-    def test_margin_below_0_04_is_unknown(self) -> None:
-        document = _document(A=_state([100] * 3), B=_state([107] * 3))
+    def test_margin_below_0_02_is_unknown(self) -> None:
+        document = _document(A=_state([100] * 3), B=_state([102] * 3))
         ranking = rank_screenshot_fingerprints(_one_pixel((100, 100, 100)), document)
-        self.assertLess(ranking.best_score - ranking.second_score, 0.04)
+        self.assertLess(ranking.best_score - ranking.second_score, 0.02)
         self.assertFalse(ranking.accepted)
         self.assertEqual(ranking.state, "UNKNOWN")
 
-    def test_best_score_below_0_97_is_unknown_even_with_a_weak_runner_up(self) -> None:
-        document = _document(A=_state([110] * 3), B=_state([200] * 3))
+    def test_best_score_below_0_90_is_unknown_even_with_a_weak_runner_up(self) -> None:
+        document = _document(A=_state([126] * 3), B=_state([200] * 3))
         pixel = _one_pixel((100, 100, 100))
         ranking = rank_screenshot_fingerprints(pixel, document)
-        self.assertLess(ranking.best_score, 0.97)
-        self.assertGreaterEqual(ranking.best_score - ranking.second_score, 0.04)
+        self.assertLess(ranking.best_score, 0.90)
+        self.assertGreaterEqual(ranking.best_score - ranking.second_score, 0.02)
         self.assertFalse(ranking.accepted)
         self.assertEqual(ranking.state, "UNKNOWN")
 

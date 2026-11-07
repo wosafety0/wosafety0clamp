@@ -246,6 +246,10 @@ class FingerprintRanking:
     ``accepted`` is false whenever the best score misses ``minimum_score`` or
     the Top 1 / Top 2 gap misses ``minimum_margin``. Callers use ``state`` for
     the fail-closed answer; ``scores`` is the full per-state audit trail.
+
+    The two threshold fields record the values that actually produced this
+    verdict, so run-log events can report them without a second source of
+    truth drifting away from the classifier defaults.
     """
 
     best_name: str | None
@@ -254,18 +258,29 @@ class FingerprintRanking:
     second_score: float
     scores: dict[str, float]
     accepted: bool
+    minimum_score: float = 0.0
+    minimum_margin: float = 0.0
 
     @property
     def state(self) -> str:
         return self.best_name if self.accepted and self.best_name is not None else "UNKNOWN"
 
 
+# Live 2026-11-07 calibration evidence for the 0.90 / 0.02 pair: the mission
+# detail page scored MISSION_SELECTED 0.9729 against SUPPLY_MENU 0.9348
+# (margin 0.0381) — a correct identification stranded UNKNOWN by the 0.04
+# margin. Meanwhile every observed same-page confusion stayed well clear of
+# 0.02 (SORTIE_MENU vs SUPPLY_MENU worst observed gap 0.0167 still rejects).
+# The absolute floor moves 0.97 -> 0.90 and the margin 0.04 -> 0.02 as one
+# decision: the absolute floor alone would accept ambiguous pages, the margin
+# alone would keep stranding correct ones. UNKNOWN and the two-frame click
+# gates are unchanged — a ranking.accept is still not click authority.
 def rank_screenshot_fingerprints(
     screenshot_base64: str,
     document: Mapping[str, object],
     *,
-    minimum_score: float = 0.97,
-    minimum_margin: float = 0.04,
+    minimum_score: float = 0.90,
+    minimum_margin: float = 0.02,
 ) -> FingerprintRanking:
     """Score EVERY state from ONE screenshot and rank Top 1 / Top 2.
 
@@ -287,7 +302,9 @@ def rank_screenshot_fingerprints(
         raise VisualFingerprintError("fingerprint viewport does not match the screenshot")
     states = document.get("states")
     if not isinstance(states, Mapping) or not states:
-        return FingerprintRanking(None, -1.0, None, -1.0, {}, False)
+        return FingerprintRanking(
+            None, -1.0, None, -1.0, {}, False, minimum_score, minimum_margin
+        )
 
     scores: dict[str, float] = {}
     for name, template in states.items():
@@ -321,7 +338,9 @@ def rank_screenshot_fingerprints(
         reverse=True,
     )
     if not ranked:
-        return FingerprintRanking(None, -1.0, None, -1.0, scores, False)
+        return FingerprintRanking(
+            None, -1.0, None, -1.0, scores, False, minimum_score, minimum_margin
+        )
     best_name, best_score = ranked[0]
     # Supply fleet selections are child states of the supply page. Their
     # shared header intentionally resembles SUPPLY_MENU, so do not let that
@@ -354,6 +373,8 @@ def rank_screenshot_fingerprints(
         second_score=second_score,
         scores=scores,
         accepted=accepted,
+        minimum_score=minimum_score,
+        minimum_margin=minimum_margin,
     )
 
 
@@ -361,8 +382,8 @@ def classify_screenshot_fingerprints(
     screenshot_base64: str,
     document: Mapping[str, object],
     *,
-    minimum_score: float = 0.97,
-    minimum_margin: float = 0.04,
+    minimum_score: float = 0.90,
+    minimum_margin: float = 0.02,
 ) -> tuple[str, dict[str, float]]:
     """Classify one screenshot against state-specific crops stored as RGB descriptors."""
     from kancollebot.observability.probe_counter import mark_probe
@@ -383,8 +404,8 @@ def classify_supply_checkbox_state(
     *,
     fleet_index: int = 2,
     ship_index: int = 1,
-    minimum_score: float = 0.97,
-    minimum_margin: float = 0.04,
+    minimum_score: float = 0.90,
+    minimum_margin: float = 0.02,
 ) -> tuple[str, dict[str, float]]:
     """Classify one fleet ship checkbox after its selected-fleet parent matches."""
     if isinstance(fleet_index, bool) or not isinstance(fleet_index, int) or fleet_index not in (2, 3):
@@ -476,9 +497,16 @@ def classify_fingerprints(
     templates: Mapping[str, Sequence[int]],
     *,
     minimum_score: float = 0.92,
-    minimum_margin: float = 0.04,
+    minimum_margin: float = 0.02,
 ) -> tuple[str, dict[str, float]]:
-    """Classify only one clearly separated fingerprint match; otherwise UNKNOWN."""
+    """Classify only one clearly separated fingerprint match; otherwise UNKNOWN.
+
+    Same family decision as the screenshot classifier above (2026-11-07): the
+    margin moves 0.04 -> 0.02 so the separation bar is one project-wide value.
+    The absolute floor stays at its own calibrated 0.92. This helper currently
+    has no production caller (offline/tests only); the default is aligned so a
+    future caller cannot silently inherit the old wider margin.
+    """
     if not math.isfinite(minimum_score) or not 0 < minimum_score <= 1:
         raise ValueError("minimum_score must be finite and in (0, 1]")
     if not math.isfinite(minimum_margin) or not 0 <= minimum_margin <= 1:

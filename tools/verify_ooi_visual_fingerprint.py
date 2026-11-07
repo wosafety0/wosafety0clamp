@@ -30,8 +30,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--expected", required=True)
     parser.add_argument("--fingerprints", type=Path, default=DEFAULT_FINGERPRINTS)
-    parser.add_argument("--minimum-score", type=float, default=0.97)
-    parser.add_argument("--minimum-margin", type=float, default=0.04)
+    parser.add_argument("--minimum-score", type=float, default=0.90)
+    parser.add_argument("--minimum-margin", type=float, default=0.02)
     return parser
 
 

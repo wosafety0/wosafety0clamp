@@ -461,8 +461,10 @@ def _single_frame_ranking_fields(ranking: FingerprintRanking) -> dict[str, objec
         "second_name": ranking.second_name,
         "second_score": round(ranking.second_score, 4),
         "accepted": ranking.accepted,
-        "minimum_score": 0.97,
-        "minimum_margin": 0.04,
+        # Read back from the ranking so the event records the values that
+        # actually produced the verdict (no second source of truth).
+        "minimum_score": ranking.minimum_score,
+        "minimum_margin": ranking.minimum_margin,
         "authorizes_click": False,
     }
 
@@ -2421,8 +2423,12 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     second_name=ranking.second_name,
                     second_score=round(ranking.second_score, 4),
                     accepted=ranking.accepted,
-                    minimum_score=0.97,
-                    minimum_margin=0.04,
+                    # The thresholds that ACTUALLY produced this verdict, read
+                    # back from the ranking itself so the event can never drift
+                    # from the classifier defaults (live 2026-11-07: the
+                    # hardcoded 0.97/0.04 here outlived the threshold change).
+                    minimum_score=ranking.minimum_score,
+                    minimum_margin=ranking.minimum_margin,
                     frame_fingerprint_cells=len(sample.fingerprint or ()),
                     screenshot_written_to_disk=False,
                     authorizes_click=False,
