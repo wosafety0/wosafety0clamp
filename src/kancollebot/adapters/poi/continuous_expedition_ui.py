@@ -1225,9 +1225,36 @@ class CdpContinuousExpeditionUiDriver:
                 "state": after,
                 "evidence": already.evidence,
                 "clicks_sent": 0,
+                "reason": "target_already_displayed",
             })
             return already
-        self._confirm(before, phase=f"{phase} precondition", samples=REWARD_VERIFY_SAMPLES)
+        # Re-prove the precondition, but accept a screen that has already faded
+        # through to `after` in the gap since the `already` probe. The game
+        # advances a result screen on its own, and a settlement screen advances
+        # on a click anywhere, so a click landing on `after` would skip a screen
+        # (live 2026-11-07: RETURN_RESULT faded to BONUS_ITEMS between the two
+        # probes and the strict precondition treated a normal progression as a
+        # fingerprint mismatch). A screen at `after` is skipped with zero clicks;
+        # anything that is neither `before` nor `after` still refuses.
+        precondition = self._probe_state(
+            before, phase=f"{phase} precondition", samples=REWARD_VERIFY_SAMPLES
+        )
+        if precondition is None:
+            raced = self._probe_state(after, phase=f"{phase} advanced mid-precondition")
+            if raced is not None:
+                self._event_sink("continuous_ui_settlement_step_already_advanced", {
+                    "fleet_id": fleet_id,
+                    "phase": phase,
+                    "state": after,
+                    "evidence": raced.evidence,
+                    "clicks_sent": 0,
+                    "reason": "advanced_while_proving_precondition",
+                })
+                return raced
+            raise ContinuousUiDriverError(
+                f"{phase}: neither {before} nor {after} was stably on display; "
+                "refusing to click an unrecognised screen"
+            )
         advance = BONUS_NEXT if before == "BONUS_ITEMS" else REWARD_ADVANCE
         self._click(advance, action=f"advance_{phase}", step=step)
         self._sleep(REWARD_SETTLE_SECONDS)

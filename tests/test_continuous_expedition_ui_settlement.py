@@ -296,6 +296,84 @@ class RewardScreenFadeTests(unittest.TestCase):
         self.assertEqual(screen.clicks, 1)
 
 
+class RacingScreen:
+    """A screen the game advances on its own between two probes.
+
+    The live client faded RETURN_RESULT -> BONUS_ITEMS without any click in the
+    gap between the "already advanced" probe and the precondition check
+    (2026-11-07). The first probe sees the precondition; every later probe sees
+    the next screen because the fade has landed.
+    """
+
+    def __init__(self, before: str, after: str) -> None:
+        self.before = before
+        self.after = after
+        self.state = before
+        self.probes = 0
+        self.clicks: list[RecordedPoint] = []
+
+    def click(self, point: RecordedPoint) -> None:
+        self.clicks.append(point)
+
+    def verify(self, expected: str, *, visual_attempts: int | None = None) -> UiStateEvidence:
+        self.probes += 1
+        self.state = self.before if self.probes == 1 else self.after
+        if expected != self.state:
+            raise ContinuousUiDriverError(
+                f"expected {expected}, screen shows {self.state}"
+            )
+        return UiStateEvidence(
+            state=expected,
+            consecutive_states=(expected, expected),
+            evidence="scripted",
+        )
+
+
+def build_racing_driver(screen: RacingScreen) -> CdpContinuousExpeditionUiDriver:
+    return CdpContinuousExpeditionUiDriver(
+        home_port_locator=STUB_HOME_PORT_LOCATOR,
+        game_input=screen,
+        verify_state=screen.verify,
+        event_sink=lambda _event, _payload: None,
+        details=FakeDetails(),
+        marks=FakeMarks(),
+        capture=lambda: "unused",
+        locate_row=None,
+        sleep=lambda _seconds: None,
+    )
+
+
+class PreconditionRaceTests(unittest.TestCase):
+    """A normal progression must not read as a fingerprint mismatch.
+
+    Defect 3 (phase 5): the startup settlement advanced RETURN_RESULT ->
+    BONUS_ITEMS, then still required RETURN_RESULT and failed closed because the
+    screen had faded on its own. The precondition now accepts the screen having
+    advanced to the target in the gap, with zero clicks.
+    """
+
+    def test_a_screen_that_fades_to_the_target_skips_the_click(self) -> None:
+        screen = RacingScreen("RETURN_RESULT", "BONUS_ITEMS")
+        driver = build_racing_driver(screen)
+
+        evidence = driver.claim_bonus_items(fleet_id=2)
+
+        self.assertEqual(evidence.state, "BONUS_ITEMS")
+        self.assertEqual(screen.clicks, [])
+
+    def test_a_screen_that_fades_past_the_target_still_refuses(self) -> None:
+        # The fade only ever lands one step ahead of the precondition. A screen
+        # that is neither the precondition nor the target must still refuse
+        # instead of being clicked through.
+        screen = RacingScreen("RETURN_RESULT", "HOME_PORT")
+        driver = build_racing_driver(screen)
+
+        with self.assertRaises(ContinuousUiDriverError):
+            driver.claim_bonus_items(fleet_id=2)
+
+        self.assertEqual(screen.clicks, [])
+
+
 class FleetScopeTests(unittest.TestCase):
     def test_unsupported_fleet_is_refused_before_any_click(self) -> None:
         screen = ScriptedScreen(
