@@ -331,5 +331,127 @@ class TemplateDocumentTests(unittest.TestCase):
         self.assertEqual([box[1] for box in restored.cell_boxes()], [0, 0, 0, 0, 0])
 
 
+import argparse  # noqa: E402
+import base64  # noqa: E402
+import json  # noqa: E402
+import sys  # noqa: E402
+import tempfile  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+# The calibration tool lives under ``tools/``; make it importable from the suite.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from tools.capture_expedition_countdown import cmd_record  # noqa: E402
+
+
+class RecordToolTests(unittest.TestCase):
+    #: A single horizontal row of eight glyphs, matching ``frame_for``'s metric.
+    ROI = (0, 0, 64, 12)
+    CELL = (8, 12)
+
+    def _write_frame(self, text: str, tmpdir: str, name: str, *, colours=None) -> str:
+        # ``frame_for`` is hard-coded to a 40px-wide ROI, which only fits <=5
+        # glyphs; build an eight-glyph frame at the wider 64px metric directly.
+        palette = dict(GLYPH_COLOURS if colours is None else colours)
+        width, height = 64, CELL_HEIGHT
+        pixel_rows = []
+        for _y in range(height):
+            row = bytearray()
+            for character in text:
+                row.extend((bytes(palette[character]) + b"\xff") * CELL_WIDTH)
+            row.extend(b"\x00\x00\x00\xff" * (width - CELL_WIDTH * len(text)))
+            pixel_rows.append(bytes(row))
+        payload = _encode_rgba(width, height, pixel_rows)
+        path = Path(tmpdir) / name
+        path.write_bytes(base64.b64decode(payload))
+        return str(path)
+
+    def _record(self, frame: str, text: str, out: str, **overrides) -> None:
+        args = argparse.Namespace(
+            frame=frame,
+            roi=self.ROI,
+            cell=self.CELL,
+            cells=8,
+            cell_rows=overrides.pop("cell_rows", 1),
+            text=text,
+            merge=overrides.pop("merge", False),
+            minimum_score=0.93,
+            grid=(4, 4),
+            out=out,
+        )
+        for key, value in overrides.items():
+            setattr(args, key, value)
+        self.assertEqual(cmd_record(args), 0)
+
+    def test_recording_one_frame_binds_only_its_glyphs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            frame = self._write_frame("00:00:00", tmp, "a.png")
+            out = Path(tmp) / "glyphs.json"
+            self._record(frame, "00:00:00", str(out))
+
+            document = json.loads(out.read_text(encoding="utf-8"))
+            self.assertEqual(sorted(document["glyphs"]), ["0", ":"])
+
+    def test_merge_accumulates_glyphs_across_frames(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "glyphs.json"
+            first = self._write_frame("00:00:00", tmp, "a.png")
+            self._record(first, "00:00:00", str(out))
+            second = self._write_frame("11:11:11", tmp, "b.png")
+            self._record(second, "11:11:11", str(out), merge=True)
+
+            document = json.loads(out.read_text(encoding="utf-8"))
+            self.assertEqual(sorted(document["glyphs"]), ["0", "1", ":"])
+            # The earlier glyphs must survive the merge.
+            self.assertIn("0", document["glyphs"])
+
+    def test_merge_refuses_an_incompatible_layout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "glyphs.json"
+            first = self._write_frame("00:00:00", tmp, "a.png")
+            self._record(first, "00:00:00", str(out))
+            # A different roi makes the grids incomparable.
+            second = self._write_frame("11:11:11", tmp, "b.png")
+            args = argparse.Namespace(
+                frame=second,
+                roi=(0, 0, 32, 12),
+                cell=self.CELL,
+                cells=8,
+                cell_rows=1,
+                text="11:11:11",
+                merge=True,
+                minimum_score=0.93,
+                grid=(4, 4),
+                out=str(out),
+            )
+            with self.assertRaises(SystemExit):
+                cmd_record(args)
+
+    def test_merge_refuses_a_drifted_glyph(self):
+        # If a character that was recorded earlier now renders differently, the
+        # cell grid has moved between captures; merging would poison the template.
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "glyphs.json"
+            first = self._write_frame("00:00:00", tmp, "a.png")
+            self._record(first, "00:00:00", str(out))
+            # Render "0" with a different colour so its descriptor changes.
+            second = self._write_frame(
+                "00:00:00", tmp, "b.png", colours={**GLYPH_COLOURS, "0": (200, 200, 200)}
+            )
+            args = argparse.Namespace(
+                frame=second,
+                roi=self.ROI,
+                cell=self.CELL,
+                cells=8,
+                cell_rows=1,
+                text="00:00:00",
+                merge=True,
+                minimum_score=0.93,
+                grid=(4, 4),
+                out=str(out),
+            )
+            with self.assertRaises(SystemExit):
+                cmd_record(args)
+
+
 if __name__ == "__main__":
     unittest.main()

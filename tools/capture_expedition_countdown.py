@@ -42,6 +42,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+from kancollebot.adapters.poi.expedition_countdown_vision import (  # noqa: E402
+    CountdownTemplates,
+    CountdownTemplateError,
+)
 from kancollebot.adapters.poi.visual_fingerprint import compute_grid_fingerprint  # noqa: E402
 
 
@@ -128,6 +132,45 @@ def cmd_record(args: argparse.Namespace) -> int:
             "line up, then record again"
         )
 
+    out = Path(args.out)
+    if args.merge and out.is_file():
+        try:
+            prior = json.loads(out.read_text(encoding="utf-8"))
+            existing = CountdownTemplates.from_document(prior)
+        except (OSError, ValueError, CountdownTemplateError) as exc:
+            raise SystemExit(f"--merge target is not a usable template: {exc}")
+        if (
+            existing.roi != (x, y, width, height)
+            or existing.cell_width != cell_width
+            or existing.cell_height != cell_height
+            or existing.cells != args.cells
+            or existing.cell_rows != cell_rows
+            or existing.grid != args.grid
+        ):
+            raise SystemExit(
+                "--merge target has a different roi/cell/grid layout; "
+                "re-record it from scratch without --merge"
+            )
+        merged: dict[str, list[int]] = {name: list(value) for name, value in existing.glyphs.items()}
+        for character, descriptor in glyphs.items():
+            if character in merged:
+                if merged[character] != list(descriptor):
+                    # This character already had a descriptor from an earlier
+                    # frame and now renders differently: the grid has drifted
+                    # between captures, so refuse rather than overwrite.
+                    conflicts.append(character)
+            else:
+                # A glyph this frame shows for the first time: add it, do not
+                # overwrite the others already accumulated in the template.
+                merged[character] = list(descriptor)
+        if conflicts:
+            raise SystemExit(
+                "a merged glyph disagrees with the earlier recording "
+                f"({sorted(set(conflicts))}); the cell grid is not stable, fix "
+                "--roi/--cell before merging"
+            )
+        glyphs = merged
+
     document = {
         "version": 1,
         "source": str(frame),
@@ -141,7 +184,6 @@ def cmd_record(args: argparse.Namespace) -> int:
         "grid": list(args.grid),
         "glyphs": glyphs,
     }
-    out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(document, indent=1, ensure_ascii=False), encoding="utf-8")
     print(json.dumps({
@@ -177,6 +219,13 @@ def main(argv: list[str] | None = None) -> int:
         "client's vertically layered HH:MM:SS use --cells 8 --cell-rows 8)",
     )
     record.add_argument("--text", required=True)
+    record.add_argument(
+        "--merge",
+        action="store_true",
+        help="update an existing template with only the glyphs this frame "
+        "shows, keeping the rest; refuses if the new frame disagrees with a "
+        "previously recorded glyph (cell grid not stable)",
+    )
     record.add_argument("--minimum-score", type=float, default=0.93)
     record.add_argument("--grid", type=int, nargs=2, default=(8, 12))
     record.add_argument(
