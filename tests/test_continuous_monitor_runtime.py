@@ -23,6 +23,11 @@ from kancollebot.expeditions.continuous_monitor import (  # noqa: E402
     FleetMonitorResult,
 )
 from kancollebot.expeditions.continuous_scheduler import FleetPhase, UiOperationArbiter  # noqa: E402
+
+try:  # `unittest discover -s tests` puts this directory on sys.path
+    from home_port_locator_stub import STUB_HOME_PORT_LOCATOR
+except ImportError:  # `-m unittest tests.test_...` imports it as a package
+    from tests.home_port_locator_stub import STUB_HOME_PORT_LOCATOR
 from tools.run_continuous_expedition_monitor import (  # noqa: E402
     MonitorRuntime,
     _build_ui_state_verifier,
@@ -246,6 +251,7 @@ class ContinuousMonitorRuntimeTests(unittest.TestCase):
                 observer=FakeObserver(),
                 enable_ui_refresh=True,
                 ui_input=game_input,
+                home_port_locator=STUB_HOME_PORT_LOCATOR,
                 ui_state_verifier=lambda expected: UiStateEvidence(
                     state=expected,
                     consecutive_states=(expected, expected),
@@ -270,6 +276,23 @@ class ContinuousMonitorRuntimeTests(unittest.TestCase):
                 self.assertFalse(hasattr(runtime, "dispatch_controller"))
             finally:
                 runtime.provider.close(join_timeout_seconds=1)
+
+    def test_build_runtime_refuses_a_locatorless_refresh_instead_of_a_coordinate(self):
+        """No screenshot source and no injected locator must fail at composition."""
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(ValueError, "screenshot-capable game input"):
+                build_runtime(
+                    database_path=Path(temporary) / "monitor.sqlite3",
+                    client=object(),
+                    observer=FakeObserver(),
+                    enable_ui_refresh=True,
+                    ui_input=FakeUiInput(),
+                    ui_state_verifier=lambda expected: UiStateEvidence(
+                        state=expected,
+                        consecutive_states=(expected, expected),
+                        evidence="two_consecutive_fake_frames",
+                    ),
+                )
 
     def test_build_runtime_rejects_ui_refresh_without_input_session(self):
         with tempfile.TemporaryDirectory() as temporary:

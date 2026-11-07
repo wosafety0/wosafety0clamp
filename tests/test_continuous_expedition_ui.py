@@ -12,6 +12,11 @@ from kancollebot.adapters.poi.ui_state_gate import UiState
 from kancollebot.calibration import DetailMatch, MarkMatch, RowLocation
 from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
 
+try:  # `unittest discover -s tests` puts this directory on sys.path
+    from home_port_locator_stub import STUB_HOME_PORT_LOCATOR
+except ImportError:  # `-m unittest tests.test_...` imports it as a package
+    from tests.home_port_locator_stub import STUB_HOME_PORT_LOCATOR
+
 
 class FakeInput:
     def __init__(self):
@@ -125,6 +130,7 @@ class HomePortReturnPreconditionTests(unittest.TestCase):
                 screen.state = "HOME_PORT"
 
         driver = CdpContinuousExpeditionUiDriver(
+            home_port_locator=STUB_HOME_PORT_LOCATOR,
             game_input=type("Input", (), {"click": staticmethod(click)})(),
             verify_state=screen.verify,
             event_sink=lambda event, payload: None,
@@ -219,6 +225,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
                 click(point)
 
         driver = CdpContinuousExpeditionUiDriver(
+            home_port_locator=STUB_HOME_PORT_LOCATOR,
             game_input=Input(),
             verify_state=verify,
             event_sink=lambda name, fields: events.append((name, dict(fields))),
@@ -268,6 +275,7 @@ class ContinuousExpeditionUiDriverTests(unittest.TestCase):
             evidence="two_consecutive_in_memory_ooi_fingerprints",
         )
         driver = CdpContinuousExpeditionUiDriver(
+            home_port_locator=STUB_HOME_PORT_LOCATOR,
             game_input=FakeInput(),
             verify_state=lambda _state: (order.append("verify"), evidence)[1],
             event_sink=lambda _name, _fields: None,
@@ -520,6 +528,7 @@ class FleetPageFallbackTests(unittest.TestCase):
                 game_input.click(point)
 
         driver = CdpContinuousExpeditionUiDriver(
+            home_port_locator=STUB_HOME_PORT_LOCATOR,
             game_input=game_input,
             verify_state=verify,
             event_sink=lambda name, fields: events.append((name, dict(fields))),
@@ -587,10 +596,11 @@ class ReturnByObservationTests(unittest.TestCase):
     is up, and never runs unbounded.
     """
 
-    def make_driver(self, *, verify, marks=None):
+    def make_driver(self, *, verify, marks=None, classify_frame=None):
         game_input = FakeInput()
         events = []
         driver = CdpContinuousExpeditionUiDriver(
+            home_port_locator=STUB_HOME_PORT_LOCATOR,
             game_input=game_input,
             verify_state=verify,
             event_sink=lambda name, fields: events.append((name, dict(fields))),
@@ -599,6 +609,7 @@ class ReturnByObservationTests(unittest.TestCase):
             capture=lambda: "frame",
             sleep=lambda _seconds: None,
             settle_seconds=0.0,
+            classify_frame=classify_frame,
         )
         return driver, game_input, events
 
@@ -685,6 +696,60 @@ class ReturnByObservationTests(unittest.TestCase):
                 fleet_id=3, expected_current_state="EXPEDITION_LIST"
             )
         self.assertEqual(game_input.clicks, [])
+
+    def test_one_frame_names_the_page_before_the_per_state_sweep(self):
+        # Live 2026-11-07: the sweep spent 66 s and 34 frames proving "this is
+        # none of the nine known pages" while the screen was actually the
+        # expedition list, whose template scores 1.0000. One all-state frame
+        # answers the same question, so the identity is known before a click.
+        asked = []
+
+        def verify(state, *, visual_attempts=None):
+            asked.append(state)
+            raise ContinuousUiDriverError(f"not this screen: {state}")
+
+        driver, game_input, events = self.make_driver(
+            verify=verify,
+            classify_frame=lambda _payload: ("EXPEDITION_LIST", {"EXPEDITION_LIST": 1.0}),
+        )
+        with self.assertRaisesRegex(ContinuousUiDriverError, "not reached after"):
+            driver.return_to_home_port(fleet_id=3)
+
+        identified = [
+            fields for name, fields in events
+            if name == "continuous_ui_return_by_observation_page_identified"
+        ]
+        self.assertTrue(identified)
+        self.assertEqual(identified[0]["state"], "EXPEDITION_LIST")
+        self.assertEqual(identified[0]["evidence"], "single_frame_all_state_ranking")
+        self.assertEqual(identified[0]["clicks_sent"], 0)
+        # The reward sweep is nine frames of negatives; the all-state frame
+        # already answered it, so those states must never be asked one by one.
+        self.assertFalse(
+            {"HOME_PORT_RETURN_NOTICE", "RETURN_RESULT", "BONUS_ITEMS"} & set(asked)
+        )
+        self.assertIn("HOME_PORT", asked)
+        self.assertLessEqual(len(game_input.clicks), 6)
+
+    def test_a_reward_screen_named_by_one_frame_stops_the_loop(self):
+        def verify(state, *, visual_attempts=None):
+            raise ContinuousUiDriverError(f"not this screen: {state}")
+
+        driver, game_input, events = self.make_driver(
+            verify=verify,
+            classify_frame=lambda _payload: ("RETURN_RESULT", {"RETURN_RESULT": 0.99}),
+        )
+        with self.assertRaisesRegex(ContinuousUiDriverError, "reward screen"):
+            driver.return_to_home_port(fleet_id=3)
+
+        self.assertEqual(game_input.clicks, [])
+        blocked = [
+            fields for name, fields in events
+            if name == "continuous_ui_reward_screen_blocks_return"
+        ]
+        self.assertTrue(blocked)
+        self.assertEqual(blocked[0]["state"], "RETURN_RESULT")
+        self.assertEqual(blocked[0]["evidence"], "single_frame_all_state_ranking")
 
 
 if __name__ == "__main__":

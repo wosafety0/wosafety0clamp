@@ -19,6 +19,11 @@ from kancollebot.adapters.poi.continuous_expedition_ui import (
     CdpContinuousExpeditionUiDriver,
     ContinuousUiDriverError,
 )
+
+try:  # `unittest discover -s tests` puts this directory on sys.path
+    from home_port_locator_stub import STUB_HOME_PORT_LOCATOR
+except ImportError:  # `-m unittest tests.test_...` imports it as a package
+    from tests.home_port_locator_stub import STUB_HOME_PORT_LOCATOR
 from kancollebot.adapters.poi.visual_target import VisualTargetPoint
 from kancollebot.observability.audit_policy import AuditLogUnavailable
 from kancollebot.observability.sink import correlation_scope
@@ -32,6 +37,7 @@ from kancollebot.expeditions.continuous_scheduler import (
     UiOperationArbiter,
 )
 from kancollebot.expeditions.continuous_settlement_controller import (
+
     ContinuousSettlementController,
     ContinuousSettlementError,
 )
@@ -126,6 +132,7 @@ def build_driver(sink: CorrelationSink, *, fail_on: str | None = None):
             screen.state = transitions[point.label]
 
     driver = CdpContinuousExpeditionUiDriver(
+        home_port_locator=STUB_HOME_PORT_LOCATOR,
         game_input=type("Input", (), {"click": staticmethod(click)})(),
         verify_state=screen.verify,
         event_sink=sink,

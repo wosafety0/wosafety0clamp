@@ -16,6 +16,11 @@ from kancollebot.adapters.poi.visible_ui_refresh import (
 from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
 from kancollebot.expeditions.continuous_scheduler import UiOperationArbiter
 
+try:  # `unittest discover -s tests` puts this directory on sys.path
+    from home_port_locator_stub import STUB_HOME_PORT_LOCATOR
+except ImportError:  # `-m unittest tests.test_...` imports it as a package
+    from tests.home_port_locator_stub import STUB_HOME_PORT_LOCATOR
+
 
 class FakeInput:
     def __init__(self, fail_at: int | None = None):
@@ -61,6 +66,7 @@ class VisibleUiPortRefreshDriverTests(unittest.TestCase):
             )
 
         driver = VisibleUiPortRefreshDriver(
+            home_port_locator=STUB_HOME_PORT_LOCATOR,
             game_input=game_input,
             verify_state=verify,
             ui_arbiter=UiOperationArbiter(),

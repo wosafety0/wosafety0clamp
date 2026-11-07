@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from kancollebot.expeditions.settlement_drain import DrainPageState
+from kancollebot.expeditions.settlement_drain import DrainPageState, DrainSample
 
 __all__ = [
     "PAGE_TO_SCREEN",
@@ -91,6 +91,25 @@ class PoiSettlementDrainObserver:
         if self._driver.probe_home_port():
             return DrainPageState.HOME_PORT
         return DrainPageState.UNKNOWN
+
+    def sample(self) -> DrainSample:
+        """One page *and* one frame fingerprint, from a single capture.
+
+        The drain uses the fingerprint only to tell "still animating" from
+        "provably frozen"; it never becomes a page classification and never
+        authorises a click. A driver without the single-frame probe has no
+        motion signal, so the drain keeps its historical verdict.
+        """
+        probe = getattr(self._driver, "probe_drain_sample", None)
+        if callable(probe):
+            sampled = probe()
+            if isinstance(sampled, tuple) and len(sampled) == 2:
+                state, fingerprint = sampled
+                if isinstance(state, str):
+                    return DrainSample(
+                        page=_map_drain_state(state), fingerprint=fingerprint
+                    )
+        return DrainSample(page=self.observe())
 
 
 class PoiSettlementDrainDriver:

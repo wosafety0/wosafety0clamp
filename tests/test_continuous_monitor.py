@@ -12,6 +12,7 @@ from kancollebot.expeditions.continuous_scheduler import (
     ContinuousExpeditionScheduler,
     FleetPhase,
     MissionTuple,
+    SchedulerInvariantError,
 )
 from kancollebot.expeditions.dispatch_recovery import SqliteDispatchIntentStore
 from kancollebot.expeditions.fleet_state_store import SqliteFleetStateStore
@@ -349,16 +350,52 @@ class ContinuousExpeditionMonitorTests(unittest.TestCase):
                 monitor.tick()
             self.assertEqual(scheduler.fleet(2).phase, FleetPhase.IDLE)
 
-    def test_idle_under_supplied_fleet_remains_idle(self):
+    def test_idle_under_supplied_fleet_is_queued_for_resupply(self):
+        """Core logic Step 1: an idle fleet short of fuel gets resupplied.
+
+        The previous behaviour reported ``not_ready`` and left the fleet in
+        IDLE. Nothing in the loop supplies an IDLE fleet, so that was a dead
+        end: the fleet could never become dispatchable and the run always
+        paused. Step 1 requires "the normal in-game resupply action" instead.
+        """
         with tempfile.TemporaryDirectory() as directory:
             monitor, scheduler, _, _ = self.make_monitor(
                 directory,
                 observed([make_snapshot(2, fuel_ready=False), make_snapshot(3)]),
             )
             report = monitor.tick()
-            self.assertEqual(report.fleets[0].action, "not_ready")
-            self.assertEqual(scheduler.fleet(2).phase, FleetPhase.IDLE)
+            self.assertEqual(report.fleets[0].action, "resupply_required")
+            self.assertIn("fuel", report.fleets[0].reason)
+            self.assertEqual(scheduler.fleet(2).phase, FleetPhase.RESUPPLY_REQUIRED)
             self.assertEqual(scheduler.fleet(3).phase, FleetPhase.READY)
+
+    def test_resupply_required_fleet_keeps_that_phase_and_stays_supplyable(self):
+        """A restored RESUPPLY_REQUIRED fleet is still reported as supplyable.
+
+        The phase can survive a restart in the scheduler store. Reading it twice
+        must not raise, and the fleet must stay queued rather than be relabelled
+        ``not_ready`` -- the supervisor supplies whatever this phase reports.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            monitor, scheduler, _, _ = self.make_monitor(
+                directory,
+                observed([make_snapshot(2, fuel_ready=False), make_snapshot(3)]),
+            )
+            scheduler.require_resupply(2)
+            report = monitor.tick()
+            self.assertEqual(report.fleets[0].action, "resupply_required")
+            self.assertEqual(scheduler.fleet(2).phase, FleetPhase.RESUPPLY_REQUIRED)
+
+    def test_require_resupply_accepts_only_idle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, scheduler, _, _ = self.make_monitor(
+                directory, observed([make_snapshot(2)])
+            )
+            scheduler.mark_ready(2)
+            with self.assertRaisesRegex(
+                SchedulerInvariantError, "only an IDLE fleet"
+            ):
+                scheduler.require_resupply(2)
 
     def test_resupply_required_moves_to_ready_only_after_full_supply_is_observed(self):
         with tempfile.TemporaryDirectory() as directory:

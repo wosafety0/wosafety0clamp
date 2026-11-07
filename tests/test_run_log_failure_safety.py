@@ -27,6 +27,11 @@ if str(ROOT / "tests") not in sys.path:
 from kancollebot.adapters.poi.continuous_expedition_ui import (  # noqa: E402
     CdpContinuousExpeditionUiDriver,
 )
+
+try:  # `unittest discover -s tests` puts this directory on sys.path
+    from home_port_locator_stub import STUB_HOME_PORT_LOCATOR
+except ImportError:  # `-m unittest tests.test_...` imports it as a package
+    from tests.home_port_locator_stub import STUB_HOME_PORT_LOCATOR
 from kancollebot.expeditions.continuous_dispatch_controller import (  # noqa: E402
     ContinuousDispatchController,
 )
@@ -55,6 +60,7 @@ from kancollebot.observability.run_log import (  # noqa: E402
 )
 from kancollebot.observability.sink import build_run_log_sink  # noqa: E402
 from tests.test_continuous_dispatch_controller import (  # noqa: E402
+
     BASE,
     FakeClock,
     FakeUi,
@@ -288,6 +294,7 @@ class RealClickPathTests(unittest.TestCase):
 
         game_input = Input()
         driver = CdpContinuousExpeditionUiDriver(
+            home_port_locator=STUB_HOME_PORT_LOCATOR,
             game_input=game_input,
             verify_state=lambda state: None,
             event_sink=event_sink,

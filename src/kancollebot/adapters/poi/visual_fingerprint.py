@@ -365,6 +365,8 @@ def classify_screenshot_fingerprints(
     minimum_margin: float = 0.04,
 ) -> tuple[str, dict[str, float]]:
     """Classify one screenshot against state-specific crops stored as RGB descriptors."""
+    from kancollebot.observability.probe_counter import mark_probe
+    mark_probe("classification")
     ranking = rank_screenshot_fingerprints(
         screenshot_base64,
         document,
@@ -496,3 +498,22 @@ def classify_fingerprints(
     if best_score < minimum_score or best_score - second_score < minimum_margin:
         return "UNKNOWN", scores
     return best_name, scores
+
+def screen_fingerprint(
+    screenshot_base64: str,
+    *,
+    grid: tuple[int, int] = (32, 18),
+) -> tuple[int, ...]:
+    """Return a whole-frame grid descriptor, used to tell "still" from "moving".
+
+    This is the *same* descriptor family the page classifier already scores
+    (``compute_grid_fingerprint`` + ``fingerprint_similarity``); no second image
+    comparison algorithm is introduced. Callers compare two consecutive results
+    with ``fingerprint_similarity``: 1.0 means the picture did not change.
+
+    Unlike the per-state templates this descriptor is not compared against a
+    stored reference, so it needs no calibration asset and cannot drift out of
+    date; it only answers "is this the same picture as a moment ago".
+    """
+    width, height, rgba = _decode_png_rgba(screenshot_base64)
+    return _fingerprint_from_rgba(width, height, rgba, (0, 0, width, height), grid)

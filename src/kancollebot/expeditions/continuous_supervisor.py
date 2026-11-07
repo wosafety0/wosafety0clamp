@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from kancollebot.expeditions.settlement_drain import (
+    DrainErrorType,
     DrainResult,
     SettlementDrainRequest,
 )
@@ -314,6 +315,15 @@ class ContinuousExpeditionSupervisor:
             )
         return tuple(actions)
 
+    def pending_actions(self) -> tuple[FleetPendingAction, ...]:
+        """Public view of outstanding work, used by the timer sleep gate.
+
+        A fleet with a pending settlement, resupply, blocked state or missing
+        Home Port verification has executable work *now*, so the loop must not
+        sleep past its timer.
+        """
+        return self._pending_actions()
+
     def pending_settlement_fleets(self) -> tuple[Any, ...]:
         """Every fleet waiting on a result, not just the first one found."""
         return tuple(
@@ -564,6 +574,30 @@ class ContinuousExpeditionSupervisor:
                 if drain.error_encountered is not None
                 else "unknown"
             )
+            if drain.error_encountered in (
+                DrainErrorType.SETTLED_UI_PENDING,
+                DrainErrorType.OBSERVATION_BUDGET_EXHAUSTED,
+            ):
+                # UI-only catch-up: the server owes nothing more (or the client
+                # is simply still animating). No settlement click may be sent
+                # from here, and this is not a failure that needs a human - the
+                # next tick re-reads the server state before anything else.
+                self._emit("supervisor_settlement_ui_pending", {
+                    "pending_fleets": list(pending),
+                    "error": error,
+                    "final_page": drain.final_page.value,
+                    "actions_performed": drain.actions_performed,
+                    "clicks_sent_this_tick": 0,
+                    "next_step": "wait_for_ui_then_reread_server_state",
+                })
+                return SupervisorTickResult(
+                    monitor_result=monitor_result,
+                    dispatches=(),
+                    paused_reason=None,
+                    settlements=(),
+                    resupplies=(),
+                    drain=drain,
+                )
             return SupervisorTickResult(
                 monitor_result=monitor_result,
                 dispatches=(),
@@ -810,6 +844,10 @@ class ContinuousExpeditionSupervisor:
             ],
             "resupply_count": len(result.resupplies),
             "fleet_phases": self._fleet_phases(),
+            # ``fleets_2_not_ready`` is a verdict, not a cause. The monitor
+            # already produced the cause (the planner's per-fleet reason), so
+            # the decision row carries it rather than dropping it.
+            "fleet_decisions": self._fleet_decisions(result.monitor_result),
             # Stated on every decision row, not only at startup: a null in any
             # identity column below is only interpretable next to the fact that
             # this process could (or could not) bind one at all.
@@ -885,3 +923,30 @@ class ContinuousExpeditionSupervisor:
         for fleet_id, state in self._fleet_states():
             phases[str(fleet_id)] = self._phase_name(state)
         return phases
+
+    @staticmethod
+    def _fleet_decisions(monitor_result: Any) -> list[dict[str, Any]]:
+        """Every fleet's monitor verdict with the reason that produced it.
+
+        The pause label summarises the tick; it is not a cause. ``fleets_2_
+        not_ready`` cannot distinguish "no supply" from "critically damaged"
+        from "already on a mission", and those need different operator action.
+        A monitor double without ``fleets`` yields ``[]`` instead of raising.
+        """
+        fleets = getattr(monitor_result, "fleets", None)
+        if not isinstance(fleets, (list, tuple)):
+            return []
+        rows: list[dict[str, Any]] = []
+        for item in fleets:
+            previous = getattr(item, "previous_phase", None)
+            current = getattr(item, "current_phase", None)
+            rows.append(
+                {
+                    "fleet_id": getattr(item, "fleet_id", None),
+                    "previous_phase": getattr(previous, "value", previous),
+                    "current_phase": getattr(current, "value", current),
+                    "action": getattr(item, "action", None),
+                    "reason": getattr(item, "reason", None),
+                }
+            )
+        return rows

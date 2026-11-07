@@ -30,6 +30,11 @@ from kancollebot.adapters.poi.continuous_expedition_ui import (
     CdpContinuousExpeditionUiDriver,
     ContinuousUiDriverError,
 )
+
+try:  # `unittest discover -s tests` puts this directory on sys.path
+    from home_port_locator_stub import STUB_HOME_PORT_LOCATOR
+except ImportError:  # `-m unittest tests.test_...` imports it as a package
+    from tests.home_port_locator_stub import STUB_HOME_PORT_LOCATOR
 from kancollebot.adapters.poi.visual_fingerprint import (
     FingerprintRanking,
     classify_screenshot_fingerprints,
@@ -38,6 +43,7 @@ from kancollebot.adapters.poi.visual_fingerprint import (
 from kancollebot.expeditions.continuous_dispatch_controller import UiStateEvidence
 from kancollebot.expeditions.settlement_drain import DrainPageState
 from kancollebot.expeditions.settlement_drain_ui import (
+
     PoiSettlementDrainDriver,
     PoiSettlementDrainObserver,
 )
@@ -199,6 +205,7 @@ def _build_driver(
 
     game_input = _Input()
     driver = CdpContinuousExpeditionUiDriver(
+        home_port_locator=STUB_HOME_PORT_LOCATOR,
         game_input=game_input,
         verify_state=verify_state,
         event_sink=lambda name, payload: events.append((name, dict(payload))),

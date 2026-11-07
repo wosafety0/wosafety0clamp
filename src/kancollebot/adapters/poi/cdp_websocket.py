@@ -267,6 +267,8 @@ class CdpWebSocketTransport:
 
     def send(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         """Send one allowlisted command and await its response while a reader routes events."""
+        from kancollebot.observability.probe_counter import mark_probe
+        mark_probe("cdp")
         if self._closed or getattr(self, "_failed", False):
             raise CdpInputError("CDP transport is closed or unusable")
         if method not in _ALLOWED_METHODS:

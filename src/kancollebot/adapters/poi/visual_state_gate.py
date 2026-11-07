@@ -227,6 +227,8 @@ def classify_screenshot_png(
     numpy_module=None,
 ) -> tuple[str, dict[str, float]]:
     """Classify a CDP screenshot payload entirely in memory."""
+    from kancollebot.observability.probe_counter import mark_probe
+    mark_probe("classification")
     if not isinstance(screenshot_base64, str) or not screenshot_base64:
         raise VisualStateError("empty screenshot payload")
     cv2_module, numpy_module = _vision_modules(cv2_module, numpy_module)

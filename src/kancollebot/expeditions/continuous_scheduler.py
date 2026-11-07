@@ -335,6 +335,27 @@ class ContinuousExpeditionScheduler:
             home_port_verified=False, blocked_reason=None,
         ))
 
+    def require_resupply(self, fleet_id: int) -> FleetRuntime:
+        """Queue an idle fleet for supply, because dispatch preconditions failed.
+
+        Core logic Step 1: a fleet that is idle but not fully supplied must have
+        "the normal in-game resupply action" performed before dispatch, not be
+        reported as unready forever. Without this transition a cold-start fleet
+        sits in IDLE with ``NEEDS_RESUPPLY``: the monitor says ``not_ready``,
+        ``_pending_kind`` sees no outstanding work, and no controller is ever
+        asked to supply it -- a permanent dead end.
+
+        Only IDLE may enter. A READY fleet that lost supply is a contradiction
+        with the verification that produced READY, so the monitor blocks it
+        instead of silently re-entering supply.
+        """
+        current = self.fleet(fleet_id)
+        if current.phase is not FleetPhase.IDLE:
+            raise SchedulerInvariantError(
+                "only an IDLE fleet may be queued for resupply"
+            )
+        return self._set(replace(current, phase=FleetPhase.RESUPPLY_REQUIRED))
+
     def confirm_resupply(self, fleet_id: int, *, fully_supplied: bool) -> FleetRuntime:
         current = self.fleet(fleet_id)
         if current.phase is not FleetPhase.RESUPPLY_REQUIRED or not fully_supplied:

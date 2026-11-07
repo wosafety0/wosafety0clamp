@@ -19,12 +19,24 @@ from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from kancollebot.adapters.poi.cdp_input import RecordedPoint, home_port_point
+from kancollebot.adapters.poi.home_port_button_vision import (
+    HomePortButtonRefused,
+    HomePortVisionError,
+    HomePortVisionThresholds,
+)
 from kancollebot.adapters.poi.ui_operation_lock import UiOperationArbiter
 from kancollebot.core.observation_contracts import UiStateEvidence
 from kancollebot.core.return_refresh import (
     ReturnRefreshCoordinator,
     ReturnRefreshOutcome,
     ReturnRefreshRefused,
+)
+from kancollebot.observability.page_observation import (
+    BoundedPageObservation,
+    ObservationOutcome,
+    ObservationVerdict,
+    PageObservationBudget,
+    PageSample,
 )
 
 
@@ -44,6 +56,9 @@ class FleetReturnView:
     observed_at: datetime | None
 
 
+# Kept as the *expected navigation area* reference and as an offline test
+# fixture.  The production click no longer uses this coordinate: step 3 resolves
+# its point from a fresh frame with the rotation-invariant button locator.
 HOME_PORT = home_port_point()
 SORTIE = RecordedPoint(280, 425, "sortie")
 EXPEDITION_MODE = RecordedPoint(1000, 360, "expedition-mode")
@@ -97,10 +112,13 @@ class FleetStateReader(Protocol):
 class VisibleUiPortRefreshDriver:
     """Refresh Poi's current port data through the already-reviewed visible UI path."""
 
+    # ``None`` means "no recorded coordinate": step 3 must resolve its point
+    # from visual features of a fresh frame.  A driver without a locator fails
+    # closed here instead of silently falling back to a fixed coordinate.
     _STEPS = (
         ("open_sortie", SORTIE, "SORTIE_MENU"),
         ("open_expedition_list", EXPEDITION_MODE, "EXPEDITION_LIST"),
-        ("return_home_port", HOME_PORT, "HOME_PORT"),
+        ("return_home_port", None, "HOME_PORT"),
     )
 
     def __init__(
@@ -112,6 +130,18 @@ class VisibleUiPortRefreshDriver:
         event_sink: Callable[[str, Mapping[str, object]], None],
         sleep: Callable[[float], None] = time.sleep,
         settle_seconds: float = 1.0,
+        home_port_locator: Any | None = None,
+        home_port_thresholds: HomePortVisionThresholds | None = None,
+        # Bounded page observation. When supplied, the post-click checkpoints no
+        # longer ask "is this page X right now" inside a fixed number of frames;
+        # they observe until the page is stably named, the screen is provably
+        # frozen on an unrecognised frame, or an explicit budget runs out.
+        # ``None`` keeps the historical fixed-attempt verifier path for callers
+        # that have no frame classifier wired.
+        observe_page: Callable[[], PageSample] | None = None,
+        observation_budget: PageObservationBudget | None = None,
+        monotonic: Callable[[], float] = time.monotonic,
+        verifier_error_types: tuple[type[BaseException], ...] = (),
     ) -> None:
         if not callable(getattr(game_input, "click", None)):
             raise ValueError("game_input must provide click(point)")
@@ -127,14 +157,59 @@ class VisibleUiPortRefreshDriver:
         self._event_sink = event_sink
         self._sleep = sleep
         self._settle_seconds = settle_seconds
+        if home_port_locator is not None and not callable(getattr(home_port_locator, "locate", None)):
+            raise ValueError("home_port_locator must expose locate()")
+        self._home_port_locator = home_port_locator
+        self._home_port_thresholds = home_port_thresholds
+        if observe_page is not None and not callable(observe_page):
+            raise ValueError("observe_page must be callable when given")
+        if observation_budget is not None and not isinstance(
+            observation_budget, PageObservationBudget
+        ):
+            raise ValueError("observation_budget must be a PageObservationBudget")
+        if verifier_error_types and not all(
+            isinstance(item, type) for item in verifier_error_types
+        ):
+            raise ValueError("verifier_error_types must be exception classes")
+        self._observe_page = observe_page
+        self._observation_budget = observation_budget
+        self._monotonic = monotonic
+        self._verifier_error_types = tuple(verifier_error_types)
+        self._home_port_detection_fields: dict[str, object] | None = None
+        self._home_port_click_sent = False
         # Audit context for the navigation currently in flight. Set only for the
         # duration of refresh_port_state so every step it emits can be joined to
         # the refresh_id and origin of the caller that asked for it.
         self._refresh_context: dict[str, object] | None = None
         self.last_refresh_stats: dict[str, object] | None = None
 
+    def _is_verifier_exhaustion(self, exc: BaseException) -> bool:
+        """True when the verifier ran out of frames instead of reporting a page.
+
+        The production verifier raises ``LoopError`` from the tool layer, so this
+        adapter cannot import its type without inverting the dependency. Callers
+        that can name the type pass ``verifier_error_types``; the class-name
+        check is the fallback so an un-normalised ``LoopError`` can never escape
+        as an "unexpected" exception that skips the refresh's own diagnostics.
+        """
+        if self._verifier_error_types and isinstance(exc, self._verifier_error_types):
+            return True
+        return type(exc).__name__ == "LoopError"
+
     def _confirm(self, expected: str, *, phase: str) -> UiStateEvidence:
-        evidence = self._verify_state(expected)
+        try:
+            evidence = self._verify_state(expected)
+        except VisibleUiRefreshError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - re-raised unless it is the known type
+            if not self._is_verifier_exhaustion(exc):
+                # An unrelated failure (CDP, template, IO) keeps its own type and
+                # its own diagnostic chain.
+                raise
+            raise VisibleUiRefreshError(
+                f"{phase}: the visible verifier could not confirm {expected} "
+                f"({type(exc).__name__}: {exc})"
+            ) from exc
         if not isinstance(evidence, UiStateEvidence):
             raise VisibleUiRefreshError("UI verifier returned no structured two-frame evidence")
         if (
@@ -152,6 +227,185 @@ class VisibleUiPortRefreshDriver:
         if self._refresh_context:
             fields = {**fields, **self._refresh_context}
         self._event_sink(event, fields)
+
+    def _resolve_home_port_point(self) -> RecordedPoint:
+        """Locate the rotating 母港 badge on a fresh frame; never guess a point."""
+        limits = (
+            self._home_port_thresholds
+            or getattr(self._home_port_locator, "thresholds", None)
+            or HomePortVisionThresholds.from_environment()
+        )
+        base_fields: dict[str, object] = {
+            "roi": list(limits.roi),
+            "thresholds": limits.as_dict(),
+            "action": "return_home_port",
+            "click_authorized": False,
+        }
+        if self._home_port_locator is None:
+            self._emit("home_port_button_detection_failed", {
+                **base_fields,
+                "failure_reason": "home_port_visual_locator_missing",
+                "candidate_count": 0,
+                "reason": "a fixed coordinate is never substituted for visual evidence",
+            })
+            raise VisibleUiRefreshError(
+                "home_port_visual_locator_missing: refusing a fixed-coordinate "
+                "母港 click"
+            )
+        try:
+            detection = self._home_port_locator.locate()
+        except HomePortButtonRefused as exc:
+            self._emit("home_port_button_detection_failed", {
+                **base_fields,
+                **exc.evidence.as_log_fields(),
+                "failure_reason": exc.reason,
+                "candidate_count": exc.evidence.candidate_count,
+            })
+            raise VisibleUiRefreshError(
+                f"home_port_button_not_detected:{exc.reason}; no click sent"
+            ) from exc
+        except HomePortVisionError as exc:
+            self._emit("home_port_button_detection_failed", {
+                **base_fields,
+                "failure_reason": type(exc).__name__,
+                "reason": str(exc),
+                "candidate_count": 0,
+            })
+            raise VisibleUiRefreshError(
+                f"home_port_button_frame_unusable:{exc}; no click sent"
+            ) from exc
+        fields = {**base_fields, **detection.as_log_fields()}
+        self._home_port_detection_fields = fields
+        self._emit("home_port_button_detected", fields)
+        return detection.point
+
+    # Pages the calibrated fingerprint document can name. An observation that
+    # lands stably on one of these is reported by name, so a refresh that ends up
+    # somewhere real says where - it never keeps waiting for a target that will
+    # not arrive, and it never turns "not my target" into a click.
+    _CALIBRATED_PAGES = (
+        "HOME_PORT",
+        "HOME_PORT_RETURN_NOTICE",
+        "SORTIE_MENU",
+        "EXPEDITION_LIST",
+        "FLEET_2_SELECTED",
+        "FLEET_3_SELECTED",
+        "FLEET_4_SELECTED",
+        "MISSION_SELECTED",
+        "RETURN_RESULT",
+        "BONUS_ITEMS",
+    )
+
+    #: One repeat per refresh, not one per step. A second repeat would mean the
+    #: client is not accepting input at all, which is a stop, not a retry.
+    _MAX_REPEAT_CLICKS = 1
+
+    def _observe(
+        self,
+        *,
+        target: str,
+        safe_start: str | None,
+        label: str,
+        step: int,
+        action: str,
+        ignore_pages: tuple[str, ...] = (),
+    ) -> ObservationOutcome:
+        """Ask which page is on screen until a budget or a proof ends the question.
+
+        With ``observe_page`` wired this is the bounded observation engine: the
+        page has to be named on two consecutive frames, a provably frozen screen
+        keeps being observed instead of being declared dead, and only a limited
+        number of *changing* unrecognised frames is tolerated.
+
+        Without it the historical verifier is used unchanged, so every existing
+        caller and test keeps its exact behaviour.
+        """
+        if self._observe_page is None:
+            return self._confirm_without_observation(
+                target, start_state=safe_start, label=label, step=step, action=action
+            )
+        known = tuple(page for page in self._CALIBRATED_PAGES if page not in ignore_pages)
+        runner = BoundedPageObservation(
+            budget=self._observation_budget,
+            monotonic=self._monotonic,
+            sleep=self._sleep,
+            event_sink=self._emit,
+        )
+        return runner.run(
+            self._observe_page,
+            target=target,
+            safe_start=safe_start,
+            known_pages=known,
+            label=label,
+            event_prefix="ui_refresh_observation",
+        )
+
+    def _confirm_without_observation(
+        self,
+        target: str,
+        *,
+        start_state: str | None,
+        label: str,
+        step: int,
+        action: str,
+    ) -> ObservationOutcome:
+        """Legacy fixed-attempt checkpoint, expressed as an observation outcome."""
+        try:
+            self._confirm(target, phase=f"after {action}")
+        except VisibleUiRefreshError as first_error:
+            if start_state is None:
+                raise
+            # A click whose precondition is *re-proven* afterwards demonstrably
+            # did nothing - the client is still on the screen we started from.
+            # That is not an ambiguous outcome, so one repeat is safe; anything
+            # else is ambiguous and stays forbidden (live 2026-11-05: a 出撃
+            # click was swallowed during a transition).
+            if self._settle_seconds:
+                self._sleep(self._settle_seconds * 2)
+                self._emit("ui_refresh_transition_settle_wait", {
+                    "step": step,
+                    "action": action,
+                    "wait_seconds": self._settle_seconds * 2,
+                    "clicks_sent": 0,
+                })
+            try:
+                self._confirm(start_state, phase=f"{action} had no effect")
+            except VisibleUiRefreshError:
+                raise first_error
+            return ObservationOutcome(
+                verdict=ObservationVerdict.SAFE_START_CONFIRMED,
+                state=start_state,
+                stable_state=start_state,
+                samples=0,
+                changed_samples=0,
+                still_unknown_samples=0,
+                changed_unknown_samples=0,
+                elapsed_seconds=0.0,
+                reason="precondition re-proven after the click",
+            )
+        return ObservationOutcome(
+            verdict=ObservationVerdict.TARGET_REACHED,
+            state=target,
+            stable_state=target,
+            samples=0,
+            changed_samples=0,
+            still_unknown_samples=0,
+            changed_unknown_samples=0,
+            elapsed_seconds=0.0,
+            reason=f"{target} confirmed by the two-frame verifier",
+        )
+
+    def _evidence_from(self, outcome: ObservationOutcome, expected: str) -> UiStateEvidence:
+        return UiStateEvidence(
+            state=expected,
+            consecutive_states=(expected, expected),
+            evidence=(
+                "bounded_page_observation:"
+                f"{outcome.samples}_samples:{outcome.changed_samples}_changed"
+                if self._observe_page is not None
+                else "two_consecutive_in_memory_fingerprints"
+            ),
+        )
 
     def refresh_port_state(
         self,
@@ -174,11 +428,14 @@ class VisibleUiPortRefreshDriver:
         clicks_attempted = 0
         clicks_completed = 0
         current_state = "UNKNOWN"
+        repeats_used = 0
         self._refresh_context = {
             key: value
             for key, value in (("refresh_id", refresh_id), ("refresh_origin", origin))
             if value
         }
+        self._home_port_detection_fields = None
+        self._home_port_click_sent = False
         self.last_refresh_stats = {
             "refresh_id": refresh_id,
             "origin": origin,
@@ -187,18 +444,42 @@ class VisibleUiPortRefreshDriver:
             "final_state": "UNKNOWN",
             "steps": [action for action, _, _ in self._STEPS],
             "outcome": "started",
+            "observation_mode": (
+                "bounded" if self._observe_page is not None else "fixed_attempts"
+            ),
         }
         try:
             with self._arbiter.operation("visible-poi-port-refresh"):
-                initial = self._confirm("HOME_PORT", phase="refresh precondition")
-                current_state = initial.state
+                initial = self._observe(
+                    target="HOME_PORT",
+                    safe_start=None,
+                    label="refresh precondition",
+                    step=0,
+                    action="refresh precondition",
+                )
+                if initial.verdict is not ObservationVerdict.TARGET_REACHED:
+                    raise VisibleUiRefreshError(
+                        "refresh precondition: " + initial.reason
+                    )
+                current_state = "HOME_PORT"
                 self._emit("ui_refresh_started", {
                     "initial_state": current_state,
-                    "evidence": initial.evidence,
+                    "evidence": (
+                        "bounded_page_observation"
+                        if self._observe_page is not None
+                        else "two_frame_verifier"
+                    ),
+                    "observation": initial.as_log_fields(),
                     "game_actions_enabled": False,
                 })
-                final_evidence = initial
-                for index, (action, point, expected_after) in enumerate(self._STEPS, start=1):
+                final_evidence: UiStateEvidence | None = None
+                for index, (action, recorded_point, expected_after) in enumerate(self._STEPS, start=1):
+                    if action == "return_home_port":
+                        # The 母港 control rotates and changes colour by page.
+                        # Resolve its point from this frame or stop with zero clicks.
+                        point = self._resolve_home_port_point()
+                    else:
+                        point = recorded_point
                     self._emit("ui_refresh_action_precondition", {
                         "step": index,
                         "action": action,
@@ -222,66 +503,96 @@ class VisibleUiPortRefreshDriver:
                         "target": point.label,
                         "clicks_sent": clicks_completed,
                     })
-                    if self._settle_seconds:
-                        self._sleep(self._settle_seconds)
-                    self._emit("ui_refresh_wait_completed", {
-                        "step": index,
-                        "action": action,
-                        "wait_seconds": self._settle_seconds,
-                    })
-                    try:
-                        final_evidence = self._confirm(
-                            expected_after, phase=f"after {action}"
-                        )
-                    except VisibleUiRefreshError:
-                        # A click whose precondition is *re-proven* afterwards
-                        # demonstrably did nothing - the client is still on the
-                        # screen we started from. That is not an ambiguous
-                        # outcome, so one repeat is safe; anything else is
-                        # ambiguous and stays forbidden (live 2026-11-05: a
-                        # 出撃 click was swallowed during a transition and ended
-                        # a run that had nothing else wrong with it).
-                        # The wait matters: a click sent while the client is
-                        # still fading between screens is swallowed, and the
-                        # proof window is shorter than the fade. Live
-                        # 2026-11-05 the port's fade outlasted the proof, the
-                        # re-proof then failed on a half-rendered frame, and
-                        # the whole refresh was declared ambiguous.
+                    if action == "return_home_port":
+                        self._home_port_click_sent = True
+                        self._emit("home_port_button_click_sent", {
+                            "click_sent": True,
+                            "point": [point.x, point.y],
+                            "target": point.label,
+                            **(self._home_port_detection_fields or {}),
+                        })
+                    if self._observe_page is None:
+                        # Legacy checkpoints keep their fixed settle sleep before
+                        # the verifier takes its frames.
                         if self._settle_seconds:
-                            self._sleep(self._settle_seconds * 2)
-                            self._emit("ui_refresh_transition_settle_wait", {
+                            self._sleep(self._settle_seconds)
+                            self._emit("ui_refresh_wait_completed", {
                                 "step": index,
                                 "action": action,
-                                "wait_seconds": self._settle_seconds * 2,
-                                "clicks_sent": 0,
+                                "wait_seconds": self._settle_seconds,
                             })
-                        self._confirm(current_state, phase=f"{action} had no effect")
+                    outcome = self._observe(
+                        target=expected_after,
+                        safe_start=current_state,
+                        label=f"after {action}",
+                        step=index,
+                        action=action,
+                    )
+                    if self._observe_page is not None:
+                        self._emit("ui_refresh_wait_completed", {
+                            "step": index,
+                            "action": action,
+                            "wait_seconds": round(outcome.elapsed_seconds, 3),
+                            "observation": outcome.as_log_fields(),
+                        })
+                    if outcome.at_safe_start:
+                        if repeats_used >= self._MAX_REPEAT_CLICKS:
+                            raise VisibleUiRefreshError(
+                                f"{action}: still on {current_state} after one "
+                                "repeat; refusing a second click"
+                            )
+                        repeats_used += 1
                         self._emit("ui_refresh_click_repeated", {
                             "step": index,
                             "action": action,
                             "target": point.label,
                             "state_after_first_click": current_state,
+                            "repeat_index": repeats_used,
                             "reason": "precondition re-proven after the click",
                         })
                         clicks_attempted += 1
                         self._input.click(point)
                         clicks_completed += 1
-                        if self._settle_seconds:
+                        if self._observe_page is None and self._settle_seconds:
                             self._sleep(self._settle_seconds)
-                        final_evidence = self._confirm(
-                            expected_after, phase=f"after repeated {action}"
+                        # After the repeat the start page is no longer proof of
+                        # anything: stop re-proving it and keep observing only.
+                        outcome = self._observe(
+                            target=expected_after,
+                            safe_start=None,
+                            label=f"after repeated {action}",
+                            step=index,
+                            action=action,
+                            ignore_pages=(current_state,),
                         )
-                    current_state = final_evidence.state
+                    if not outcome.reached_target:
+                        raise VisibleUiRefreshError(
+                            f"after {action}: {outcome.reason}"
+                        )
+                    final_evidence = self._evidence_from(outcome, expected_after)
+                    current_state = expected_after
                     self._emit("ui_refresh_state_confirmed", {
                         "step": index,
                         "action": action,
                         "state": current_state,
                         "consecutive_states": final_evidence.consecutive_states,
                         "evidence": final_evidence.evidence,
+                        "observation": outcome.as_log_fields(),
                     })
+                    if action == "return_home_port":
+                        self._emit("home_port_button_post_click_verification", {
+                            "verified": current_state == "HOME_PORT",
+                            "observed_state": current_state,
+                            "expected_state": "HOME_PORT",
+                            "consecutive_states": final_evidence.consecutive_states,
+                            "evidence": final_evidence.evidence,
+                            **(self._home_port_detection_fields or {}),
+                        })
+                assert final_evidence is not None  # three steps ran or we raised
                 self._emit("ui_refresh_completed", {
                     "sequence": ["HOME_PORT", "SORTIE_MENU", "EXPEDITION_LIST", "HOME_PORT"],
                     "clicks_sent": clicks_completed,
+                    "repeats_used": repeats_used,
                     "final_state": current_state,
                 })
                 self.last_refresh_stats = {
@@ -289,13 +600,35 @@ class VisibleUiPortRefreshDriver:
                     "origin": origin,
                     "clicks_attempted": clicks_attempted,
                     "clicks_completed": clicks_completed,
+                    "repeats_used": repeats_used,
                     "final_state": current_state,
                     "steps": [action for action, _, _ in self._STEPS],
                     "outcome": "completed",
+                    "observation_mode": (
+                        "bounded" if self._observe_page is not None else "fixed_attempts"
+                    ),
                 }
                 return final_evidence
         except Exception as exc:
             try:
+                if self._home_port_click_sent:
+                    self._emit("home_port_button_post_click_verification", {
+                        "verified": False,
+                        "expected_state": "HOME_PORT",
+                        "failure_reason": "ui_refresh_checkpoint_failed",
+                        "error_type": type(exc).__name__,
+                        "click_sent": True,
+                        **(self._home_port_detection_fields or {}),
+                    })
+                elif self._home_port_detection_fields is not None:
+                    self._emit("home_port_button_post_click_verification", {
+                        "verified": False,
+                        "expected_state": "HOME_PORT",
+                        "failure_reason": "no_click_sent",
+                        "error_type": type(exc).__name__,
+                        "click_sent": False,
+                        **(self._home_port_detection_fields or {}),
+                    })
                 self._emit("ui_refresh_blocked", {
                     "clicks_attempted": clicks_attempted,
                     "clicks_completed": clicks_completed,
@@ -312,10 +645,14 @@ class VisibleUiPortRefreshDriver:
                 "origin": origin,
                 "clicks_attempted": clicks_attempted,
                 "clicks_completed": clicks_completed,
+                "repeats_used": repeats_used,
                 "final_state": current_state,
                 "steps": [action for action, _, _ in self._STEPS],
                 "outcome": "blocked",
                 "error_type": type(exc).__name__,
+                "observation_mode": (
+                    "bounded" if self._observe_page is not None else "fixed_attempts"
+                ),
             }
             if isinstance(exc, VisibleUiRefreshError):
                 raise
@@ -324,6 +661,8 @@ class VisibleUiPortRefreshDriver:
             ) from exc
         finally:
             self._refresh_context = None
+            self._home_port_detection_fields = None
+            self._home_port_click_sent = False
 
 
 class FreshnessRefreshingStateReader:

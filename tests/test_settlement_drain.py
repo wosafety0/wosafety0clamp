@@ -410,8 +410,13 @@ class DrainFleetIndependenceTests(unittest.TestCase):
                 "timeout_seconds",
                 "action_interval_seconds",
                 "stable_frame_count",
+                # Added 2026-11-07: the post-action observation budget. It is a
+                # time bound, not an identity - the drain still cannot be told
+                # (or infer) which fleet owns a page.
+                "action_observation_seconds",
             ],
         )
+        self.assertFalse([name for name in names if "fleet" in name])
 
     def test_drain_takes_only_the_request(self) -> None:
         parameters = list(inspect.signature(SettlementDrainSession.drain).parameters)
@@ -555,6 +560,12 @@ class DrainResultContractTests(unittest.TestCase):
                 "UNKNOWN_DIALOG": "unknown_dialog",
                 "NETWORK_ERROR": "network_error",
                 "UNKNOWN_PAGE": "unknown_page",
+                # Added 2026-11-07. Both are *deliberate* stops rather than new
+                # ways to claim success: neither is in
+                # ``_MANUAL_INTERVENTION_ERRORS``, and neither can report
+                # ``reached_home``.
+                "OBSERVATION_BUDGET_EXHAUSTED": "observation_budget",
+                "SETTLED_UI_PENDING": "settled_ui_pending",
             },
         )
 

@@ -306,6 +306,26 @@ class ContinuousExpeditionMonitor:
             if plan.decision is not ExpeditionDecision.READY_TO_DISPATCH:
                 if current.phase is FleetPhase.READY:
                     return self._block(fleet_id, current, f"READY fleet lost supply/readiness: {plan.reason}")
+                if (
+                    plan.decision is ExpeditionDecision.NEEDS_RESUPPLY
+                    and current.phase
+                    in (FleetPhase.IDLE, FleetPhase.RESUPPLY_REQUIRED)
+                ):
+                    # Step 1 of the core logic: an idle but under-supplied fleet
+                    # gets the normal in-game resupply, then a fresh read that
+                    # proves full supply. Reporting ``not_ready`` here would be
+                    # a dead end -- nothing else in the loop supplies an IDLE
+                    # fleet, so it could never become dispatchable. A fleet that
+                    # is already RESUPPLY_REQUIRED (e.g. restored from the
+                    # scheduler store) keeps that phase; the label stays honest.
+                    updated = (
+                        self.scheduler.require_resupply(fleet_id)
+                        if current.phase is FleetPhase.IDLE
+                        else current
+                    )
+                    return self._result(
+                        fleet_id, previous, updated, "resupply_required", plan.reason
+                    )
                 return self._result(fleet_id, previous, current, "not_ready", plan.reason)
             if not self._composition_is_eligible(snapshot, self.mission_requirements[fleet_id]):
                 reason = "mission composition is missing or ineligible"

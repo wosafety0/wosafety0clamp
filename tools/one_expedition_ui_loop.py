@@ -15,9 +15,12 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import math
 import os
 import sys
 import tempfile
+import signal
+import threading
 import time
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
@@ -46,6 +49,11 @@ from kancollebot.adapters.poi.cdp_websocket import (  # noqa: E402
     connect_game_webview,
     connect_poi_session,
 )
+from kancollebot.adapters.poi.home_port_button_vision import (  # noqa: E402
+    HomePortButtonLocator,
+    HomePortButtonRefused,
+    HomePortVisionError,
+)
 from kancollebot.adapters.poi.ui_operation_lock import poi_ui_operation  # noqa: E402
 from kancollebot.adapters.poi.ui_state_gate import (  # noqa: E402
     UiState,
@@ -64,6 +72,19 @@ from kancollebot.adapters.poi.visual_fingerprint import (  # noqa: E402
     classify_screenshot_fingerprints,
     classify_supply_checkbox_state,
     rank_screenshot_fingerprints,
+    screen_fingerprint,
+)
+from kancollebot.adapters.poi.expedition_countdown_vision import (  # noqa: E402
+    DEFAULT_COUNTDOWN_TEMPLATE_PATH,
+    CountdownReader,
+    CountdownTemplateError,
+    CountdownTemplates,
+)
+from kancollebot.observability.page_observation import (  # noqa: E402
+    DEFAULT_CHANGED_UNKNOWN_LIMIT,
+    DEFAULT_TOTAL_BUDGET_SECONDS,
+    PageObservationBudget,
+    PageSample,
 )
 from kancollebot.calibration import (  # noqa: E402
     DEFAULT_CATALOG,
@@ -77,6 +98,19 @@ from kancollebot.calibration import (  # noqa: E402
     load_position_index,
     scan_page,
 )
+from kancollebot.expeditions.expedition_timer_wait import (  # noqa: E402
+    DEFAULT_POST_EXPIRY_GRACE_SECONDS,
+    ExpeditionTimerSleeper,
+    event_sink_from_stdout,
+    plan_timer_sleep,
+)
+from kancollebot.expeditions.expedition_early_return import (  # noqa: E402
+    DEFAULT_EARLY_RETURN_THRESHOLD_SECONDS,
+    EarlyReturnObservation,
+    EarlyReturnOutcome,
+    ExpeditionEarlyReturn,
+    read_remaining_from_text,
+)
 from kancollebot.core.task_attribution import merge_trusted_event_fields  # noqa: E402
 from kancollebot.observability.audit_policy import audit_gate  # noqa: E402
 from kancollebot.observability.sink import (  # noqa: E402
@@ -88,6 +122,14 @@ from kancollebot.runtime_config import RUNTIME_CONFIG  # noqa: E402
 # Long enough for the Home Port scene to finish settling before a frame is
 # classified; the same settle the state gate uses between its two samples.
 HOME_REFERENCE_SETTLE_SECONDS = 0.3
+
+# How long before a fleet's own deadline the loop starts looking at the
+# *displayed* countdown. This number decides nothing about the game: the wiki is
+# explicit that only the expedition screen's own display may be trusted
+# (「PCの時計や外部ツールで時間を計っているとズレが生じる可能性がある」). It only
+# decides how early an attempt becomes worth making, and the attempt itself
+# refuses to act on anything above one minute.
+DEFAULT_EARLY_RETURN_LOOKAHEAD_SECONDS = 90.0
 
 # The passive api_req_mission/result observer that the real single-fleet
 # closed loop used as an EXTERNAL process (logs/single_fleet_witness_run1.log,
@@ -934,6 +976,59 @@ def _recovery_emit(
         pass
 
 
+def _visual_home_port_point(game_session, event_sink: object | None = None) -> RecordedPoint:
+    """Locate the rotating 母港 badge on a fresh frame; never guess a coordinate.
+
+    The startup recovery used to cycle four fixed interior offsets of the
+    top-left button.  That control rotates continuously and changes colour by
+    screen, so the recovery now uses the same rotation-invariant visual locator
+    as the return refresh and the dispatch driver.  A refusal is fail-closed:
+    no click is sent and the run log carries the ROI, features, confidence,
+    thresholds, candidate count and reason.
+    """
+    locator = HomePortButtonLocator(
+        capture=lambda: game_session.input.capture_screenshot(from_surface=True)
+    )
+    try:
+        detection = locator.locate()
+    except HomePortButtonRefused as exc:
+        fields = {**exc.evidence.as_log_fields(), "failure_reason": exc.reason}
+        _print_event("home_port_button_detection_failed", **fields)
+        _recovery_emit(
+            event_sink, "home_port_button_detection_failed",
+            reason=exc.reason, roi=list(exc.evidence.roi),
+            confidence=exc.evidence.confidence,
+            candidate_count=exc.evidence.candidate_count,
+            click_authorized=False,
+        )
+        raise LoopError(
+            f"home_port_button_not_detected:{exc.reason}; zero clicks sent"
+        ) from exc
+    except HomePortVisionError as exc:
+        _print_event(
+            "home_port_button_detection_failed",
+            failure_reason=type(exc).__name__, reason=str(exc),
+            roi=locator.thresholds.as_dict()["roi"], candidate_count=0,
+            click_authorized=False,
+        )
+        _recovery_emit(
+            event_sink, "home_port_button_detection_failed",
+            reason=str(exc), click_authorized=False,
+        )
+        raise LoopError(
+            f"home_port_button_frame_unusable:{exc}; zero clicks sent"
+        ) from exc
+    fields = detection.as_log_fields()
+    _print_event("home_port_button_detected", **fields)
+    _recovery_emit(
+        event_sink, "home_port_button_detected",
+        center=fields.get("center"), confidence=fields.get("confidence"),
+        roi=fields.get("roi"), candidate_count=fields.get("candidate_count"),
+        click_authorized=True,
+    )
+    return detection.point
+
+
 def _recover_home_port(
     game_session, attempts: int = 3, force_click: bool = False, event_sink: object | None = None
 ) -> None:
@@ -967,9 +1062,9 @@ def _recover_home_port(
             "click anywhere. Home Port recovery will not send that click: the settlement "
             "controller owns the reward chain because it proves every screen it advances."
         )
-    candidates = home_port_candidates(HOME_PORT)
     for attempt in range(1, attempts + 1):
-        point = candidates[(attempt - 1) % len(candidates)]
+        # Re-locate on every attempt: the badge is rotating between frames.
+        point = _visual_home_port_point(game_session, event_sink=event_sink)
         _print_event("ui_action_precondition", action="click_home_port", attempt=attempt,
                      force_click=force_click, point=point.label)
         _recovery_emit(event_sink, "home_port_recovery_click_attempted",
@@ -1043,7 +1138,6 @@ def _recover_home_port_by_observation(
     Live 2026-11-05 the named-page recovery failed twice in a row on the sortie
     menu, and both times the client had to be walked back by hand.
     """
-    candidates = home_port_candidates(HOME_PORT)
     for attempt in range(1, attempts + 1):
         try:
             _require_ui_state(game_session, UiState.HOME_PORT)
@@ -1071,7 +1165,7 @@ def _recover_home_port_by_observation(
                            attempt=attempt, wait_seconds=interval_seconds, clicks_sent=0)
             time.sleep(interval_seconds)
             continue
-        point = candidates[(attempt - 1) % len(candidates)]
+        point = _visual_home_port_point(game_session, event_sink=event_sink)
         _print_event("ui_action_precondition", action="click_home_port_observed",
                      attempt=attempt, force_click=False, point=point.label)
         _recovery_emit(event_sink, "home_port_recovery_click_attempted",
@@ -1569,6 +1663,510 @@ def _stateless_control_enabled(args: argparse.Namespace) -> bool:
     return getattr(args, "stateless", True) is not False
 
 
+def _collect_fleet_timers(runtime, supervisor, target_fleet_ids) -> dict[int, int]:
+    """Poi-authored expedition deadlines for fleets that are still out.
+
+    ``scheduler.fleet(fleet_id).mission.final_time_ms`` is the same
+    ``api_mission`` completion time that Poi confirmed at dispatch; reading it
+    costs no probe.  Fleets whose phase is no longer ACTIVE are excluded: their
+    outcome is pending work, not a timer to wait for.
+    """
+    from kancollebot.expeditions.continuous_scheduler import SchedulerInvariantError
+
+    timers: dict[int, int] = {}
+    for fleet_id in target_fleet_ids:
+        try:
+            state = runtime.scheduler.fleet(fleet_id)
+        except SchedulerInvariantError:
+            # Not configured for dispatch in this run: it has no timer to wait for.
+            continue
+        phase = getattr(getattr(state, "phase", None), "value", "")
+        mission = getattr(state, "mission", None)
+        final_ms = getattr(mission, "final_time_ms", None)
+        if (
+            str(phase).upper() in supervisor.ACTIVE_PHASES
+            and isinstance(final_ms, int)
+            and not isinstance(final_ms, bool)
+            and final_ms > 0
+        ):
+            timers[int(fleet_id)] = final_ms
+    return timers
+
+
+def _pending_timer_work_fleet_ids(supervisor) -> tuple[int, ...]:
+    """Fleets with executable work right now; a timer must never sleep past them."""
+    return tuple(
+        int(action.fleet_id)
+        for action in supervisor.pending_actions()
+        if isinstance(action.fleet_id, int) and not isinstance(action.fleet_id, bool)
+    )
+
+
+def _fleet_decision_summary(result) -> list[dict[str, object]]:
+    """Per-fleet monitor verdicts, so a pause label is never the only reason.
+
+    ``fleets_2_not_ready`` says a fleet could not be dispatched; it does not say
+    *why*. The monitor already answered that (``plan.reason`` from the planner),
+    so the pause row carries it instead of discarding it. A test double without
+    a ``fleets`` attribute yields an empty list rather than an exception.
+    """
+    fleets = getattr(getattr(result, "monitor_result", None), "fleets", None)
+    if not isinstance(fleets, (list, tuple)):
+        return []
+    rows: list[dict[str, object]] = []
+    for item in fleets:
+        previous = getattr(item, "previous_phase", None)
+        current = getattr(item, "current_phase", None)
+        rows.append(
+            {
+                "fleet_id": getattr(item, "fleet_id", None),
+                "previous_phase": getattr(previous, "value", previous),
+                "current_phase": getattr(current, "value", current),
+                "action": getattr(item, "action", None),
+                "reason": getattr(item, "reason", None),
+            }
+        )
+    return rows
+
+
+def _pending_settlement_fleet_ids() -> tuple[int, ...]:
+    """Read-only Poi probe: which fleets still owe a settlement.
+
+    ``api_mission[0] == 2`` is the returned-and-uncollected state. The drain uses
+    this before every settlement input: once it is empty, the account owes
+    nothing more and only the client is catching up, so clicking again would
+    claim a result the server no longer reports as pending.
+
+    A read failure propagates: guessing "no pending settlement" from a failed
+    read would be exactly the assumption this guard exists to prevent.
+    """
+    with connect_poi_session(timeout=5.0) as poi_session:
+        states = tuple(read_poi_fleet_states(poi_session.transport))
+    return tuple(
+        state.fleet_id for state in states if state.mission_status == 2
+    )
+
+
+def _refresh_observation_budget(args: argparse.Namespace) -> PageObservationBudget:
+    """Read the refresh observation budget, tolerating a non-numeric fixture.
+
+    Test namespaces carry ``MagicMock`` attributes; ``float()`` on one raises.
+    A non-numeric value therefore falls back to the documented default instead
+    of turning into an unrelated crash before any UI work starts.
+    """
+
+    def _number(name: str, default, cast):
+        value = getattr(args, name, default)
+        if isinstance(value, bool):
+            return default
+        try:
+            return cast(value)
+        except (TypeError, ValueError):
+            return default
+
+    total = _number("refresh_observation_seconds", DEFAULT_TOTAL_BUDGET_SECONDS, float)
+    limit = _number(
+        "refresh_changed_unknown_limit", DEFAULT_CHANGED_UNKNOWN_LIMIT, int
+    )
+    if total <= 0:
+        total = DEFAULT_TOTAL_BUDGET_SECONDS
+    if limit <= 0:
+        limit = DEFAULT_CHANGED_UNKNOWN_LIMIT
+    return PageObservationBudget(total_seconds=total, changed_unknown_limit=limit)
+
+
+def _early_return_settings(args: argparse.Namespace) -> tuple[bool, float, int]:
+    """Resolve the early-return knobs once, tolerating a mocked namespace.
+
+    Disabled unless ``--early-return`` was passed explicitly. The mechanic is
+    documented by two wikis but has never been exercised in this client, and it
+    is the only feature here that navigates *away* from the home port while the
+    loop is merely waiting - so the default run must not acquire that ability
+    by accident.
+    """
+    enabled = getattr(args, "early_return", False) is True
+
+    def _number(name: str, default, cast, *, positive: bool):
+        value = getattr(args, name, default)
+        # A mocked namespace answers with a MagicMock, which ``float()`` happily
+        # converts. Only a real number or a real string may become a knob.
+        if not isinstance(value, (int, float, str)) or isinstance(value, bool):
+            return default
+        try:
+            number = cast(value)
+        except (TypeError, ValueError):
+            return default
+        if positive and not (number > 0):
+            return default
+        if not positive and number < 0:
+            return default
+        return number
+
+    lookahead = _number(
+        "early_return_lookahead_seconds", DEFAULT_EARLY_RETURN_LOOKAHEAD_SECONDS,
+        float, positive=True,
+    )
+    attempts = _number("early_return_max_attempts", 2, int, positive=False)
+    return bool(enabled), float(lookahead), int(attempts)
+
+
+def _read_early_return_observation(fleet_id: int) -> EarlyReturnObservation:
+    """One read-only Poi probe for the early-return precondition.
+
+    ``fresh`` means "this read succeeded at decision time" - it is not a claim
+    that Poi's cached Redux state already reflects the server. A failed read is
+    reported as ``fresh=False`` instead of raising: the caller must stop
+    judging, and stopping is not an error the whole loop should die of. The next
+    tick's supervisor read remains the authority on the fleet's phase.
+    """
+    try:
+        with connect_poi_session(timeout=5.0) as poi_session:
+            states = tuple(read_poi_fleet_states(poi_session.transport))
+    except Exception as exc:  # noqa: BLE001 - any read failure means "not fresh"
+        return EarlyReturnObservation(
+            mission_status=None,
+            fresh=False,
+            detail=f"{type(exc).__name__}: {exc}",
+        )
+    for state in states:
+        if state.fleet_id == fleet_id:
+            return EarlyReturnObservation(
+                mission_status=state.mission_status, fresh=True
+            )
+    return EarlyReturnObservation(
+        mission_status=None,
+        fresh=False,
+        detail=f"fleet {fleet_id} is absent from the Poi fleet snapshot",
+    )
+
+
+def _named_page(ui_driver) -> str | None:
+    """The page the client shows right now, without any side effect.
+
+    ``probe_drain_state`` is one frame ranked against every calibrated state.
+    ``None`` means the capability is not installed and ``UNKNOWN`` means the
+    frame could not be named; neither is a page, so neither may be compared to
+    a page name by the caller.
+    """
+    try:
+        named = ui_driver.probe_drain_state()
+    except Exception:  # noqa: BLE001 - a failed probe is "no answer", not a page
+        return None
+    if not isinstance(named, str) or named == "UNKNOWN":
+        return None
+    return named
+
+
+def _build_early_return(
+    args: argparse.Namespace,
+    *,
+    ui_driver,
+    event_sink,
+    fleet_id: int,
+    capture_countdown_frame,
+) -> tuple[ExpeditionEarlyReturn | None, dict[str, object]]:
+    """Compose the coordinator, or explain why the loop will not try it.
+
+    Two gates, both hard. ``--early-return`` opts in. A calibrated countdown
+    template is the second: without it every attempt would drive the client to
+    the expedition list and back for a reading that can never be produced, so
+    the feature is reported unavailable instead of switching screens for
+    nothing.
+    """
+    enabled, lookahead, attempts = _early_return_settings(args)
+    if not enabled:
+        return None, {
+            "reason": "not_requested",
+            "lookahead_seconds": lookahead,
+            "ui_switches_at_risk": 0,
+        }
+    template_path = getattr(args, "countdown_template", None)
+    if isinstance(template_path, Path):
+        path = template_path
+    elif isinstance(template_path, str) and template_path:
+        path = Path(template_path)
+    else:
+        # A MagicMock namespace carries no meaningful path; the documented
+        # default is the only honest reading of "nothing was configured".
+        path = Path(DEFAULT_COUNTDOWN_TEMPLATE_PATH)
+    try:
+        templates = CountdownTemplates.load(path)
+    except CountdownTemplateError as exc:
+        return None, {
+            "reason": "countdown_templates_unavailable",
+            "detail": str(exc)[:200],
+            "lookahead_seconds": lookahead,
+            "ui_switches_at_risk": 0,
+            "next_step": "record_the_displayed_countdown_glyphs_on_a_live_client",
+        }
+    reader = CountdownReader(capture=capture_countdown_frame, templates=templates)
+
+    def read_countdown():
+        text = reader.read_text()
+        if text is None:
+            return None
+        return read_remaining_from_text(text)
+
+    coordinator = ExpeditionEarlyReturn(
+        fleet_id=fleet_id,
+        read_poi=lambda: _read_early_return_observation(fleet_id),
+        open_expedition_list=ui_driver.open_expedition_list,
+        read_countdown=read_countdown,
+        current_page=lambda: _named_page(ui_driver),
+        go_home_port=lambda: ui_driver.return_to_home_port_by_observation(
+            fleet_id=fleet_id
+        ),
+        leave_home_port=ui_driver.leave_home_port,
+        event_sink=event_sink,
+        threshold_seconds=DEFAULT_EARLY_RETURN_THRESHOLD_SECONDS,
+    )
+    return coordinator, {
+        "reason": "enabled",
+        "lookahead_seconds": lookahead,
+        "max_attempts": attempts,
+        "threshold_seconds": DEFAULT_EARLY_RETURN_THRESHOLD_SECONDS,
+        "displayed_time_is_the_authority": True,
+        "abort_or_recall_clicked": False,
+    }
+
+
+def _nearest_deadline_fleet(
+    timers: Mapping[int, int], fleet_ids, *, now_epoch_ms: int
+) -> tuple[int, float] | None:
+    """The fleet closest to its deadline, and how long that is, in seconds.
+
+    A local deadline decides only *when it is worth looking* at the displayed
+    countdown - never whether the mechanic applies. That is exactly the
+    division the Japanese wiki demands, because a local clock drifts.
+    """
+    best: tuple[int, float] | None = None
+    for fleet_id in fleet_ids:
+        final_ms = timers.get(int(fleet_id))
+        if not isinstance(final_ms, int) or isinstance(final_ms, bool):
+            continue
+        remaining = (final_ms - now_epoch_ms) / 1000.0
+        if best is None or remaining < best[1]:
+            best = (int(fleet_id), remaining)
+    return best
+
+
+def _maybe_attempt_early_return(
+    *,
+    coordinator: ExpeditionEarlyReturn | None,
+    settings: Mapping[str, object],
+    timers: Mapping[int, int],
+    fleet_ids,
+    ui_arbiter,
+    event_sink,
+    tick_index: int,
+    tick_budget: int,
+    attempts_used: dict[int, int],
+) -> tuple[EarlyReturnOutcome | None, float | None]:
+    """One bounded early-return attempt when a deadline is close.
+
+    Returns the outcome and an optional cap for the following timer sleep. The
+    cap exists because the honest answer "the display still says more than a
+    minute" must not be followed by a sleep that runs past the moment the
+    display drops below it - the display, not the local clock, decides.
+    """
+    if coordinator is None:
+        return None, None
+    lookahead = settings.get("lookahead_seconds")
+    if not isinstance(lookahead, float) or not lookahead > 0:
+        return None, None
+    limit = settings.get("max_attempts")
+    limit = limit if isinstance(limit, int) and not isinstance(limit, bool) else 2
+
+    nearest = _nearest_deadline_fleet(
+        timers, fleet_ids, now_epoch_ms=int(time.time() * 1000)
+    )
+    if nearest is None:
+        return None, None
+    fleet_id, remaining = nearest
+    if remaining > lookahead:
+        # Nothing to look at yet: no screenshot, no navigation, no Poi probe.
+        return None, None
+    used = attempts_used.get(fleet_id, 0)
+    if used >= limit:
+        event_sink("expedition_early_return_skipped", {
+            "fleet_id": fleet_id,
+            "reason": "attempt_budget_spent",
+            "attempts_used": used,
+            "max_attempts": limit,
+            "local_remaining_seconds": round(remaining, 1),
+            "ui_switches_sent": 0,
+        })
+        return None, None
+
+    attempts_used[fleet_id] = used + 1
+    event_sink("expedition_early_return_attempting", {
+        "fleet_id": fleet_id,
+        "attempt": used + 1,
+        "max_attempts": limit,
+        "local_remaining_seconds": round(remaining, 1),
+        "lookahead_seconds": lookahead,
+        "displayed_time_is_the_authority": True,
+        "tick": tick_index,
+        "of": tick_budget,
+    })
+    # The attempt navigates and clicks, so it runs under the same cross-process
+    # UI mutex every controller uses; two processes must never drive the same
+    # client into two different screens.
+    try:
+        with ui_arbiter.operation("expedition_early_return"):
+            outcome = coordinator.attempt()
+    except Exception as exc:  # noqa: BLE001 - a refused navigation is not success
+        event_sink("expedition_early_return_failed", {
+            "fleet_id": fleet_id,
+            "error_type": type(exc).__name__,
+            "detail": str(exc)[:300],
+            "succeeded": False,
+            "next_step": "resume_the_normal_timer_wait_without_retrying_the_switch",
+        })
+        # The client may be anywhere after a refused navigation. A short sleep
+        # makes the next tick re-observe instead of sleeping to a deadline the
+        # display just contradicted.
+        return None, 0.0
+
+    cap: float | None = None
+    if outcome.succeeded:
+        # Poi now reports the pending settlement, so there is executable work
+        # waiting. Re-observe after the same fixed grace the loop already uses
+        # post-expiry instead of sleeping to a deadline the server just passed.
+        return outcome, float(DEFAULT_POST_EXPIRY_GRACE_SECONDS)
+    if outcome.reason == "displayed_remaining_time_at_or_above_threshold":
+        displayed = outcome.remaining_seconds
+        if isinstance(displayed, int) and displayed >= DEFAULT_EARLY_RETURN_THRESHOLD_SECONDS:
+            cap = float(displayed - DEFAULT_EARLY_RETURN_THRESHOLD_SECONDS) + 2.0
+    elif outcome.reason in (
+        "displayed_remaining_time_unreadable",
+        "client_still_reports_the_fleet_on_expedition",
+    ):
+        cap = 15.0
+    return outcome, cap
+
+
+def _timer_wait_settings(args: argparse.Namespace) -> tuple[bool, float, float | None, float]:
+    """Resolve the timer-wait knobs once, tolerating a mocked namespace.
+
+    ``run()`` validates the real CLI values; this keeps a MagicMock namespace
+    (the convention in the loop tests) from turning a mock into a sleep budget.
+    """
+    enabled = getattr(args, "timer_sleep", True) is not False
+    grace = getattr(args, "post_expiry_grace_seconds", DEFAULT_POST_EXPIRY_GRACE_SECONDS)
+    if (
+        not isinstance(grace, (int, float))
+        or isinstance(grace, bool)
+        or not math.isfinite(grace)
+        or grace < 0
+    ):
+        grace = DEFAULT_POST_EXPIRY_GRACE_SECONDS
+    cap = getattr(args, "max_timer_sleep_seconds", None)
+    if (
+        not isinstance(cap, (int, float))
+        or isinstance(cap, bool)
+        or not math.isfinite(cap)
+        or cap <= 0
+    ):
+        cap = None
+    interval = getattr(args, "tick_interval_seconds", 10.0)
+    if (
+        not isinstance(interval, (int, float))
+        or isinstance(interval, bool)
+        or not math.isfinite(interval)
+        or interval <= 0
+    ):
+        interval = 10.0
+    return enabled, float(grace), (float(cap) if cap is not None else None), float(interval)
+
+
+def _wait_before_next_observation(
+    args: argparse.Namespace,
+    sleeper: ExpeditionTimerSleeper,
+    *,
+    runtime,
+    supervisor,
+    target_fleet_ids,
+    tick_index: int,
+    tick_budget: int,
+    wake_reason: str,
+    sleep_cap_seconds: float | None = None,
+) -> str:
+    """Block until the next fleet deadline instead of polling the game.
+
+    Requirement A: while a target fleet's timer has not expired and nothing else
+    is executable, this is ONE blocking sleep straight to ``final_time_ms`` plus
+    the fixed post-expiry grace.  No Poi read, no CDP command, no screenshot and
+    no frame classification runs during it; the sleeper snapshots the probe
+    counters and raises if any of them moved.
+
+    Three bounded fall-backs keep the loop honest without reintroducing a poll:
+    no active timer (nothing to wait for), an already-expired timer (only the
+    3 s grace applies), and ``--no-timer-sleep`` (the historical interval).
+
+    ``sleep_cap_seconds`` shortens - never lengthens - that sleep. The early
+    return passes it after the expedition screen said "still more than a
+    minute": sleeping to the local deadline would then walk straight past the
+    moment the *displayed* time drops below the threshold the wiki describes.
+    A zero cap skips the sleep entirely so the next tick re-observes.
+    """
+    enabled, grace_seconds, max_sleep_seconds, interval = _timer_wait_settings(args)
+    if isinstance(sleep_cap_seconds, float) and math.isfinite(sleep_cap_seconds):
+        if sleep_cap_seconds < 0:
+            sleep_cap_seconds = 0.0
+        if max_sleep_seconds is None:
+            max_sleep_seconds = sleep_cap_seconds
+        else:
+            max_sleep_seconds = min(max_sleep_seconds, sleep_cap_seconds)
+        if sleep_cap_seconds <= 0:
+            _print_event(
+                "expedition_wait_reobserve_immediately",
+                tick=tick_index,
+                of=tick_budget,
+                wake_reason=wake_reason,
+                sleep_cap_seconds=0.0,
+                probes_during_wait=False,
+            )
+            return "reobserve_immediately"
+    plan = plan_timer_sleep(
+        timers=_collect_fleet_timers(runtime, supervisor, target_fleet_ids),
+        now_epoch_ms=int(time.time() * 1000),
+        grace_seconds=grace_seconds,
+        pending_fleet_ids=_pending_timer_work_fleet_ids(supervisor),
+        enabled=enabled,
+        max_sleep_seconds=max_sleep_seconds,
+    )
+    if plan.should_sleep:
+        sleeper.wait(plan)
+        return "timer_sleep"
+    if plan.timers and plan.reason == "timer_expired_refresh_may_start":
+        # The deadline has already passed: the contract asks for the same fixed
+        # grace before the visible 出击 -> 母港 refresh, nothing longer.
+        _print_event(
+            "expedition_timer_expired_grace",
+            tick=tick_index,
+            of=tick_budget,
+            fleet_timer_count=len(plan.timers),
+            grace_seconds=plan.grace_seconds,
+            next_step="visible_sortie_home_refresh_then_fresh_poi_read",
+            probes_during_wait=False,
+        )
+        time.sleep(plan.grace_seconds)
+        return "post_expiry_grace"
+    _print_event(
+        "expedition_wait_without_timer",
+        tick=tick_index,
+        of=tick_budget,
+        reason=plan.reason,
+        wake_reason=wake_reason,
+        pending_fleet_ids=list(plan.pending_fleet_ids),
+        fleet_timer_count=len(plan.timers),
+        next_wake_seconds=interval,
+    )
+    time.sleep(interval)
+    return "interval_fallback"
+
+
 def _run_production_supervisor_once(args: argparse.Namespace) -> int:
     """Compose the durable monitor/controller/supervisor with the visible CDP driver."""
     from datetime import timedelta
@@ -1615,6 +2213,9 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
 
     runtime = None
     witness_provider = None
+    # Restored in finally so a cancelled timer sleep never leaves a modified
+    # signal disposition behind for the next in-process run.
+    _previous_signal_handlers: dict[object, object] = {}
     # P0 Step 1: stateless control is now the default; --strict restores the
     # old ledger-veto semantics. The resolver keeps strict identity so a
     # MagicMock namespace can never silently flip the control mode.
@@ -1750,6 +2351,69 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 # dispatch checkpoints keep their stricter three-sample gate.
                 return verify_state(expected, visual_attempts=6)
 
+            # One frame -> (page, fingerprint) for the bounded return refresh.
+            # The page comes from the SAME single-frame all-state ranking the
+            # drain probe uses (unchanged 0.97 / 0.04 thresholds); the
+            # fingerprint comes from the same frame, so "did the picture move"
+            # and "which page is this" always describe one capture.
+            refresh_fingerprint_document = None
+            try:
+                refresh_fingerprint_path = Path(
+                    os.environ.get(
+                        "KANCOLLEBOT_FINGERPRINTS_PATH",
+                        ROOT / "src" / "kancollebot" / "adapters" / "poi"
+                        / "ooi_1200x720_fingerprints.json",
+                    )
+                )
+                if refresh_fingerprint_path.is_file():
+                    refresh_fingerprint_document = _read_visual_document(
+                        refresh_fingerprint_path
+                    )
+            except (OSError, ValueError) as exc:
+                _print_event(
+                    "refresh_page_observer_unavailable",
+                    reason=f"{type(exc).__name__}: {exc}",
+                )
+            if refresh_fingerprint_document is None and args.enable_ui_refresh:
+                _print_event(
+                    "refresh_page_observer_unavailable",
+                    reason=(
+                        "the calibrated fingerprint document is missing; the "
+                        "return refresh keeps its fixed-attempt checkpoints"
+                    ),
+                )
+
+            def refresh_observe_page() -> PageSample:
+                game_session.transport.send(
+                    "Input.dispatchMouseEvent",
+                    {"type": "mouseMoved", "x": 1195, "y": 715},
+                )
+                time.sleep(HOME_REFERENCE_SETTLE_SECONDS)
+                payload = game_session.input.capture_screenshot(from_surface=True)
+                ranking = rank_screenshot_fingerprints(
+                    payload, refresh_fingerprint_document
+                )
+                sample = PageSample(
+                    state=ranking.state,
+                    scores=ranking.scores,
+                    fingerprint=screen_fingerprint(payload),
+                )
+                _print_event(
+                    "refresh_page_observed",
+                    observed=ranking.state,
+                    best_name=ranking.best_name,
+                    best_score=round(ranking.best_score, 4),
+                    second_name=ranking.second_name,
+                    second_score=round(ranking.second_score, 4),
+                    accepted=ranking.accepted,
+                    minimum_score=0.97,
+                    minimum_margin=0.04,
+                    frame_fingerprint_cells=len(sample.fingerprint or ()),
+                    screenshot_written_to_disk=False,
+                    authorizes_click=False,
+                )
+                return sample
+
             runtime = build_runtime(
                 database_path=args.database,
                 observer_script=args.observer_script,
@@ -1765,6 +2429,13 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 enable_ui_refresh=args.enable_ui_refresh,
                 ui_input=game_session.input if args.enable_ui_refresh else None,
                 ui_state_verifier=refresh_verify_state if args.enable_ui_refresh else None,
+                ui_page_observer=(
+                    refresh_observe_page
+                    if args.enable_ui_refresh and refresh_fingerprint_document is not None
+                    else None
+                ),
+                page_observation_budget=_refresh_observation_budget(args),
+                refresh_verifier_error_types=(LoopError,),
                 adopt_unplanned_missions=args.adopt_observed_mission,
                 run_log_dir=args.run_log_dir,
                 prebuilt_run_log_sink=_active_run_log_sink(),
@@ -1890,6 +2561,9 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                 details=load_detail_index(args.detail_index),
                 marks=load_marks(args.marks),
                 capture=capture_frame,
+                # The 母港 control rotates: every return/resupply click resolves
+                # its point from a fresh frame instead of a recorded coordinate.
+                home_port_locator=HomePortButtonLocator(capture=capture_frame),
                 classify_frame=(
                     classify_frame if drain_probe_document is not None else None
                 ),
@@ -1902,6 +2576,37 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     "Input.dispatchMouseEvent",
                     {"type": "mouseMoved", "x": 1195, "y": 715},
                 ),
+            )
+
+            def capture_countdown_frame() -> str:
+                """One fresh frame of the expedition-screen countdown.
+
+                Same pointer neutralisation the refresh observer uses: a resting
+                cursor over the digits is a colour change in the crop, and the
+                reader compares glyphs, not intent.
+                """
+                game_session.transport.send(
+                    "Input.dispatchMouseEvent",
+                    {"type": "mouseMoved", "x": 1195, "y": 715},
+                )
+                time.sleep(HOME_REFERENCE_SETTLE_SECONDS)
+                return game_session.input.capture_screenshot(from_surface=True)
+
+            early_return, early_return_settings = _build_early_return(
+                args,
+                ui_driver=ui_driver,
+                event_sink=runtime.monitor.event_sink,
+                fleet_id=target_fleet_id,
+                capture_countdown_frame=capture_countdown_frame,
+            )
+            early_return_attempts: dict[int, int] = {}
+            _print_event(
+                "expedition_early_return_configuration",
+                fleet_id=target_fleet_id,
+                coordinator_ready=early_return is not None,
+                game_api_requests=False,
+                game_input_sent=False,
+                **early_return_settings,
             )
             dispatch_coordinator = DurableDispatchCoordinator(
                 runtime.scheduler,
@@ -2099,11 +2804,21 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                         timeout_seconds=args.drain_timeout_seconds,
                         action_interval_seconds=args.drain_action_interval_seconds,
                         stable_frame_count=args.drain_stable_frame_count,
+                        action_observation_seconds=(
+                            args.drain_action_observation_seconds
+                        ),
                     )
+                    # Server-first guard: once Poi reports no pending settlement,
+                    # the drain may only wait for the UI. Read-only, and consulted
+                    # before every settlement input rather than after it.
+                    def _no_fleet_pending_settlement() -> bool:
+                        return not _pending_settlement_fleet_ids()
+
                     supervisor_drain_session = SettlementDrainSession(
                         PoiSettlementDrainObserver(ui_driver),
                         PoiSettlementDrainDriver(ui_driver),
                         event_sink=runtime.monitor.event_sink,
+                        settlement_settled=_no_fleet_pending_settlement,
                     )
                     _print_event(
                         "global_drain_wired",
@@ -2293,8 +3008,38 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                     dispatch_count=len(result.dispatches),
                     game_actions_sent=0,
                     tick=tick_index,
+                    # Why each fleet could not be dispatched, not just that it
+                    # could not: the label alone is not a reconstructable cause.
+                    fleet_decisions=_fleet_decision_summary(result),
                 )
                 return 2
+
+            # One explicit shutdown/cancel channel for the blocking timer sleep.
+            # A sleeping process can only be woken by this signal; waking is by
+            # Event.wait, never by a periodic screenshot or state poll.
+            timer_cancel = threading.Event()
+
+            def _cancel_timer_sleep(signum, _frame):
+                timer_cancel.set()
+                _print_event(
+                    "expedition_timer_sleep_cancel_requested",
+                    signal=signum,
+                    game_actions_sent=0,
+                )
+
+            for _name in ("SIGINT", "SIGTERM", "SIGBREAK"):
+                _sig = getattr(signal, _name, None)
+                if _sig is None:
+                    continue
+                try:
+                    _previous_signal_handlers[_sig] = signal.signal(_sig, _cancel_timer_sleep)
+                except (OSError, ValueError):
+                    # Not the main thread, or the platform refuses this signal.
+                    pass
+            timer_sleeper = ExpeditionTimerSleeper(
+                cancel_event=timer_cancel,
+                event_sink=event_sink_from_stdout(_print_event),
+            )
 
             # One tick is the historical contract: dispatch (or explain why not)
             # and exit. --wait-for-return turns the same tick into a bounded
@@ -2333,7 +3078,13 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                             tick=tick_index,
                         )
                         return 2
-                    time.sleep(args.tick_interval_seconds)
+                    _wait_before_next_observation(
+                        args, timer_sleeper,
+                        runtime=runtime, supervisor=supervisor,
+                        target_fleet_ids=target_fleet_ids,
+                        tick_index=tick_index, tick_budget=max_ticks,
+                        wake_reason="no_trusted_observation",
+                    )
                     continue
                 report_actions(tick_index, result)
                 if result.paused_reason is not None:
@@ -2345,9 +3096,10 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                         )
                     # Wait mode: the supervisor drives each fleet's lifecycle
                     # (out -> settle -> resupply -> re-dispatch) inside this
-                    # tick, so we keep polling until max_ticks rather than
-                    # asserting a single fleet is out. A pause happens only when
-                    # the observation budget is exhausted.
+                    # tick. Between ticks the loop now blocks on the fleet's own
+                    # timer instead of re-reading Poi every tick_interval: an
+                    # unexpired deadline has nothing an observation can advance.
+                    # A pause happens only when the observation budget is spent.
                     if tick_index == max_ticks:
                         return pause(
                             result,
@@ -2358,9 +3110,42 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
                         "production_waiting_for_return",
                         tick=tick_index,
                         fleet_ids=list(target_fleet_ids),
-                        next_tick_seconds=args.tick_interval_seconds,
+                        poll_interval_seconds=args.tick_interval_seconds,
+                        wait_strategy=(
+                            "blocking_timer_sleep" if args.timer_sleep
+                            else "legacy_interval_sleep"
+                        ),
+                        probes_during_wait=False,
                     )
-                    time.sleep(args.tick_interval_seconds)
+                    # Documented early completion, attempted only when a deadline
+                    # is close enough to be worth reading the expedition screen.
+                    # The local deadline decides *when to look*; the displayed
+                    # countdown decides whether anything happens.
+                    early_outcome, sleep_cap = _maybe_attempt_early_return(
+                        coordinator=early_return,
+                        settings=early_return_settings,
+                        timers=_collect_fleet_timers(
+                            runtime, supervisor, target_fleet_ids
+                        ),
+                        fleet_ids=target_fleet_ids,
+                        ui_arbiter=ui_arbiter,
+                        event_sink=runtime.monitor.event_sink,
+                        tick_index=tick_index,
+                        tick_budget=max_ticks,
+                        attempts_used=early_return_attempts,
+                    )
+                    _wait_before_next_observation(
+                        args, timer_sleeper,
+                        runtime=runtime, supervisor=supervisor,
+                        target_fleet_ids=target_fleet_ids,
+                        tick_index=tick_index, tick_budget=max_ticks,
+                        wake_reason=(
+                            "early_return_confirmed"
+                            if early_outcome is not None and early_outcome.succeeded
+                            else "return_not_observed"
+                        ),
+                        sleep_cap_seconds=sleep_cap,
+                    )
                     continue
 
                 # Every dispatch the supervisor returned must be one of our
@@ -2420,6 +3205,12 @@ def _run_production_supervisor_once(args: argparse.Namespace) -> int:
             f"Production UI controller stopped fail-closed: {type(exc).__name__}: {exc}"
         ) from exc
     finally:
+        for _sig, _handler in list(_previous_signal_handlers.items()):
+            try:
+                signal.signal(_sig, _handler)
+            except (OSError, ValueError, TypeError):
+                pass
+        _previous_signal_handlers.clear()
         if witness_provider is not None:
             # A passive observer child must not outlive its run. Cancellation
             # sets a signal only; it never fabricates a capture.
@@ -2471,6 +3262,42 @@ def run(args: argparse.Namespace) -> int:
         interval = args.tick_interval_seconds
         if not isinstance(interval, (int, float)) or isinstance(interval, bool) or not (interval > 0):
             raise LoopError("--tick-interval-seconds must be positive")
+        grace = args.post_expiry_grace_seconds
+        if (
+            not isinstance(grace, (int, float))
+            or isinstance(grace, bool)
+            or not math.isfinite(grace)
+            or grace < 0
+        ):
+            raise LoopError("--post-expiry-grace-seconds must be finite and non-negative")
+        cap = args.max_timer_sleep_seconds
+        if cap is not None and (
+            not isinstance(cap, (int, float))
+            or isinstance(cap, bool)
+            or not math.isfinite(cap)
+            or cap <= 0
+        ):
+            raise LoopError("--max-timer-sleep-seconds must be positive or unset")
+    # The early-return knobs are validated even when the feature is off: a run
+    # that names them has stated an intent, and silently ignoring a malformed
+    # value would make the flag look applied when it was not. A non-numeric
+    # fixture namespace is "not provided", the same tolerance the rest of this
+    # file gives a mocked namespace.
+    raw_lookahead = getattr(args, "early_return_lookahead_seconds", None)
+    if isinstance(raw_lookahead, (int, float)) and (
+        isinstance(raw_lookahead, bool)
+        or not math.isfinite(raw_lookahead)
+        or raw_lookahead <= 0
+    ):
+        raise LoopError("--early-return-lookahead-seconds must be positive")
+    raw_attempts = getattr(args, "early_return_max_attempts", None)
+    if isinstance(raw_attempts, int) and not isinstance(raw_attempts, bool) and raw_attempts < 0:
+        raise LoopError("--early-return-max-attempts must be a non-negative integer")
+    if getattr(args, "early_return", False) is True and not args.wait_for_return:
+        raise LoopError(
+            "--early-return needs --wait-for-return: with a single tick there is "
+            "no wait whose deadline it could shorten"
+        )
     from kancollebot.adapters.poi.visual_target import (
         VisualTargetError,
         require_visual_dependencies,
@@ -2606,7 +3433,17 @@ def _main_impl(argv: list[str] | None = None) -> int:
         "--drain-action-interval-seconds",
         type=float,
         default=2.5,
-        help="Observation window after each drain input; must exceed the page transition",
+        help="Minimum post-action window. After it, the same page is still "
+             "acceptable while the frames are provably changing; it becomes "
+             "ui_stuck only when they are also frozen",
+    )
+    parser.add_argument(
+        "--drain-action-observation-seconds",
+        type=float,
+        default=30.0,
+        help="Upper bound for one post-action observation (default 30 s). It does "
+             "not lengthen the failure window: a frozen screen still stops as "
+             "ui_stuck, this only allows a still-animating screen to finish",
     )
     parser.add_argument(
         "--drain-stable-frame-count",
@@ -2733,6 +3570,79 @@ def _main_impl(argv: list[str] | None = None) -> int:
         type=float,
         default=10.0,
         help="Pause between ticks while waiting for a return",
+    )
+    parser.add_argument(
+        "--no-timer-sleep",
+        action="store_false",
+        dest="timer_sleep",
+        default=True,
+        help="Disable the blocking sleep to the fleet's Poi timer and fall back to "
+             "the historical --tick-interval-seconds pause. Off by default: an "
+             "unexpired deadline has nothing an observation can advance, so the "
+             "loop sleeps straight to final_time_ms + grace with zero probes",
+    )
+    parser.add_argument(
+        "--post-expiry-grace-seconds",
+        type=float,
+        default=DEFAULT_POST_EXPIRY_GRACE_SECONDS,
+        help="Extra wall-clock wait after a fleet timer expires, before the visible "
+             "出击 -> 母港 refresh starts (contract default: 3 s)",
+    )
+    parser.add_argument(
+        "--max-timer-sleep-seconds",
+        type=float,
+        default=None,
+        help="Optional cap on one blocking timer sleep. Unset means sleep to the "
+             "actual deadline; a cap only shortens the sleep, it never adds probes",
+    )
+    parser.add_argument(
+        "--refresh-observation-seconds",
+        type=float,
+        default=DEFAULT_TOTAL_BUDGET_SECONDS,
+        help="Total bounded observation budget for one 出击 -> 母港 refresh "
+             "(default 120 s). Frames are sampled while the page is identified or "
+             "the screen is provably still; time alone never proves a page",
+    )
+    parser.add_argument(
+        "--refresh-changed-unknown-limit",
+        type=int,
+        default=DEFAULT_CHANGED_UNKNOWN_LIMIT,
+        help="How many CHANGING unrecognised frames one refresh tolerates before "
+             "it stops (default 20). A frozen unrecognised frame does not consume "
+             "this budget; it stays bounded by the total seconds instead",
+    )
+    parser.add_argument(
+        "--early-return",
+        action="store_true",
+        help="Opt in to the documented early completion: when the expedition "
+             "screen itself displays less than one minute, return to the home "
+             "port to finish the expedition without waiting. Off by default "
+             "because it navigates away from the port while merely waiting, and "
+             "the mechanic is sourced from two wikis but unverified in this "
+             "client. It also needs a calibrated countdown template, and it "
+             "never clicks 遠征中止 or 召還",
+    )
+    parser.add_argument(
+        "--early-return-lookahead-seconds",
+        type=float,
+        default=DEFAULT_EARLY_RETURN_LOOKAHEAD_SECONDS,
+        help="How long before a fleet's own deadline the displayed countdown "
+             "becomes worth reading (default 90 s). This only decides when to "
+             "look; the screen's own display decides whether anything happens",
+    )
+    parser.add_argument(
+        "--early-return-max-attempts",
+        type=int,
+        default=2,
+        help="Bounded screen-switch attempts per fleet per run (default 2). A "
+             "refused attempt is never retried in a loop",
+    )
+    parser.add_argument(
+        "--countdown-template",
+        type=Path,
+        default=DEFAULT_COUNTDOWN_TEMPLATE_PATH,
+        help="Calibrated countdown glyph template JSON. Without it every "
+             "reading is None and the early return stays unavailable",
     )
     args = parser.parse_args(argv)
     global LOG_PATH, RUN_ID, HOME_REFERENCE_BASE64

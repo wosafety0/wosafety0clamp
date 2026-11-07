@@ -39,6 +39,10 @@ from kancollebot.expeditions.continuous_scheduler import (  # noqa: E402
     ContinuousExpeditionScheduler,
     UiOperationArbiter,
 )
+from kancollebot.adapters.poi.home_port_button_vision import (  # noqa: E402
+    HomePortButtonLocator,
+    HomePortVisionThresholds,
+)
 from kancollebot.adapters.poi.visible_ui_refresh import (  # noqa: E402
     FreshnessRefreshingStateReader,
     VisibleUiPortRefreshDriver,
@@ -144,6 +148,21 @@ def build_runtime(
     enable_ui_refresh: bool = False,
     ui_input: Any | None = None,
     ui_state_verifier: Callable[[str], UiStateEvidence] | None = None,
+    # One frame -> (page, fingerprint). When supplied, the return refresh stops
+    # counting frames inside a fixed window and starts observing until the page
+    # is stably named or an explicit budget runs out. ``None`` keeps the legacy
+    # fixed-attempt verifier so existing callers behave exactly as before.
+    ui_page_observer: Callable[[], Any] | None = None,
+    page_observation_budget: Any | None = None,
+    # The caller's verifier error type (the tool layer's ``LoopError``) so an
+    # exhausted verifier is normalised into the refresh's own error instead of
+    # escaping as an unexpected failure that skips its diagnostics.
+    refresh_verifier_error_types: tuple[type[BaseException], ...] = (),
+    home_port_vision_thresholds: HomePortVisionThresholds | None = None,
+    # An explicitly supplied locator wins over building one from ``ui_input``.
+    # Production passes nothing and gets the frame-bound locator below; a test
+    # with no game frame injects the project's StaticHomePortLocator seam.
+    home_port_locator: Any | None = None,
     refresh_wait_seconds: float = RUNTIME_CONFIG.refresh_wait_seconds,
     refresh_poll_seconds: float = RUNTIME_CONFIG.refresh_poll_seconds,
     refresh_cooldown_seconds: float = RUNTIME_CONFIG.refresh_cooldown_seconds,
@@ -304,11 +323,34 @@ def build_runtime(
     ui_refresh_driver = None
     state_reader = reader
     if enable_ui_refresh:
+        # The return-to-Home-Port step must locate the rotating 母港 badge on a
+        # fresh frame.  A game input without a screenshot source is refused
+        # here, at composition time, rather than degrading to a coordinate.
+        if home_port_locator is not None:
+            if not callable(getattr(home_port_locator, "locate", None)):
+                raise ValueError("home_port_locator must expose locate()")
+            resolved_locator = home_port_locator
+        else:
+            capture_frame = getattr(ui_input, "capture_screenshot", None)
+            if not callable(capture_frame):
+                raise ValueError(
+                    "UI refresh requires a screenshot-capable game input for the "
+                    "visual 母港 button locator; a fixed coordinate is refused"
+                )
+            resolved_locator = HomePortButtonLocator(
+                capture=lambda: capture_frame(from_surface=True),
+                thresholds=home_port_vision_thresholds,
+            )
         ui_refresh_driver = VisibleUiPortRefreshDriver(
             game_input=ui_input,
             verify_state=ui_state_verifier,
             ui_arbiter=ui_arbiter,
             event_sink=event_sink,
+            home_port_locator=resolved_locator,
+            home_port_thresholds=home_port_vision_thresholds,
+            observe_page=ui_page_observer,
+            observation_budget=page_observation_budget,
+            verifier_error_types=refresh_verifier_error_types,
         )
         state_reader = FreshnessRefreshingStateReader(
             reader,

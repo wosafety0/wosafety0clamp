@@ -275,6 +275,10 @@ class CdpInput:
         bubble at a 0.999 score. A caller that is looking for such an overlay
         must ask for the composited surface explicitly.
         """
+        # Probe instrumentation: the timer sleeper proves no screenshot was
+        # taken while it was sleeping by watching this counter.
+        from kancollebot.observability.probe_counter import mark_probe
+        mark_probe("screenshot")
         if not isinstance(from_surface, bool):
             raise CdpInputError("from_surface must be a bool")
         try:

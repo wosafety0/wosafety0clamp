@@ -31,6 +31,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
 
+from kancollebot.observability.page_observation import MotionTracker
+
 __all__ = [
     "DEFAULT_FRAME_POLL_INTERVAL_SECONDS",
     "DrainClock",
@@ -72,6 +74,14 @@ class DrainErrorType(Enum):
     UNKNOWN_DIALOG = "unknown_dialog"
     NETWORK_ERROR = "network_error"
     UNKNOWN_PAGE = "unknown_page"
+    #: The screen kept animating for the whole post-action observation budget, so
+    #: neither "it advanced" nor "it is frozen" could be proven. Nothing is stuck
+    #: and nothing failed: the client was simply still transitioning.
+    OBSERVATION_BUDGET_EXHAUSTED = "observation_budget"
+    #: The server already reported the settlement as collected while the client
+    #: was still displaying the settlement page. Refreshing it is UI-only now:
+    #: no further settlement click may be sent.
+    SETTLED_UI_PENDING = "settled_ui_pending"
 
 
 #: Pages that may be advanced with exactly one action.
@@ -102,7 +112,6 @@ _MANUAL_INTERVENTION_ERRORS: frozenset[DrainErrorType] = frozenset(
         DrainErrorType.UNKNOWN_PAGE,
     }
 )
-
 
 def _require_positive_int(name: str, value: object) -> int:
     """Reject bools (``bool`` is an ``int`` subclass) and non-ints."""
@@ -143,6 +152,13 @@ class SettlementDrainRequest:
     timeout_seconds: float
     action_interval_seconds: float
     stable_frame_count: int
+    #: Upper bound for the *post-action* observation, in seconds. ``None`` means
+    #: "same as action_interval_seconds", i.e. the historical behaviour. When it
+    #: is larger, the interval becomes the point after which only a *provably
+    #: frozen* screen counts as stuck; an animating screen keeps being observed
+    #: until this bound. It is not a blanket timeout replacement: a stuck UI is
+    #: still reported as soon as the frames stop changing.
+    action_observation_seconds: float | None = None
 
     def __post_init__(self) -> None:
         self.validate()
@@ -155,6 +171,24 @@ class SettlementDrainRequest:
             "action_interval_seconds", self.action_interval_seconds, allow_zero=False
         )
         _require_positive_int("stable_frame_count", self.stable_frame_count)
+        if self.action_observation_seconds is not None:
+            observation = _require_finite_float(
+                "action_observation_seconds",
+                self.action_observation_seconds,
+                allow_zero=False,
+            )
+            if observation < float(self.action_interval_seconds):
+                raise ValueError(
+                    "action_observation_seconds must not be shorter than "
+                    "action_interval_seconds"
+                )
+
+    @property
+    def observation_budget_seconds(self) -> float:
+        """How long one action's result may be observed before giving up."""
+        if self.action_observation_seconds is None:
+            return float(self.action_interval_seconds)
+        return float(self.action_observation_seconds)
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,6 +230,10 @@ class DrainPageObserver(Protocol):
         """Return the page recognised *right now*; never click or navigate."""
         ...
 
+    # ``sample()`` is optional. An observer that can also return a fingerprint of
+    # the same frame lets the session distinguish "still animating" from "frozen
+    # on the same page"; without it the session keeps the historical verdict.
+
 
 class DrainUiDriver(Protocol):
     """Perform exactly one visible-UI action for the given page.
@@ -233,6 +271,23 @@ class _SystemClock:
 
 
 @dataclass(frozen=True, slots=True)
+class DrainSample:
+    """One observation of the settlement UI: the page plus its frame descriptor.
+
+    ``fingerprint`` is the grid descriptor of the *same* frame, so the answer to
+    "did the picture change" and the answer to "which page is this" always
+    describe one capture. ``None`` means the observer has no frame access.
+    """
+
+    page: DrainPageState
+    fingerprint: tuple[int, ...] | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.page, DrainPageState):
+            raise ValueError("page must be a DrainPageState")
+
+
+@dataclass(frozen=True, slots=True)
 class _Wait:
     """Outcome of one observation loop."""
 
@@ -267,6 +322,7 @@ class SettlementDrainSession:
         "_frame_poll_interval",
         "_event_sink",
         "_started_at",
+        "_settlement_settled",
     )
 
     def __init__(
@@ -277,6 +333,12 @@ class SettlementDrainSession:
         clock: DrainClock | None = None,
         frame_poll_interval_seconds: float = DEFAULT_FRAME_POLL_INTERVAL_SECONDS,
         event_sink: Callable[[str, Mapping[str, object]], None] | None = None,
+        # Read-only server-side check: "has the settlement already been
+        # collected?" It is consulted *before* every action and while waiting.
+        # Once it is true the drain may only observe the UI - clicking a
+        # settlement page the server no longer knows about is exactly the
+        # double-claim this guard exists to prevent.
+        settlement_settled: Callable[[], bool] | None = None,
     ) -> None:
         if not callable(getattr(observer, "observe", None)):
             raise ValueError("observer must expose a callable observe()")
@@ -284,6 +346,8 @@ class SettlementDrainSession:
             raise ValueError("driver must expose a callable advance(page)")
         if event_sink is not None and not callable(event_sink):
             raise ValueError("event_sink must be callable when given")
+        if settlement_settled is not None and not callable(settlement_settled):
+            raise ValueError("settlement_settled must be callable when given")
         self._observer = observer
         self._driver = driver
         self._clock: DrainClock = clock if clock is not None else _SystemClock()
@@ -292,6 +356,7 @@ class SettlementDrainSession:
         )
         self._event_sink = event_sink
         self._started_at: float | None = None
+        self._settlement_settled = settlement_settled
 
     # -- logging ------------------------------------------------------------
 
@@ -299,6 +364,34 @@ class SettlementDrainSession:
         if self._event_sink is None:
             return
         self._event_sink(event, dict(fields))
+
+    def _sample(self) -> DrainSample:
+        """Observe once, asking for a fingerprint when the observer has one."""
+        sampler = getattr(self._observer, "sample", None)
+        if callable(sampler):
+            sampled = sampler()
+            if isinstance(sampled, DrainSample):
+                return sampled
+            page = getattr(sampled, "page", None)
+            if isinstance(page, DrainPageState):
+                return DrainSample(
+                    page=page, fingerprint=getattr(sampled, "fingerprint", None)
+                )
+        return DrainSample(page=self._observer.observe())
+
+    def _settled(self) -> bool:
+        """True when the server already reports the settlement as collected."""
+        if self._settlement_settled is None:
+            return False
+        try:
+            return bool(self._settlement_settled())
+        except Exception as exc:  # noqa: BLE001 - unknown server state is not "settled"
+            self._emit("settlement_drain_settled_check_failed", {
+                "error_type": type(exc).__name__,
+                "clicks_sent": 0,
+                "interpretation": "treated as not settled; no click is authorised by a failed check",
+            })
+            return False
 
     # -- public API ---------------------------------------------------------
 
@@ -366,6 +459,27 @@ class SettlementDrainSession:
                     actions_performed=actions_performed,
                     final_page=page,
                     error=DrainErrorType.TIMEOUT,
+                )
+
+            if self._settled():
+                # The server already shows no pending settlement. The client is
+                # only catching up, and clicking a page the account no longer
+                # owes a claim for is the double-claim this guard prevents.
+                self._emit("settlement_drain_ui_only_wait", {
+                    "page": page.value,
+                    "actions_performed": actions_performed,
+                    "clicks_sent": 0,
+                    "error": DrainErrorType.SETTLED_UI_PENDING.value,
+                    "reason": (
+                        "the server reports no pending settlement; only the UI "
+                        "is still catching up, so no settlement click is sent"
+                    ),
+                })
+                return self._result(
+                    completed_pages=completed_pages,
+                    actions_performed=actions_performed,
+                    final_page=page,
+                    error=DrainErrorType.SETTLED_UI_PENDING,
                 )
 
             # The row describing the action is written BEFORE the input, so an
@@ -473,39 +587,91 @@ class SettlementDrainSession:
         bound: float,
         deadline: float,
     ) -> _Wait:
-        """Wait for a *different* page, then require it to be stable.
+        """Wait for a *different* page, bounding only what can be proven.
 
-        The bound only limits "nothing changed at all". Once the page does move,
-        stabilising the new page is bounded by the whole-drain timeout instead,
-        so a slow animation cannot be mistaken for a stuck UI.
+        ``bound`` used to mean "nothing happened by now, so the UI is stuck". It
+        no longer does. Live 2026-11-07 the drain clicked a return notice, saw the
+        same page 2.5 s later and stopped the whole run with ``ui_stuck`` while
+        the client was still animating. A fixed window cannot tell "still
+        transitioning" from "input was swallowed" from "really stuck"; the frames
+        can:
+
+        * frames still changing -> keep observing, up to the post-action budget;
+        * frames provably frozen on the acted-on page -> ``UI_STUCK``;
+        * server already reports the settlement collected -> observe only, never
+          click, and stop with ``SETTLED_UI_PENDING`` when the budget runs out;
+        * moving but never naming a page -> ``OBSERVATION_BUDGET_EXHAUSTED``.
+
+        With an observer that exposes no fingerprint the historical verdict is
+        kept verbatim, because there is nothing better to base it on.
         """
         last = previous
         seen_change = False
         run = 0
         reverted_run = 0
+        motion = MotionTracker()
+        observation_deadline = min(
+            deadline,
+            self._clock.monotonic() + request.observation_budget_seconds,
+        )
         while True:
             now = self._clock.monotonic()
             if now >= deadline:
                 return _failed(DrainErrorType.TIMEOUT, last)
-            if not seen_change and now >= bound:
-                # Nothing moved at all within the bounded observation window.
-                return _failed(DrainErrorType.UI_STUCK, last)
-            page = self._observer.observe()
+
+            sample = self._sample()
+            movement = motion.observe(sample.fingerprint)
+            page = sample.page
+
             if page is previous:
+                last = page
                 if not seen_change:
-                    # Still the page we just acted on: nothing to confirm yet.
-                    last = page
+                    if now >= bound:
+                        if self._settled():
+                            # The account owes nothing more; only the client is
+                            # catching up. Waiting is allowed, clicking is not.
+                            if now >= observation_deadline:
+                                return _failed(
+                                    DrainErrorType.SETTLED_UI_PENDING, last
+                                )
+                            self._emit("settlement_drain_ui_only_wait", {
+                                "page": page.value,
+                                "still_run": movement.still_run,
+                                "frame_changed": movement.changed,
+                                "clicks_sent": 0,
+                                "reason": "server reports no pending settlement; UI is catching up",
+                            })
+                            self._clock.sleep(self._frame_poll_interval)
+                            continue
+                        if movement.changed is None:
+                            # No motion signal: this is exactly the historical
+                            # situation, and the historical verdict stands.
+                            return _failed(DrainErrorType.UI_STUCK, last)
+                        if movement.still_run >= request.stable_frame_count:
+                            # Provably frozen on the page we just acted on: the
+                            # input did not take, and clicking again would repeat
+                            # an action on an unchanged page.
+                            self._emit("settlement_drain_ui_frozen", {
+                                "page": page.value,
+                                "still_run": movement.still_run,
+                                "clicks_sent": 0,
+                            })
+                            return _failed(DrainErrorType.UI_STUCK, last)
+                        if now >= observation_deadline:
+                            return _failed(
+                                DrainErrorType.OBSERVATION_BUDGET_EXHAUSTED, last
+                            )
                 else:
                     # The page bounced back to the one just acted on. If that
                     # persists, clicking again would repeat an action on an
                     # unchanged page, so stop instead.
-                    last = page
                     run = 0
                     reverted_run += 1
                     if reverted_run >= request.stable_frame_count:
                         return _failed(DrainErrorType.UI_STUCK, previous)
                 self._clock.sleep(self._frame_poll_interval)
                 continue
+
             reverted_run = 0
             seen_change = True
             if page is last and run > 0:

@@ -79,6 +79,8 @@ def _optional_nonnegative_int(value: Any, label: str) -> int | None:
 
 def read_poi_fleet_states(transport: CdpReadTransport) -> tuple[PoiFleetMissionState, ...]:
     """Read fleet mission, ship membership, and Fleet 2/3 supply from Poi's cached Redux state."""
+    from kancollebot.observability.probe_counter import mark_probe
+    mark_probe("fleet_state")
     result = transport.send(
         "Runtime.evaluate",
         {"expression": READ_ONLY_FLEET_SNAPSHOT_EXPRESSION, "returnByValue": True},

@@ -170,6 +170,8 @@ class PoiMcpClient:
 
     def call_read_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Call an explicitly allowlisted read tool and return its MCP result."""
+        from kancollebot.observability.probe_counter import mark_probe
+        mark_probe("poi")
         if name not in {"poi_describe", "poi_get", "poi_lookup"}:
             raise ValueError("only poi_describe, poi_get, and poi_lookup are allowed")
         result = self._request("tools/call", {"name": name, "arguments": arguments})

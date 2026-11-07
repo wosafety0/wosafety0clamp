@@ -14,6 +14,16 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import one_expedition_ui_loop as controller
 from kancollebot.adapters.poi.cdp_fleet_state import PoiFleetMissionState, PoiShipSupplyState
+from kancollebot.adapters.poi.cdp_input import RecordedPoint
+from kancollebot.adapters.poi.home_port_button_vision import StaticHomePortLocator
+
+#: The reviewed control name keeps the tests asserting on ``point.label``; only
+#: the frame evidence is stubbed, because these tests have no real game frame.
+_STUB_HOME_PORT_LOCATOR = StaticHomePortLocator(RecordedPoint(50, 50, "home-port"))
+
+
+def _stub_home_port_locator(**_kwargs):
+    return _STUB_HOME_PORT_LOCATOR
 
 
 def _full_supply(ship_ids):
@@ -58,6 +68,11 @@ class ProductionStartupSafetyGateTests(unittest.TestCase):
         args.wait_for_return = False
         args.max_ticks = 60
         args.tick_interval_seconds = 10.0
+        # Timer-wait knobs are validated in wait mode; a MagicMock
+        # value would be rejected as a sleep budget.
+        args.timer_sleep = True
+        args.post_expiry_grace_seconds = 3.0
+        args.max_timer_sleep_seconds = None
         return args
 
     def test_run_requires_explicit_authorization_before_composition(self):
@@ -124,6 +139,11 @@ class WaitForReturnArgumentTests(unittest.TestCase):
         args.wait_for_return = True
         args.max_ticks = 60
         args.tick_interval_seconds = 10.0
+        # Timer-wait knobs are validated in wait mode; a MagicMock
+        # value would be rejected as a sleep budget.
+        args.timer_sleep = True
+        args.post_expiry_grace_seconds = 3.0
+        args.max_timer_sleep_seconds = None
         for name, value in overrides.items():
             setattr(args, name, value)
         return args
@@ -175,6 +195,11 @@ class ProductionStartupVisualDependencyTests(unittest.TestCase):
         args.wait_for_return = False
         args.max_ticks = 60
         args.tick_interval_seconds = 10.0
+        # Timer-wait knobs are validated in wait mode; a MagicMock
+        # value would be rejected as a sleep budget.
+        args.timer_sleep = True
+        args.post_expiry_grace_seconds = 3.0
+        args.max_timer_sleep_seconds = None
         args.poll_seconds = 5.0
         args.timeout_seconds = 1800.0
         args.grace_delay_seconds = 10.0
@@ -990,6 +1015,7 @@ class LiveUiCoordinateEvidenceTests(unittest.TestCase):
                 controller.EXPEDITION_START,
             ],
         )
+@patch.object(controller, "HomePortButtonLocator", _stub_home_port_locator)
 class HiddenHomePortUiLayerTests(unittest.TestCase):
     """A faded Home Port UI cannot be restored by the 母港 control inside it."""
 
@@ -1023,11 +1049,14 @@ class HiddenHomePortUiLayerTests(unittest.TestCase):
         clicked = [call.args[0] for call in game_session.input.click.call_args_list]
         # Three bounded 母港-button attempts, then one wake click on the port area.
         self.assertEqual(len(clicked), 4)
-        self.assertEqual(clicked[:3], [
-            controller.home_port_candidates(controller.HOME_PORT)[0],
-            controller.home_port_candidates(controller.HOME_PORT)[1],
-            controller.home_port_candidates(controller.HOME_PORT)[2],
-        ])
+        # The badge point is resolved from a fresh frame on every attempt now,
+        # so the three attempts share the locator's accepted centre instead of
+        # cycling recorded offsets inside the old fixed coordinate.
+        self.assertTrue(
+            all(point.label == "home-port" for point in clicked[:3]),
+            clicked[:3],
+        )
+        self.assertEqual({(point.x, point.y) for point in clicked[:3]}, {(50.0, 50.0)})
         self.assertEqual(clicked[3].label, "home-port-ui-wake")
         events.assert_any_call(
             "home_port_recovery_confirmed", attempt=4,
@@ -1222,6 +1251,7 @@ class RewardScreenAnyLayerGuardTests(unittest.TestCase):
         self.assertEqual(game_session.input.click.call_count, 0)
 
 
+@patch.object(controller, "HomePortButtonLocator", _stub_home_port_locator)
 class ObservedHomePortRecoveryTests(unittest.TestCase):
     """The start-up recovery clicks and observes when it cannot name the page.
 

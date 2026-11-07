@@ -29,6 +29,7 @@ from collections.abc import Callable, Mapping
 from typing import Protocol
 
 from kancollebot.adapters.poi.cdp_input import RecordedPoint
+from kancollebot.adapters.poi.visual_fingerprint import screen_fingerprint
 from kancollebot.adapters.poi.visual_target import (
     SUPPLY_TAB_FLEET_IDS,
     classify_supply_tab_selection,
@@ -47,6 +48,11 @@ from kancollebot.calibration import (
     RowLocation,
 )
 from kancollebot.core.observation_contracts import UiStateEvidence
+from kancollebot.adapters.poi.home_port_button_vision import (
+    HomePortButtonRefused,
+    HomePortVisionError,
+    HomePortVisionThresholds,
+)
 
 
 class ContinuousUiDriverError(RuntimeError):
@@ -59,6 +65,9 @@ class VisibleGameInput(Protocol):
         ...
 
 
+# Calibration reference ONLY.  No production click uses this coordinate: every
+# 母港 click resolves its point through _locate_home_port_point() from a fresh
+# frame, because the badge rotates and changes colour between screens.
 HOME_PORT = RecordedPoint(50, 50, "home-port")
 SORTIE = RecordedPoint(280, 425, "sortie")
 EXPEDITION_MODE = RecordedPoint(1000, 360, "expedition-mode")
@@ -122,6 +131,12 @@ class CdpContinuousExpeditionUiDriver:
     showing, so a frame is never read while a transition is in flight.
     """
 
+    #: Offline driver tests have no real game frame; they inject one locator at
+    #: module level.  Production always passes its own frame-bound locator to
+    #: __init__.  A driver with neither FAILS CLOSED - it never falls back to
+    #: the legacy ``HOME_PORT`` coordinate.
+    TEST_ONLY_default_home_port_locator: Any | None = None
+
     def __init__(
         self,
         *,
@@ -138,6 +153,8 @@ class CdpContinuousExpeditionUiDriver:
         settle_seconds: float = 1.0,
         locate_row: Callable[[str], RowLocation] | None = None,
         supported_fleets: tuple[int, ...] = DEFAULT_SUPPORTED_FLEETS,
+        home_port_locator: Any | None = None,
+        home_port_thresholds: HomePortVisionThresholds | None = None,
     ) -> None:
         if not callable(getattr(game_input, "click", None)):
             raise ValueError("game_input must provide click(point)")
@@ -180,6 +197,73 @@ class CdpContinuousExpeditionUiDriver:
         self._settle_seconds = settle_seconds
         self._locate_row = locate_row
         self._supported_fleets = tuple(supported_fleets)
+        resolved_locator = (
+            home_port_locator
+            if home_port_locator is not None
+            else type(self).TEST_ONLY_default_home_port_locator
+        )
+        if resolved_locator is not None and not callable(
+            getattr(resolved_locator, "locate", None)
+        ):
+            raise ValueError("home_port_locator must expose locate()")
+        self._home_port_locator = resolved_locator
+        self._home_port_thresholds = home_port_thresholds
+
+    # -- 母港 button visual localization ----------------------------------
+    def _locate_home_port_point(self, *, action: str, step: int) -> RecordedPoint:
+        """Resolve the rotating 母港 badge from a fresh frame, or stop.
+
+        No fixed coordinate is substituted.  All refusals carry the ROI, visual
+        features, confidence, thresholds and candidate count in the event log.
+        """
+        limits = (
+            self._home_port_thresholds
+            or getattr(self._home_port_locator, "thresholds", None)
+            or HomePortVisionThresholds.from_environment()
+        )
+        base: dict[str, object] = {
+            "action": action,
+            "step": step,
+            "roi": list(limits.roi),
+            "thresholds": limits.as_dict(),
+            "click_authorized": False,
+        }
+        if self._home_port_locator is None:
+            self._event_sink("continuous_ui_home_port_button_refused", {
+                **base,
+                "failure_reason": "home_port_visual_locator_missing",
+                "reason": "no locator wired; a fixed coordinate click is refused",
+                "candidate_count": 0,
+            })
+            raise ContinuousUiDriverError(
+                "home_port_visual_locator_missing: refusing a fixed-coordinate 母港 click"
+            )
+        try:
+            detection = self._home_port_locator.locate()
+        except HomePortButtonRefused as exc:
+            self._event_sink("continuous_ui_home_port_button_refused", {
+                **base,
+                **exc.evidence.as_log_fields(),
+                "failure_reason": exc.reason,
+            })
+            raise ContinuousUiDriverError(
+                f"home_port_button_not_detected:{exc.reason}; no click sent"
+            ) from exc
+        except HomePortVisionError as exc:
+            self._event_sink("continuous_ui_home_port_button_refused", {
+                **base,
+                "failure_reason": type(exc).__name__,
+                "reason": str(exc),
+                "candidate_count": 0,
+            })
+            raise ContinuousUiDriverError(
+                f"home_port_button_frame_unusable:{exc}; no click sent"
+            ) from exc
+        self._event_sink("continuous_ui_home_port_button_detected", {
+            **base,
+            **detection.as_log_fields(),
+        })
+        return detection.point
 
     # -- evidence ---------------------------------------------------------
     def _frame(self) -> str:
@@ -261,6 +345,10 @@ class CdpContinuousExpeditionUiDriver:
     _NOT_THIS_SCREEN = frozenset(
         {"ContinuousUiDriverError", "UiStateGateError", "LoopError"}
     )
+
+    # The screens that belong to the settlement controller: they advance on a
+    # click anywhere, so a navigation click must never be sent while one is up.
+    _REWARD_SCREEN_NAMES = ("HOME_PORT_RETURN_NOTICE", "RETURN_RESULT", "BONUS_ITEMS")
 
     def _probe_state(
         self, expected: str, *, phase: str, samples: int | None = None
@@ -402,6 +490,59 @@ class CdpContinuousExpeditionUiDriver:
         return match
 
     # -- the transaction --------------------------------------------------
+    def open_expedition_list(self) -> str:
+        """Reach the expedition list and stop there; nothing beyond it is clicked.
+
+        The list is the only screen that displays an expedition's remaining
+        time, so the early-return check needs to stand on it. This is the same
+        two verified steps ``prepare_dispatch`` opens with, without the mission
+        row, the confirm button, the fleet tab or the start click - reaching the
+        list must never be able to start an expedition.
+
+        Already being on the list is answered without a click: a run that was
+        interrupted mid-navigation left the client there, and clicking 出撃 from
+        the list would land somewhere nobody asked for. Any other page is
+        refused rather than clicked blind, and a reward screen is refused
+        outright because it advances on a click anywhere.
+        """
+        named = self.probe_drain_state()
+        if named in self._REWARD_SCREEN_NAMES:
+            self._event_sink("continuous_ui_expedition_list_open_refused", {
+                "state": named,
+                "clicks_sent": 0,
+                "reason": "reward_screen_advances_on_any_click",
+            })
+            raise ContinuousUiDriverError(
+                f"a reward screen ({named}) is on display; refusing to open the "
+                "expedition list from it"
+            )
+        if named == "EXPEDITION_LIST":
+            self._event_sink("continuous_ui_expedition_list_already_open", {
+                "state": named,
+                "clicks_sent": 0,
+                "evidence": "single_frame_all_state_ranking",
+            })
+            return "EXPEDITION_LIST"
+        self._confirm("HOME_PORT", phase="expedition list precondition")
+        self._click(SORTIE, action="open_sortie_early_return", step=1)
+        self._confirm("SORTIE_MENU", phase="after open_sortie")
+        self._click(EXPEDITION_MODE, action="open_expedition_list_early_return", step=2)
+        self._confirm("EXPEDITION_LIST", phase="after open_expedition_list")
+        return "EXPEDITION_LIST"
+
+    def leave_home_port(self) -> str:
+        """Step off the home port so a later return can produce a notice.
+
+        kcwiki: 远征结束时如果你已经处于母港主界面则不会有提示，必须去其他任意界面
+        再回到母港才会出现提示。 One click to the sortie menu, confirmed, is the
+        smallest switch that satisfies it - and only from a confirmed home port,
+        because this is not a navigation that may be attempted blind.
+        """
+        self._confirm("HOME_PORT", phase="leave home port precondition")
+        self._click(SORTIE, action="leave_home_port_early_return", step=1)
+        self._confirm("SORTIE_MENU", phase="after leaving the home port")
+        return "SORTIE_MENU"
+
     def prepare_dispatch(self, *, fleet_id: int, mission_id: int) -> UiStateEvidence:
         """Navigate to the verified start-precondition state without starting."""
         expedition_id = DEFAULT_CATALOG.number_of_mission_id(mission_id)
@@ -574,7 +715,7 @@ class CdpContinuousExpeditionUiDriver:
         loop must never run while one of them is up: the chain belongs to the
         settlement controller, which proves every screen it advances.
         """
-        for state in ("HOME_PORT_RETURN_NOTICE", "RETURN_RESULT", "BONUS_ITEMS"):
+        for state in self._REWARD_SCREEN_NAMES:
             if self._probe_state(state, phase=f"guard before a return-to-port click ({state})") is not None:
                 self._event_sink("continuous_ui_reward_screen_blocks_return", {
                     "state": state,
@@ -607,16 +748,60 @@ class CdpContinuousExpeditionUiDriver:
         because those advance on a click anywhere and belong to the settlement
         controller. And every attempt is bounded: an unrecognised screen never
         turns into an unbounded click sequence.
+
+        One frame names the page before the per-state sweep runs. Asking "which
+        calibrated page is this" costs one capture; proving "it is none of these
+        nine" costs nine. Live 2026-11-07 the sweep spent 66 seconds and 34
+        frames answering the negative question while the screen was actually the
+        expedition list - a page whose template scores 1.0000 - because the
+        candidate loop had abandoned ``EXPEDITION_LIST`` on its first frame, and
+        the observation loop never asked for it again. The identity is emitted
+        (``..._page_identified``) so the next run can say what that screen was
+        instead of only that nobody recognised it.
         """
         observed_port = False
         for attempt in range(1, max_attempts + 1):
             try:
-                return self._confirm(
+                evidence = self._confirm(
                     "HOME_PORT", phase="Home Port reached by observation", samples=None
                 )
             except Exception:
                 pass
-            if self._reward_screen_is_displayed():
+            else:
+                self._event_sink("continuous_ui_home_port_post_click_verification", {
+                    "verified": True,
+                    "observed_state": evidence.state,
+                    "expected_state": "HOME_PORT",
+                    "consecutive_states": evidence.consecutive_states,
+                    "evidence": evidence.evidence,
+                    "click_sent": observed_port,
+                })
+                return evidence
+            # One frame, every state ranked: the same question the sweep below
+            # answers one state at a time, including the reward screens it
+            # guards against. ``None`` means the capability is not installed and
+            # the per-state guard stays the only proof available.
+            named_page = self.probe_drain_state()
+            if named_page in self._REWARD_SCREEN_NAMES:
+                self._event_sink("continuous_ui_reward_screen_blocks_return", {
+                    "state": named_page,
+                    "clicks_sent": 0,
+                    "evidence": "single_frame_all_state_ranking",
+                })
+                raise ContinuousUiDriverError(
+                    "a reward screen is on display; the settlement controller owns "
+                    "that chain, so no return-to-port click is sent"
+                )
+            if named_page is not None and named_page not in ("UNKNOWN", "HOME_PORT"):
+                self._event_sink("continuous_ui_return_by_observation_page_identified", {
+                    "fleet_id": fleet_id,
+                    "state": named_page,
+                    "attempt": attempt,
+                    "of": max_attempts,
+                    "clicks_sent": 0,
+                    "evidence": "single_frame_all_state_ranking",
+                })
+            elif named_page is None and self._reward_screen_is_displayed():
                 raise ContinuousUiDriverError(
                     "a reward screen is on display; the settlement controller owns "
                     "that chain, so no return-to-port click is sent"
@@ -635,10 +820,20 @@ class CdpContinuousExpeditionUiDriver:
                 "attempt": attempt,
                 "of": max_attempts,
                 "interval_seconds": interval_seconds,
-                "target": HOME_PORT.label,
+                "target": "home-port",
             })
-            self._click(HOME_PORT, action="return_home_port_by_observation", step=attempt)
+            point = self._locate_home_port_point(
+                action="return_home_port_by_observation", step=attempt
+            )
+            self._click(point, action="return_home_port_by_observation", step=attempt)
+            observed_port = True
             self._sleep(interval_seconds)
+        self._event_sink("continuous_ui_home_port_post_click_verification", {
+            "verified": False,
+            "expected_state": "HOME_PORT",
+            "click_sent": observed_port,
+            "failure_reason": "bounded_observation_attempts_exhausted",
+        })
         raise ContinuousUiDriverError(
             f"the Home Port was not reached after {max_attempts} observed "
             "return attempts; refusing to keep clicking"
@@ -699,23 +894,43 @@ class CdpContinuousExpeditionUiDriver:
                     f"Unsupported Home Port recovery precondition: {expected_current_state}"
                 )
             self._confirm(expected_current_state, phase="precondition for return_home_port")
-        self._click(HOME_PORT, action="return_home_port", step=7)
+        point = self._locate_home_port_point(action="return_home_port", step=7)
+        self._click(point, action="return_home_port", step=7)
         try:
-            return self._await_state(
-                "HOME_PORT", phase="after return_home_port", samples=None
-            )
-        except Exception as first_error:
-            self._event_sink("continuous_ui_home_port_verification_pending", {
-                "fleet_id": fleet_id,
-                "error_type": type(first_error).__name__,
-                "retry": "read-only visual verification only; no second click",
+            try:
+                evidence = self._await_state(
+                    "HOME_PORT", phase="after return_home_port", samples=None
+                )
+            except Exception as first_error:
+                self._event_sink("continuous_ui_home_port_verification_pending", {
+                    "fleet_id": fleet_id,
+                    "error_type": type(first_error).__name__,
+                    "retry": "read-only visual verification only; no second click",
+                })
+                self._sleep(self._settle_seconds)
+                evidence = self._await_state(
+                    "HOME_PORT",
+                    phase="after return_home_port observation retry",
+                    samples=None,
+                )
+        except Exception as verification_error:
+            self._event_sink("continuous_ui_home_port_post_click_verification", {
+                "verified": False,
+                "expected_state": "HOME_PORT",
+                "click_sent": True,
+                "failure_reason": "post_click_state_not_verified",
+                "error_type": type(verification_error).__name__,
             })
-            self._sleep(self._settle_seconds)
-            return self._await_state(
-                "HOME_PORT",
-                phase="after return_home_port observation retry",
-                samples=None,
-            )
+            raise
+        self._event_sink("continuous_ui_home_port_post_click_verification", {
+            "verified": True,
+            "observed_state": evidence.state,
+            "expected_state": "HOME_PORT",
+            "consecutive_states": evidence.consecutive_states,
+            "evidence": evidence.evidence,
+            "click_sent": True,
+        })
+        return evidence
 
     def _confirm_any(
         self, candidates: list[str], *, phase: str
@@ -937,8 +1152,27 @@ class CdpContinuousExpeditionUiDriver:
         # the port is polled for rather than expected on the next frame: live
         # 2026-11-05 the screen was still the supply page 2.6 s after the click
         # and the single post-click check ended a resupply that had worked.
-        self._click(HOME_PORT, action="return_home_port", step=4)
-        evidence = self._await_state("HOME_PORT", phase="after resupply")
+        point = self._locate_home_port_point(action="return_home_port", step=4)
+        self._click(point, action="return_home_port", step=4)
+        try:
+            evidence = self._await_state("HOME_PORT", phase="after resupply")
+        except Exception as verification_error:
+            self._event_sink("continuous_ui_home_port_post_click_verification", {
+                "verified": False,
+                "expected_state": "HOME_PORT",
+                "click_sent": True,
+                "failure_reason": "post_resupply_state_not_verified",
+                "error_type": type(verification_error).__name__,
+            })
+            raise
+        self._event_sink("continuous_ui_home_port_post_click_verification", {
+            "verified": True,
+            "observed_state": evidence.state,
+            "expected_state": "HOME_PORT",
+            "consecutive_states": evidence.consecutive_states,
+            "evidence": evidence.evidence,
+            "click_sent": True,
+        })
         self._event_sink("continuous_ui_resupply_completed", {
             "fleet_id": fleet_id,
             "completion_verified_by": "caller_poi_observation",
@@ -1152,6 +1386,40 @@ class CdpContinuousExpeditionUiDriver:
                 "authorizes_click": False,
             })
             return "UNKNOWN"
+
+    def probe_drain_sample(self) -> tuple[str, tuple[int, ...]] | None:
+        """One frame -> (classified page, whole-frame fingerprint).
+
+        The fingerprint is computed from the SAME capture the page came from, so
+        a caller can distinguish "the client is still animating" from "the click
+        did nothing and the screen is frozen" without taking a second frame or
+        inventing a second comparison algorithm.
+
+        ``None`` means the single-frame classifier is not wired; the caller then
+        has no motion signal and must keep its historical verdict. Read-only:
+        no clicks, no navigation.
+        """
+        if self._classify_frame is None:
+            return None
+        try:
+            payload = self._frame()
+            observed, _scores = self._classify_frame(payload)
+            fingerprint = screen_fingerprint(payload)
+        except Exception as exc:  # noqa: BLE001 - a broken probe must not guess
+            self._event_sink("continuous_ui_drain_sample_failed", {
+                "reason": f"{type(exc).__name__}: {exc}",
+                "clicks_sent": 0,
+                "authorizes_click": False,
+            })
+            return None
+        self._event_sink("continuous_ui_drain_sample", {
+            "observed": observed,
+            "frame_fingerprint_cells": len(fingerprint),
+            "screenshots": 1,
+            "clicks_sent": 0,
+            "authorizes_click": False,
+        })
+        return observed, fingerprint
 
     def probe_settlement_page(self) -> str | None:
         """Name the settlement screen on display, or ``None`` when none is.

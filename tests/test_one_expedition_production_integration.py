@@ -33,6 +33,16 @@ from kancollebot.expeditions.mission_eligibility import MissionCompositionRequir
 from kancollebot.expeditions.planner import ExpeditionFleetSnapshot
 from kancollebot.task_scope import TaskKind
 import kancollebot.expeditions.continuous_supervisor as supervisor_module
+from kancollebot.adapters.poi.cdp_input import RecordedPoint
+from kancollebot.adapters.poi.home_port_button_vision import StaticHomePortLocator
+
+#: The reviewed control name keeps the tests asserting on ``point.label``; only
+#: the frame evidence is stubbed, because these tests have no real game frame.
+_STUB_HOME_PORT_LOCATOR = StaticHomePortLocator(RecordedPoint(50, 50, "home-port"))
+
+
+def _stub_home_port_locator(**_kwargs):
+    return _STUB_HOME_PORT_LOCATOR
 
 
 class FakeReader:
@@ -222,6 +232,7 @@ class FakeWitnessProvider:
         return False
 
 
+@patch.object(entry, "HomePortButtonLocator", _stub_home_port_locator)
 class OneExpeditionProductionIntegrationTests(unittest.TestCase):
     def make_runtime(self, snapshots, *, fresh=True):
         scheduler = ContinuousExpeditionScheduler(
@@ -271,6 +282,11 @@ class OneExpeditionProductionIntegrationTests(unittest.TestCase):
         args.wait_for_return = False
         args.max_ticks = 60
         args.tick_interval_seconds = 10.0
+        # Timer-wait knobs are validated in wait mode; a MagicMock
+        # value would be rejected as a sleep budget.
+        args.timer_sleep = True
+        args.post_expiry_grace_seconds = 3.0
+        args.max_timer_sleep_seconds = None
         args.adopt_observed_mission = False
         args.settle_only = False
         # The dispatch target is now an argument rather than a constant, so the
@@ -1086,6 +1102,7 @@ class RecordingRecoverySink:
         self.rows.append((event, dict(fields or {})))
 
 
+@patch.object(entry, "HomePortButtonLocator", _stub_home_port_locator)
 class HomePortRecoveryObservabilityTests(unittest.TestCase):
     """The recovery must be visible in the durable run log, and fail closed.
 
@@ -1148,14 +1165,17 @@ class HomePortRecoveryObservabilityTests(unittest.TestCase):
         )
         self.assertEqual(len(session.input.clicks), 1)
         events = [event for event, _ in sink.rows]
+        # The visual detection is logged before the click it authorizes, so the
+        # audit trail can be reconstructed from the frame evidence alone.
         self.assertEqual(events, [
             "home_port_state_not_confirmed",
+            "home_port_button_detected",
             "home_port_recovery_click_attempted",
             "home_port_recovery_click_sent",
             "home_port_recovery_confirmed",
         ])
-        attempted = sink.rows[1][1]
-        sent = sink.rows[2][1]
+        attempted = sink.rows[2][1]
+        sent = sink.rows[3][1]
         self.assertEqual(attempted["attempt"], sent["attempt"])
         self.assertEqual(attempted["point"], sent["point"])
 
