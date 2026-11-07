@@ -3,8 +3,10 @@ from __future__ import annotations
 import base64
 import struct
 import unittest
+import inspect
 import zlib
 from pathlib import Path
+from unittest.mock import patch
 
 from kancollebot.adapters.poi.visual_fingerprint import (
     VisualFingerprintError,
@@ -180,6 +182,34 @@ class VisualFingerprintTests(unittest.TestCase):
         self.assertGreaterEqual(scores["NEAR_MATCH"], 0.90)
         self.assertLess(scores["NEAR_MATCH"], 0.92)
         self.assertEqual(label, "NEAR_MATCH")
+
+    def test_generic_classifier_uses_0_02_margin_and_supply_checkbox_keeps_0_04(self):
+        self.assertEqual(
+            inspect.signature(classify_fingerprints).parameters["minimum_margin"].default,
+            0.02,
+        )
+        self.assertEqual(
+            inspect.signature(classify_supply_checkbox_state).parameters["minimum_margin"].default,
+            0.04,
+        )
+
+        with patch(
+            "kancollebot.adapters.poi.visual_fingerprint.fingerprint_similarity",
+            side_effect=[0.91, 0.88],
+        ):
+            label, _ = classify_fingerprints(
+                (0, 0, 0), {"NAVIGATION": (1, 1, 1), "OTHER": (2, 2, 2)}
+            )
+        self.assertEqual(label, "NAVIGATION")
+
+        with patch(
+            "kancollebot.adapters.poi.visual_fingerprint.fingerprint_similarity",
+            side_effect=[0.91, 0.90],
+        ):
+            label, _ = classify_fingerprints(
+                (0, 0, 0), {"NAVIGATION": (1, 1, 1), "OTHER": (2, 2, 2)}
+            )
+        self.assertEqual(label, "UNKNOWN")
 
     def test_screenshot_classifier_uses_state_specific_crop_and_clear_margin(self):
         document = {

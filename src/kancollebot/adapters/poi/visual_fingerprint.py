@@ -265,7 +265,7 @@ def rank_screenshot_fingerprints(
     document: Mapping[str, object],
     *,
     minimum_score: float = 0.90,
-    minimum_margin: float = 0.04,
+    minimum_margin: float = 0.02,
 ) -> FingerprintRanking:
     """Score EVERY state from ONE screenshot and rank Top 1 / Top 2.
 
@@ -362,7 +362,7 @@ def classify_screenshot_fingerprints(
     document: Mapping[str, object],
     *,
     minimum_score: float = 0.90,
-    minimum_margin: float = 0.04,
+    minimum_margin: float = 0.02,
 ) -> tuple[str, dict[str, float]]:
     """Classify one screenshot against state-specific crops stored as RGB descriptors."""
     ranking = rank_screenshot_fingerprints(
@@ -474,7 +474,7 @@ def classify_fingerprints(
     templates: Mapping[str, Sequence[int]],
     *,
     minimum_score: float = 0.90,
-    minimum_margin: float = 0.04,
+    minimum_margin: float = 0.02,
 ) -> tuple[str, dict[str, float]]:
     """Classify only one clearly separated fingerprint match; otherwise UNKNOWN."""
     if not math.isfinite(minimum_score) or not 0 < minimum_score <= 1:
