@@ -473,7 +473,7 @@ def classify_fingerprints(
     current: Sequence[int],
     templates: Mapping[str, Sequence[int]],
     *,
-    minimum_score: float = 0.92,
+    minimum_score: float = 0.90,
     minimum_margin: float = 0.04,
 ) -> tuple[str, dict[str, float]]:
     """Classify only one clearly separated fingerprint match; otherwise UNKNOWN."""
