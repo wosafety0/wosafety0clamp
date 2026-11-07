@@ -5245,3 +5245,19 @@ The Hand plugin's read-only probe reported:
 - **结论** 「身份已 settled」与「奖励页仍在屏上且未领」同时成立 ⇒ 结算控制器认为无可归属，导航认为不该点，补给又要求先到母港。三方互锁，且**这是安全设计生效的结果，不是漏点**。
 - ** IMPLEMENTED** 无（未改代码）。**TESTED** 无新增。**BLOCKED** 需要一次人工点击把结果页推回母港。
 - **LIMITS / NEXT** ①`settle-only` 的「按 Poi 判定已结算」会与屏幕证据脱钩，应要求屏幕收口（或至少记录 screen）才置 `settled`——待裁决。②`fleet_runtime.ship_ids_json` 在 `RESUPPLY_REQUIRED` 置 NULL，使启动结算无法归属，建议保留最后一次编成到补给完成。③不得为了绕过互锁而放宽 `startup_attribution`。
+
+## 2026-11-07 - 阶段5（四）：五项缺陷修复（执行顺序 1→5，五连提交）
+
+> **状态：** 五项缺陷全部修复并各自提交，四道门禁基本绿；**尚不允许宣布阶段5完成**（裁决不变）。唯一遗留门禁=缺陷5 提交后全量 unittest 被 SIGTERM 打断、未跑完；下一步=全量回归 + 单舰队真实运行（一次启动自主完成全生命周期）。
+
+- **PLANNED（用户最高优先级指令）** 按既定顺序修复五项缺陷（执行顺序编号≠方案文档编号，映射见下），每项先专项测试再整体回归；账本生命周期目标「以 `dispatch_id` 为核心建立 DISPATCHED→RETURNED→SETTLEMENT/BONUS→SETTLED→RESUPPLY_REQUIRED→RESUPPLIED→READY_FOR_NEXT_DISPATCH」，但「尽量复用现有账本结构，不为图示额外创建重复状态系统」。禁止事项：WB 不在 shell 外自算返航时间、不手工 sleep 推进、不用 `--settle-only` 替代生产循环、不人工串联子脚本、不把计时器到期当 UI 操作授权。权威：返航完成时间=Poi `api_mission[2]`/`final_time_ms`；是否返航=动作前新鲜 Poi；是否可结算=屏幕证据+Poi；是否可补给=账本身份+Poi+补给条件。
+- **IMPLEMENTED（五连提交，映射：执行1=方案缺陷5、2=方案缺陷3、3=方案缺陷4、4=方案缺陷2、5=方案缺陷1）**
+  - **`1885399` 缺陷1（账本与屏幕证据脱钩）**：`settled` 只在「屏幕确认离开结算画面 + Poi 清空」同时成立才置位，只凭 `api_mission[0]==0` 一条证据不置位；`ship_ids_json` 在 `RESUPPLY_REQUIRED` 保留最后一次派遣编成直到补给完成、不再中途置 NULL；无法确认身份时不猜测/不错误归属/不清除。
+  - **`2890966` 缺陷2（刷新缺少页面约束）**：`visible_ui_refresh.py` 新增 `_SETTLEMENT_SCREENS=("HOME_PORT_RETURN_NOTICE","RETURN_RESULT","BONUS_ITEMS")` + `_pre_click_guard`（每次刷新点击前重观测期望页）；结算/奖励页零点击停止并 `raise VisibleUiRefreshError`，不点穿。
+  - **`343c095` 缺陷3（启动结算推进过严）**：`continuous_expedition_ui._advance_reward_screen` 按文档 Step5 实际序列 `RETURN_RESULT→BONUS_ITEMS→HOME_PORT` 接受；「前置条件证明期间页面已淡入到 after」竞态容忍（`reason="advanced_while_proving_precondition"` 零点击返回）；不放宽未知页校验。
+  - **`828bab8` 缺陷4（长睡后新鲜度不足）**：`FreshnessRefreshingStateReader` 新增 `rebuild_max_attempts=2`/`rebuild_backoff_seconds=5.0`；`ensure_fresh` 有界重建（每次导航后 `_await_witness`，失败退避重试，最终 `witness_timeout` fail-closed）；`_await_witness` 提取自原内联循环且**逐读一致**（先判 deadline 再读，超时不额外多读）；审计字段 `rebuild_attempts`。
+  - **`4300e7b` 缺陷5（drain 时长上限 + v1 死代码）**：`--drain-timeout-seconds` 默认 120→**150**（实测闭环所用值）；明确「墙钟预算、非点击授权」（点击仍受 `max_actions` + 每击 Poi settled 守卫 + 双帧确认）。删除 v1 `adapters/poi/expedition_state.py` 与 `tests/test_poi_expedition_state.py`（`api_mission[2]` 误当任务ID、`[3]` 误当秒，与 v2 `[1]=ID/[2]=epoch-ms/[3]=reserved` 矛盾，生产零引用），`test_import_direction_guard.py` 去掉 v1 引用。
+- **TESTED** 缺陷4 后全量 **2209 OK**（2 skip / 1 expectedFailure）。缺陷5 后定向 97 OK（`test_import_direction_guard`/`test_poi_expedition_state_v2`/`test_expedition_state_v2`/`test_settlement_drain`/`test_visible_ui_refresh`/`test_visible_ui_refresh_bounded`）+ `compileall -q src tests tools` OK + `git diff --check` CLEAN + `node --test` 29/29。**缺陷5 后全量 unittest 未跑完（被 SIGTERM 打断）——遗留门禁。**
+- **BLOCKED** 无（代码面）。
+- **LIMITS / NEXT** ①缺陷5 后需补一次全量 unittest（预期 2200 OK：2209 − 删除的 9 个 v1 测试）。②整体回归通过后进入**单舰队真实运行**：只启动一次生产入口，程序自主完成全生命周期（派遣→等待→结算→奖励→补给→再派遣），不允许 WB/AI/用户任何操作，异常仅允许安全暂停告警。③`--early-return` 仍关，倒计时模板仍缺 `{1,4,6,7,8,9}`。④阶段3 真实扣留、阶段4 MENU 归位仍无真实生产 tick 证据，留待自然时机。⑤两个受保护未跟踪脚本保持未跟踪（未执行、未修改、未提交、未删除）。
+- **ARCHIVE** 本地保存并提交；推送后远程回读核对；`main` 未动。
