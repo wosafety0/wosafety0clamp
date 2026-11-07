@@ -296,6 +296,17 @@ class VisibleUiPortRefreshDriver:
         "BONUS_ITEMS",
     )
 
+    #: Pages that advance on a click anywhere and belong to the settlement /
+    #: reward controllers. A visible refresh must never click through one: the
+    #: return notice appears on the Home Port exactly at timer expiry (live
+    #: 2026-11-07), so the screen can change between the refresh's precondition
+    #: proof and its first click.
+    _SETTLEMENT_SCREENS = (
+        "HOME_PORT_RETURN_NOTICE",
+        "RETURN_RESULT",
+        "BONUS_ITEMS",
+    )
+
     #: One repeat per refresh, not one per step. A second repeat would mean the
     #: client is not accepting input at all, which is a stop, not a retry.
     _MAX_REPEAT_CLICKS = 1
@@ -339,6 +350,53 @@ class VisibleUiPortRefreshDriver:
             label=label,
             event_prefix="ui_refresh_observation",
         )
+
+    def _pre_click_guard(
+        self,
+        *,
+        current_state: str,
+        step: int,
+        action: str,
+    ) -> None:
+        """Re-prove the precondition page immediately before a click.
+
+        The refresh's initial Home Port proof and its first click are separated
+        by a bounded observation; a return notice surfaces on the Home Port
+        exactly when the timer expires, so the page can become a settlement
+        screen in that gap (live 2026-11-07). Every refresh click is therefore
+        preceded by a fresh observation of the page it expects, and a settlement
+        screen - which advances on a click anywhere - stops the refresh with zero
+        clicks instead of being clicked through.
+
+        Only the bounded-observation path runs this: without ``observe_page``
+        the caller has no frame classifier, and the legacy verifier already
+        fails closed when its fixed precondition is not met.
+        """
+        if self._observe_page is None:
+            return
+        outcome = self._observe(
+            target=current_state,
+            safe_start=None,
+            label=f"pre-click precondition {action}",
+            step=step,
+            action=action,
+        )
+        if outcome.state in self._SETTLEMENT_SCREENS:
+            self._emit("ui_refresh_settlement_page_detected", {
+                "step": step,
+                "action": action,
+                "state": outcome.state,
+                "clicks_sent": 0,
+            })
+            raise VisibleUiRefreshError(
+                f"{action}: settlement page {outcome.state} on display; "
+                "refusing to refresh through it"
+            )
+        if not outcome.reached_target:
+            raise VisibleUiRefreshError(
+                f"{action}: precondition {current_state} not re-confirmed "
+                f"before the click: {outcome.reason}"
+            )
 
     def _confirm_without_observation(
         self,
@@ -480,6 +538,9 @@ class VisibleUiPortRefreshDriver:
                         point = self._resolve_home_port_point()
                     else:
                         point = recorded_point
+                    self._pre_click_guard(
+                        current_state=current_state, step=index, action=action
+                    )
                     self._emit("ui_refresh_action_precondition", {
                         "step": index,
                         "action": action,

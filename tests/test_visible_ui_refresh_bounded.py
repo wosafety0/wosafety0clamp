@@ -113,6 +113,9 @@ class BoundedRefreshTests(unittest.TestCase):
             frames(
                 ("HOME_PORT", STILL),
                 ("HOME_PORT", STILL),
+                # pre-click guard re-proves HOME_PORT before the first click
+                ("HOME_PORT", STILL),
+                ("HOME_PORT", STILL),
                 ("UNKNOWN", STILL),
                 ("UNKNOWN", STILL),
                 ("UNKNOWN", STILL),
@@ -121,6 +124,12 @@ class BoundedRefreshTests(unittest.TestCase):
                 ("UNKNOWN", STILL),
                 ("SORTIE_MENU", MOVED),
                 ("SORTIE_MENU", MOVED),
+                # pre-click guard re-proves SORTIE_MENU before the second click
+                ("SORTIE_MENU", MOVED),
+                ("SORTIE_MENU", MOVED),
+                ("EXPEDITION_LIST", MOVED2),
+                ("EXPEDITION_LIST", MOVED2),
+                # pre-click guard re-proves EXPEDITION_LIST before the third click
                 ("EXPEDITION_LIST", MOVED2),
                 ("EXPEDITION_LIST", MOVED2),
                 ("HOME_PORT", MOVED),
@@ -170,6 +179,10 @@ class BoundedRefreshTests(unittest.TestCase):
             frames(
                 ("HOME_PORT", STILL),
                 ("HOME_PORT", STILL),
+                # pre-click guard re-proves HOME_PORT, then the click lands on
+                # a third page
+                ("HOME_PORT", STILL),
+                ("HOME_PORT", STILL),
                 ("EXPEDITION_LIST", MOVED),
                 ("EXPEDITION_LIST", MOVED),
             )
@@ -186,6 +199,9 @@ class BoundedRefreshTests(unittest.TestCase):
     def test_a_changing_unrecognised_screen_stops_at_the_budget(self):
         scripted = ScriptedFrames(
             frames(
+                ("HOME_PORT", STILL),
+                ("HOME_PORT", STILL),
+                # pre-click guard re-proves HOME_PORT before the first click
                 ("HOME_PORT", STILL),
                 ("HOME_PORT", STILL),
                 ("UNKNOWN", MOVED),
@@ -224,8 +240,17 @@ class BoundedRefreshTests(unittest.TestCase):
             frames(
                 ("HOME_PORT", STILL),
                 ("HOME_PORT", STILL),
+                # pre-click guard re-proves HOME_PORT before the first click
+                ("HOME_PORT", STILL),
+                ("HOME_PORT", STILL),
                 ("SORTIE_MENU", MOVED),
                 ("SORTIE_MENU", MOVED),
+                # pre-click guard re-proves SORTIE_MENU before the second click
+                ("SORTIE_MENU", MOVED),
+                ("SORTIE_MENU", MOVED),
+                ("EXPEDITION_LIST", MOVED2),
+                ("EXPEDITION_LIST", MOVED2),
+                # pre-click guard re-proves EXPEDITION_LIST before the third click
                 ("EXPEDITION_LIST", MOVED2),
                 ("EXPEDITION_LIST", MOVED2),
                 ("HOME_PORT", MOVED),
@@ -238,6 +263,91 @@ class BoundedRefreshTests(unittest.TestCase):
 
         self.assertEqual(driver.last_refresh_stats["observation_mode"], "bounded")
         self.assertEqual(driver.last_refresh_stats["outcome"], "completed")
+
+
+class PreClickSettlementGuardTests(unittest.TestCase):
+    """The refresh must never click through a settlement screen.
+
+    Live 2026-11-07: the return notice surfaces on the Home Port exactly at
+    timer expiry, so the page can become a settlement screen in the gap between
+    the refresh's initial Home Port proof and its first click. Every refresh
+    click is therefore preceded by a fresh observation of the page it expects,
+    and a settlement screen - which advances on a click anywhere - stops the
+    refresh with zero further clicks instead of being clicked through.
+    """
+
+    def make_driver(self, scripted):
+        clock = FakeClock()
+        game_input = FakeInput()
+        events: list[tuple[str, dict]] = []
+        driver = VisibleUiPortRefreshDriver(
+            home_port_locator=STUB_LOCATOR,
+            game_input=game_input,
+            verify_state=lambda expected: self.fail("the legacy verifier must not run"),
+            ui_arbiter=UiOperationArbiter(),
+            event_sink=lambda event, fields: events.append((event, dict(fields))),
+            sleep=clock.sleep,
+            settle_seconds=0.0,
+            observe_page=scripted,
+            observation_budget=PageObservationBudget(
+                total_seconds=120.0, changed_unknown_limit=20
+            ),
+            monotonic=clock.monotonic,
+        )
+        return driver, game_input, events
+
+    def test_a_return_notice_before_the_first_click_stops_with_zero_clicks(self):
+        scripted = ScriptedFrames(
+            frames(
+                ("HOME_PORT", STILL),
+                ("HOME_PORT", STILL),
+                ("HOME_PORT_RETURN_NOTICE", MOVED),
+                ("HOME_PORT_RETURN_NOTICE", MOVED),
+            )
+        )
+        driver, game_input, events = self.make_driver(scripted)
+
+        with self.assertRaises(VisibleUiRefreshError) as raised:
+            driver.refresh_port_state()
+
+        self.assertEqual(game_input.clicks, [])
+        self.assertIn("HOME_PORT_RETURN_NOTICE", str(raised.exception))
+        settlement = [
+            f for name, f in events if name == "ui_refresh_settlement_page_detected"
+        ]
+        self.assertEqual(len(settlement), 1)
+        self.assertEqual(settlement[0]["state"], "HOME_PORT_RETURN_NOTICE")
+        self.assertEqual(settlement[0]["clicks_sent"], 0)
+        self.assertEqual(events[-1][0], "ui_refresh_blocked")
+
+    def test_a_settlement_screen_at_a_later_step_stops_without_another_click(self):
+        # RETURN_RESULT and BONUS_ITEMS advance on a click anywhere, so they must
+        # stop the refresh at any step, not only before the first click.
+        scripted = ScriptedFrames(
+            frames(
+                ("HOME_PORT", STILL),
+                ("HOME_PORT", STILL),
+                ("HOME_PORT", STILL),
+                ("HOME_PORT", STILL),
+                ("SORTIE_MENU", MOVED),
+                ("SORTIE_MENU", MOVED),
+                ("RETURN_RESULT", MOVED2),
+                ("RETURN_RESULT", MOVED2),
+            )
+        )
+        driver, game_input, events = self.make_driver(scripted)
+
+        with self.assertRaises(VisibleUiRefreshError) as raised:
+            driver.refresh_port_state()
+
+        self.assertEqual(len(game_input.clicks), 1)
+        self.assertIn("RETURN_RESULT", str(raised.exception))
+        settlement = [
+            f for name, f in events if name == "ui_refresh_settlement_page_detected"
+        ]
+        self.assertEqual(len(settlement), 1)
+        self.assertEqual(settlement[0]["state"], "RETURN_RESULT")
+        self.assertEqual(settlement[0]["clicks_sent"], 0)
 
 
 class VerifierErrorNormalisationTests(unittest.TestCase):
